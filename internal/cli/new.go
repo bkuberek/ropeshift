@@ -24,13 +24,13 @@ const newDetail = "It writes each file the folder lacks, from the templates embe
 // newCommands are the `new` commands, one for each shape of project.
 func newCommands() []registered {
 	commands := []registered{
-		command("new", "[<path>]", "ask whether a project lives in one repository or several, then write its starting files, make its first commits, and add or create its remotes", (*invocation).newInteractive),
-		command("new workspace", "<path> [--repository name=remote]... [--new-repository <name>[=<url>|github:<owner>|none]]... [--first-commit] [--remote <url>] [--create-remote github:<owner>] [--public]", "write a workspace's starting files: the planning repository of a project of several repositories", (*invocation).newWorkspace),
-		command("new monorepo", "<path> [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public]", "write a monorepo's starting files: one repository that holds the plan and the code", (*invocation).newMonorepo),
-		command("new repository", "<path> [--project P] [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public]", "write a code repository's starting files, for a project that plans in another repository", (*invocation).newRepository),
+		command("new", "[<path>] [--dry-run]", "ask whether a project lives in one repository or several, then write its starting files, make its first commits, and add or create its remotes", (*invocation).newInteractive),
+		command("new workspace", "<path> [--repository name=remote]... [--new-repository <name>[=<url>|github:<owner>|none]]... [--first-commit] [--remote <url>] [--create-remote github:<owner>] [--public] [--dry-run]", "write a workspace's starting files: the planning repository of a project of several repositories", (*invocation).newWorkspace),
+		command("new monorepo", "<path> [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public] [--dry-run]", "write a monorepo's starting files: one repository that holds the plan and the code", (*invocation).newMonorepo),
+		command("new repository", "<path> [--project P] [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public] [--dry-run]", "write a code repository's starting files, for a project that plans in another repository", (*invocation).newRepository),
 	}
 	for i := range commands {
-		commands[i].Detail = newDetail + newRemoteDetail
+		commands[i].Detail = newDetail + newRemoteDetail + newDryRunDetail
 	}
 	return commands
 }
@@ -61,12 +61,19 @@ type newResult struct {
 	CommitError  string                    `json:"commit_error,omitempty"`
 	Repositories []ledger.RepositoryReport `json:"repositories,omitempty"`
 	Remaining    []string                  `json:"remaining,omitempty"`
+	// DryRun says the document is a plan: nothing in it was written or run.
+	DryRun bool `json:"dry_run,omitempty"`
 }
 
 func (r newResult) text() string {
 	var out strings.Builder
+	wrote := "wrote"
+	if r.DryRun {
+		out.WriteString("Dry run: nothing was written, and no git or gh command ran.\n\n")
+		wrote = "would write"
+	}
 	for _, path := range r.Written {
-		fmt.Fprintf(&out, "wrote\t%s\n", path)
+		fmt.Fprintf(&out, "%s\t%s\n", wrote, path)
 	}
 	for _, path := range r.Left {
 		fmt.Fprintf(&out, "left\t%s\talready exists\n", path)
@@ -88,6 +95,7 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 	var project string
 	var remote newFlags
 	remote.register(set, shape)
+	dry := dryRunFlag(set)
 	switch shape {
 	case projectfiles.Workspace:
 		set.Var(&repositories, "repository", "an existing code repository as name=remote, cloned into repos/<name>, repeatable")
@@ -137,7 +145,13 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		if err := projectfiles.Check(shape, data.Repositories); err != nil {
 			return c.usageError("%v", err)
 		}
+		if *dry {
+			return c.dryRunNew(shape, folder, project, data, &request)
+		}
 		return c.newProject(request, data)
+	}
+	if *dry {
+		return c.dryRunNew(shape, folder, project, data, nil)
 	}
 	files, err := projectfiles.Files(shape, data, renderTemplate)
 	if errors.Is(err, projectfiles.ErrInvalid) {
