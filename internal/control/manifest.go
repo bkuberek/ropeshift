@@ -55,6 +55,7 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 	var cause registrationCause
 	var recorded *ledger.ManifestRegistration
 	var replayed []Added
+	var skipped []ledger.ManifestOutcome
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		row, err := tx.Approvals().Approval(approval)
 		if err != nil || row.Kind != authority.KindPlan {
@@ -66,6 +67,14 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 					replayed, err = recordedAdded(tx.Repositories(), recorded)
 				}
 				return err
+			}
+			if recorded != nil {
+				// The run registers anew, and leaves out each entry a member skipped: it stays as the member left it.
+				for _, one := range recorded.Repositories {
+					if one.Outcome == ledger.Skipped {
+						skipped = append(skipped, one)
+					}
+				}
 			}
 			recorded = nil
 		}
@@ -98,7 +107,16 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 	for _, name := range targets {
 		targeted[name] = true
 	}
-	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted, creator: creator, project: project}, actor)
+	run := entries
+	if len(skipped) != 0 {
+		run = slices.DeleteFunc(slices.Clone(entries), func(entry planning.ManifestRepository) bool {
+			return slices.ContainsFunc(skipped, func(one ledger.ManifestOutcome) bool { return one.Name == entry.Name })
+		})
+	}
+	added, err := r.registerEntries(ctx, scope, run, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted, creator: creator, project: project}, actor)
+	if len(skipped) != 0 {
+		added = withSkipped(entries, run, added, skipped)
+	}
 	if dryRun {
 		return added, err
 	}
@@ -111,6 +129,25 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 		return added, errors.Join(err, failed)
 	}
 	return added, err
+}
+
+// withSkipped is what a run of the entries a member did not skip gave, with the entries they skipped among them as they
+// were recorded, in the order of the manifest.
+func withSkipped(entries, run []planning.ManifestRepository, added []Added, skipped []ledger.ManifestOutcome) []Added {
+	out := make([]Added, 0, len(entries))
+	next := 0
+	for _, entry := range entries {
+		at := slices.IndexFunc(skipped, func(one ledger.ManifestOutcome) bool { return one.Name == entry.Name })
+		switch {
+		case at >= 0:
+			one := skipped[at]
+			out = append(out, Added{Name: one.Name, Manifest: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Reason: one.Reason})
+		case next < len(added):
+			out = append(out, added[next])
+			next++
+		}
+	}
+	return append(out, added[min(next, len(added)):]...)
 }
 
 // recordedAdded reads what an approval recorded it registered as the outcomes a run gives, each with the
@@ -392,6 +429,11 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 	}
 	out := make([]Added, 0, len(entries))
 	claimed, seen, forged := map[string]bool{}, seenRun{}, map[string]string{}
+	for _, earlier := range run.before {
+		if made, err := creationOf(earlier); err == nil && earlier.Create != "" && run.targets[earlier.Name] {
+			forged[strings.ToLower(made.identity)] = earlier.Name
+		}
+	}
 	// The project's one repository plans in it until a member names one, so the first registration that
 	// adds a second one names it, or the next registration would find no planning repository.
 	var naming string
@@ -586,6 +628,9 @@ type manifestRun struct {
 	// project is the name of the project they are created for. A run of a manifest a member registers by hand has neither.
 	creator ports.RepositoryCreator
 	project string
+	// before are the entries of the version that come before the ones this run registers, whose creations are not part of it:
+	// a run of one entry knows the repositories they would create.
+	before []planning.ManifestRepository
 }
 
 // planned says an entry with `create` is one no work order of the run's plan version names, so the version's

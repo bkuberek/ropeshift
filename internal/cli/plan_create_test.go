@@ -251,8 +251,14 @@ func TestPlanSkipNeedsAReasonOfOneToTwoThousandCharacters(t *testing.T) {
 	}
 	if code, _, _ := a.run("plan", "skip", "p1", "web", "--reason", strings.Repeat("x", 2000)); code != cli.ExitOK {
 		t.Errorf("a reason of 2000 characters: exit %d", code)
+	} // The count is of the reason as it is kept, trimmed, as the daemon counts it.
+	if code, _, _ := a.run("plan", "skip", "p1", "web", "--reason", "  "+strings.Repeat("x", 2000)+" \n"); code != cli.ExitOK {
+		t.Errorf("a reason of 2000 characters with white space around it: exit %d", code)
 	}
-	if got := a.posted(); len(got) != 1 {
+	if code, _, _ := a.run("plan", "skip", "p1", "web", "--reason", " \t\n "); code != cli.ExitUsage {
+		t.Errorf("a reason of white space: exit %d", code)
+	}
+	if got := a.posted(); len(got) != 2 {
 		t.Errorf("posted %v", got)
 	}
 }

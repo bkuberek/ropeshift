@@ -61,6 +61,8 @@ var ManifestChecks = []Check{
 	{"RM42", "a creation left started with no run in this process is an interrupted item, and one that runs now is running; retrying the interrupted one asks the creator once to create it under the key of the creation that started, repeats no step of it, registers it, and takes it out of the list", checkAnInterruptedCreationIsAnItemAndRetryFinishesIt},
 	{"RM43", "skipping a creation records its reason on the approval and in its record with the entry skipped, takes it out of the list, and leaves the work that names it in contract review; an empty reason, one over 2000 characters, and a repository the project holds are refused; a later approved version whose work orders target the entry creates it", checkSkipRecordsTheReasonAndALaterVersionCreates},
 	{"RM44", "a retry or a skip by a delegate, a lane, an orchestrator, or a tick is refused as forbidden and changes nothing, and the creator is asked nothing", checkADelegateRetriesAndSkipsNothing},
+	{"RM59", "a retry of a run an error stopped registers the whole version again and leaves out each entry a member skipped: the creator is never asked for it, and its record stays skipped", checkARetryOfARunThatStoppedNeverCreatesWhatWasSkipped},
+	{"RM60", "a retry of one entry refuses a forge repository another entry of the version creates, as the run that registered the version did: the creator is not asked to create it", checkARetryRefusesAForgeRepositoryAnotherEntryOfTheVersionCreates},
 }
 
 const manifestPlan = "platform-v1"

@@ -122,16 +122,22 @@ func TestSkippingARepositoryCreationRecordsItsReason(t *testing.T) {
 	t.Parallel()
 	p := approvedCreation(t)
 	ctx := t.Context()
-	for _, reason := range []string{"", "   ", strings.Repeat("x", 2001)} {
+	for _, reason := range []string{"", "   ", strings.Repeat("x", 2001), "bad\x1b[31m red", "two\nlines", "bell\x07"} {
 		_, err := p.client.SkipRepository(ctx, p.approval.ID, "ghost", api.SkipRepository{Reason: reason})
 		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	}
 	if items := creationItems(t, p.Daemon); len(items) != 1 {
 		t.Fatalf("a refused skip left %+v", items)
 	}
-	decided, err := p.client.SkipRepository(ctx, p.approval.ID, "ghost", api.SkipRepository{Reason: "built by hand"})
+	decided, err := p.client.SkipRepository(ctx, p.approval.ID, "ghost", api.SkipRepository{Reason: "  built   by hand "})
 	if err != nil || len(decided.Repositories) != 1 || decided.Repositories[0].Outcome != ledger.Skipped || decided.Repositories[0].Reason != "built by hand" {
 		t.Fatalf("a skip reads %+v: %v", decided, err)
+	}
+	// A skipped creation is left as the member left it: a retry of it is refused, naming why.
+	_, err = p.client.RetryRepository(ctx, p.approval.ID, "ghost")
+	refusedWith(t, err, http.StatusConflict, api.CodeIllegalMove)
+	if refused := new(api.Error); !errors.As(err, &refused) || !strings.Contains(refused.Detail.Message, "skipped; a later approved version that targets it creates it") {
+		t.Errorf("a retry of a skipped creation answered %v", err)
 	}
 	if items := creationItems(t, p.Daemon); len(items) != 0 {
 		t.Errorf("Needs you still holds %+v", items)

@@ -648,6 +648,8 @@ type creationTarget struct {
 	entries  []planning.ManifestRepository
 	targets  map[string]bool
 	recorded *ledger.ManifestRegistration
+	// skipped says a member skipped the entry's creation, which no later record of it undid.
+	skipped bool
 	// started is where the entry's path led when its creation last started, which a record of it keeps when the
 	// approval recorded none.
 	started string
@@ -694,6 +696,14 @@ func creationTargetOf(tx ports.ReadTx, approval, name string) (creationTarget, e
 		return creationTarget{}, err
 	}
 	target.started = creationPath(events, nil, name)
+	latest, err := ledger.LatestCreation(events, name)
+	if err != nil {
+		return creationTarget{}, err
+	}
+	target.skipped = latest.State == ledger.CreationSkipped
+	if one, ok := recordedOutcome(target.recorded, name); ok && one.Outcome == ledger.Skipped {
+		target.skipped = true
+	}
 	return target, nil
 }
 
@@ -730,12 +740,20 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	if err != nil {
 		return nil, err
 	}
+	if target.skipped {
+		return nil, fmt.Errorf("%w: %s was skipped; a later approved version that targets it creates it", workorders.ErrIllegalMove, name)
+	}
 	if target.recorded == nil || target.recorded.Problem != "" {
 		// An approval that recorded nothing, or whose run an error stopped, registers anew: the entries it never reached are
 		// attempted, and the record it appends holds no problem unless this run meets one.
 		return r.registerApproved(ctx, scope, approval, kept, creator, project, false, true, actor)
 	}
 	run := manifestRun{cause: registrationCause{Approval: target.row.ID, Plan: target.row.Plan, PlanVersion: target.row.PlanVersion}, targets: target.targets, creator: creator, project: project}
+	// The entries before this one in the version would have created their repositories first, so a repository one of them
+	// creates is refused to this one, as it was in the run that registered the version.
+	if at := slices.IndexFunc(target.entries, func(entry planning.ManifestRepository) bool { return entry.Name == name }); at > 0 {
+		run.before = target.entries[:at]
+	}
 	added, runErr := r.registerEntries(ctx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
 	if len(added) == 0 {
 		return nil, runErr
@@ -761,6 +779,11 @@ func (r *Repositories) SkipCreation(ctx context.Context, scope ledger.WorkspaceI
 	if length := utf8.RuneCountInString(reason); length == 0 || length > maxSkipReason {
 		return nil, fmt.Errorf("%w: a reason for skipping takes 1 to %d characters", workorders.ErrInvalid, maxSkipReason)
 	}
+	if strings.ContainsFunc(reason, func(r rune) bool { return ledger.HiddenRune(r) || r == '\u2028' || r == '\u2029' }) {
+		return nil, fmt.Errorf("%w: a reason for skipping is one line of text, with no control character or line break", workorders.ErrInvalid)
+	}
+	// The reason is kept as one plain line, with each run of spaces as one.
+	reason = strings.Join(strings.Fields(reason), " ")
 	if err := r.refuseRunning(approval, name); err != nil {
 		return nil, err
 	}

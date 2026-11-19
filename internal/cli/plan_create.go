@@ -53,6 +53,8 @@ func (c *invocation) planSkip(args []string) int {
 	if len(positional) != 2 {
 		return c.usageError("takes one plan ID and one repository name")
 	}
+	// The daemon counts the reason as it keeps it, trimmed.
+	request.Reason = strings.TrimSpace(request.Reason)
 	if length := utf8.RuneCountInString(request.Reason); length == 0 || length > maxSkipReason {
 		return c.usageError("--reason is required and takes 1 to 2000 characters")
 	}

@@ -401,7 +401,9 @@ func checkSkipRecordsTheReasonAndALaterVersionCreates(r *Rig) error {
 		return err
 	}
 	approval := w.request.ID
-	for name, reason := range map[string]string{"empty": "", "blank": "  \n", "too long": strings.Repeat("x", 2001)} {
+	for name, reason := range map[string]string{
+		"empty": "", "blank": "  \n", "too long": strings.Repeat("x", 2001), "an escape sequence": "built\x1b[31m by hand", "a line break": "built\nby hand", "a bell": "built\x07",
+	} {
 		if _, err := w.repositories.SkipCreation(r.Ctx, r.Scope, approval, "search", reason, r.member()); !errors.Is(err, workorders.ErrInvalid) {
 			return Violatedf("a skip with a %s reason answered %v, want an invalid request", name, err)
 		}
@@ -409,7 +411,8 @@ func checkSkipRecordsTheReasonAndALaterVersionCreates(r *Rig) error {
 	if _, err := w.repositories.SkipCreation(r.Ctx, r.Scope, approval, "api", "held already", r.member()); !errors.Is(err, workorders.ErrIllegalMove) {
 		return Violatedf("a skip of a repository the project holds answered %v, want an illegal move", err)
 	}
-	added, err := w.repositories.SkipCreation(r.Ctx, r.Scope, approval, "search", "built by hand", r.member())
+	// The reason is stored as one plain line, so the spaces inside it are one each.
+	added, err := w.repositories.SkipCreation(r.Ctx, r.Scope, approval, "search", "  built   by hand ", r.member())
 	if err != nil {
 		return err
 	}
@@ -437,6 +440,9 @@ func checkSkipRecordsTheReasonAndALaterVersionCreates(r *Rig) error {
 	}
 	if items, err := r.uncreated(s, noCreationRuns); err != nil || len(items) != 0 {
 		return Violatedf("a skipped creation still waits for a member as %+v: %v", items, err)
+	} // A skipped creation is left as the member left it: a retry of it is refused, and a later approved version creates it.
+	if _, err := r.retry(w, "search"); !errors.Is(err, workorders.ErrIllegalMove) || !strings.Contains(err.Error(), "skipped; a later approved version that targets it creates it") {
+		return Violatedf("a retry of a skipped creation answered %v, want an illegal move that says a later approved version creates it", err)
 	}
 	// The work that names search stays in contract review, which no skip moves.
 	named := 0
@@ -545,4 +551,118 @@ func outcomesOfRecord(record *ledger.ManifestRegistration) []string {
 		}
 	}
 	return out
+}
+
+func checkARetryOfARunThatStoppedNeverCreatesWhatWasSkipped(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("alpha", "../alpha", "")+creationEntry("beta", "../beta", ""), []string{"alpha", "beta"}, nil)
+	if err != nil {
+		return err
+	}
+	// The check of alpha cannot be answered, as a worker that has not started cannot, which stops the run: beta and api are not
+	// attempted, and the approval keeps the error as the problem of its registration.
+	errNotStarted := errors.New("the worker has not started")
+	w.creator.FailCheck(w.creator.key("alpha"), errNotStarted)
+	w.creator.passes("beta", "beta", "main")
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	if _, err := r.runCreation(w, false); !errors.Is(err, errNotStarted) {
+		return Violatedf("approving with a creator that cannot answer ended with %v, want %v", err, errNotStarted)
+	}
+	// The member skips alpha, and the creator can answer for it now, so a creation of it would succeed.
+	if _, err := w.repositories.SkipCreation(r.Ctx, r.Scope, w.request.ID, "alpha", "built by hand", r.member()); err != nil {
+		return err
+	}
+	w.creator.FailCheck(w.creator.key("alpha"), nil)
+	w.creator.passes("alpha", "alpha", "main")
+	// Retrying beta registers the whole version again, with alpha left as the member left it.
+	added, err := w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, "beta", w.machine, w.creator, "shop", r.member())
+	if err != nil {
+		return Violatedf("a retry of beta: %v", err)
+	}
+	if created := asked(w.creator.Created()); !slices.Equal(created, []string{"beta"}) {
+		return Violatedf("a retry of beta had the creator create %v, want beta alone: alpha was skipped", created)
+	}
+	want := map[string]entryOutcome{
+		"alpha": {outcome: ledger.Skipped, path: "/work/alpha", reason: "built by hand"},
+		"beta":  {outcome: ledger.Created, path: "/work/beta"},
+		"api":   {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("a retry of beta: %v", err)
+	}
+	if err := r.recordedAre(s, w.request.ID, want); err != nil {
+		return Violatedf("a retry of beta: %v", err)
+	}
+	if found, err := w.repositories.Resolve(r.Ctx, r.Scope, "alpha"); err == nil {
+		return Violatedf("a retry of beta registered the skipped alpha as %+v", found)
+	}
+	if items, err := r.uncreated(s, noCreationRuns); err != nil || len(items) != 0 {
+		return Violatedf("Needs you holds %+v after beta was created and alpha skipped: %v", items, err)
+	}
+	return r.CheckProjection(s)
+}
+
+// duplicateWorld is a project whose plan version lists two manifests, each with an entry that creates acme/search: search at
+// ../search, and mirror at ../mirror/search. The creation of search stops at its push, so the repository is not held.
+func (r *Rig) duplicateWorld(s ports.Store) (*creationWorld, error) {
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return nil, err
+	}
+	files.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \""+manifestPlan+"\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\", \"repositories:second\"]\n+++\n\nOne plan for every repository.\n"))
+	files.Write("repositories.md", []byte(manifestText(creationEntry("search", "../search", ""), "api")))
+	files.Write("second.md", []byte("+++\nkind = \"repositories\"\nid = \"second\"\ntitle = \"The second\"\nplan = \""+manifestPlan+"\"\n"+creationEntry("mirror", "../mirror/search", "")+"+++\n\nThe second manifest.\n"))
+	files.Write("core.md", []byte(placedContract{ID: "core", Plan: manifestPlan, Orders: []orderIn{{ID: "core-api", Repo: "api"}, {ID: "core-search", Repo: "search"}, {ID: "core-mirror", Repo: "mirror"}}}.text()))
+	if _, err := r.intake(s, files); err != nil {
+		return nil, err
+	}
+	machine, err := r.planningMachine()
+	if err != nil {
+		return nil, err
+	}
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return nil, err
+	}
+	return &creationWorld{store: s, machine: machine, creator: newMachineCreator(machine, request.ID), repositories: r.repositories(s), request: request}, nil
+}
+
+func checkARetryRefusesAForgeRepositoryAnotherEntryOfTheVersionCreates(r *Rig) error {
+	s := r.Store()
+	w, err := r.duplicateWorld(s)
+	if err != nil {
+		return err
+	}
+	w.creator.failsPush("search", "search", "main")
+	w.creator.passes("mirror", "search", "main")
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := r.runCreation(w, false)
+	if err != nil {
+		return err
+	}
+	mirror, _ := outcomeNamed(added, "mirror")
+	if mirror.Outcome != ledger.RegistrationRefused || !strings.Contains(mirror.Reason, "which the entry search of this version creates too") {
+		return Violatedf("approving reads mirror as %+v, want it refused for creating what search creates", mirror)
+	}
+	// Retrying mirror runs it alone, and it is still refused: the other entry of the version holds the forge repository.
+	created := len(w.creator.Created())
+	again, err := w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, "mirror", w.machine, w.creator, "shop", r.member())
+	if err != nil {
+		return Violatedf("a retry of mirror: %v", err)
+	}
+	mirror, _ = outcomeNamed(again, "mirror")
+	if mirror.Outcome != ledger.RegistrationRefused || !strings.Contains(mirror.Reason, "which the entry search of this version creates too") {
+		return Violatedf("a retry reads mirror as %+v, want it refused for creating what search creates", mirror)
+	}
+	if jobs := w.creator.Created()[created:]; len(jobs) != 0 {
+		return Violatedf("a retry of mirror had the creator create %v", asked(jobs))
+	}
+	return nil
 }
