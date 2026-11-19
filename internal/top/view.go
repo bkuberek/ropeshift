@@ -258,6 +258,9 @@ func what(item api.NeedItem) string {
 		if need.Reason != "" {
 			line += ": " + clean(need.Reason)
 		}
+		if need.Remedy != "" {
+			line += "  remedy: " + clean(need.Remedy)
+		}
 		return line
 	case item.Work == nil:
 		return ""

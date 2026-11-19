@@ -754,3 +754,27 @@ func wide(t *testing.T, snapshot top.Snapshot) top.Model {
 	next, _ = next.Update(top.Loaded(snapshot))
 	return next
 }
+
+// A refusal's reason and remedy can embed what a disk or a forge said, and a terminal obeys what it is sent: neither an
+// escape sequence, a bell, nor a line break reaches the frame, and the remedy is named beside the reason.
+func TestARepositoryCreationsReasonAndRemedyReachNoTerminal(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedRepositoryCreation, ID: "ap-1/api", RepositoryCreation: &api.RepositoryCreationNeed{
+		Approval: "ap-1", Plan: "tt-v2", PlanVersion: 2, Name: "api", ManifestPath: "repos/api", Path: "/work/tt/repos/api", State: api.RepositoryCreationRefused,
+		Reason: "bad\x1b[31m red\nsecond line\x07 end", Remedy: "run\x1b]0;title\x07 this\nnow", Actions: api.RepositoryCreationActions,
+	}}}
+	for _, width := range []int{120, 60} {
+		frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), width)
+		for _, r := range frame {
+			if r != '\n' && (r < ' ' || r == 0x7f || (r >= 0x80 && r < 0xa0)) {
+				t.Errorf("width %d: a control character %q reached the frame:\n%q", width, r, frame)
+				break
+			}
+		}
+		for _, want := range []string{"refused: bad?[31m red second line? end", "remedy: run?]0;title? this now"} {
+			if !strings.Contains(strings.Join(strings.Fields(frame), " "), strings.Join(strings.Fields(want), " ")) {
+				t.Errorf("width %d: no %q in:\n%s", width, want, frame)
+			}
+		}
+	}
+}
