@@ -27,6 +27,10 @@ export const newRow = (): Row => ({ name: "", existing: false, remote: "", choic
 
 export type Draft = {
   question: Question;
+  // name is the project's name, which a monorepo's or a workspace's files carry in place of the folder's name, and named says
+  // the chosen worker is offered a request that holds one.
+  name: string;
+  named: boolean;
   project: string;
   firstCommit: boolean;
   mode: RemoteMode;
@@ -76,7 +80,15 @@ export function urlProblem(url: string): string {
   return "";
 }
 
-export type Problem = { field: "question" | "rows" | "remote"; message: string };
+export type Problem = { field: "question" | "rows" | "remote" | "name"; message: string };
+
+// nameProblem says what is wrong with a project name before it is sent, or nothing: lowercase letters and digits in words joined by
+// single hyphens, 63 characters at most, as the daemon checks it.
+export function nameProblem(name: string): string {
+  return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) && name.length <= 63
+    ? ""
+    : "A project name is lowercase letters and digits in words joined by single hyphens, 63 characters at most, such as harbor-api.";
+}
 
 export type Built = { request: TemplateWriteRequest; problem?: undefined } | { request?: undefined; problem: Problem };
 
@@ -93,6 +105,17 @@ export function buildRequest(draft: Draft, folder: string): Built {
   }
   const mode = remoteMode(draft);
   const body: TemplateWriteRequest = { shape, path: folder, first_commit: draft.firstCommit };
+  const name = draft.question === "elsewhere" ? "" : draft.name.trim();
+  if (name) {
+    const wrong = nameProblem(name);
+    if (wrong) {
+      return { problem: { field: "name", message: wrong } };
+    }
+    if (!draft.named) {
+      return { problem: { field: "name", message: "This worker cannot take a project name. Clear the field, or choose a worker on plane protocol 7 or later." } };
+    }
+    body.name = name;
+  }
   if (mode === "url" || mode === "create") {
     if (mode === "url") {
       const wrong = urlProblem(draft.url);

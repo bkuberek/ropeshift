@@ -19,7 +19,7 @@ const workers = {
   workers: [
     { id: older, name: "elder", epoch: 1, protocol: 4 },
     { id: quiet, name: "solo", epoch: 1, protocol: 5 },
-    { id: connected, name: "build-host-07", epoch: 1, protocol: 6 },
+    { id: connected, name: "build-host-07", epoch: 1, protocol: 7 },
   ],
 };
 
@@ -235,6 +235,75 @@ describe("Start a project from a template", () => {
     await waitFor(() => expect(posts(sent, writesTo(connected))).toHaveLength(1));
     expect(posts(sent, writesTo(connected))[0]?.body).toEqual({ shape: "repository", path: folder, first_commit: true, project: "tidewater" });
     expect(within(dialog).queryByRole("button", { name: "Start a project instead" })).toBeNull();
+  });
+
+  it("offers a project name for a monorepo and a workspace, defaulting to the folder's name, and not for a repository", async () => {
+    serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openDialog();
+    expect(within(dialog).queryByLabelText("Project name")).toBeNull();
+    await answer(dialog, "One repository");
+    const field = within(dialog).getByLabelText("Project name") as HTMLInputElement;
+    expect(field.disabled).toBe(false);
+    expect(field.required).toBe(false);
+    await userEvent.type(within(dialog).getByLabelText("Folder"), "/srv/code/Tide Water");
+    expect(field.placeholder).toBe("tide-water");
+    expect(within(dialog).getByText(/chore: start tide-water/)).toBeTruthy();
+    await answer(dialog, "Several repositories");
+    expect(within(dialog).getByLabelText("Project name")).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a code repository to a project planned elsewhere" }));
+    expect(within(dialog).queryByLabelText("Project name")).toBeNull();
+    expect(within(dialog).getByLabelText("Project")).toBeTruthy();
+  });
+
+  it("sends the name a monorepo and a workspace are given, and none when the field is empty", async () => {
+    const sent = serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.type(within(dialog).getByLabelText("Project name"), "tidewater");
+    expect(within(dialog).getByText(/chore: start tidewater/)).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await waitFor(() => expect(posts(sent, writesTo(connected))).toHaveLength(1));
+    expect(posts(sent, writesTo(connected))[0]?.body).toEqual({ shape: "monorepo", path: folder, first_commit: true, name: "tidewater" });
+  });
+
+  it("sends the name of a workspace beside its code repositories", async () => {
+    const sent = serveStart({ posted: view({ shape: "workspace" }), reads: [view({ shape: "workspace" })], projects: one });
+    const dialog = await openDialog();
+    await answer(dialog, "Several repositories");
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.type(within(dialog).getByLabelText("Project name"), "tidewater");
+    await userEvent.type(within(within(dialog).getByRole("group", { name: "Code repository 1" })).getByLabelText("Name"), "api");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await waitFor(() => expect(posts(sent, writesTo(connected))).toHaveLength(1));
+    expect(posts(sent, writesTo(connected))[0]?.body).toMatchObject({ shape: "workspace", name: "tidewater", repositories: [{ name: "api", new: true }] });
+  });
+
+  it("sends nothing for a name that is no project name, and says why at the field", async () => {
+    const sent = serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.type(within(dialog).getByLabelText("Project name"), "Tide Water");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    const field = within(dialog).getByLabelText("Project name") as HTMLInputElement;
+    expect(await within(dialog).findByText(/lowercase letters and digits in words joined by single hyphens/)).toBeTruthy();
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(posts(sent, writesTo(connected))).toEqual([]);
+  });
+
+  it("disables the name for a worker on an older protocol, with what to do, and sends none", async () => {
+    const six = { id: "worker-six", name: "six", epoch: 1, protocol: 6 };
+    const sent = serveStart({ posted: view(), reads: [view()], projects: one }, (call) =>
+      call.method === "GET" && call.path === "/v1/workers" ? { status: 200, body: { workers: [six] } } : undefined,
+    );
+    openPage("/projects?dialog=template");
+    const dialog = await screen.findByRole("dialog", { name: "Start a project from a template" });
+    await waitFor(() => expect((within(dialog).getByLabelText("Worker") as HTMLSelectElement).value).toBe("worker-six"));
+    await answer(dialog, "One repository");
+    const field = within(dialog).getByLabelText("Project name") as HTMLInputElement;
+    expect(field.disabled).toBe(true);
+    expect(within(dialog).getByText("Worker six speaks protocol 6; upgrade it to name a project.")).toBeTruthy();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    expect(sent.filter((call) => call.method === "POST")).toEqual([]);
   });
 
   it("goes back from a code repository of a project planned elsewhere to the first question", async () => {
