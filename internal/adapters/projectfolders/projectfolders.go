@@ -255,11 +255,7 @@ func (f Folders) Push(ctx context.Context, path string, push ports.PushSpec) err
 	git := gitcli.Git{Dir: path, Env: f.Env}
 	if push.CredentialHelper != "" {
 		const key = "credential.https://github.com.helper"
-		git.Extra = []string{
-			"GIT_CONFIG_COUNT=2",
-			"GIT_CONFIG_KEY_0=" + key, "GIT_CONFIG_VALUE_0=",
-			"GIT_CONFIG_KEY_1=" + key, `GIT_CONFIG_VALUE_1=!"` + push.CredentialHelper + `" auth git-credential`,
-		}
+		git.Config = [][2]string{{key, ""}, {key, `!"` + push.CredentialHelper + `" auth git-credential`}}
 	}
 	if _, err := git.Output(ctx, "push", "--set-upstream", "origin", push.Branch); err != nil {
 		return describe(err)
