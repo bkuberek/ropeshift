@@ -140,7 +140,7 @@ func (s *Source) roots(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
+	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", "--end-of-options", ref)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, err := s.git.Text(ctx, "rev-list", "--first-parent", "--max-parents=0", ref)
+	root, err := s.git.Text(ctx, "rev-list", "--first-parent", "--max-parents=0", "--end-of-options", ref)
 	if err != nil {
 		return "", err
 	}
@@ -473,7 +473,7 @@ func (s *Source) blobAt(ctx context.Context, commit, path string) (string, error
 // holds says a commit's history had this blob at this path. It walks every side of every merge,
 // because a merge that took one side's file still knew the other's.
 func (s *Source) holds(ctx context.Context, commit, path, blob string) (bool, error) {
-	found, err := s.git.Text(ctx, "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, commit, "--", path)
+	found, err := s.git.Text(ctx, "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, "--end-of-options", commit, "--", path)
 	return found != "", err
 }
 
@@ -508,7 +508,7 @@ func (s *Source) fetch(ctx context.Context) {
 		s.setHealth(ports.SourceHealth{State: planning.HealthOK})
 		return
 	}
-	if err := s.git.Fetch(ctx, "--quiet", remote); err != nil {
+	if err := s.git.Fetch(ctx, "--quiet", "--", remote); err != nil {
 		s.setHealth(ports.SourceHealth{State: planning.HealthFetchFailed, Detail: err.Error()})
 		return
 	}
