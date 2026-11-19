@@ -48,6 +48,9 @@ func effectiveSettings(t *testing.T, log string) []map[string]string {
 	}
 	var commands []map[string]string
 	for _, record := range strings.Split(string(text), "=== command\n") {
+		if readsDefaultBranch(record) {
+			continue
+		}
 		read := map[string]string{}
 		for _, line := range strings.Split(record, "\n") {
 			if key, value, ok := strings.Cut(strings.TrimPrefix(line, "effective "), "="); ok && strings.HasPrefix(line, "effective ") {

@@ -33,7 +33,7 @@ func recordGit(t *testing.T, env, settings []string) ([]string, string) {
 		t.Fatal(err)
 	}
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "commands")
-	script := "#!/bin/sh\n{ echo '=== command'; env; for key in " + strings.Join(effectiveKeys, " ") +
+	script := "#!/bin/sh\n{ echo '=== command'; echo \"first-argument $1\"; env; for key in " + strings.Join(effectiveKeys, " ") +
 		"; do echo \"effective $key=$('" + real + "' config --get $key)\"; done; } >> '" + log + "'\nexec '" + real + "' \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700); err != nil { //nolint:gosec // a test shim must be executable
 		t.Fatal(err)
@@ -45,6 +45,13 @@ func recordGit(t *testing.T, env, settings []string) ([]string, string) {
 	return slices.Concat(shimmed, []string{"PATH=" + path}, settings), log
 }
 
+// readsDefaultBranch reports whether a recorded command is one of the two that read the global and system
+// configuration for the branch a new repository starts on, which write nothing and run no hook, so a call site's
+// settings are not among what they hold.
+func readsDefaultBranch(record string) bool {
+	return strings.HasPrefix(record, "first-argument config\n") || strings.HasPrefix(record, "first-argument check-ref-format\n")
+}
+
 // commandSettings reads the git configuration each recorded command was started with, as "key=value" entries.
 func commandSettings(t *testing.T, log string) [][]string {
 	t.Helper()
@@ -54,6 +61,9 @@ func commandSettings(t *testing.T, log string) [][]string {
 	}
 	var commands [][]string
 	for _, record := range strings.Split(string(text), "=== command\n") {
+		if readsDefaultBranch(record) {
+			continue
+		}
 		env := map[string]string{}
 		for _, line := range strings.Split(record, "\n") {
 			if key, value, ok := strings.Cut(line, "="); ok {
