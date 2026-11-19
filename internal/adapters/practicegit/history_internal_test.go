@@ -2,6 +2,7 @@ package practicegit
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -113,5 +114,60 @@ func TestSecretScanTreeScansABlobOnceForAllItsPaths(t *testing.T) {
 	}
 	if got := found.result("").Matches; len(got) != 3 || got[0].Path != "one/key.txt" || got[1].Path != "three/key.txt" || got[2].Path != "two/key.txt" {
 		t.Errorf("matches are %+v", got)
+	}
+}
+
+// The changed files a history scan has to read again are handed on in runs of flushAfter, and are no longer held.
+func TestSecretScanPatchReaderHandsOnTheChangedFilesInRuns(t *testing.T) {
+	t.Parallel()
+	var stream strings.Builder
+	stream.WriteString(secretScanHash + "\n\n")
+	for i := 1; i <= 5; i++ {
+		fmt.Fprintf(&stream, "diff --git a/f%d b/f%d\nindex %040x..%040x 100644\n--- a/f%d\n+++ b/f%d\n@@ -1 +1 @@\n-x\n+y\n", i, i, i, i+100, i, i)
+	}
+	found := newSecretFindings()
+	found.flushAfter = 2
+	var runs []int
+	found.flush = func(touched map[string][]secretTouch) error {
+		runs = append(runs, len(touched))
+		return nil
+	}
+	if err := found.readPatches(strings.NewReader(stream.String())); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(runs) != "[2 2]" || len(found.touched) != 1 {
+		t.Errorf("runs are %v and %d files are held, want [2 2] and 1", runs, len(found.touched))
+	}
+}
+
+// Reading the changed files in runs finds what reading them at once does.
+func TestSecretScanInRunsFindsWhatOneReadFinds(t *testing.T) {
+	t.Parallel()
+	key := func(last string) string {
+		return "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu\n" + last + "\n-----END " + "RSA PRIVATE KEY-----\n"
+	}
+	repo := gittest.New(t)
+	repo.Commit("keys/one", key("AAAAAAAAAAAAAAAA"))
+	repo.Commit("keys/two", key("BBBBBBBBBBBBBBBB"))
+	for i := range 4 {
+		repo.Commit("keys/one", key(fmt.Sprintf("CCCCCCCCCCCCCC%02d", i)))
+		repo.Commit("keys/two", key(fmt.Sprintf("DDDDDDDDDDDDDD%02d", i)))
+	}
+	tip := repo.Commit("keys/one", "gone\n")
+	whole, err := SecretScanner{Env: repo.Env()}.Scan(context.Background(), repo.Dir, tip, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(whole.Matches) != 10 {
+		t.Fatalf("one read found %d matches, want 10: %+v", len(whole.Matches), whole.Matches)
+	}
+	for _, runLength := range []int{1, 3} {
+		runs, err := SecretScanner{Env: repo.Env(), flushAfter: runLength}.Scan(context.Background(), repo.Dir, tip, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fmt.Sprint(runs.Matches) != fmt.Sprint(whole.Matches) || runs.Skipped != whole.Skipped {
+			t.Errorf("runs of %d find %+v, want %+v", runLength, runs.Matches, whole.Matches)
+		}
 	}
 }
