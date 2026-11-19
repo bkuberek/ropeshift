@@ -46,8 +46,9 @@ type SecretScanner struct {
 }
 
 // Scan scans the tracked files at tip, and the patches of the history reachable from tip. The history scan skips
-// what `from` reaches when `from` is an ancestor of tip, and otherwise reads the whole history. It reads the lines
-// each commit added and no others. A match found in the tree and in the history is one match, with the earliest
+// what `from` reaches when `from` is an ancestor of tip, and otherwise reads the whole history. The rules that match
+// one line read the lines each commit added and no others; the rules that match across lines, a private key, also read
+// each file a commit changed, and count a match for the commit when it covers a line the commit added. A match found in the tree and in the history is one match, with the earliest
 // commit that added it; a match only the tree holds is reported at tip. The result names `from` by its commit ID when
 // the scan skipped what it reaches, and says it is partial for a shallow clone. No match and no error holds the
 // matched text.

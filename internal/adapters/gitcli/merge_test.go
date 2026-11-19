@@ -292,3 +292,24 @@ func TestAMergeListsTheRemotesBaseAfterTheEndOfOptions(t *testing.T) {
 		t.Errorf("git ran %q, want %q", got, want)
 	}
 }
+
+// A reviewed commit that is no commit ID is never handed to git, where it could read as an option. It names no
+// commit the branch is at, so the merge is stale.
+func TestMergeBranchNeverPassesAReviewedCommitThatIsNoIDToGit(t *testing.T) {
+	r := newMergeRig(t, false)
+	runs := gittest.RecordGit(t)
+	r.merger = gitcli.Worktrees{Env: r.repo.Env()}
+	for _, commit := range []string{"--all", "--is-ancestor", "-h"} {
+		result, err := r.merger.MergeBranch(t.Context(), r.repo.Dir, ports.BranchMerge{
+			Branch: laneBranch, Base: "main", Commit: commit, Method: ledger.MergeCommit, WorkOrder: "wo-1", Title: "Add the lane's line",
+		})
+		if err != nil || result.Outcome != ledger.MergeStaleHead {
+			t.Errorf("a reviewed commit %q gives %+v, %v; want a stale head", commit, result, err)
+		}
+		for _, run := range runs("merge-base") {
+			if strings.Contains(run, " "+commit+" ") || strings.HasSuffix(run, " "+commit) {
+				t.Errorf("git ran %q", run)
+			}
+		}
+	}
+}
