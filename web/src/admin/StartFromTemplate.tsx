@@ -393,7 +393,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               ))}
             </Select>
           </Field>
-          <Field label="Folder" help="An absolute path on that worker's machine. The folder is made when it is absent, and must be empty when it exists." error={problem || undefined}>
+          <Field label="Folder" help="An absolute path on that worker's machine. The folder is made when it is absent. When it exists it may hold files of the shape, which are left as they are; any other file refuses it." error={problem || undefined}>
             <input
               ref={folderField}
               className="input mono"
@@ -484,7 +484,8 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
   if (!report) {
     return null;
   }
-  const files = report.files ?? [];
+  const left = report.left ?? [];
+  const files = (report.files ?? []).filter((file) => !left.includes(file));
   const commands = report.commands ?? [];
   const folder = view.path;
   const target = view.project || report.project;
@@ -496,6 +497,16 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
           <li key={file}>{file}</li>
         ))}
       </ul>
+      {left.length > 0 ? (
+        <>
+          <p className="small">The folder held these already, and the write left them as they were:</p>
+          <ul className="plain-list mono small" aria-label="Files left as they were">
+            {left.map((file) => (
+              <li key={file}>{file}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {(report.repositories ?? []).length > 0 ? (
         <RepositoriesWritten report={report} copy={copy} />
       ) : (

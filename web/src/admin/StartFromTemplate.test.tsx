@@ -369,6 +369,37 @@ describe("Start a project from a template", () => {
     expect(reads().length).toBe(2);
   });
 
+  it("lists the files it left as they were apart from the files it wrote", async () => {
+    const left = written({ files: ["AGENTS.md", "CLAUDE.md", "plan/goal.md"], left: ["AGENTS.md", "plan/goal.md"] });
+    serveStart({ posted: view({ state: "written", report: left }), reads: [view({ state: "written", report: left })], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    expect(await within(dialog).findByText(/build-host-07 wrote 1 file in \/srv\/code\/harbor/)).toBeTruthy();
+    expect(within(within(dialog).getByRole("list", { name: "Files written" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["CLAUDE.md"]);
+    expect(within(within(dialog).getByRole("list", { name: "Files left as they were" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["AGENTS.md", "plan/goal.md"]);
+  });
+
+  it("names no left files when the folder held none", async () => {
+    serveStart({ posted: view({ state: "written", report: written() }), reads: [view({ state: "written", report: written() })], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await within(dialog).findByText(/build-host-07 wrote 3 files/);
+    expect(within(dialog).queryByRole("list", { name: "Files left as they were" })).toBeNull();
+  });
+
+  it("says a folder may hold files of the shape, and brings back the refusal that names the file of another kind", async () => {
+    const refused = view({ state: "refused", report: { request: "request-1", outcome: "refused", reason: "path_not_empty", detail: "the folder holds notes.txt, which is not a file of this shape" } });
+    serveStart({ posted: view(), reads: [refused], projects: one });
+    const dialog = await openAnswered();
+    expect(within(dialog).getByText(/may hold files of the shape/)).toBeTruthy();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    const field = (await within(dialog).findByText(/the folder holds notes\.txt, which is not a file of this shape \(path_not_empty\)/)).closest(".field") as HTMLElement;
+    expect(within(field).getByLabelText("Folder")).toBeTruthy();
+  });
+
   it("says the worker did not take the request when the daemon reads it as expired", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     serveStart({ posted: view(), reads: [view({ state: "expired" })], projects: one });
