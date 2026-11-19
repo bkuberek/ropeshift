@@ -184,6 +184,7 @@ var routeOperations = map[string]routeOperation{
 	"POST " + api.BackupDownloadPath:                   fixed(authority.OpProjectBackup),
 	"POST /v1/work-orders":                             resolved(workOrderCreateOperation, authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant, authority.OpAdoptionRestructure).about(subjectWorkOrder).named(bodyField("id")).checked(plainID(workorders.ErrInvalid)),
 	"POST /v1/adoption/plan":                           fixed(authority.OpAdoptionPlan),
+	"POST /v1/practices/checks":                        fixed(authority.OpPracticesCheck),
 	"POST /v1/work-orders/{id}/review":                 resolved(reviewOperation, authority.OpWorkOrderReviewPlan, authority.OpWorkOrderReview).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/claims":                 fixed(authority.OpWorkOrderClaim),
 	"POST /v1/work-orders/{id}/lanes":                  fixed(authority.OpLaneStart),

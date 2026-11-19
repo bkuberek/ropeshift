@@ -126,6 +126,7 @@ const (
 	OpRepositoryRegisterManifest          = "repository.register_manifest"
 	OpAdoptionPlan                        = "adoption.plan"
 	OpAdoptionRestructure                 = "adoption.restructure"
+	OpPracticesCheck                      = "practices.check"
 	OpRepositorySet                       = "repository.set"
 	OpRepositoryLowerMergeAuthority       = "repository.lower_merge_authority"
 	OpRepositoryReviewTargetBranch        = "repository.review_target_branch"
@@ -328,6 +329,9 @@ var operations = append(onInstallation(
 	// restructuring changes the layout of the planning repository, so each is a member's alone.
 	memberOnly(OpAdoptionPlan, "Plan an adoption", ActionRegisterRepository, ActionPlanAdoption),
 	memberOnly(OpAdoptionRestructure, "Restructure by adopting", ActionRestructure),
+	// Running the practices check reads a repository and records what it found, and no decision reads the result, so a
+	// delegate's call runs at once.
+	operational(OpPracticesCheck, "Run the practices check"),
 	operational(OpRepositorySet, "Change a repository's settings", ActionSetRepository),
 	operational(OpRepositoryLowerMergeAuthority, "Lower merge authority", ActionSetRepository),
 	operational(OpRepositoryReviewTargetBranch, "Review on the branch", ActionSetRepository),

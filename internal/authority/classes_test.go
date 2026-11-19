@@ -559,3 +559,15 @@ func TestADelegatePastTheGateStillDecidesNoRequestOutsideItsReach(t *testing.T) 
 		}
 	}
 }
+
+// Running the practices check changes no state a decision relies on, so it is an operational operation: a delegate's
+// call to it runs at once, and no action stands in front of it.
+func TestRunningThePracticesCheckIsOperational(t *testing.T) {
+	op, ok := authority.OperationOf(authority.OpPracticesCheck)
+	if !ok {
+		t.Fatal("the class table lacks practices.check")
+	}
+	if op.ID != "practices.check" || op.Class != authority.ClassOperational || op.Exemptable || len(op.Actions) != 0 {
+		t.Errorf("practices.check reads %+v, want operational with no action", op)
+	}
+}

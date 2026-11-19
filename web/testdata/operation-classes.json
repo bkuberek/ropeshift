@@ -525,6 +525,12 @@
       "exemptable": false
     },
     {
+      "id": "practices.check",
+      "label": "Run the practices check",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
       "id": "repository.set",
       "label": "Change a repository's settings",
       "class": "operational",

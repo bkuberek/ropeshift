@@ -33,11 +33,13 @@ var opExempt = map[string]string{
 var opGaps = map[string]string{
 	// Raising the project's daily or weekly limit is not on a page yet; SP4 builds it (ADR-0037).
 	authority.OpSpendRaiseProject: "SP4",
+	// Running the practices check is not on a page yet; P5i builds it.
+	authority.OpPracticesCheck: "P5i",
 }
 
 var (
 	placeholder = regexp.MustCompile(`\{[^}]*\}`)
-	gapSlice    = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|SP[1-9])[12]?$`)
+	gapSlice    = regexp.MustCompile(`^(U2[a-k]|P[345][a-j]|SP[1-9])[12]?$`)
 )
 
 // shape is a route's pattern with every placeholder unnamed, so two patterns compare whatever each calls

@@ -242,6 +242,10 @@ type Options struct {
 	// Profiles reads the profile in force for a clone, which a registration reads the worktree root from. Nil
 	// reads none.
 	Profiles ports.ProfileSource
+	// AssistantHosts says which checkouts each worker keeps, which the practices check is placed by, and LocalWorker
+	// names the worker the daemon runs, which is asked first. Nil places no check.
+	AssistantHosts control.AssistantHosts
+	LocalWorker    func(context.Context) (string, error)
 	// Starts places the lane of every claim, and Branches opens a repository at a lane's branch, which the
 	// outline of a planning session reads. LaneBranchPrefix is what a lane's branch name begins with.
 	Starts           *control.Starts
@@ -289,6 +293,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
+		AssistantHosts: options.AssistantHosts, LocalWorker: options.LocalWorker,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
 		Attempts: options.Attempts, WebhookAttempts: options.WebhookAttempts, Templates: options.Templates, Hashes: options.Hashes,
 		WorkerURL: options.WorkerURL, CAFingerprint: options.CAFingerprint,

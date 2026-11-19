@@ -179,6 +179,7 @@ type handler struct {
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
+	practices    *control.Practices
 	adoptions    *control.Adoptions
 	recoveries   *control.Recoveries
 	spend        *control.Spend
@@ -268,6 +269,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.approvalRoutes(mux)
 	h.repositoryRoutes(mux)
 	h.adoptionRoutes(mux)
+	h.practicesRoutes(mux)
 	h.effectRoutes(mux)
 	h.viewRoutes(mux)
 	h.eventRoutes(mux)
@@ -334,6 +336,7 @@ func newHandler(config Config) *handler {
 		autonomy:      control.NewAutonomy(config.Store),
 		effects:       control.NewEffects(config.Store),
 		repositories:  repositories,
+		practices:     practices,
 		delegates:     control.NewDelegates(config.Store),
 		conversations: control.NewConversations(config.Store, config.Windows).Hosting(config.AssistantHosts, config.HeartbeatMs),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
