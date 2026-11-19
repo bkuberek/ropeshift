@@ -826,3 +826,21 @@ func TestAFolderNamesTheProjectWhenTheRequestNamesNone(t *testing.T) {
 		t.Errorf("the folder's project is %q", report.Project)
 	}
 }
+
+// The report names the files of the shape that the folder held and the run left as they were, beside the files of the
+// shape, so a person reads what the run wrote.
+func TestTheReportNamesTheFilesLeft(t *testing.T) {
+	m := newMachine()
+	m.folders.Place("/srv/acme/AGENTS.md", "mine")
+	m.folders.Place("/srv/acme/plan/goal.md", "mine")
+	report := m.run(t, monorepo(nil), &projectremote.Progress{})
+	if want := []string{"AGENTS.md", "plan/goal.md"}; !slices.Equal(report.Left, want) {
+		t.Errorf("left %v, want %v", report.Left, want)
+	}
+	if !slices.Equal(report.Files, projectfiles.Paths(projectfiles.Monorepo, nil)) {
+		t.Errorf("files %v", report.Files)
+	}
+	if empty := newMachine().run(t, monorepo(nil), &projectremote.Progress{}); len(empty.Left) != 0 {
+		t.Errorf("a new folder left %v", empty.Left)
+	}
+}

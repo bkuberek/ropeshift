@@ -220,12 +220,18 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		return refused(ledger.TemplateRefusedReserved, "the folder is at or inside a folder ropeshift keeps for itself")
 	}
 	if found.Exists && !found.Empty {
-		ours, err := w.holdsOnly(ctx, rt, request.Path, files)
+		other, err := w.foreignFile(ctx, rt, request.Path, files)
 		if err != nil {
 			return ledger.TemplateWriteReport{}, journal, err
 		}
-		if !started || !ours {
-			return refused(ledger.TemplateRefusedNotEmpty, "the folder holds files")
+		if other != "" {
+			return refused(ledger.TemplateRefusedNotEmpty, "the folder holds "+other+", which is not a file of this shape, and a write adds only the files of its shape to a folder that holds files")
+		}
+		// A repository the journal does not name is somebody else's, whatever else the folder holds.
+		if held, err := rt.Folders.Held(ctx, request.Path, []string{".git"}); err != nil {
+			return ledger.TemplateWriteReport{}, journal, err
+		} else if !started && len(held) > 0 {
+			return refused(ledger.TemplateRefusedNotEmpty, "the folder holds a .git that ropeshift did not make")
 		}
 	}
 	if detail, inside, err := w.insideKeptClone(ctx, rt, found.Real); err != nil {

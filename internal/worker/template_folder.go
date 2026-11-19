@@ -12,19 +12,20 @@ import (
 	"ropeshift.com/ropeshift/internal/projectfiles"
 )
 
-// holdsOnly says a folder holds files of the shape and nothing else, which is how a crash between the first file
-// and the report leaves it.
-func (w *Worker) holdsOnly(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File) (bool, error) {
+// foreignFile is the first file the folder holds that the shape does not write, or empty when it holds files of the
+// shape and nothing else. It is the one rule of which folders a write may go into: a crash between the first file and
+// the report leaves such a folder, and so does a person who started the project's files by hand.
+func (w *Worker) foreignFile(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File) (string, error) {
 	have, err := rt.Folders.Files(ctx, folder)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	for _, path := range have {
 		if !slices.ContainsFunc(files, func(file projectfiles.File) bool { return file.Path == path }) {
-			return false, nil
+			return path, nil
 		}
 	}
-	return true, nil
+	return "", nil
 }
 
 // insideReserved says the folder is at or inside a folder ropeshift keeps for itself: the state, run, or worktree

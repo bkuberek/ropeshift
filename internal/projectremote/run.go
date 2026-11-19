@@ -309,7 +309,7 @@ func (r *runner) verify(ctx context.Context, u unit, name, url string) bool {
 func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledger.TemplateWriteReport, error) {
 	own := r.prog.unit(ownPath)
 	report := ledger.TemplateWriteReport{
-		Outcome: ledger.TemplateOutcomeWritten, Project: r.job.Name(), Files: paths, Commit: own.Commit, CommitError: own.CommitError,
+		Outcome: ledger.TemplateOutcomeWritten, Project: r.job.Name(), Files: paths, Left: slices.Clone(r.prog.Left), Commit: own.Commit, CommitError: own.CommitError,
 	}
 	after, err := r.rt.Folders.Inspect(ctx, r.job.Request.Path)
 	if err != nil {
