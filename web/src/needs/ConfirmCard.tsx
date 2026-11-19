@@ -17,6 +17,8 @@ import { useAct } from "./useAct";
 
 const voidWords = "The subject changed since the card was prepared. Ask the delegate to prepare it again.";
 
+// A field with a value before and none after, as a withdrawal leaves its reason, is "from" a value "to" null: the
+// value is removed, which is not a move to a value named null.
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
 
 // short is the start of a digest a person compares by eye.
@@ -42,7 +44,7 @@ function Changes({ changes, operation, subject }: { changes: CardNeed["detail"][
                 <span className="visually-hidden">to</span>{" "}
               </>
             ) : null}
-            <code>{shown(row.to)}</code>
+            {"from" in row && (row.to === null || row.to === undefined) ? <em>removed</em> : <code>{shown(row.to)}</code>}
           </li>
         ))}
       </ul>
