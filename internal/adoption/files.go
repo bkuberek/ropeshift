@@ -104,7 +104,7 @@ func splitCarried(repositories []planning.WorkspaceRepository) ([]planning.Works
 				Reason: "its name is not made of letters, digits, \".\", \"_\", and \"-\", or it starts with \"-\""})
 		case !makePath(repository.Path):
 			left = append(left, planning.Omission{Name: repository.Name, Path: repository.Path,
-				Reason: "its path has a segment that is empty, \".\", \"..\", or not made of letters, digits, \".\", \"_\", and \"-\", or it starts with \"-\""})
+				Reason: "its path has a segment that is empty, \".\", \"..\", \".git\" in any case, or not made of letters, digits, \".\", \"_\", and \"-\", or it starts with \"-\""})
 		default:
 			carried = append(carried, repository)
 		}
@@ -115,28 +115,24 @@ func splitCarried(repositories []planning.WorkspaceRepository) ([]planning.Works
 // makeWord says a repository's name is one a Makefile and its shell recipes read as the word it is: a name the ledger
 // accepts, made of letters, digits, and . _ - only, so no make variable, comment, or shell syntax can be written in it.
 func makeWord(name string) bool {
-	return ledger.CheckRepositoryName(name) == nil && safeSegment(name)
+	return ledger.CheckRepositoryName(name) == nil && projectfiles.SafeSegment(name)
 }
 
 // makePath says a path relative to the planning repository is one a Makefile and its shell recipes read as the path it
-// is: segments joined by a slash, each non-empty, neither . nor .., and made of letters, digits, and . _ - only, and
-// the first not starting with a dash, which a command would read as an option. The ledger's name check refuses a slash
-// and refuses . and .. only as a whole name, so each segment is checked here.
+// is: segments joined by a slash, each non-empty, neither . nor .., not .git in any case, which is git's own folder,
+// and made of letters, digits, and . _ - only, and the first not starting with a dash, which a command would read as
+// an option. The ledger's name check refuses a slash and refuses . and .. only as a whole name, so each segment is
+// checked here.
 func makePath(rel string) bool {
 	if rel == "" || strings.HasPrefix(rel, "-") {
 		return false
 	}
 	for segment := range strings.SplitSeq(rel, "/") {
-		if segment == "." || segment == ".." || !safeSegment(segment) {
+		if segment == "." || segment == ".." || strings.EqualFold(segment, ".git") || !projectfiles.SafeSegment(segment) {
 			return false
 		}
 	}
 	return true
-}
-
-// safeSegment says a word is not empty and holds only letters, digits, and . _ -.
-func safeSegment(word string) bool {
-	return word != "" && strings.Trim(word, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == ""
 }
 
 // workspaceRepositories are the repositories the project holds beside the planning repository, as the manifest lists

@@ -139,8 +139,9 @@ func WritesTo(name string) string {
 }
 
 // Check refuses a folder no shape writes: an unknown shape, code repositories on a shape other than a
-// workspace, a name the ledger refuses as a repository's, a name given twice, and a repository whose remote is
-// empty or is not a single-line git remote. A new repository may have no remote.
+// workspace, a name the ledger refuses as a repository's, a name a Makefile cannot carry as a word, a name given
+// twice, and a repository whose remote is empty or is not a single-line git remote. A new repository may have no
+// remote.
 func Check(shape Shape, repositories []CodeRepository) error {
 	if !shape.Valid() {
 		return fmt.Errorf("%w: no shape %q; the shapes are workspace, monorepo, and repository", ErrInvalid, shape)
@@ -152,6 +153,9 @@ func Check(shape Shape, repositories []CodeRepository) error {
 	for _, repository := range repositories {
 		if err := ledger.CheckRepositoryName(repository.Name); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		if !SafeSegment(repository.Name) {
+			return fmt.Errorf("%w: a repository name holds only letters, digits, and . _ -, because the Makefile carries it as a word, and %q holds another character", ErrInvalid, repository.Name)
 		}
 		if seen[repository.Name] {
 			return fmt.Errorf("%w: repository %s is named twice", ErrInvalid, repository.Name)

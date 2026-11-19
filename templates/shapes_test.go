@@ -269,6 +269,19 @@ func fakeRopeshift(t *testing.T) (string, string) {
 	return dir + string(os.PathListSeparator) + os.Getenv("PATH"), record
 }
 
+// make help says that register and register-check act on the clones the Makefile lists, not on every repository.
+func TestMakeHelpSaysRegisterActsOnTheListedClones(t *testing.T) {
+	text := render(t, "workspace/makefile", templates.Data{Project: "orchid"})
+	for _, want := range []string{
+		"make register-check  show what registering the clones this Makefile lists would do",
+		"make register        register the clones this Makefile lists, and name this one the planning repository",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("make help holds no %q:\n%s", want, text)
+		}
+	}
+}
+
 // make register registers the workspace and the clone of every entry the Makefile lists, each by its own path, at any
 // depth, and a clone that is in the folder of clones and not in the list is not registered. An entry with no clone is
 // skipped, and make register-check passes the same paths with --dry-run.

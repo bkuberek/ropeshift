@@ -193,9 +193,13 @@ func (h planningHome) holdsMakefile() bool {
 	return h.tracks("GNUmakefile") || h.tracks(planning.MakefilePath)
 }
 
-// heldAs is the path a list of tracked paths holds a file under, in any case, because on a file system that ignores
-// case a file under another case is the file, and a second one beside it would collide with it.
+// heldAs is the path a list of tracked paths holds a file under: the file's own name when it is tracked, and else a
+// path that differs only in case, because on a file system that ignores case a file under another case is the file,
+// and a second one beside it would collide with it.
 func heldAs(tracked []string, file string) (string, bool) {
+	if slices.Contains(tracked, file) {
+		return file, true
+	}
 	for _, held := range tracked {
 		if strings.EqualFold(held, file) {
 			return held, true

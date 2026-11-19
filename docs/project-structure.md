@@ -43,7 +43,7 @@ A project of one repository needs none of the extra parts: that repository is it
 
 | Command | Writes | For |
 |---------|--------|-----|
-| `ropeshift new workspace <folder> --repository acme-api=<remote>` | The workspace above, with each code repository in the Makefile and the manifest at `repos/<name>` | A project of several repositories. The printed `make -C <folder> setup` clones each one into `repos/` |
+| `ropeshift new workspace <folder> --repository acme-api=<remote>` | The workspace above, with each code repository in the Makefile and the manifest at `repos/<name>` | A project of several repositories. The printed `make -C <folder> setup` clones each one into `repos/`, and `make register` registers only the clones the Makefile lists |
 | `ropeshift new monorepo <folder>` | `AGENTS.md`, `CLAUDE.md`, the plan in `plan/`, and `catalog-info.yaml` beside the code | A project of one repository, which plans in itself |
 | `ropeshift new repository <folder> --project acme` | `AGENTS.md`, `CLAUDE.md`, and `catalog-info.yaml`, with no `plan/` | A code repository of a project that plans in another repository, such as a new one in a workspace's `repos/` |
 

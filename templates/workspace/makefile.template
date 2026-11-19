@@ -36,8 +36,8 @@ help:
 	@echo 'make fetch           fetch the workspace and every repository'
 	@echo 'make status          show the branch and the changed files of every repository'
 	@echo 'make hooks           install a pre-commit hook that runs the quick check of each repository'
-	@echo 'make register-check  show what registering the repositories with ropeshift would do'
-	@echo 'make register        register every repository, and name this one the planning repository'
+	@echo 'make register-check  show what registering the clones this Makefile lists would do'
+	@echo 'make register        register the clones this Makefile lists, and name this one the planning repository'
 	@echo 'make lanes           list merged lane branches and checkpoint refs, deleting nothing'
 
 # Clone each repository that has no clone yet. A registered repository with no clone holds its work on

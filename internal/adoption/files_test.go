@@ -288,6 +288,39 @@ func TestAFileWhoseTemplateCannotBeRenderedRefusesTheWholePlan(t *testing.T) {
 	}
 }
 
+// The ignore file a restructuring appends to is the one named exactly .gitignore when the clone tracks it beside a
+// case variant, whichever comes first, and a case variant only when the exact name is not tracked.
+func TestTheIgnoreFileAppendedToIsTheExactNameWhenACaseVariantIsTrackedToo(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		tracked []string
+		want    string
+	}{
+		{"the variant first", []string{"README.md", ".GITIGNORE", ".gitignore"}, ".gitignore"},
+		{"the exact name first", []string{"README.md", ".gitignore", ".GITIGNORE"}, ".gitignore"},
+		{"only a variant", []string{"README.md", ".GitIgnore"}, ".GitIgnore"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newMachine(t)
+			m.clone("/work/ws", fake.CloneLayout{Tracked: tc.tracked})
+			m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+			plan := m.plan(adoption.Request{Root: "/work/ws", Paths: []string{"/work/api"}, Planning: "ws"}, registered)
+			var appended []string
+			for _, listed := range plan.Files {
+				if listed.Action == planning.ActionAppend {
+					appended = append(appended, listed.Path)
+				}
+			}
+			if !slices.Equal(appended, []string{tc.want}) {
+				t.Errorf("the plan appends to %v, want %q alone", appended, tc.want)
+			}
+		})
+	}
+}
+
 // A clone inside the planning clone is listed where it is, a clone the project refused is not listed, and a
 // manifest the clone commits is left alone.
 func TestACloneInsideThePlanningCloneIsListedWhereItIsAndARefusedOneNotAtAll(t *testing.T) {

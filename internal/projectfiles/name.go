@@ -28,3 +28,9 @@ func NameOf(directory string) string {
 	}
 	return name
 }
+
+// SafeSegment says a word is not empty and holds only letters, digits, and . _ -: a word a Makefile and its shell
+// recipes read as the word it is, with no variable, comment, quote, or separator in it.
+func SafeSegment(word string) bool {
+	return word != "" && strings.Trim(word, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == ""
+}
