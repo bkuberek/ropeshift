@@ -47,6 +47,8 @@ type Job struct {
 	// NeedsRepository says the folder needs a repository of its own for its first commit: no clone holds it, or the
 	// clone that holds it ignores it. A folder a clone tracks has its files committed with that clone.
 	NeedsRepository bool
+	// Branch is the branch each first commit starts on, and empty for the worker's default branch.
+	Branch string
 }
 
 // Name is the project's name: the folder's base name made a project name.

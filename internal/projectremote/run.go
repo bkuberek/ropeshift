@@ -183,7 +183,7 @@ func (r *runner) commit(ctx context.Context, u unit) error {
 			return err
 		}
 	}
-	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id, ports.CommitSpec{Paths: projectfiles.RepositoryPaths(u.rel, r.written())})
+	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id, ports.CommitSpec{Paths: projectfiles.RepositoryPaths(u.rel, r.written()), Branch: r.job.Branch})
 	switch {
 	case errors.Is(err, ports.ErrFolderChanged):
 		r.changed = true
@@ -316,8 +316,11 @@ func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledg
 		return ledger.TemplateWriteReport{}, err
 	}
 	report.Clone = report.Commit != "" && after.CloneTop != "" && after.CloneTop == after.Real
-	// The branch a first commit made by hand starts on is the one the run chose, which the push that finishes a failed run falls back to too.
-	branch := r.rt.Folders.DefaultBranch(ctx, r.job.Request.Path)
+	// The branch a first commit made by hand starts on is the one the run chose: the job's, or the default branch.
+	branch := r.job.Branch
+	if branch == "" {
+		branch = r.rt.Folders.DefaultBranch(ctx, r.job.Request.Path)
+	}
 	var commits []string
 	for _, u := range units[1:] {
 		if r.prog.NeedsRepository && r.prog.unit(u.rel).Commit == "" {
@@ -390,7 +393,7 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 
 // branch is the branch a repository's HEAD names as plain text, which asks origin for it, within the limit one step has.
 // The text is cleaned before it is quoted, because cleaning a quoted word can take its closing quote. A read that fails
-// or names no branch reads as the branch the run chose for a first commit.
+// or names no branch reads as the branch the run chose for a first commit: the job's, or the default branch.
 func (r *runner) branch(ctx context.Context, u unit) string {
 	ctx, cancel := context.WithTimeout(ctx, stepLimit)
 	defer cancel()
@@ -398,6 +401,9 @@ func (r *runner) branch(ctx context.Context, u unit) string {
 		if branch := ledger.PlainText(state.Branch); branch != "" {
 			return branch
 		}
+	}
+	if r.job.Branch != "" {
+		return ledger.PlainText(r.job.Branch)
 	}
 	return ledger.PlainText(r.rt.Folders.DefaultBranch(ctx, u.abs))
 }

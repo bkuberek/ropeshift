@@ -98,3 +98,41 @@ func TestProjectFoldersFailACommitAsGitDoes(t *testing.T) {
 		t.Error("a failed commit left a commit")
 	}
 }
+
+// A first commit starts the repository on the branch it names, on the default branch when it names none, and a branch
+// git refuses makes no repository.
+func TestProjectFoldersFirstCommitStartsOnTheNamedBranch(t *testing.T) {
+	machine := fake.NewProjectFolders()
+	machine.Dir("/srv/code")
+	machine.SetDefaultBranch("devel")
+	files := []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}
+	spec := func(branch string) ports.CommitSpec {
+		return ports.CommitSpec{Paths: []string{"AGENTS.md"}, Branch: branch}
+	}
+	for folder, tc := range map[string]struct{ branch, want string }{
+		"/srv/code/named": {"trunk", "trunk"},
+		"/srv/code/empty": {"", "devel"},
+	} {
+		id, err := machine.Write(t.Context(), folder, files, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := machine.FirstCommit(t.Context(), folder, "chore: start", false, id, spec(tc.branch)); err != nil {
+			t.Fatal(err)
+		}
+		if state, err := machine.Remote(t.Context(), folder); err != nil || state.Branch != tc.want {
+			t.Errorf("%s is on %q (%v), want %q", folder, state.Branch, err, tc.want)
+		}
+	}
+
+	id, err := machine.Write(t.Context(), "/srv/code/bad", files, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/bad", "chore: start", false, id, spec("bad name~")); err == nil {
+		t.Error("a first commit on a branch git refuses was made")
+	}
+	if got := machine.Inspected("/srv/code/bad"); got.CloneTop != "" {
+		t.Errorf("a refused branch made a repository: %+v", got)
+	}
+}

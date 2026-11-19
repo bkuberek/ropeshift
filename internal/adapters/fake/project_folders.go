@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -269,14 +270,20 @@ func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, erro
 	return f.under(path.Clean(folder)), nil
 }
 
-// FirstCommit makes the folder a clone, and commits unless CommitError says it fails. A folder that is a clone already
-// is the worker's own only on a resume.
+// FirstCommit makes the folder a clone on the branch commit names, or on the default branch when it names none, and
+// commits unless CommitError says it fails. A branch git refuses is an error and makes no clone. A folder that is a
+// clone already is the worker's own only on a resume.
 func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool, named ports.FolderID, commit ports.CommitSpec) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	folder = path.Clean(folder)
 	if _, link := f.links[folder]; link || named != ports.FolderID("fake:"+folder) {
 		return "", ports.ErrFolderChanged
+	}
+	if commit.Branch != "" {
+		if err := ledger.CheckBranch(commit.Branch); err != nil {
+			return "", err
+		}
 	}
 	if f.tops[folder] && !resumed {
 		return "", errors.New("the folder holds a repository this worker did not make")
@@ -288,6 +295,12 @@ func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, 
 		return "", errors.New("no file to commit: every file the shape writes was in the folder already or is ignored by git")
 	}
 	f.tops[folder] = true
+	switch {
+	case commit.Branch != "":
+		f.branches[folder] = commit.Branch
+	case f.initial != "" && f.branches[folder] == "":
+		f.branches[folder] = f.initial
+	}
 	if f.staged == nil {
 		f.staged = map[string][]string{}
 	}

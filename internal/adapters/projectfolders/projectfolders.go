@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -218,7 +219,8 @@ func (f Folders) Held(_ context.Context, path string, files []string) ([]string,
 	return held, nil
 }
 
-// FirstCommit makes the folder a repository on the default branch, adds the files the commit names, and commits them. It runs under no hook and no signing,
+// FirstCommit makes the folder a repository on the branch the commit names, or on the default branch when it names none,
+// adds the files the commit names, and commits them. It runs under no hook and no signing,
 // whatever the user's git configuration names, and `git init` copies no template, because the folder's hooks are code
 // the commit would run. A .git is the worker's own only when the caller says its journal records the git init: then a
 // commit made before a crash is answered, not made twice, and an init with no commit is gone on from.
@@ -234,6 +236,9 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 		return nil
 	}
 	if err := same(); err != nil {
+		return "", err
+	}
+	if err := f.checkBranch(ctx, path, commit.Branch); err != nil {
 		return "", err
 	}
 	if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
@@ -252,7 +257,11 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 	if err := same(); err != nil {
 		return "", err
 	}
-	if _, err := git.Output(ctx, "init", "--quiet", "--template=", "--initial-branch="+f.DefaultBranch(ctx, path)); err != nil {
+	branch := commit.Branch
+	if branch == "" {
+		branch = f.DefaultBranch(ctx, path)
+	}
+	if _, err := git.Output(ctx, "init", "--quiet", "--template=", "--initial-branch="+branch); err != nil {
 		return "", describe(err)
 	}
 	// Git refuses a path it ignores, so the commit adds the paths git would add, as `git add -A` did: those it tracks, which
@@ -282,6 +291,26 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 		}
 	}
 	return git.Text(ctx, "rev-parse", "--verify", "HEAD")
+}
+
+// checkBranch refuses a branch name git would not take, before anything is run that makes a repository. An empty name is
+// the default branch. Git reads the name as `check-ref-format --branch` does, which also expands a name such as @{-1} to
+// the branch it stands for, so a name git answers with another name is refused.
+func (f Folders) checkBranch(ctx context.Context, path, branch string) error {
+	if branch == "" {
+		return nil
+	}
+	if err := ledger.CheckBranch(branch); err != nil {
+		return err
+	}
+	named, err := gitcli.Git{Dir: path, Env: f.Env}.Text(ctx, "check-ref-format", "--branch", branch)
+	if err != nil {
+		return describe(err)
+	}
+	if named != branch {
+		return fmt.Errorf("branch %q is not a branch name", branch)
+	}
+	return nil
 }
 
 // errNothingToCommit is what a first commit says when no file is left to add: every file the shape writes was in the

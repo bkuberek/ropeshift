@@ -284,3 +284,58 @@ func TestFirstCommitReadsTheDefaultBranchThroughAnInclude(t *testing.T) {
 		t.Errorf("the default branch is %q, want trunk", got)
 	}
 }
+
+// A first commit that names a branch starts the repository on it, whatever git's configuration names as the default, and
+// one that names none keeps that default.
+func TestFirstCommitStartsOnTheBranchItNames(t *testing.T) {
+	gittest.Require(t)
+	env := gitEnv(t, identity+"[init]\n\tdefaultBranch = devel\n", nil)
+	f := projectfolders.Folders{Env: env}
+	for name, tc := range map[string]struct{ branch, want string }{
+		"named": {"trunk", "trunk"},
+		"empty": {"", "devel"},
+		"path":  {"release/v1", "release/v1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			folder := filepath.Join(t.TempDir(), "harbor")
+			id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+			spec := ports.CommitSpec{Paths: []string{"AGENTS.md"}, Branch: tc.branch}
+			if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, spec); err != nil {
+				t.Fatal(err)
+			}
+			branch, err := (gitcli.Git{Dir: folder, Env: env}).Text(t.Context(), "symbolic-ref", "--short", "HEAD")
+			if err != nil || branch != tc.want {
+				t.Errorf("HEAD names %q (%v), want %q", branch, err, tc.want)
+			}
+		})
+	}
+}
+
+// A branch git refuses is an error before git init runs, so the folder holds no repository.
+func TestFirstCommitRefusesABranchGitRefusesBeforeAnyInit(t *testing.T) {
+	gittest.Require(t)
+	env := gitEnv(t, identity, nil)
+	f := projectfolders.Folders{Env: env}
+	for name, branch := range map[string]string{
+		"a space":       "bad name",
+		"a tilde":       "bad~name",
+		"a dash":        "-x",
+		"a dot dot":     "a..b",
+		"a lock":        "main.lock",
+		"a reflog":      "@{-1}",
+		"an at sign":    "@",
+		"an empty part": "a//b",
+	} {
+		t.Run(name, func(t *testing.T) {
+			folder := filepath.Join(t.TempDir(), "harbor")
+			id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+			spec := ports.CommitSpec{Paths: []string{"AGENTS.md"}, Branch: branch}
+			if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, spec); err == nil {
+				t.Fatalf("a first commit on %q was made", branch)
+			}
+			if _, err := os.Lstat(filepath.Join(folder, ".git")); !os.IsNotExist(err) {
+				t.Errorf("git init ran for %q: %v", branch, err)
+			}
+		})
+	}
+}
