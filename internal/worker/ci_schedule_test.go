@@ -14,7 +14,7 @@ import (
 // ciRig is a pull request the worker watches, whose required check began at the worker's clock.
 func ciRig(t *testing.T) (*forgeRig, func() int, time.Time) {
 	t.Helper()
-	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", fake.LaneHead) })
 	for len(f.forge.PullRequests()) == 0 {
 		f.converge(1)
 	}
@@ -87,7 +87,7 @@ func TestAWatchedPullRequestIsReadOnTheCISchedule(t *testing.T) {
 // no-history default. Five records of two minutes put the first read of a running check at two minutes.
 func TestAWatchedPullRequestIsReadByTheRepositorysOwnHistory(t *testing.T) {
 	t.Parallel()
-	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", fake.LaneHead) })
 	err := f.store.Write(t.Context(), scope, "note", func(tx ports.WriteTx) error {
 		for i := range 5 {
 			done := int64(i+1) * (time.Hour).Milliseconds()

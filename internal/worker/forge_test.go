@@ -104,7 +104,7 @@ func TestAWorkerPublishesALanesCommitBeforeItsReview(t *testing.T) {
 	if held := f.review().StartHeld; held == nil || held.Reason != workorders.HoldPullRequestPending {
 		t.Fatalf("the review waits on %+v", held)
 	}
-	f.forge.Push(widgets, "lane/lane-1", "fake-head")
+	f.forge.Push(widgets, "lane/lane-1", fake.LaneHead)
 	f.converge(3)
 	if pushed := f.worktrees.Pushed(); !slices.Contains(pushed, lanes.HeadsRef("lane/lane-1")) {
 		t.Errorf("the worker pushed %v", pushed)
@@ -114,7 +114,7 @@ func TestAWorkerPublishesALanesCommitBeforeItsReview(t *testing.T) {
 		t.Fatalf("the forge holds %+v", prs)
 	}
 	pr, err := f.pullRequest()
-	if err != nil || pr.Number != prs[0].Number || pr.HeadCommit != "fake-head" {
+	if err != nil || pr.Number != prs[0].Number || pr.HeadCommit != fake.LaneHead {
 		t.Fatalf("the ledger holds %+v: %v", pr, err)
 	}
 	if held := f.review().StartHeld; held != nil {
@@ -182,7 +182,7 @@ func TestAFailedPushIsReportedAndTriedAgainLater(t *testing.T) {
 // makes on the forge comes back, so the integration tick ends the work.
 func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 	t.Parallel()
-	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", fake.LaneHead) })
 	f.converge(3)
 	review := f.review()
 	if review.StartHeld != nil {
@@ -257,7 +257,7 @@ func (f *forgeRig) passReview() {
 // merge nothing again.
 func TestAWorkerMergesAtTheReviewedHeadOnce(t *testing.T) {
 	t.Parallel()
-	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", fake.LaneHead) })
 	level, method := ledger.ReviewApproves, ledger.MergeSquash
 	if _, err := control.NewRepositories(f.store).Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level, MergeMethod: &method}, member); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestAWorkerMergesAtTheReviewedHeadOnce(t *testing.T) {
 		t.Errorf("the worker merged %d times: %v", merges, f.forge.Calls())
 	}
 	pr, err := f.pullRequest()
-	if err != nil || pr.State != ledger.PullRequestMerged || pr.HeadCommit != "fake-head" {
+	if err != nil || pr.State != ledger.PullRequestMerged || pr.HeadCommit != fake.LaneHead {
 		t.Errorf("the ledger holds %+v: %v", pr, err)
 	}
 }
@@ -441,7 +441,7 @@ func (j *cursorJournal) seen() (int64, []int64) {
 // it, because a required check gates the merge (FR-MERGE-2).
 func TestAWorkersFirstReadReportsChecksTheLedgerLacks(t *testing.T) {
 	t.Parallel()
-	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", fake.LaneHead) })
 	for len(f.forge.PullRequests()) == 0 {
 		f.converge(1)
 	}

@@ -198,6 +198,24 @@ func TestRunLeavesSecretsUnknownWhenTheScanIsPartial(t *testing.T) {
 	}
 }
 
+// A partial scan that found a secret reports the finding and says the scan was partial.
+func TestRunReportsAPartialScanThatFoundASecret(t *testing.T) {
+	f := newFixture()
+	digest := "1a2b3c4d5e6f" + strings.Repeat("0", 52)
+	f.fake.SetScan(checkoutDir, ports.SecretScan{
+		Matches: []practices.SecretMatch{{Rule: "github_token", Path: "config/dev.yaml", Line: 4, Commit: oldCommit, Digest: digest}},
+		Partial: "the repository is a shallow clone",
+	})
+	result, err := practicerun.Run(t.Context(), f.sources, request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, result, practices.Secrets, practices.StatusFinding, "")
+	if result.Partial != "the repository is a shallow clone" {
+		t.Errorf("the result says the scan was partial as %q", result.Partial)
+	}
+}
+
 // A scan or a settings read that ends with the caller's context is a failed run, not an unknown practice.
 func TestRunFailsWhenTheContextEnds(t *testing.T) {
 	t.Run("scan", func(t *testing.T) {

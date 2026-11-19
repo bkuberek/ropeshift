@@ -16,7 +16,9 @@ const CredentialRulesVersion = 1
 // the forge already masked as ***, or one too short to be one. A secret rule matches a long, fixed-format credential,
 // so a match of it is a secret in a file as well as in a log. The rules that are not secret rules match shapes that
 // placeholders and short values also take, and only redaction applies them. A block rule matches text that spans
-// lines, so a change to some of those lines is no match of it without the lines around them.
+// lines, so a change to some of those lines is no match of it without the lines around them. It says with closed
+// whether a match ends the way the block does: a block that never ends runs to the end of the text, and holds every
+// line after its start.
 type redactionRule struct {
 	name    string
 	pattern *regexp.Regexp
@@ -25,6 +27,7 @@ type redactionRule struct {
 	skip    func(value string) bool
 	secret  bool
 	block   bool
+	closed  func(match string) bool
 }
 
 func (r redactionRule) marker() string { return "[redacted: " + r.name + "]" }
@@ -65,16 +68,21 @@ func secretRule(r redactionRule) redactionRule {
 	return r
 }
 
-// blockRule marks a secret rule as one that matches text spanning lines.
-func blockRule(r redactionRule) redactionRule {
+// blockRule marks a secret rule as one that matches text spanning lines, whose matches are closed when they end in
+// a match of ends.
+func blockRule(r redactionRule, ends *regexp.Regexp) redactionRule {
 	r.block = true
+	r.closed = ends.MatchString
 	return r
 }
+
+// privateKeyEnd matches the end of a private key block that has an END line.
+var privateKeyEnd = regexp.MustCompile(`-----END [A-Z ]*PRIVATE KEY-----\z`)
 
 // credentialRules is the rule set, in the order it is applied: a private key goes first, because it holds lines that
 // other rules would match inside it. A value the forge already masked as *** matches none of them and stays masked.
 var credentialRules = []redactionRule{
-	blockRule(secretRule(whole("private_key", `(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`))),
+	blockRule(secretRule(whole("private_key", `(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)), privateKeyEnd),
 	// The end of a key whose start was cut off by the window a log was read through: everything from the start of the
 	// text to its END line goes, because nothing says where the body began.
 	whole("private_key", `(?s)\A.*?-----END [A-Z ]*PRIVATE KEY-----`),

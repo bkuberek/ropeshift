@@ -25,6 +25,7 @@ func TestAPracticesViewCarriesTheTablesWordsForEachPracticeAndFinding(t *testing
 		Repository: "repo-a", Request: "req-1", Commit: "abc", CheckedAt: checked.UnixMilli(),
 		Result: practices.Result{
 			Repository: "repo-a", Commit: "abc", BaseBranch: "main", Worker: "w", CheckedAt: checked, TableVersion: 1, RulesVersion: 1, Skipped: 2,
+			Partial: "the repository is a shallow clone",
 			Practices: []practices.PracticeStatus{
 				{ID: practices.EnvIgnored, Status: practices.StatusFinding},
 				{ID: practices.Secrets, Status: practices.StatusUnknown, Reason: "the scan could not run"},
@@ -33,7 +34,7 @@ func TestAPracticesViewCarriesTheTablesWordsForEachPracticeAndFinding(t *testing
 		},
 	}
 	view := api.PracticesViewOf(ledger.Repository{ID: "repo-a", Name: "widgets"}, &record, nil, nil, 0, nil)
-	if view.Result == nil || view.Result.Request != "req-1" || view.Result.Commit != "abc" || view.Result.Skipped != 2 || !view.Result.CheckedAt.Equal(checked) {
+	if view.Result == nil || view.Result.Request != "req-1" || view.Result.Commit != "abc" || view.Result.Skipped != 2 || view.Result.Partial != "the repository is a shallow clone" || !view.Result.CheckedAt.Equal(checked) {
 		t.Fatalf("the result reads %+v", view.Result)
 	}
 	env, secrets := view.Result.Practices[0], view.Result.Practices[1]

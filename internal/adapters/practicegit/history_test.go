@@ -561,3 +561,59 @@ func TestSecretScanDoesNotBlameACommitForAKeyItLeftAlone(t *testing.T) {
 		t.Errorf("matches are %+v", got.Matches)
 	}
 }
+
+// A clone that holds no blob never asks the repository it came from for one, whatever its configuration says.
+func TestSecretScanOfABloblessCloneNeverFetches(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("a.txt", secretScanTokenA+"\n")
+	origin.Commit("a.txt", "clean\n")
+	clone := origin.BloblessClone("blobless")
+	marker := filepath.Join(t.TempDir(), "asked")
+	script := filepath.Join(t.TempDir(), "upload-pack")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	clone.Git("config", "remote.origin.uploadpack", script)
+	_, _ = practicegit.SecretScanner{Env: clone.Env()}.Scan(context.Background(), clone.Dir, "HEAD", "")
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the scan asked the repository the clone came from for a blob")
+	}
+}
+
+// A BEGIN line with no END line holds every line after it, so a later edit of any of them is no new key.
+func TestSecretScanFindsNoNewKeyInAnEditAfterAnUnterminatedBegin(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("notes.txt", "-----BEGIN "+"RSA PRIVATE KEY-----\nnotes one\nnotes two\n")
+	repo.Commit("notes.txt", "-----BEGIN "+"RSA PRIVATE KEY-----\nnotes one\nnotes changed\n")
+	tip := repo.Commit("notes.txt", "gone\n")
+	got := secretScan(t, repo, tip, "")
+	for _, m := range got.Matches {
+		if m.Line != 1 {
+			t.Errorf("a match is at line %d, commit %s: %+v", m.Line, m.Commit, m)
+		}
+	}
+	if len(got.Matches) != 1 {
+		t.Errorf("matches are %+v", got.Matches)
+	}
+}
+
+// A key found in a file a commit changed in place, and added whole by a later commit, is one match at the earlier one.
+func TestSecretScanKeepsTheEarliestCommitOfAKeyFoundInAChangedFile(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	before := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "KUpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	after := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "ZZpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	first := repo.Commit("keys/id_rsa", "# key\n"+before+"\n")
+	replaced := repo.Commit("keys/id_rsa", "# key\n"+after+"\n")
+	repo.Commit("keys/id_rsa", "gone\n")
+	repo.Commit("keys/id_rsa", "# key\n"+after+"\n")
+	tip := repo.Commit("keys/id_rsa", "gone again\n")
+	want := []practices.SecretMatch{
+		{Rule: "private_key", Path: "keys/id_rsa", Line: 2, Commit: first, Digest: secretScanDigest(before)},
+		{Rule: "private_key", Path: "keys/id_rsa", Line: 2, Commit: replaced, Digest: secretScanDigest(after)},
+	}
+	slices.SortFunc(want, func(a, b practices.SecretMatch) int { return strings.Compare(a.Digest, b.Digest) })
+	secretScanExpect(t, secretScan(t, repo, tip, ""), want...)
+}

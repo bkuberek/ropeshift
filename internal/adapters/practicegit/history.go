@@ -3,6 +3,7 @@ package practicegit
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -26,13 +27,16 @@ const (
 	secretScanBatchBytes = 8 << 20
 	// secretScanCheckObjects bounds the objects one `git cat-file --batch-check` run is asked about.
 	secretScanCheckObjects = 4096
+	// secretScanFlushRuns is how many runs of added lines to files that were not created a history scan holds before
+	// it reads those files, which bounds what it holds on a long history.
+	secretScanFlushRuns = 1000
 )
 
 // secretScanEnvironment is what every git command of the scan runs under, so the repository's own settings cannot
-// change what it reads: paths print as they are and not in quotes, no file system monitor runs, and a replacement
-// ref cannot stand in for an object.
+// change what it reads: paths print as they are and not in quotes, no file system monitor runs, a replacement
+// ref cannot stand in for an object, and an object the clone lacks is never fetched from the repository it came from.
 var secretScanEnvironment = []string{
-	"GIT_NO_REPLACE_OBJECTS=1", "GIT_CONFIG_COUNT=2",
+	"GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1", "GIT_CONFIG_COUNT=2",
 	"GIT_CONFIG_KEY_0=core.quotePath", "GIT_CONFIG_VALUE_0=false",
 	"GIT_CONFIG_KEY_1=core.fsmonitor", "GIT_CONFIG_VALUE_1=false",
 }
@@ -43,6 +47,9 @@ var _ ports.SecretScans = SecretScanner{}
 // `cat-file`, and `log`. Env replaces the process environment when it is set, as it does for gitcli.Git.
 type SecretScanner struct {
 	Env []string
+	// flushAfter is how many runs of added lines to files that were not created a history scan holds before it reads
+	// those files, and is secretScanFlushRuns when it is zero.
+	flushAfter int
 }
 
 // Scan scans the tracked files at tip, and the patches of the history reachable from tip. The history scan skips
@@ -77,10 +84,12 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
 	found := newSecretFindings()
+	found.flushAfter = cmp.Or(s.flushAfter, secretScanFlushRuns)
+	found.flush = func(touched map[string][]secretTouch) error { return found.scanTouchedBlobs(ctx, git, touched) }
 	if err := git.Stream(ctx, func(r io.Reader) error { return found.readPatches(r) }, args...); err != nil {
 		return ports.SecretScan{}, secretScanFailure(ctx, "scan the history for secrets", err)
 	}
-	if err := found.scanTouchedBlobs(ctx, git); err != nil {
+	if err := found.scanTouchedBlobs(ctx, git, found.touched); err != nil {
 		return ports.SecretScan{}, secretScanFailure(ctx, "scan the changed files for secrets", err)
 	}
 	if err := found.scanTree(ctx, git, tipCommit); err != nil {
@@ -161,8 +170,12 @@ type secretFindings struct {
 	// rank holds the place of each commit the history scan read, oldest first.
 	rank map[string]int
 	// touched holds, for each blob a commit left in a file it changed and did not create, the runs of lines the commit
-	// added to it.
-	touched map[string][]secretTouch
+	// added to it. pending counts the runs, and flush reads the blobs when flushAfter runs are held, which a history
+	// scan sets so it holds no more than that.
+	touched    map[string][]secretTouch
+	pending    int
+	flushAfter int
+	flush      func(touched map[string][]secretTouch) error
 	// find scans a text with the secret rules.
 	find func(text string) []ledger.SecretMatch
 }
@@ -292,9 +305,9 @@ func (f *secretFindings) scanTree(ctx context.Context, git gitcli.Git, commit st
 // scanTouchedBlobs scans, for the secret rules that match across lines, each blob a commit left in a file it
 // changed and did not create. A commit that changes lines inside such a match shows none of the lines around them, so
 // its added lines alone do not hold the match. A match counts for a commit when it covers a line the commit added.
-func (f *secretFindings) scanTouchedBlobs(ctx context.Context, git gitcli.Git) error {
-	objects := make([]string, 0, len(f.touched))
-	for object := range f.touched {
+func (f *secretFindings) scanTouchedBlobs(ctx context.Context, git gitcli.Git, touched map[string][]secretTouch) error {
+	objects := make([]string, 0, len(touched))
+	for object := range touched {
 		objects = append(objects, object)
 	}
 	slices.Sort(objects)
@@ -305,7 +318,7 @@ func (f *secretFindings) scanTouchedBlobs(ctx context.Context, git gitcli.Git) e
 	var readable []string
 	for _, object := range objects {
 		if size[object] > secretScanMaxBytes {
-			for _, touch := range f.touched[object] {
+			for _, touch := range touched[object] {
 				f.skipped[touch.path] = true
 			}
 			continue
@@ -313,7 +326,7 @@ func (f *secretFindings) scanTouchedBlobs(ctx context.Context, git gitcli.Git) e
 		readable = append(readable, object)
 	}
 	return readBlobsIn(ctx, git, readable, size, func(object string, content []byte) {
-		touches := f.touched[object]
+		touches := touched[object]
 		if secretScanBinary(content) {
 			for _, touch := range touches {
 				f.skipped[touch.path] = true
@@ -422,7 +435,20 @@ func (f *secretFindings) readPatches(r io.Reader) error {
 			return err
 		}
 		p.line(string(line), truncated)
+		if err := f.flushTouched(); err != nil {
+			return err
+		}
 	}
+}
+
+// flushTouched hands on the files held when flushAfter runs of added lines are held, and holds none after.
+func (f *secretFindings) flushTouched() error {
+	if f.flush == nil || f.pending < f.flushAfter {
+		return nil
+	}
+	touched := f.touched
+	f.touched, f.pending = map[string][]secretTouch{}, 0
+	return f.flush(touched)
 }
 
 // patchReader is the state of a read of patches: the commit, the file, and the hunk it is in.
@@ -551,6 +577,7 @@ func (p *patchReader) endHunk() {
 			if p.blob != "" && !p.created && !p.submodule {
 				p.found.touched[p.blob] = append(p.found.touched[p.blob],
 					secretTouch{path: p.path, commit: p.commit, first: p.first, last: p.first + len(p.text) - 1})
+				p.found.pending++
 			}
 		}
 	}

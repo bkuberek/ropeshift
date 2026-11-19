@@ -240,8 +240,15 @@ func TestSecretsOfAPartialScanAreUnknownUnlessItFoundSomething(t *testing.T) {
 		t.Errorf("status = %v", got)
 	}
 	in.Secrets = []SecretMatch{{Rule: "github_token", Path: "a.txt", Line: 1, Commit: "0123456789abcdef", Digest: "1a2b3c4d5e6f7a8b9c0d"}}
-	if got := statusOf(t, Evaluate(in), Secrets).Status; got != StatusFinding {
+	found := Evaluate(in)
+	if got := statusOf(t, found, Secrets).Status; got != StatusFinding {
 		t.Errorf("status with a match = %s", got)
+	}
+	if found.Partial != "the repository is a shallow clone" {
+		t.Errorf("the result with a match says it is partial as %q", found.Partial)
+	}
+	if clean := Evaluate(input(clean())); clean.Partial != "" {
+		t.Errorf("a whole scan says it is partial as %q", clean.Partial)
 	}
 }
 

@@ -420,7 +420,7 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		return result, err
 	}
 	scan := ledger.PracticesScan{Tip: result.Commit, RulesVersion: result.RulesVersion}
-	if unverified != "" || scanFailed {
+	if unverified != "" || scanFailed || result.Partial != "" {
 		scan = ledger.PracticesScan{}
 	}
 	return result, tx.Practices().SaveScan(request.Repository, scan)

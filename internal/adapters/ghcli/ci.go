@@ -82,7 +82,8 @@ func (f Forge) runTail(ctx context.Context, dir string, max int, args ...string)
 		}
 		return "", failed
 	}
-	if err != nil {
+	// A command that exited with success and left a child holding its output open has answered: what it wrote is read.
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return "", fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)
 	}
 	return tail.text(), nil

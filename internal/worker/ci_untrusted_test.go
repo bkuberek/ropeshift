@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -89,7 +90,7 @@ func TestAHostileCheckAddressNeverReachesTheBrief(t *testing.T) {
 	bidi := string([]rune{0x202E, 0x2066, 0x200B})
 	check := f.finishedNow("unit", "failure", "707")
 	check.DetailsURI += "?payload=" + tags + bidi + "#" + tags + bidi
-	f.forge.SetRun("707", "fake-head")
+	f.forge.SetRun("707", fake.LaneHead)
 	f.forge.SetLog("unit", "FAIL TestWidget\n")
 	f.forge.SetChecks(number, check)
 	f.settle()

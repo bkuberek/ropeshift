@@ -18,7 +18,7 @@ import (
 // at the database's.
 func reviewedRig(t *testing.T) (*forgeRig, int64) {
 	t.Helper()
-	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", fake.LaneHead) })
 	f.converge(3)
 	f.passReview()
 	f.converge(2)
@@ -32,7 +32,7 @@ func reviewedRig(t *testing.T) (*forgeRig, int64) {
 // finishedNow is a required run that completed at the worker's clock with a conclusion, as a run of GitHub Actions.
 func (f *forgeRig) finishedNow(name, conclusion, run string) ledger.PullRequestCheck {
 	// The run is a run of the head under review, as the forge holds it, unless a test says another.
-	f.forge.SetRun(run, "fake-head")
+	f.forge.SetRun(run, fake.LaneHead)
 	return ledger.PullRequestCheck{
 		Name: name, State: ledger.CheckFailed, Status: ledger.CIRunCompleted, Conclusion: conclusion, Required: true,
 		StartedAt: f.clock.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339), CompletedAt: f.clock.Now().UTC().Format(time.RFC3339),

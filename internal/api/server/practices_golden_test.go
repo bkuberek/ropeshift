@@ -35,6 +35,7 @@ func TestGoldenPractices(t *testing.T) {
 		Repository: "repo-a", Commit: "1111111111111111111111111111111111111111", BaseBranch: "main", Worker: "plan",
 		CheckedAt:    time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC),
 		TableVersion: practices.TableVersion, RulesVersion: ledger.CredentialRulesVersion, Skipped: 1,
+		Partial: "the repository is a shallow clone, so the history before its shallow boundary was not scanned",
 		Practices: []practices.PracticeStatus{
 			{ID: practices.EnvIgnored, Status: practices.StatusFinding},
 			{ID: practices.Secrets, Status: practices.StatusFinding},

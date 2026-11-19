@@ -3,6 +3,7 @@ package ledger
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 )
 
 // SecretMatch is one match of a secret rule in a text. It holds where the match is and the digest of the matched text,
@@ -31,21 +32,27 @@ func SecretRuleNames() []string {
 // FindSecrets returns the matches of the secret rules in text, in the order they sit in it. A rule that comes first
 // takes the text it matches: a match inside the span of an earlier match is part of it, and is not found again.
 func FindSecrets(text string) []SecretMatch {
-	return findSecrets(text, func(redactionRule) bool { return true })
+	return findSecrets(text, func(redactionRule) bool { return true }, false)
 }
 
 // FindBlockSecrets returns the matches of the secret rules that match text spanning lines, such as a private key,
-// in the order they sit in text. It is FindSecrets for the rules a change to some lines of the text can break.
+// in the order they sit in text. It is FindSecrets for the rules a change to some lines of the text can break, and
+// it leaves out a block that never ends, which holds every line after its start.
 func FindBlockSecrets(text string) []SecretMatch {
-	return findSecrets(text, func(rule redactionRule) bool { return rule.block })
+	return findSecrets(text, func(rule redactionRule) bool { return rule.block }, true)
 }
 
-func findSecrets(text string, applies func(redactionRule) bool) []SecretMatch {
+func findSecrets(text string, applies func(redactionRule) bool, closedOnly bool) []SecretMatch {
 	var found []SecretMatch
 	for _, rule := range credentialRules {
-		if rule.secret && applies(rule) {
-			found = mergeMatches(found, newMatches(rule, text, found))
+		if !rule.secret || !applies(rule) {
+			continue
 		}
+		matches := newMatches(rule, text, found)
+		if closedOnly && rule.closed != nil {
+			matches = slices.DeleteFunc(matches, func(m SecretMatch) bool { return !rule.closed(text[m.Start:m.End]) })
+		}
+		found = mergeMatches(found, matches)
 	}
 	return found
 }
