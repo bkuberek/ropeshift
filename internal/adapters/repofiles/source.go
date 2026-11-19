@@ -140,7 +140,7 @@ func (s *Source) roots(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
+	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", "--end-of-options", ref)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, err := s.git.Text(ctx, "rev-list", "--first-parent", "--max-parents=0", ref)
+	root, err := s.git.Text(ctx, "rev-list", "--first-parent", "--max-parents=0", "--end-of-options", ref)
 	if err != nil {
 		return "", err
 	}
@@ -467,13 +467,14 @@ func splitSource(source string) (path, commit string, ok bool) {
 }
 
 func (s *Source) blobAt(ctx context.Context, commit, path string) (string, error) {
-	return s.git.Text(ctx, "rev-parse", "--verify", "--quiet", commit+":"+path)
+	return s.git.Text(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", commit+":"+path)
 }
 
 // holds says a commit's history had this blob at this path. It walks every side of every merge,
-// because a merge that took one side's file still knew the other's.
+// because a merge that took one side's file still knew the other's. The path is literal, so a name that means
+// something to git as a pathspec means nothing here.
 func (s *Source) holds(ctx context.Context, commit, path, blob string) (bool, error) {
-	found, err := s.git.Text(ctx, "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, commit, "--", path)
+	found, err := s.git.Text(ctx, "--literal-pathspecs", "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, "--end-of-options", commit, "--", path)
 	return found != "", err
 }
 
@@ -508,7 +509,7 @@ func (s *Source) fetch(ctx context.Context) {
 		s.setHealth(ports.SourceHealth{State: planning.HealthOK})
 		return
 	}
-	if err := s.git.Fetch(ctx, "--quiet", remote); err != nil {
+	if err := s.git.Fetch(ctx, "--quiet", "--", remote); err != nil {
 		s.setHealth(ports.SourceHealth{State: planning.HealthFetchFailed, Detail: err.Error()})
 		return
 	}
@@ -577,9 +578,10 @@ func (s *Source) Head(ctx context.Context) (string, error) {
 // Tree lists the Markdown blobs of a commit. The hash in the listing is the digest
 // of the file as written.
 func (s *Source) Tree(ctx context.Context, commit string) ([]Blob, error) {
-	args := []string{"ls-tree", "-r", "-z", "--full-tree", commit}
+	args := []string{"ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit}
 	if dir := strings.Trim(s.config.Directory, "/"); dir != "" && dir != "." {
-		args = append(args, "--", dir)
+		// After `--end-of-options` every argument is a revision or a path, so a `--` here would be one more path.
+		args = append(args, dir)
 	}
 	out, err := s.git.Output(ctx, args...)
 	if err != nil {

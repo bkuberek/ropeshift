@@ -93,6 +93,21 @@ func TestAdoptionPlanTextPrintsEveryFieldAsPlainText(t *testing.T) {
 	sameShape(t, adoptionPlanText(undecided(hostile)), adoptionPlanText(undecided("x")))
 }
 
+// The repository line of the plan names the repository by its ID, which a record or the API supplies, so an ID with
+// an escape sequence, a bell, or a line break prints as plain text on the one line.
+func TestAdoptionPlanTextPrintsARepositoryIDAsPlainText(t *testing.T) {
+	plan := func(id string) planning.AdoptionPlan {
+		return planning.AdoptionPlan{Repositories: []planning.PlannedRepository{
+			{Name: "x", ID: id, Path: "/x", Outcome: string(ledger.Registered)},
+		}}
+	}
+	got := adoptionPlanText(plan("a\x1b[31m\nb\x07cdef"))
+	sameShape(t, got, adoptionPlanText(plan("abcdef")))
+	if !strings.Contains(got, "would register\tx\ta bcdef\t/x\n") {
+		t.Errorf("the repository line reads %q, want its ID as plain text", got)
+	}
+}
+
 // What adopt --restructure prints of the moves, the steps, and the repositories the Makefile leaves out, a person
 // copies and runs, and it never breaks a line or reaches the terminal as a control sequence.
 func TestAdoptRestructureListsPrintPlainText(t *testing.T) {
