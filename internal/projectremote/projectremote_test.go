@@ -459,7 +459,7 @@ func TestACrashAfterCreateAndBeforePushCreatesNothingTwice(t *testing.T) {
 		progress.Units = map[string]*projectremote.UnitProgress{".": own}
 	}
 	m.folders.Dir("/srv/acme")
-	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme", ports.CommitSpec{})
+	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme", ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestACreateThatNeverReachedTheForgeRunsAgainAfterARestart(t *testing.T) {
 		t.Fatalf("refusal = %+v, err = %v", refusal, err)
 	}
 	m.folders.Dir("/srv/acme")
-	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme", ports.CommitSpec{})
+	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme", ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -667,7 +667,8 @@ func TestTheFirstCommitAddsOnlyTheFilesTheRunWrote(t *testing.T) {
 	other.folders.Place("/srv/acme/AGENTS.md", "mine")
 	request.FirstCommit = false
 	report := other.run(t, request, &projectremote.Progress{})
-	add := "git -C /srv/acme add -- " + strings.Join(withoutFile(projectfiles.Monorepo, "AGENTS.md"), " ")
+	git := "git -C /srv/acme --literal-pathspecs"
+	add := git + " ls-files -z --others --exclude-standard -- " + strings.Join(withoutFile(projectfiles.Monorepo, "AGENTS.md"), " ") + " | xargs -0 " + git + " add --"
 	if !slices.Contains(report.Commands, add) {
 		t.Errorf("the commands lack %q:\n%s", add, strings.Join(report.Commands, "\n"))
 	}
@@ -718,5 +719,51 @@ func TestACodeRepositoryAddsItsOwnFiles(t *testing.T) {
 	}
 	if got, want := m.folders.Staged("/srv/acme"), projectfiles.RepositoryPaths(".", all); !slices.Equal(got, want) {
 		t.Errorf("the folder's first commit added %v, want %v", got, want)
+	}
+}
+
+// A folder that already holds every file of the shape has nothing for the first commit to add: the run says so, makes
+// no commit, and keeps the files.
+func TestAFirstCommitWithEveryFileAlreadyThereSaysSoAndMakesNone(t *testing.T) {
+	m := newMachine()
+	for _, file := range projectfiles.Paths(projectfiles.Monorepo, nil) {
+		m.folders.Place("/srv/acme/"+file, "mine")
+	}
+	report := m.run(t, monorepo(nil), &projectremote.Progress{})
+	if report.Commit != "" || !strings.Contains(report.CommitError, "no file to commit") {
+		t.Errorf("commit %q, error %q", report.Commit, report.CommitError)
+	}
+	if slices.ContainsFunc(m.folders.Done(), func(call string) bool { return strings.HasPrefix(call, "commit ") }) {
+		t.Errorf("a commit was made: %v", m.folders.Done())
+	}
+}
+
+// What the folder held is found by looking at each path of the shape, so a folder at a shape path is held and is not added.
+func TestAFolderAtAShapePathCountsAsHeld(t *testing.T) {
+	m := newMachine()
+	m.folders.Dir("/srv/acme/CODEOWNERS")
+	if report := m.run(t, monorepo(nil), &projectremote.Progress{}); report.Commit == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	if got, want := m.folders.Staged("/srv/acme"), withoutFile(projectfiles.Monorepo, "CODEOWNERS"); !slices.Equal(got, want) {
+		t.Errorf("the first commit added %v, want %v", got, want)
+	}
+}
+
+// A journal an older worker wrote, which names no listing of the folder, and that stopped part way through the files, adds
+// every file of the shape: the files already there are the ones that run wrote.
+func TestAJournalFromBeforeTheListingAddsEveryFileOfTheShape(t *testing.T) {
+	m := newMachine()
+	for _, file := range []string{"AGENTS.md", "plan/goal.md"} {
+		m.folders.Place("/srv/acme/"+file, "written before the crash")
+	}
+	progress := &projectremote.Progress{Started: true, Commit: true, NeedsRepository: true}
+	job := projectremote.Job{Request: monorepo(nil), NeedsRepository: true}
+	report, err := projectremote.Finish(context.Background(), m.runtime, job, progress, nil)
+	if err != nil || report.Commit == "" {
+		t.Fatalf("report = %+v (%v)", report, err)
+	}
+	if got, want := m.folders.Staged("/srv/acme"), projectfiles.Paths(projectfiles.Monorepo, nil); !slices.Equal(got, want) {
+		t.Errorf("the first commit added %v, want %v", got, want)
 	}
 }

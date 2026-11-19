@@ -47,6 +47,10 @@ type ProjectFolders interface {
 	// Files lists every file under the folder, as paths relative to it, slash separated and sorted, leaving
 	// out each git directory, the one at its top and those of the repositories inside it. A path with nothing at it holds none.
 	Files(ctx context.Context, path string) ([]string, error)
+	// Held says which of the paths, relative to the folder and slash separated, are there: a file, a folder, or a link
+	// at one of them. It looks at each path and at nothing else, so what else the folder holds is never read, and a
+	// folder that is not there holds none. The answer keeps the order of paths.
+	Held(ctx context.Context, folder string, paths []string) ([]string, error)
 	// FirstCommit makes the folder a repository on its default branch, adds the files commit names and no other, and
 	// commits them with the message, and returns the commit's ID. The default branch is the one git's user
 	// configuration names as init.defaultBranch, and main when it names none. It runs under no hook, template, or signing the user's git configuration names.

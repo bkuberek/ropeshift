@@ -228,6 +228,22 @@ func (f *ProjectFolders) Write(_ context.Context, folder string, files []ports.F
 	return id, nil
 }
 
+// Held says which of the paths the folder holds.
+func (f *ProjectFolders) Held(_ context.Context, folder string, paths []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var held []string
+	for _, file := range paths {
+		at := path.Join(path.Clean(folder), file)
+		_, isFile := f.files[at]
+		_, isLink := f.links[at]
+		if isFile || isLink || f.dirs[at] {
+			held = append(held, file)
+		}
+	}
+	return held, nil
+}
+
 // Files lists the files under a folder.
 func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, error) {
 	f.mu.Lock()
@@ -249,6 +265,9 @@ func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, 
 	}
 	if id, ok := f.commits[folder]; ok {
 		return id, nil
+	}
+	if len(commit.Paths) == 0 {
+		return "", errors.New("no file to commit: every file the shape writes was in the folder already or is ignored by git")
 	}
 	f.tops[folder] = true
 	if f.staged == nil {

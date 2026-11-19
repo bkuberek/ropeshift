@@ -83,3 +83,152 @@ func TestFirstCommitStartsOnTheConfiguredDefaultBranch(t *testing.T) {
 		})
 	}
 }
+
+// treeOf lists the files the first commit holds.
+func treeOf(t *testing.T, env []string, folder string) []string {
+	t.Helper()
+	listed, err := (gitcli.Git{Dir: folder, Env: env}).Text(t.Context(), "ls-tree", "-r", "--name-only", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Fields(listed)
+}
+
+// A file the person's global ignore file lists is skipped, as `git add -A` skipped it, and the commit goes on without
+// it: a path git ignores is no reason for the commit to fail.
+func TestFirstCommitSkipsAFileTheGlobalIgnoreFileLists(t *testing.T) {
+	gittest.Require(t)
+	excludes := filepath.Join(t.TempDir(), "ignore")
+	if err := os.WriteFile(excludes, []byte("CLAUDE.md\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := gitEnv(t, identity+"[core]\n\texcludesFile = "+excludes+"\n", nil)
+	f := projectfolders.Folders{Env: env}
+	folder := filepath.Join(t.TempDir(), "harbor")
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}, {Path: "CLAUDE.md", Text: "@AGENTS.md\n"}})
+	spec := ports.CommitSpec{Paths: []string{"AGENTS.md", "CLAUDE.md"}}
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, spec); err != nil {
+		t.Fatalf("the first commit failed on an ignored file: %v", err)
+	}
+	if got, want := treeOf(t, env, folder), []string{"AGENTS.md"}; !slices.Equal(got, want) {
+		t.Errorf("the first commit holds %v, want %v", got, want)
+	}
+}
+
+// A .gitignore the folder holds already skips the files it lists in the same way.
+func TestFirstCommitSkipsAFileTheFoldersGitignoreLists(t *testing.T) {
+	gittest.Require(t)
+	env := gitEnv(t, identity, nil)
+	f := projectfolders.Folders{Env: env}
+	folder := filepath.Join(t.TempDir(), "harbor")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, ".gitignore"), []byte("plan/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}, {Path: "plan/goal.md", Text: "goal\n"}})
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md", "plan/goal.md"}}); err != nil {
+		t.Fatalf("the first commit failed on an ignored file: %v", err)
+	}
+	// The folder's own .gitignore was there before the write and is not one of the paths, so it stays out of the commit.
+	if got, want := treeOf(t, env, folder), []string{"AGENTS.md"}; !slices.Equal(got, want) {
+		t.Errorf("the first commit holds %v, want %v", got, want)
+	}
+}
+
+// With no file to add, whether every file was in the folder already or git ignores each, the commit says so and makes
+// none, and a folder that was never a repository stays as it was.
+func TestFirstCommitWithNoFileToAddSaysSoAndMakesNoCommit(t *testing.T) {
+	gittest.Require(t)
+	f := projectfolders.Folders{Env: gitEnv(t, identity, nil)}
+	folder := filepath.Join(t.TempDir(), "harbor")
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{})
+	if err == nil || !strings.Contains(err.Error(), "no file to commit") {
+		t.Errorf("a first commit of no file says %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(folder, ".git")); statErr == nil {
+		t.Error("a first commit of no file made a repository")
+	}
+}
+
+// The default branch is the one the global and system configuration name, and never one a clone around the folder
+// names in its own configuration, which git init does not read.
+func TestFirstCommitReadsTheDefaultBranchFromNoClone(t *testing.T) {
+	gittest.Require(t)
+	env := gitEnv(t, identity, nil)
+	f := projectfolders.Folders{Env: env}
+	clone := t.TempDir()
+	around := gitcli.Git{Dir: clone, Env: env}
+	for _, args := range [][]string{{"init", "--quiet"}, {"config", "init.defaultBranch", "elsewhere"}} {
+		if _, err := around.Output(t.Context(), args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(clone, "repos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(clone, "repos", "harbor")
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	branch, err := (gitcli.Git{Dir: folder, Env: env}).Text(t.Context(), "symbolic-ref", "--short", "HEAD")
+	if err != nil || branch != "main" {
+		t.Errorf("the repository is on %q (%v), want main", branch, err)
+	}
+}
+
+// An empty value, and a value that is no branch name, leave the branch at main.
+func TestFirstCommitFallsBackToMainForAnEmptyOrInvalidDefaultBranch(t *testing.T) {
+	gittest.Require(t)
+	for name, value := range map[string]string{"empty": "", "invalid": "bad name~", "a dash": "-x"} {
+		t.Run(name, func(t *testing.T) {
+			env := gitEnv(t, identity+"[init]\n\tdefaultBranch = "+value+"\n", nil)
+			f := projectfolders.Folders{Env: env}
+			folder := filepath.Join(t.TempDir(), "harbor")
+			id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+			if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err != nil {
+				t.Fatal(err)
+			}
+			branch, err := (gitcli.Git{Dir: folder, Env: env}).Text(t.Context(), "symbolic-ref", "--short", "HEAD")
+			if err != nil || branch != "main" {
+				t.Errorf("the repository is on %q (%v), want main", branch, err)
+			}
+		})
+	}
+}
+
+// Held says which of the paths the folder holds, by looking at each one: a file, a folder, or a link is held, and a
+// folder that cannot be read elsewhere in it changes nothing.
+func TestHeldNamesTheShapePathsTheFolderHolds(t *testing.T) {
+	gittest.Require(t)
+	f := projectfolders.Folders{Env: gitEnv(t, identity, nil)}
+	folder := filepath.Join(t.TempDir(), "harbor")
+	for _, dir := range []string{"plan", "AGENTS.md.d", "locked"} {
+		if err := os.MkdirAll(filepath.Join(folder, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(folder, "plan", "goal.md"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(folder, "CODEOWNERS"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(folder, "locked"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(folder, "locked"), 0o755) })
+	got, err := f.Held(t.Context(), folder, []string{"AGENTS.md", "CODEOWNERS", "plan/goal.md", "plan/plan.md"})
+	if err != nil {
+		t.Fatalf("a folder that cannot be read failed the read: %v", err)
+	}
+	if want := []string{"CODEOWNERS", "plan/goal.md"}; !slices.Equal(got, want) {
+		t.Errorf("the folder holds %v, want %v", got, want)
+	}
+	if got, err := f.Held(t.Context(), filepath.Join(folder, "nothing"), []string{"AGENTS.md"}); err != nil || len(got) != 0 {
+		t.Errorf("a folder that is not there holds %v (%v)", got, err)
+	}
+}
