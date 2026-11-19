@@ -788,3 +788,41 @@ func TestThePrintedCommandsNameTheBranchTheRunChose(t *testing.T) {
 		t.Errorf("remaining is %v, want a push of trunk", report.Remaining)
 	}
 }
+
+// A request that names the project renders it into the files and the report, and the first commit says it, in place
+// of the folder's name.
+func TestARequestsNameReplacesTheFoldersNameInTheFilesAndTheCommit(t *testing.T) {
+	m := newMachine()
+	request := monorepo(nil)
+	request.Name = "harbor"
+	report := m.run(t, request, &projectremote.Progress{})
+	if report.Outcome != ledger.TemplateOutcomeWritten || report.Project != "harbor" {
+		t.Fatalf("report = %+v", report)
+	}
+	if text, _ := m.folders.Text("/srv/acme/AGENTS.md"); !strings.Contains(text, "project=harbor") {
+		t.Errorf("AGENTS.md renders %q, not for harbor", text)
+	}
+	if !slices.Contains(m.folders.Done(), "commit /srv/acme: chore: start harbor") {
+		t.Errorf("the commits are %v", m.folders.Done())
+	}
+	if !slices.Contains(report.Commands, "ropeshift project create harbor") {
+		t.Errorf("the commands are %v", report.Commands)
+	}
+}
+
+// Without a name the folder's name makes the project's, as before, and a repository's project is the one it registers in.
+func TestAFolderNamesTheProjectWhenTheRequestNamesNone(t *testing.T) {
+	m := newMachine()
+	request := ledger.TemplateWriteRequest{Shape: "repository", Path: "/srv/acme-api", FirstCommit: true, Project: "acme", Name: "acme-web"}
+	report := m.run(t, request, &projectremote.Progress{})
+	if report.Project != "acme-web" {
+		t.Errorf("the project rendered is %q", report.Project)
+	}
+	if !slices.Contains(m.folders.Done(), "commit /srv/acme-api: chore: start acme") {
+		t.Errorf("the commits are %v", m.folders.Done())
+	}
+	other := newMachine()
+	if report := other.run(t, ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/Acme Shop", FirstCommit: true}, &projectremote.Progress{}); report.Project != "acme-shop" {
+		t.Errorf("the folder's project is %q", report.Project)
+	}
+}

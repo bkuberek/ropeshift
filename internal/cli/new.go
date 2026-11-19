@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -16,7 +17,7 @@ import (
 // newDetail is what only the help of a `new` command says.
 const newDetail = "It writes each file the folder lacks, from the templates embedded in this binary, creating the folder " +
 	"and its parents when they are absent, and never replaces a file. The project's name is the folder's name in " +
-	"lowercase letters, digits, and hyphens. It lists each file written and each file left because it exists, then " +
+	"lowercase letters, digits, and hyphens, or the name --name gives. It lists each file written and each file left because it exists, then " +
 	"the commands that register the folder with a member's session, after git init, add, and commit when the folder " +
 	"has no repository of its own. With --json it prints the folder, the project, the files written and left, and " +
 	"the commands. It needs no daemon, no session, and no project, and runs no git command that changes a repository."
@@ -25,9 +26,9 @@ const newDetail = "It writes each file the folder lacks, from the templates embe
 func newCommands() []registered {
 	commands := []registered{
 		command("new", "[<path>] [--dry-run]", "ask whether a project lives in one repository or several, then write its starting files, make its first commits, and add or create its remotes", (*invocation).newInteractive),
-		command("new workspace", "<path> [--repository name=remote]... [--new-repository <name>[=<url>|github:<owner>|none]]... [--first-commit] [--remote <url>] [--create-remote github:<owner>] [--public] [--dry-run]", "write a workspace's starting files: the planning repository of a project of several repositories", (*invocation).newWorkspace),
-		command("new monorepo", "<path> [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public] [--dry-run]", "write a monorepo's starting files: one repository that holds the plan and the code", (*invocation).newMonorepo),
-		command("new repository", "<path> [--project P] [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public] [--dry-run]", "write a code repository's starting files, for a project that plans in another repository", (*invocation).newRepository),
+		command("new workspace", "<path> [--repository name=remote]... [--new-repository <name>[=<url>|github:<owner>|none]]... [--first-commit] [--remote <url>] [--create-remote github:<owner>] [--public] [--dry-run] [--name N]", "write a workspace's starting files: the planning repository of a project of several repositories", (*invocation).newWorkspace),
+		command("new monorepo", "<path> [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public] [--dry-run] [--name N]", "write a monorepo's starting files: one repository that holds the plan and the code", (*invocation).newMonorepo),
+		command("new repository", "<path> [--project P] [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public] [--dry-run] [--name N]", "write a code repository's starting files, for a project that plans in another repository", (*invocation).newRepository),
 	}
 	for i := range commands {
 		commands[i].Detail = newDetail + newRemoteDetail + newDryRunDetail
@@ -69,7 +70,8 @@ func (r newResult) text() string {
 	var out strings.Builder
 	wrote := "wrote"
 	if r.DryRun {
-		out.WriteString("Dry run: nothing was written, and no git or gh command ran.\n\n")
+		out.WriteString("Dry run: nothing was written, and no git or gh command ran.\n")
+		fmt.Fprintf(&out, "project\t%s\n\n", r.Project)
 		wrote = "would write"
 	}
 	for _, path := range r.Written {
@@ -96,6 +98,7 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 	var remote newFlags
 	remote.register(set, shape)
 	dry := dryRunFlag(set)
+	name := set.String("name", "", "the project's name in the files and in the commands that register it; the folder's name when absent")
 	switch shape {
 	case projectfiles.Workspace:
 		set.Var(&repositories, "repository", "an existing code repository as name=remote, cloned into repos/<name>, repeatable")
@@ -117,8 +120,13 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		return c.usageError("the folder %q: %v", positional[0], err)
 	}
 	data := projectfiles.Data{Project: projectNameOf(filepath.Base(folder))}
-	if data.Project == "" {
-		return c.usageError("the folder %q makes no project name; rename it to a name with letters or digits", filepath.Base(folder))
+	if nameGiven(set) {
+		if err := ledger.ValidateProjectName(*name); err != nil {
+			return c.usageError("--name: %v", err)
+		}
+		data.Project = *name
+	} else if data.Project == "" {
+		return c.usageError("the folder %q makes no project name; rename it to a name with letters or digits, or give --name", filepath.Base(folder))
 	}
 	for _, entry := range repositories {
 		name, remote, found := strings.Cut(entry, "=")
@@ -136,6 +144,9 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		request, err := remote.request(shape, folder, data.Repositories, project)
 		if err != nil {
 			return c.usageError("%v", err)
+		}
+		if nameGiven(set) {
+			request.Name = *name
 		}
 		for _, repository := range request.Repositories {
 			if repository.New {
@@ -177,6 +188,13 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		result.Commands = projectfiles.Commands(shape, folder, project, data.Repositories, false)
 	}
 	return c.finish(nil, result, result.text)
+}
+
+// nameGiven says --name was on the command line, so an empty value is an error and not an absent flag.
+func nameGiven(set *flag.FlagSet) bool {
+	given := false
+	set.Visit(func(f *flag.Flag) { given = given || f.Name == "name" })
+	return given
 }
 
 // renderTemplate renders a template of this binary over a new project's starting data.

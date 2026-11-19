@@ -98,13 +98,15 @@ func (r TemplateWriteRepository) CheckRemote() error {
 }
 
 // TemplateWriteRequest is what a member asks a worker to write: a shape's starting files into a folder on the
-// worker's machine (FR-TPL-5). Project names the project the printed commands register the files in, and only
-// a repository takes one. Repositories are the code repositories of a workspace, and only a workspace takes
+// worker's machine (FR-TPL-5). Name is the project's name rendered into the files and into the commands that
+// register them, and the folder's name makes one when it is empty. Project names the project the printed commands
+// register a repository in, and only a repository takes one. Repositories are the code repositories of a workspace, and only a workspace takes
 // them.
 type TemplateWriteRequest struct {
 	Shape        string                    `json:"shape"`
 	Path         string                    `json:"path"`
 	Repositories []TemplateWriteRepository `json:"repositories,omitempty"`
+	Name         string                    `json:"name,omitempty"`
 	Project      string                    `json:"project,omitempty"`
 	FirstCommit  bool                      `json:"first_commit,omitempty"`
 	// Remote is the remote of the folder's own repository: the monorepo, the repository, or the workspace's
