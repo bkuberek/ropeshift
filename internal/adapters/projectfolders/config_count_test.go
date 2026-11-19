@@ -13,6 +13,9 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
+// effectiveKeys are the settings the recording git reads, so a log shows which setting won.
+var effectiveKeys = []string{"core.hooksPath", "core.fsmonitor", "core.quotePath", "commit.gpgsign", "test.third"}
+
 // environmentSettings is git configuration the environment already holds, as a person's shell or a profile can pass it.
 var environmentSettings = []string{
 	"GIT_CONFIG_COUNT=2",
@@ -20,17 +23,18 @@ var environmentSettings = []string{
 	"GIT_CONFIG_KEY_1=test.second", "GIT_CONFIG_VALUE_1=two",
 }
 
-// recordGit returns env with the environmentSettings added, and puts a git first on PATH, for this test and the
-// commands it starts, that appends the environment of every command it runs to a log, and then runs the real git. It
-// also returns the path of that log.
-func recordGit(t *testing.T, env []string) ([]string, string) {
+// recordGit returns env with settings added, and puts a git first on PATH, for this test and the commands it starts,
+// that appends the environment of every command it runs, and the values of the settings git reads under it, to a log,
+// and then runs the real git. It also returns the path of that log.
+func recordGit(t *testing.T, env, settings []string) ([]string, string) {
 	t.Helper()
 	real, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)
 	}
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "commands")
-	script := "#!/bin/sh\n{ echo '=== command'; env; } >> '" + log + "'\nexec '" + real + "' \"$@\"\n"
+	script := "#!/bin/sh\n{ echo '=== command'; env; for key in " + strings.Join(effectiveKeys, " ") +
+		"; do echo \"effective $key=$('" + real + "' config --get $key)\"; done; } >> '" + log + "'\nexec '" + real + "' \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700); err != nil { //nolint:gosec // a test shim must be executable
 		t.Fatal(err)
 	}
@@ -38,7 +42,7 @@ func recordGit(t *testing.T, env []string) ([]string, string) {
 	path := bin + string(os.PathListSeparator) + os.Getenv("PATH")
 	t.Setenv("PATH", path)
 	shimmed := slices.DeleteFunc(slices.Clone(env), func(entry string) bool { return strings.HasPrefix(entry, "PATH=") })
-	return slices.Concat(shimmed, []string{"PATH=" + path}, environmentSettings), log
+	return slices.Concat(shimmed, []string{"PATH=" + path}, settings), log
 }
 
 // commandSettings reads the git configuration each recorded command was started with, as "key=value" entries.
@@ -79,7 +83,7 @@ func TestFirstCommitKeepsTheConfigurationTheEnvironmentHolds(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "a.md", Text: "a"}})
-	env, log := recordGit(t, f.Env)
+	env, log := recordGit(t, f.Env, environmentSettings)
 	if _, err := (projectfolders.Folders{Env: env}).FirstCommit(t.Context(), folder, "chore: start harbor", false, id); err != nil {
 		t.Fatal(err)
 	}
