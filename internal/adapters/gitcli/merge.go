@@ -20,17 +20,16 @@ var _ ports.BranchMerger = Worktrees{}
 // noHooks keeps every git command of a merge from running a hook the repository holds, through git's
 // configuration in the environment (https://git-scm.com/docs/git-config#ENVIRONMENT): a merge is the worker's
 // effect, and runs no code from the repository it merges.
-var noHooks = []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + os.DevNull}
+var noHooks = [][2]string{{"core.hooksPath", os.DevNull}}
 
-// NoHooks is the environment that keeps a git command from running a hook, for a caller outside a merge that runs git
-// on a folder it does not trust.
-func NoHooks() []string { return append([]string(nil), noHooks...) }
+// NoHooks is the configuration that keeps a git command from running a hook, for a caller outside a merge that runs git
+// on a folder it does not trust. A caller sets it as Git.Config.
+func NoHooks() [][2]string { return slices.Clone(noHooks) }
 
 // NoHooksNoSigning is NoHooks plus commit.gpgsign=false, for a caller that makes a commit on a folder it does not
-// trust and must not sign it, whatever the user's git configuration names.
-func NoHooksNoSigning() []string {
-	return []string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + os.DevNull,
-		"GIT_CONFIG_KEY_1=commit.gpgsign", "GIT_CONFIG_VALUE_1=false"}
+// trust and must not sign it, whatever the user's git configuration names. A caller sets it as Git.Config.
+func NoHooksNoSigning() [][2]string {
+	return append(NoHooks(), [2]string{"commit.gpgsign", "false"})
 }
 
 // The trailers a commit a merge makes carries, which is how a repeat finds it.
@@ -51,7 +50,7 @@ type ran struct {
 func (g Git) run(ctx context.Context, args ...string) (ran, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	hookless := g
-	hookless.Extra = append(slices.Clone(g.Extra), noHooks...)
+	hookless.Config = append(slices.Clone(g.Config), noHooks...)
 	cmd.Dir, cmd.Env = g.Dir, hookless.environment()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -140,7 +139,7 @@ func baseTip(ctx context.Context, git Git, remote, base string) (string, error) 
 	// The fetch runs with hooks off, as every command of a merge does, and it can lose git's lock on the base's
 	// remote-tracking ref to another fetch of the clone.
 	hookless := git
-	hookless.Extra = append(slices.Clone(git.Extra), noHooks...)
+	hookless.Config = append(slices.Clone(git.Config), noHooks...)
 	if err := hookless.Fetch(ctx, "--quiet", "--no-tags", "--", remote, "refs/heads/"+base); err != nil {
 		return "", err
 	}

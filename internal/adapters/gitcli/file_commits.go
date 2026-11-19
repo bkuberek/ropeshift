@@ -18,16 +18,17 @@ import (
 // recentCommits is how many commits Commits reads when it has no base to stop at.
 const recentCommits = 50
 
-// commitEnvironment runs a commit with none of the repository's code and none of its settings for signing: no hook,
-// no signature, and the product's name for both the author and the committer, so a machine with no git identity
-// commits all the same.
-var commitEnvironment = slices.Concat(snapshotIdentity, []string{
-	"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + os.DevNull,
-	"GIT_CONFIG_KEY_1=commit.gpgsign", "GIT_CONFIG_VALUE_1=false",
-})
+// commitAs makes a commit run with none of the repository's code and none of its settings for signing: no hook, no
+// signature, and the product's name for both the author and the committer, so a machine with no git identity commits
+// all the same.
+func commitAs(git Git) Git {
+	git.Extra = slices.Concat(git.Extra, snapshotIdentity)
+	git.Config = slices.Concat(git.Config, NoHooksNoSigning())
+	return git
+}
 
 // plainNames has git print a path as it is, and not in quotes with escapes.
-var plainNames = []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.quotePath", "GIT_CONFIG_VALUE_0=false"}
+var plainNames = [][2]string{{"core.quotePath", "false"}}
 
 // CommitFiles adds the files to a worktree and commits what that changed. A file whose text is given is written
 // only when nothing is at its path, a line is added only to a file with no line like it, and a file already there
@@ -56,8 +57,7 @@ func (w Worktrees) CommitFiles(ctx context.Context, worktree string, files []por
 	if len(staged) == 0 {
 		return ports.Commit{}, nil
 	}
-	git := w.git(worktree)
-	git.Extra = commitEnvironment
+	git := commitAs(w.git(worktree))
 	if _, err := git.Output(ctx, append([]string{"add", "--"}, staged...)...); err != nil {
 		return ports.Commit{}, err
 	}
@@ -226,7 +226,7 @@ func (w Worktrees) Commits(ctx context.Context, worktree, base string) ([]ports.
 		return nil, err
 	}
 	git := w.git(worktree)
-	git.Extra = plainNames
+	git.Config = plainNames
 	// Only the branch's own line, and a merge as what it changed against its first parent: the history a merge
 	// brings in is the other repository's, and listing every commit of it would read its whole past.
 	args := []string{"log", "--no-color", "--first-parent", "-m", "--name-only", "--format=%x01%H%x1f%P%x1f%s"}

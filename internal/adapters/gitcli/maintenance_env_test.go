@@ -36,12 +36,12 @@ func TestEveryCommandRunsWithAutoMaintenanceOff(t *testing.T) {
 }
 
 func TestAutoMaintenanceIsOffBesideTheSettingsACallerAdds(t *testing.T) {
-	for name, extra := range map[string][]string{
+	for name, config := range map[string][][2]string{
 		"no hooks":            NoHooks(),
 		"no hooks no signing": NoHooksNoSigning(),
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := configured(t, Git{Env: []string{"PATH=/usr/bin"}, Extra: extra}.environment())
+			got := configured(t, Git{Env: []string{"PATH=/usr/bin"}, Config: config}.environment())
 			if got["maintenance.auto"] != "false" || got["core.hooksPath"] == "" {
 				t.Errorf("a command's settings are %v, want both maintenance.auto=false and the caller's own", got)
 			}

@@ -35,11 +35,10 @@ const (
 // secretScanEnvironment is what every git command of the scan runs under, so the repository's own settings cannot
 // change what it reads: paths print as they are and not in quotes, no file system monitor runs, a replacement
 // ref cannot stand in for an object, and an object the clone lacks is never fetched from the repository it came from.
-var secretScanEnvironment = []string{
-	"GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1", "GIT_CONFIG_COUNT=2",
-	"GIT_CONFIG_KEY_0=core.quotePath", "GIT_CONFIG_VALUE_0=false",
-	"GIT_CONFIG_KEY_1=core.fsmonitor", "GIT_CONFIG_VALUE_1=false",
-}
+var (
+	secretScanEnvironment = []string{"GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1"}
+	secretScanConfig      = [][2]string{{"core.quotePath", "false"}, {"core.fsmonitor", "false"}}
+)
 
 var _ ports.SecretScans = SecretScanner{}
 
@@ -63,7 +62,7 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	if err := ctx.Err(); err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
-	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: secretScanEnvironment}
+	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: secretScanEnvironment, Config: secretScanConfig}
 	tipCommit, err := secretScanCommit(ctx, git, tip)
 	if err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)

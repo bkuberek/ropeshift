@@ -79,7 +79,7 @@ func TestSecretScanEnvironmentOverridesRepositoryConfiguration(t *testing.T) {
 	repo := gittest.New(t)
 	repo.Git("config", "core.fsmonitor", "/bin/true")
 	repo.Git("config", "core.quotePath", "true")
-	git := gitcli.Git{Dir: repo.Dir, Env: repo.Env(), Extra: secretScanEnvironment}
+	git := gitcli.Git{Dir: repo.Dir, Env: repo.Env(), Extra: secretScanEnvironment, Config: secretScanConfig}
 	for key, want := range map[string]string{"core.fsmonitor": "false", "core.quotePath": "false"} {
 		got, err := git.Text(context.Background(), "config", "--get", key)
 		if err != nil || got != want {
