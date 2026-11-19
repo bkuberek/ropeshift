@@ -170,3 +170,33 @@ func TestWhatAMemberDoesAboutACreationComesFromTheRefusalCode(t *testing.T) {
 		}
 	}
 }
+
+// A check that refuses because another creation holds the path says to preview again: it is no creation that waits for a
+// member, so it is never an item, whichever record holds it. A creation that failed before stays the item it was.
+func TestAPathBusyRefusalIsNeverAnItemOfNeedsYou(t *testing.T) {
+	row := authority.Approval{ID: "ap-1", Plan: "tt", PlanVersion: 1}
+	entry := planning.ManifestRepository{Name: "api", Path: "repos/api"}
+	outcome := ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "api", Visibility: ledger.VisibilityPrivate}
+	busy := &ledger.ManifestRegistration{Repositories: []ledger.ManifestOutcome{{
+		Name: "api", Path: "repos/api", Resolved: "/work/repos/api", Outcome: ledger.RegistrationRefused, RefusalCode: ledger.TemplateRefusedBusy, Reason: "another creation writes it", Creation: &outcome,
+	}}}
+	registered := eventOf(t, 9, ledger.EventManifestRegistered, ledger.ManifestRegistration{})
+	finished := func(rev int64, state ledger.CreationState, code string) ledger.Event {
+		return eventOf(t, rev, ledger.EventRepositoryCreationFinished, ledger.CreationFinishedEvent{Name: "api", Key: "k", Outcome: state, Reason: "why", RefusalCode: code, CreationOutcome: outcome})
+	}
+	for name, tt := range map[string]struct {
+		events []ledger.Event
+		listed bool
+		state  UncreatedState
+	}{
+		"a refusal only the registration holds":             {events: []ledger.Event{registered}},
+		"a creation that finished refused as busy":          {events: []ledger.Event{finished(3, ledger.CreationRefused, ledger.TemplateRefusedBusy)}},
+		"a busy retry of a creation that failed":            {events: []ledger.Event{finished(3, ledger.CreationFailed, ""), registered}, listed: true, state: CreationFailed},
+		"a creation that finished refused for another code": {events: []ledger.Event{finished(3, ledger.CreationRefused, "gh_signed_out")}, listed: true, state: CreationRefused},
+	} {
+		item, listed, err := uncreated(row, entry, tt.events, busy, false)
+		if err != nil || listed != tt.listed || (listed && item.State != tt.state) {
+			t.Errorf("%s: listed %v as %q (%v), want listed %v as %q", name, listed, item.State, err, tt.listed, tt.state)
+		}
+	}
+}

@@ -44,11 +44,12 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		r.registering.Lock()
 		defer r.registering.Unlock()
 	}
-	return r.registerApproved(ctx, scope, approval, kept, creator, project, dryRun, actor)
+	return r.registerApproved(ctx, scope, approval, kept, creator, project, dryRun, false, actor)
 }
 
-// registerApproved is RegisterApproved for a caller that holds the registration lock, or runs a dry run.
-func (r *Repositories) registerApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, dryRun bool, actor ledger.Actor) ([]Added, error) {
+// registerApproved is RegisterApproved for a caller that holds the registration lock, or runs a dry run. A run that again is
+// true registers anew when the approval's record holds the problem that stopped its run, and not when it holds none.
+func (r *Repositories) registerApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, dryRun, again bool, actor ledger.Actor) ([]Added, error) {
 	var entries []planning.ManifestRepository
 	var targets []string
 	var cause registrationCause
@@ -60,12 +61,13 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 			return err
 		}
 		if row.State == authority.ApprovalApproved && !dryRun {
-			if recorded, err = RegistrationOf(tx, row.ID); err != nil || recorded != nil {
+			if recorded, err = RegistrationOf(tx, row.ID); err != nil || (recorded != nil && !(again && recorded.Problem != "")) {
 				if err == nil {
 					replayed, err = recordedAdded(tx.Repositories(), recorded)
 				}
 				return err
 			}
+			recorded = nil
 		}
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
 			if entries, err = VersionManifest(tx, row); err != nil {

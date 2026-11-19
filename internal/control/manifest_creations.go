@@ -495,9 +495,19 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	case latest.Finished != nil:
 		code = latest.Finished.RefusalCode
 	}
+	if recordNewer && code == ledger.TemplateRefusedBusy {
+		// Another creation holds the path: the refusal says to preview again, and is no word on this creation, so what its own
+		// records said stands.
+		recordNewer, refusedLater, code = false, false, ""
+		if latest.Finished != nil {
+			code = latest.Finished.RefusalCode
+		}
+	}
 	switch {
 	case running:
 		item.State = CreationRunning
+	case latest.State == ledger.CreationRefused && code == ledger.TemplateRefusedBusy:
+		return UncreatedRepository{}, false, nil
 	case refusedLater:
 		// A retry the creator's check refused came after the creation's last record, and says why it cannot go on.
 		item.State, item.Reason, item.Creation = CreationRefused, refused.Reason, refused.Creation
@@ -513,7 +523,7 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 		// No creation record: the registration the approval recorded is what says the entry was not created.
 		outcome, ok := recordedOutcome(recorded, entry.Name)
 		switch {
-		case !ok:
+		case !ok, outcome.RefusalCode == ledger.TemplateRefusedBusy:
 			return UncreatedRepository{}, false, nil
 		case outcome.Outcome == ledger.RegistrationRefused:
 			item.State = CreationRefused
@@ -697,7 +707,7 @@ func (r *Repositories) refuseRunning(approval, name string) error {
 
 // RetryCreation runs the creation of one entry of an approved plan version again, as one entry of a real run under
 // the approval, with the key of its first run, and records the approval's registration as the last one with that entry
-// replaced. An approval that recorded no registration runs the whole registration. It answers with the registration as
+// replaced. An approval that recorded no registration, or whose record holds the problem that stopped its run, runs the whole registration. It answers with the registration as
 // recorded. Retrying is a member's act, as approving the plan was. An entry that is not one the approval's version
 // creates, a name the project holds, an approval that is not an approved plan approval, and a creation that runs now are
 // refused as an illegal move, and record nothing; an error that comes with a registration is one the run met after it
@@ -720,8 +730,10 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	if err != nil {
 		return nil, err
 	}
-	if target.recorded == nil {
-		return r.registerApproved(ctx, scope, approval, kept, creator, project, false, actor)
+	if target.recorded == nil || target.recorded.Problem != "" {
+		// An approval that recorded nothing, or whose run an error stopped, registers anew: the entries it never reached are
+		// attempted, and the record it appends holds no problem unless this run meets one.
+		return r.registerApproved(ctx, scope, approval, kept, creator, project, false, true, actor)
 	}
 	run := manifestRun{cause: registrationCause{Approval: target.row.ID, Plan: target.row.Plan, PlanVersion: target.row.PlanVersion}, targets: target.targets, creator: creator, project: project}
 	added, runErr := r.registerEntries(ctx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)

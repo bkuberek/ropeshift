@@ -171,11 +171,30 @@ func checkRetryAfterAFailedPushResumesAndRegisters(r *Rig) error {
 	if checked := w.creator.Checked(); len(checked) != 0 {
 		return Violatedf("a retry under an unapproved plan approval had %v checked", asked(checked))
 	}
-	if _, err := r.decide(w); err != nil {
-		return err
+	// A creator that cannot answer, as a worker that has not started, stops the run, and the approval keeps the error as the
+	// problem of its registration, which every later decision replays. The creation waits for a member all the same, and a retry
+	// of it runs the whole registration again, under the registration's lock, and keeps no problem once it ran.
+	errNotStarted := errors.New("the worker has not started")
+	w.creator.FailCheck(w.creator.key("search"), errNotStarted)
+	if _, err := r.decide(w); !errors.Is(err, errNotStarted) {
+		return Violatedf("approving with a creator that cannot answer ended with %v, want %v", err, errNotStarted)
 	}
 	approval := w.request.ID
 	key := ledger.CreationKey(approval, "search")
+	if record, err := r.registrationOf(s, approval); err != nil || record == nil || !strings.Contains(record.Problem, errNotStarted.Error()) {
+		return Violatedf("the approval recorded %+v: %v, want the creator's error as its problem", record, err)
+	}
+	if items, err := r.uncreated(s, noCreationRuns); err != nil || len(items) != 1 || items[0].Name != "search" || items[0].State != control.CreationRefused || !strings.Contains(items[0].Reason, errNotStarted.Error()) {
+		return Violatedf("a creation the creator could not answer for waits for a member as %+v: %v", items, err)
+	}
+	w.creator.FailCheck(w.creator.key("search"), nil)
+	w.creator.failsPush("search", "search", "main")
+	if _, err := r.retry(w, "search"); err != nil {
+		return Violatedf("a retry after the creator could answer: %v", err)
+	}
+	if record, err := r.registrationOf(s, approval); err != nil || record == nil || record.Problem != "" {
+		return Violatedf("the approval recorded %+v after the retry: %v, want no problem", record, err)
+	}
 	failed := map[string]entryOutcome{
 		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"search": {outcome: ledger.CreateFailed, path: "/work/search", reason: "denied by the forge"},
