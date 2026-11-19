@@ -271,6 +271,66 @@ func TestAPracticesRecordThatCannotBeReadStallsNoLaneOnTheWorker(t *testing.T) {
 	}
 }
 
+// A record that cannot be read is warned of once, not on every read of desired state: a worker reads it every few seconds,
+// and the record stays as it is until a check or a person changes it. A changed record is warned of again.
+func TestAPracticesRecordThatCannotBeReadIsWarnedOfOncePerRecord(t *testing.T) {
+	for name, tt := range map[string]struct {
+		fault readFault
+		// seen says the record can be told apart from another while it is unreadable, which a result that cannot be
+		// decoded cannot.
+		seen bool
+	}{
+		"a result that cannot be read":         {fault: readFault{result: errors.New("decode result: invalid character")}},
+		"acknowledgements that cannot be read": {fault: readFault{acknowledgements: errors.New("database is locked")}, seen: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fault := tt.fault
+			r := newPracticesRig(t, ledger.ProtocolVersion)
+			widgets := r.register("repo-a", "widgets")
+			gadgets := r.register("repo-b", "gadgets")
+			r.checked(widgets.ID, time.Minute, widgetsResult())
+			r.checked(gadgets.ID, time.Minute, widgetsResult())
+			r.leased(workorders.WorkOrder{ID: "wo-plan", Kind: workorders.KindPlan})
+			var warned []string
+			fault.Store = r.store
+			link := control.NewWorkers(fault, "pa", control.WorkerOptions{Warn: func(line string) { warned = append(warned, line) }})
+			read := func() {
+				t.Helper()
+				if _, err := link.Desired(t.Context(), ledger.DesiredRequest{Auth: r.auth}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			about := func(id string) (n int) {
+				for _, line := range warned {
+					if strings.Contains(line, id) {
+						n++
+					}
+				}
+				return n
+			}
+
+			for range 3 {
+				read()
+			}
+			if about(widgets.ID) != 1 || about(gadgets.ID) != 1 {
+				t.Fatalf("three reads warned %q, want one line for each repository", warned)
+			}
+
+			if !tt.seen {
+				return
+			}
+			changed := widgetsResult()
+			changed.Commit = tipTwo
+			r.checked(widgets.ID, time.Minute, changed)
+			read()
+			read()
+			if about(widgets.ID) != 2 || about(gadgets.ID) != 1 {
+				t.Errorf("a changed record warned %q, want one more line for the repository whose record changed", warned)
+			}
+		})
+	}
+}
+
 // With no one to hear a warning, a record that cannot be read is left out all the same.
 func TestAPracticesRecordThatCannotBeReadIsLeftOutWithNoWarn(t *testing.T) {
 	r := newPracticesRig(t, ledger.ProtocolVersion)

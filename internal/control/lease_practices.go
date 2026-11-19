@@ -3,6 +3,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -10,13 +11,70 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
+// recordWarnings remembers the stored record each unreadable repository was last warned of, so a record that stays
+// unreadable is warned of once, however often desired state is read, and a record that changes is warned of again. It
+// holds one entry for each repository that is unreadable now, which is at most the project's repositories. A nil
+// *recordWarnings forgets nothing and so warns every time.
+type recordWarnings struct {
+	mu   sync.Mutex
+	seen map[string]string
+}
+
+// maxRecordKey bounds the text of an error that identifies a record nothing else identifies.
+const maxRecordKey = 200
+
+// fresh says a record has not been warned of, and remembers that it is.
+func (r *recordWarnings) fresh(repository, record string) bool {
+	if r == nil {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if last, warned := r.seen[repository]; warned && last == record {
+		return false
+	}
+	if r.seen == nil {
+		r.seen = map[string]string{}
+	}
+	r.seen[repository] = record
+	return true
+}
+
+// keepOnly forgets every repository not in unreadable, so a repository that reads again, or is gone, is warned of anew
+// when it fails again.
+func (r *recordWarnings) keepOnly(unreadable map[string]bool) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for repository := range r.seen {
+		if !unreadable[repository] {
+			delete(r.seen, repository)
+		}
+	}
+}
+
+// storedRecord names the record a repository's practices read failed on: the request and commit of its latest result when
+// that reads, and otherwise the error, since nothing else of an undecodable result is known.
+func storedRecord(tx ports.ReadTx, repository string, failure error) string {
+	if record, err := tx.Practices().Result(repository); err == nil {
+		return "result " + record.Request + " at " + record.Commit
+	}
+	text := failure.Error()
+	if len(text) > maxRecordKey {
+		text = text[:maxRecordKey]
+	}
+	return "error " + text
+}
+
 // planningPractices is what a planning lease carries of the practices check (FR-PRAC-8): for each active repository of
 // the project, by name, the commit and age of its latest result, its open findings, the findings a member
 // acknowledged, and the practices the check could not settle. It only tells a planning lane what the check found, and
 // nothing is decided by it (FR-PRAC-11), so it fails nothing: a repository whose records cannot be read is listed as
-// unreadable and warned of, and one that cannot be listed leaves the lease with no summaries. The lease, the worker's
+// unreadable and warned of once for each stored record, and one that cannot be listed leaves the lease with no summaries. The lease, the worker's
 // other leases, and the rest of desired state are served either way.
-func planningPractices(tx ports.ReadTx, warn func(string)) []ledger.PracticesSummary {
+func planningPractices(tx ports.ReadTx, warn func(string), warned *recordWarnings) []ledger.PracticesSummary {
 	say := func(format string, args ...any) {
 		if warn != nil {
 			warn(fmt.Sprintf(format, args...))
@@ -38,14 +96,19 @@ func planningPractices(tx ports.ReadTx, warn func(string)) []ledger.PracticesSum
 		return nil
 	}
 	var out []ledger.PracticesSummary
+	unreadable := map[string]bool{}
 	for _, repository := range repositories {
 		summary, err := repositoryPractices(tx, repository, now)
 		if err != nil {
-			say("the practices findings of repository %s are left out of a planning lease, because they could not be read: %v", repository.ID, err)
+			unreadable[repository.ID] = true
+			if warned.fresh(repository.ID, storedRecord(tx, repository.ID, err)) {
+				say("the practices findings of repository %s are left out of a planning lease, because they could not be read: %v", repository.ID, err)
+			}
 			summary = ledger.PracticesSummary{Repository: repository.ID, Name: repository.Name, Unreadable: true}
 		}
 		out = append(out, summary)
 	}
+	warned.keepOnly(unreadable)
 	return out
 }
 
