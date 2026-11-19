@@ -11,7 +11,7 @@ var ansiSequence = regexp.MustCompile(`(?:\x1b\[|\x{9b})[0-?]*[ -/]*[@-~]|(?:\x1
 
 // PlainText makes text a tool printed safe to show: it drops escape sequences and every character HiddenRune names,
 // which is every control character, the C0 set, DEL, and the C1 set, and every bidirectional override and zero-width
-// character, but keeps newline and tab. What git and `gh` print is untrusted, so every place that shows a step's detail
+// character, and the line and paragraph separators U+2028 and U+2029, but keeps newline and tab. What git and `gh` print is untrusted, so every place that shows a step's detail
 // or a commit's error shows it through this.
 func PlainText(text string) string {
 	text = ansiSequence.ReplaceAllString(text, "")
@@ -19,7 +19,7 @@ func PlainText(text string) string {
 		if r == '\n' || r == '\t' {
 			return r
 		}
-		if HiddenRune(r) {
+		if HiddenRune(r) || r == '\u2028' || r == '\u2029' {
 			return -1
 		}
 		return r
