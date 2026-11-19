@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -221,5 +222,54 @@ func TestRemoteListsOriginsBranchAfterTheEndOfOptions(t *testing.T) {
 	want := []string{"ls-remote -- origin refs/heads/main"}
 	if got := ran("ls-remote"); !slices.Equal(got, want) {
 		t.Errorf("git ran %q, want %q", got, want)
+	}
+}
+
+// A push that names a credential helper adds its settings after the ones the environment already carries, so the count
+// grows and none of the environment's own is replaced.
+func TestAPushThatNamesACredentialHelperKeepsTheConfigurationTheEnvironmentHolds(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("a.txt", "a")
+	f := projectfolders.Folders{Env: append(repo.Env(), "GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=test.first", "GIT_CONFIG_VALUE_0=one", "GIT_CONFIG_KEY_1=test.second", "GIT_CONFIG_VALUE_1=two")}
+	if err := f.AddRemote(t.Context(), repo.Dir, bare(t, repo)); err != nil {
+		t.Fatal(err)
+	}
+	seen := filepath.Join(t.TempDir(), "env")
+	if err := os.MkdirAll(filepath.Join(repo.Dir, ".git", "hooks"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hook := "#!/bin/sh\nenv > '" + seen + "'\n"
+	if err := os.WriteFile(filepath.Join(repo.Dir, ".git", "hooks", "pre-push"), []byte(hook), 0o700); err != nil { //nolint:gosec // a test hook must be executable
+		t.Fatal(err)
+	}
+	const helper = "/opt/gh/bin/gh"
+	if err := f.Push(t.Context(), repo.Dir, ports.PushSpec{Branch: "main", CredentialHelper: helper}); err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatalf("the pre-push hook did not run: %v", err)
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(string(text), "\n") {
+		if key, value, ok := strings.Cut(line, "="); ok {
+			env[key] = value
+		}
+	}
+	count, err := strconv.Atoi(env["GIT_CONFIG_COUNT"])
+	if err != nil {
+		t.Fatalf("GIT_CONFIG_COUNT = %q", env["GIT_CONFIG_COUNT"])
+	}
+	var settings []string
+	for at := range count {
+		n := strconv.Itoa(at)
+		settings = append(settings, env["GIT_CONFIG_KEY_"+n]+"="+env["GIT_CONFIG_VALUE_"+n])
+	}
+	const key = "credential.https://github.com.helper"
+	for _, want := range []string{"test.first=one", "test.second=two", key + "=", key + `=!"` + helper + `" auth git-credential`} {
+		if !slices.Contains(settings, want) {
+			t.Errorf("the push's %d settings = %q, lack %q", count, settings, want)
+		}
 	}
 }

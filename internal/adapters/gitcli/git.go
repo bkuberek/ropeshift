@@ -25,6 +25,9 @@ type Git struct {
 	// Extra adds variables after everything else, which is how one command gets an index
 	// of its own.
 	Extra []string
+	// Config adds settings, each a key and a value, through git's configuration in the environment after any the
+	// environment already holds, so the environment's own settings stand.
+	Config [][2]string
 }
 
 // inheritedLocation lists what would point a command at another repository, or at
@@ -48,6 +51,9 @@ func (g Git) environment() []string {
 	}
 	// A command never waits on a prompt, because a daemon has no terminal.
 	env := append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)
+	for _, setting := range g.Config {
+		env = withGitConfig(env, setting[0], setting[1])
+	}
 	return withGitConfig(env, "maintenance.auto", "false")
 }
 
