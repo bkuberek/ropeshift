@@ -45,13 +45,14 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 ON CONFLICT (workspace_id, scope, day) DO UPDATE SET charged_usd = spend_days.charged_usd + :usd`)
 
 	stmtSpendMark = define("spend.mark",
-		`SELECT charged_usd FROM spend_marks
+		`SELECT charged_usd, cost_usd, known_turns, unknown_turns, floor_usd FROM spend_marks
  WHERE workspace_id = :workspace_id AND scope = :scope AND owner = :owner AND generation = :generation`)
 
 	stmtSpendMarkRaise = define("spend.mark_raise",
-		`INSERT INTO spend_marks (workspace_id, scope, owner, generation, charged_usd)
-VALUES (:workspace_id, :scope, :owner, :generation, :usd)
-ON CONFLICT (workspace_id, scope, owner, generation) DO UPDATE SET charged_usd = :usd`)
+		`INSERT INTO spend_marks (workspace_id, scope, owner, generation, charged_usd, cost_usd, known_turns, unknown_turns, floor_usd)
+VALUES (:workspace_id, :scope, :owner, :generation, :usd, :cost_usd, :known_turns, :unknown_turns, :floor_usd)
+ON CONFLICT (workspace_id, scope, owner, generation) DO UPDATE SET
+  charged_usd = :usd, cost_usd = :cost_usd, known_turns = :known_turns, unknown_turns = :unknown_turns, floor_usd = :floor_usd`)
 
 	stmtSpendSince = define("spend.since",
 		`SELECT COALESCE(SUM(charged_usd), 0) FROM spend_days
@@ -159,8 +160,8 @@ func (t laneTx) AddSpend(scope string, usd float64) error {
 	return addSpend(t.session, t.scope, t.readClock, scope, usd)
 }
 
-func (t laneTx) NoteSpend(scope, owner string, generation int64, chargedUSD float64) error {
-	return noteSpend(t.session, t.scope, t.readClock, scope, owner, generation, chargedUSD)
+func (t laneTx) NoteSpend(scope, owner string, generation int64, usage ledger.GenerationUsage) error {
+	return noteSpend(t.session, t.scope, t.readClock, scope, owner, generation, usage)
 }
 
 func (t laneTx) SpendSince(scope string, from int64) (float64, error) {
@@ -180,25 +181,36 @@ func addSpend(se *session, workspace ledger.WorkspaceID, clock func() (int64, er
 	return err
 }
 
-// noteSpend raises an owner's mark in a scope to a reported figure and adds the difference to the scope's day.
-func noteSpend(se *session, workspace ledger.WorkspaceID, clock func() (int64, error), scope, owner string, generation int64, chargedUSD float64) error {
+// noteSpend raises an owner's mark in a scope to a report and adds what the owner's charge grew by to the scope's day. The
+// mark keeps what ReportUsage keeps of a generation: the highest of each figure, which a report never lowers, and the
+// highest charge any one report reached, which is the floor. The charge is what those charge together, and it only grows:
+// a known turn that costs little lowers the mean a turn of unknown cost is charged at, and a tally never falls.
+func noteSpend(se *session, workspace ledger.WorkspaceID, clock func() (int64, error), scope, owner string, generation int64, usage ledger.GenerationUsage) error {
 	p := params{"workspace_id": string(workspace), "scope": scope, "owner": owner, "generation": generation}
 	row, err := se.row(stmtSpendMark, p)
 	if err != nil {
 		return err
 	}
 	var prior float64
-	if err := row.Scan(&prior); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	var held ledger.GenerationUsage
+	if err := row.Scan(&prior, &held.CostUSD, &held.KnownTurns, &held.UnknownTurns, &held.FloorUSD); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if !(chargedUSD > prior) {
+	usage.FloorUSD = 0
+	next := ledger.GenerationUsage{
+		CostUSD: max(held.CostUSD, usage.CostUSD), KnownTurns: max(held.KnownTurns, usage.KnownTurns),
+		UnknownTurns: max(held.UnknownTurns, usage.UnknownTurns),
+		FloorUSD:     max(held.FloorUSD, ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD),
+	}
+	charged := max(prior, ledger.Charge([][]ledger.GenerationUsage{{next}}).ChargedUSD)
+	if next == held && charged == prior {
 		return nil
 	}
-	p["usd"] = chargedUSD
+	p["usd"], p["cost_usd"], p["known_turns"], p["unknown_turns"], p["floor_usd"] = charged, next.CostUSD, next.KnownTurns, next.UnknownTurns, next.FloorUSD
 	if _, err := se.exec(stmtSpendMarkRaise, p); err != nil {
 		return err
 	}
-	return addSpend(se, workspace, clock, scope, chargedUSD-prior)
+	return addSpend(se, workspace, clock, scope, charged-prior)
 }
 
 // spendSince sums what a scope was charged on the UTC days that begin at or after a moment.

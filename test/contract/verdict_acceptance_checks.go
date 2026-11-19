@@ -37,6 +37,10 @@ var VerdictAcceptanceChecks = []Check{
 	{"VA15", "a lane that is not a review cannot report notes, and a review whose notes are not whole is refused and changes nothing", checkOnlyAReviewReportsNotesAndWholeOnes},
 	{"VA16", "the event that ends a review holds its notes redacted, and no credential of them", checkNotesReachNoEventUnredacted},
 	{"VA17", "the event that ends a canceled lane holds none of the notes its report carried", checkCanceledLaneNotesReachNoEvent},
+	// A review's verdicts are model text too: they are bounded, redacted, and held to one line a citation.
+	{"VA18", "a review's verdicts reach the ledger, its events, and its standing redacted of credentials, with each citation on one line", checkVerdictsReachNoRecordUnredacted},
+	{"VA19", "a verdict whose reasons are over their bound is refused and changes nothing", checkVerdictReasonsAreBounded},
+	{"VA20", "the event that ends a canceled lane holds no credential of the verdicts its report carried", checkCanceledLaneVerdictsReachNoEventUnredacted},
 }
 
 func say(criterion string, kind workorders.VerdictKind) workorders.CriterionVerdict {

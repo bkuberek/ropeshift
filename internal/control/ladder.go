@@ -343,8 +343,12 @@ func (q *Questions) Climb(ctx context.Context, scope ledger.WorkspaceID, id stri
 // Escalate takes a question to the gate, and past it to a human. A refusal changes nothing,
 // and it names everything the question lacks (FR-QD-3).
 func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id string, escalation questions.Escalation, actor ledger.Actor) (questions.Question, error) {
+	escalation, err := escalation.Tidy()
+	if err != nil {
+		return questions.Question{}, err
+	}
 	var record questions.Question
-	err := q.store.Write(ctx, scope, "question.escalate", func(tx ports.WriteTx) error {
+	err = q.store.Write(ctx, scope, "question.escalate", func(tx ports.WriteTx) error {
 		var err error
 		if record, err = held(tx, id, actor); err != nil {
 			return err

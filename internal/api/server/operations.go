@@ -238,6 +238,10 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/conversations/{id}/compact":              fixed(authority.OpConversationCompact),
 	"POST /v1/conversations/{id}/clear":                fixed(authority.OpConversationClear),
 	"POST /v1/conversations/{id}/messages":             fixed(authority.OpConversationMessage),
+
+	// A read of a request a member made of a worker is the member's alone, as the request is.
+	"GET /v1/workers/{id}/template-writes/{request}":     fixed(authority.OpTemplateWrite),
+	"GET /v1/workers/{id}/forge-account-reads/{request}": fixed(authority.OpRepositoryCreateRemote),
 }
 
 var repositoryOperations = []string{

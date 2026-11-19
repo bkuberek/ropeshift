@@ -15,8 +15,8 @@ type sharedSpend struct {
 	now int64
 }
 
-func (t sharedSpend) NoteSpend(scope, owner string, generation int64, chargedUSD float64) error {
-	return noteSpend(t.session, t.scope, func() (int64, error) { return t.now, nil }, scope, owner, generation, chargedUSD)
+func (t sharedSpend) NoteSpend(scope, owner string, generation int64, usage ledger.GenerationUsage) error {
+	return noteSpend(t.session, t.scope, func() (int64, error) { return t.now, nil }, scope, owner, generation, usage)
 }
 
 func (t sharedSpend) SpendSince(scope string, from int64) (float64, error) {
