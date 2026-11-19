@@ -207,7 +207,7 @@ func TestSnapshotOfATreelessCloneFetchesNoTreeAndReturnsNoSnapshot(t *testing.T)
 		t.Fatal("the clone is missing no object, so it shows nothing")
 	}
 	// The setup reaches the remote without the guard: an unguarded `ls-tree` fetches the trees.
-	clone.Try("ls-tree", "-r", first)
+	_, _ = clone.Try("ls-tree", "-r", first)
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("an unguarded ls-tree did not reach the promisor remote, so the test shows nothing: %v", err)
 	}
