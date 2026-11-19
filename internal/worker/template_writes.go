@@ -65,6 +65,17 @@ func (rt *TemplateRuntime) read(request string) (templateJournal, bool, error) {
 	if err := json.Unmarshal(raw, &journal); err != nil {
 		return templateJournal{}, false, fmt.Errorf("%s: %w", rt.journalPath(request), err)
 	}
+	// A journal written before each repository had a record of its own holds the folder and the git init at the top level.
+	var earlier struct {
+		Folder      string `json:"folder"`
+		Initialized bool   `json:"initialized"`
+	}
+	if err := json.Unmarshal(raw, &earlier); err != nil {
+		return templateJournal{}, false, fmt.Errorf("%s: %w", rt.journalPath(request), err)
+	}
+	if earlier.Folder != "" || earlier.Initialized {
+		journal.KeepEarlierRecord(earlier.Folder, earlier.Initialized)
+	}
 	return journal, true, nil
 }
 

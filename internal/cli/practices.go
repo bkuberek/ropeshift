@@ -127,7 +127,7 @@ func (c *invocation) awaitPractices(client *api.ProjectClient, waiting map[strin
 
 // practicesLine makes text a repository holds safe to print on a line of its own: a file name or a reason may hold a
 // newline, which would start a line that reads as one the command prints.
-func practicesLine(text string) string { return oneLine(plainText(text)) }
+func practicesLine(text string) string { return oneLine(ledger.PlainText(text)) }
 
 // practicesText is what `practices` prints for one repository: a header line, the open findings by severity with why
 // and fix, the acknowledged findings apart, the practices the check could not settle, and one line naming those met.

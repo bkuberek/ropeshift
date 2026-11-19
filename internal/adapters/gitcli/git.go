@@ -25,6 +25,9 @@ type Git struct {
 	// Extra adds variables after everything else, which is how one command gets an index
 	// of its own.
 	Extra []string
+	// Config adds settings, each a key and a value, through git's configuration in the environment after any the
+	// environment already holds, so the environment's own settings stand.
+	Config [][2]string
 }
 
 // inheritedLocation lists what would point a command at another repository, or at
@@ -48,6 +51,9 @@ func (g Git) environment() []string {
 	}
 	// A command never waits on a prompt, because a daemon has no terminal.
 	env := append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)
+	for _, setting := range g.Config {
+		env = withGitConfig(env, setting[0], setting[1])
+	}
 	return withGitConfig(env, "maintenance.auto", "false")
 }
 
@@ -74,11 +80,16 @@ func withGitConfig(env []string, key, value string) []string {
 		"GIT_CONFIG_KEY_"+n+"="+key, "GIT_CONFIG_VALUE_"+n+"="+value, "GIT_CONFIG_COUNT="+strconv.Itoa(count+1))
 }
 
+// waitDelay is how long a command that was stopped by its context may keep its output open before the call returns. A helper
+// git started, such as ssh, can hold the pipes past the end of git itself, and the call returns at the deadline all the same.
+const waitDelay = time.Second
+
 // Output runs one command and returns its stdout as it is.
 func (g Git) Output(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.Dir
 	cmd.Env = g.environment()
+	cmd.WaitDelay = waitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -93,6 +104,7 @@ func (g Git) Feed(ctx context.Context, input []byte, args ...string) ([]byte, er
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.Dir
 	cmd.Env = g.environment()
+	cmd.WaitDelay = waitDelay
 	cmd.Stdin = bytes.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

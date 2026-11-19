@@ -68,7 +68,8 @@ type Options struct {
 	CloneIgnores func(ctx context.Context, top, path string) (bool, error)
 	// NewProject runs a request for a new project's folder through this machine's folders, git, and `gh`: the
 	// checks, the files, each first commit, and each remote, as a worker runs a template write for the web UI
-	// (FR-TPL-6). needsRepository says the folder needs a repository of its own. Nil makes no first commit and no remote.
+	// (FR-TPL-6). needsRepository says the folder needs a repository of its own. It makes the folders above the new one
+	// once its checks have passed. Nil makes no first commit and no remote.
 	NewProject func(ctx context.Context, request ledger.TemplateWriteRequest, needsRepository bool) (ledger.TemplateWriteReport, error)
 	// ReadForgeAccount reads whether this machine's `gh` can create repositories and under which owners. Nil reads none.
 	ReadForgeAccount func(ctx context.Context) (ledger.ForgeAccountReport, error)
@@ -309,7 +310,7 @@ func (c *invocation) failure(err error) int {
 
 // printError prints an error's message as plain text, with no escape sequence and no hidden character.
 func (c *invocation) printError(detail api.ErrorDetail) {
-	detail.Message = plainText(detail.Message)
+	detail.Message = ledger.PlainText(detail.Message)
 	if c.asJSON {
 		_ = json.NewEncoder(c.stderr).Encode(api.ErrorBody{Error: detail})
 		return

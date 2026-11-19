@@ -361,7 +361,7 @@ func (c *invocation) register(client *api.ProjectClient, root string, paths []st
 	c.say("%s", addedText(report))
 	for _, added := range report.Repositories {
 		if added.Path == root && added.Outcome == ledger.RegistrationRefused {
-			return report, c.refuse(ExitConflict, "this repository was not registered: %s", plainText(added.Reason))
+			return report, c.refuse(ExitConflict, "this repository was not registered: %s", ledger.PlainText(added.Reason))
 		}
 	}
 	return report, ExitOK

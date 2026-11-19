@@ -48,11 +48,12 @@ func urlOf(u unit, prog *Progress) string {
 	return ledger.CreatedURL(prog.Account.GitProtocol, u.remote.Create.Owner, u.ghName)
 }
 
-// clip bounds a tool's message to what a report carries.
+// clip makes a tool's message plain text and bounds it to what a report carries. What git and `gh` print is untrusted,
+// so it holds no terminal escape sequence and no control character by the time it is journaled and reported.
 func clip(text string) string {
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(ledger.PlainText(text))
 	if len(text) > maxDetail {
-		text = text[:maxDetail]
+		text = strings.ToValidUTF8(text[:maxDetail], "")
 	}
 	return text
 }
@@ -160,7 +161,7 @@ func (r *runner) commit(ctx context.Context, u unit) error {
 		r.changed = true
 		return nil
 	case err != nil:
-		up.CommitError = err.Error()
+		up.CommitError = clip(err.Error())
 	default:
 		up.Commit = commit
 	}
@@ -347,15 +348,26 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 		case ledger.RemoteStepOrigin:
 			out = append(out, "git -C "+folder+" remote add origin "+projectfiles.Quote(url))
 		case ledger.RemoteStepPush:
-			branch := "main"
-			if state, err := r.rt.Folders.Remote(ctx, u.abs); err == nil && state.Branch != "" {
-				branch = state.Branch
-			}
+			branch := r.branch(ctx, u)
 			if r.helper(u) != "" || (u.remote.Create != nil && strings.HasPrefix(url, "https://")) {
 				out = append(out, "gh auth setup-git")
 			}
-			out = append(out, "git -C "+folder+" push --set-upstream origin "+branch)
+			out = append(out, "git -C "+folder+" push --set-upstream origin "+projectfiles.Quote(branch))
 		}
 	}
 	return out
+}
+
+// branch is the branch a repository's HEAD names as plain text, which asks origin for it, within the limit one step has.
+// The text is cleaned before it is quoted, because cleaning a quoted word can take its closing quote. A read that fails
+// or names no branch reads as main.
+func (r *runner) branch(ctx context.Context, u unit) string {
+	ctx, cancel := context.WithTimeout(ctx, stepLimit)
+	defer cancel()
+	if state, err := r.rt.Folders.Remote(ctx, u.abs); err == nil {
+		if branch := ledger.PlainText(state.Branch); branch != "" {
+			return branch
+		}
+	}
+	return "main"
 }

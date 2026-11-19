@@ -114,6 +114,16 @@ func (p *Progress) unit(rel string) *UnitProgress {
 	return p.Units[rel]
 }
 
+// KeepEarlierRecord takes the folder identity and the git init that a journal written before each repository had a
+// record of its own holds at the top level, as the folder's own repository's, unless that record already holds them.
+func (p *Progress) KeepEarlierRecord(folder string, initialized bool) {
+	own := p.unit(ownPath)
+	if own.Folder == "" {
+		own.Folder = folder
+	}
+	own.Initialized = own.Initialized || initialized
+}
+
 // Folder is the identity of the folder the run wrote, or empty before it wrote it.
 func (p *Progress) Folder() string { return p.unit(ownPath).Folder }
 
