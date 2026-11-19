@@ -365,7 +365,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			return ledger.DesiredState{}, err
 		}
 		var part ledger.DesiredState
-		err = w.store.Read(ctx, project.ID, func(tx ports.ReadTx) error { return desiredIn(tx, record.ID, record.Protocol, &part) })
+		err = w.store.Read(ctx, project.ID, func(tx ports.ReadTx) error { return desiredIn(tx, record.ID, record.Protocol, &part, w.options.Warn) })
 		if err != nil {
 			return ledger.DesiredState{}, err
 		}

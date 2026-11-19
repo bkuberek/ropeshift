@@ -1,7 +1,11 @@
 package control_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,6 +181,132 @@ func TestOnlyAPlanningLeaseCarriesTheFindings(t *testing.T) {
 		lease := r.leased(tt.order)
 		if len(lease.Practices) != tt.want || (tt.want == 0 && lease.Practices != nil) {
 			t.Errorf("a %s lease (adopt %v) holds %+v, want %d summaries", tt.order.Kind, tt.order.Adopt, lease.Practices, tt.want)
+		}
+	}
+}
+
+// readFault is a store whose reads of the practices records fail, as an undecodable stored result or a lost
+// connection does, and whose every other read is the store's own.
+type readFault struct {
+	ports.Store
+	result, acknowledgements error
+}
+
+func (s readFault) Read(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.ReadTx) error) error {
+	return s.Store.Read(ctx, scope, func(tx ports.ReadTx) error { return fn(faultyTx{ReadTx: tx, fault: s}) })
+}
+
+type faultyTx struct {
+	ports.ReadTx
+	fault readFault
+}
+
+func (t faultyTx) Practices() ports.PracticesReader {
+	return faultyPractices{PracticesReader: t.ReadTx.Practices(), fault: t.fault}
+}
+
+type faultyPractices struct {
+	ports.PracticesReader
+	fault readFault
+}
+
+func (p faultyPractices) Result(repository string) (ledger.PracticesRecord, error) {
+	if p.fault.result != nil {
+		return ledger.PracticesRecord{}, p.fault.result
+	}
+	return p.PracticesReader.Result(repository)
+}
+
+func (p faultyPractices) Acknowledgements(repository string) ([]ledger.PracticesAcknowledgement, error) {
+	if p.fault.acknowledgements != nil {
+		return nil, p.fault.acknowledgements
+	}
+	return p.PracticesReader.Acknowledgements(repository)
+}
+
+// No finding decides anything (FR-PRAC-11), and none may stop a lane: a practices record the control plane cannot read
+// leaves its repository unreadable in the planning lease, and the lease, the worker's other leases, and the rest of
+// desired state are served as they were.
+func TestAPracticesRecordThatCannotBeReadStallsNoLaneOnTheWorker(t *testing.T) {
+	for name, fault := range map[string]readFault{
+		"a result that cannot be read":         {result: errors.New("decode result: invalid character")},
+		"acknowledgements that cannot be read": {acknowledgements: errors.New("database is locked")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newPracticesRig(t, ledger.ProtocolVersion)
+			widgets := r.register("repo-a", "widgets")
+			r.register("repo-b", "gadgets")
+			r.checked(widgets.ID, time.Minute, widgetsResult())
+			r.leased(workorders.WorkOrder{ID: "wo-change", Kind: workorders.KindChange})
+			r.leased(workorders.WorkOrder{ID: "wo-plan", Kind: workorders.KindPlan})
+			var warned []string
+			fault.Store = r.store
+			link := control.NewWorkers(fault, "pa", control.WorkerOptions{Warn: func(line string) { warned = append(warned, line) }})
+
+			state, err := link.Desired(t.Context(), ledger.DesiredRequest{Auth: r.auth})
+
+			if err != nil {
+				t.Fatalf("a practices record that cannot be read fails desired state: %v", err)
+			}
+			leases := map[string]ledger.DesiredLease{}
+			for _, lease := range state.Leases {
+				leases[lease.WorkOrder] = lease
+			}
+			if leases["wo-change"].Lane != "lane-wo-change" || leases["wo-plan"].Lane != "lane-wo-plan" {
+				t.Fatalf("the worker's leases are %+v", leases)
+			}
+			plan := leases["wo-plan"].Practices
+			if len(plan) == 0 {
+				t.Fatalf("the planning lease holds no summaries: %+v", plan)
+			}
+			for _, summary := range plan {
+				if summary.Name == "widgets" && (!summary.Unreadable || summary.Open != nil || summary.Checked) {
+					t.Errorf("the repository that could not be read is %+v", summary)
+				}
+			}
+			if !slices.ContainsFunc(warned, func(line string) bool { return strings.Contains(line, widgets.ID) }) {
+				t.Errorf("the control plane warned %q, want a line naming the repository", warned)
+			}
+		})
+	}
+}
+
+// With no one to hear a warning, a record that cannot be read is left out all the same.
+func TestAPracticesRecordThatCannotBeReadIsLeftOutWithNoWarn(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets")
+	r.leased(workorders.WorkOrder{ID: "wo-plan", Kind: workorders.KindPlan})
+	link := control.NewWorkers(readFault{Store: r.store, result: errors.New("lost")}, "pa", control.WorkerOptions{})
+	state, err := link.Desired(t.Context(), ledger.DesiredRequest{Auth: r.auth})
+	if err != nil || len(state.Leases) != 1 || len(state.Leases[0].Practices) != 1 || !state.Leases[0].Practices[0].Unreadable {
+		t.Errorf("desired state is %+v, %v", state, err)
+	}
+}
+
+// A repository's lease summary holds at most 50 open findings, the high ones first and then by ID, and counts the rest.
+func TestAPlanningLeaseCapsEachRepositorysOpenFindings(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	widgets := r.register("repo-a", "widgets")
+	result := widgetsResult()
+	result.Findings = nil
+	for i := range 60 {
+		id := fmt.Sprintf("lockfile:npm:app%02d", i)
+		severity := practices.Low
+		if i%3 == 0 {
+			severity = practices.High
+		}
+		result.Findings = append(result.Findings, practices.Finding{ID: id, Practice: practices.Lockfile, Subject: "npm:app", Severity: severity, Detail: "no lockfile"})
+	}
+	r.checked(widgets.ID, time.Minute, result)
+
+	got := summaryOf(t, r.leased(workorders.WorkOrder{ID: "wo-plan", Kind: workorders.KindPlan}), "widgets")
+
+	if len(got.Open) != ledger.PracticesOpenLimit || got.More != 10 {
+		t.Fatalf("the summary holds %d open findings and counts %d more, want 50 and 10", len(got.Open), got.More)
+	}
+	for i, finding := range got.Open[:20] {
+		if finding.Severity != practices.High || (i > 0 && got.Open[i-1].ID >= finding.ID) {
+			t.Errorf("finding %d is %+v: the 20 high findings come first, by ID", i, finding)
 		}
 	}
 }

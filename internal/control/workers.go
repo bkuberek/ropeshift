@@ -74,6 +74,9 @@ type WorkerOptions struct {
 	Matcher ports.Matcher
 	// Starts places the lane of every claim. Nil places none.
 	Starts *Starts
+	// Warn hears what could not be read for a lease and was left out of it, which is no reason to withhold the lease.
+	// Nil says nothing.
+	Warn func(string)
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -525,7 +528,7 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			state.Unchanged = true
 			return nil
 		}
-		if err := desiredIn(tx, request.Auth.WorkerID, record.Protocol, &state); err != nil {
+		if err := desiredIn(tx, request.Auth.WorkerID, record.Protocol, &state, w.options.Warn); err != nil {
 			return err
 		}
 		if state.Orchestrator, err = desiredOrchestrator(tx.Workers(), request.Auth.WorkerID); err != nil {
@@ -562,13 +565,13 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 // remove, the effects a person decided, what it is asked of a forge, the woken work it may claim, and the practices
 // checks it is asked to run. It offers each part as a worker on that protocol reads it, so the control plane and the
 // single-project link, which both read through it, never offer one worker two things.
-func desiredIn(tx ports.ReadTx, worker string, protocol int, state *ledger.DesiredState) error {
+func desiredIn(tx ports.ReadTx, worker string, protocol int, state *ledger.DesiredState, warn func(string)) error {
 	held, err := tx.WorkOrders().HeldBy(worker)
 	if err != nil {
 		return err
 	}
 	for _, row := range held {
-		lease, err := desiredLease(tx, row)
+		lease, err := desiredLease(tx, row, warn)
 		if err != nil {
 			return err
 		}
@@ -694,7 +697,7 @@ func desiredResume(tx ports.ReadTx, lane string) (*ledger.DesiredResume, error) 
 }
 
 // desiredLease adds what a dispatched lane starts from.
-func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLease, error) {
+func desiredLease(tx ports.ReadTx, row workorders.WorkOrder, warn func(string)) (ledger.DesiredLease, error) {
 	lease := ledger.DesiredLease{WorkOrder: row.ID, ClaimID: row.ClaimID, Fence: row.Fence, State: string(row.State)}
 	claim, err := tx.Claims().Find(row.ClaimID)
 	if errors.Is(err, ports.ErrNotFound) {
@@ -784,10 +787,8 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 			texts[criterion.ID] = criterion.Text
 		}
 	}
-	if row.Kind == workorders.KindPlan {
-		if lease.Practices, err = planningPractices(tx); err != nil {
-			return lease, err
-		}
+	if carriesPractices(row.Kind) {
+		lease.Practices = planningPractices(tx, warn)
 	}
 	lease.Rework, err = desiredRework(tx.Evidence(), row, texts)
 	return lease, err

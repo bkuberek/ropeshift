@@ -219,7 +219,7 @@ func New(config Config) http.Handler {
 	home := newHandler(config)
 	home.plane = control.NewPlane(config.Projects, config.Installation, config.Scope, control.WorkerOptions{
 		Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-		PackTokens: config.PackTokens, Starts: config.Starts,
+		PackTokens: config.PackTokens, Starts: config.Starts, Warn: config.Warn,
 	}, matching(config))
 	home.ciWebhooks = control.NewCIWebhooks(home.plane, home.plane.CIHints(), config.Env, time.Now, config.Warn)
 	projects := newRouter(config, home)
@@ -341,7 +341,7 @@ func newHandler(config Config) *handler {
 		conversations: control.NewConversations(config.Store, config.Windows).Hosting(config.AssistantHosts, config.HeartbeatMs),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts,
+			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts, Warn: config.Warn,
 		}),
 		notices: control.NewNotices(config.Store, func(authority.NotifyPolicy) []ports.Notifier { return nil }),
 	}
