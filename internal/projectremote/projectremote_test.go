@@ -959,3 +959,42 @@ func TestAJobBranchThatReadsAsAnOptionNeverReachesGit(t *testing.T) {
 		}
 	}
 }
+
+// A retry runs again each step that failed and the steps skipped after it, and nothing done: a failed push is pushed
+// once more from the same progress, and the repository is not created twice.
+func TestARetryRunsAFailedStepAgainAndNothingDone(t *testing.T) {
+	m := newMachine()
+	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
+	progress := &projectremote.Progress{}
+	if got := steps(m.run(t, monorepo(create("test")), progress).Repositories[0]); got != "create=done origin=done push=failed" {
+		t.Fatalf("steps = %s", got)
+	}
+	m.folders.FailPush("/srv/acme", nil)
+	progress.Retry()
+	report := m.run(t, monorepo(create("test")), progress)
+	if got := steps(report.Repositories[0]); got != "create=done origin=done push=done" {
+		t.Errorf("steps after the retry = %s", got)
+	}
+	if len(m.forge.Repositories()) != 1 || len(m.folders.Pushes()) != 2 || len(report.Remaining) != 0 {
+		t.Errorf("the retry created %v and pushed %v, leaving %q", m.forge.Repositories(), m.folders.Pushes(), report.Remaining)
+	}
+}
+
+// A retry makes again a first commit that failed, and then the steps it skipped.
+func TestARetryMakesAFailedFirstCommitAgain(t *testing.T) {
+	m := newMachine()
+	m.folders.CommitError = errors.New("Author identity unknown")
+	progress := &projectremote.Progress{}
+	if report := m.run(t, monorepo(create("test")), progress); report.CommitError == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	m.folders.CommitError = nil
+	progress.Retry()
+	report := m.run(t, monorepo(create("test")), progress)
+	if report.Commit == "" || report.CommitError != "" {
+		t.Fatalf("the retried commit reports %+v", report)
+	}
+	if got := steps(report.Repositories[0]); got != "create=done origin=done push=done" {
+		t.Errorf("steps after the retry = %s", got)
+	}
+}
