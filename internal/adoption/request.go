@@ -46,6 +46,9 @@ type Request struct {
 	LeaveOut []string
 	// NewProject says the project does not exist yet, so no record is read.
 	NewProject bool
+	// Practices asks that each repository the plan would register be read for its practices, as a dry run lists
+	// them (FR-PRAC-6). The plan's digest does not depend on them.
+	Practices bool
 }
 
 // validate refuses a request that names no clone to run in, or a path that is not absolute.
