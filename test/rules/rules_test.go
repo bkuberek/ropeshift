@@ -443,6 +443,59 @@ func TestScreenRuleCanFail(t *testing.T) {
 	}
 }
 
+// practicesRead finds a read of the practices check's records through a store transaction.
+var practicesRead = []string{".Practices()"}
+
+// practicesFiles are the files of the control plane that may read the practices records: the practices use cases, which
+// record requests, results, and acknowledgements and read them for a view; the adoption plan; and the planning lease's
+// desired state. No claim, admission, merge, plan approval, or adoption decision reads a finding (FR-PRAC-11), so no
+// other file of the control plane may.
+var practicesFiles = []string{
+	"internal/control/practices.go", "internal/control/practices_acknowledge.go", "internal/control/practices_read.go",
+	"internal/control/adoption_plan.go", "internal/control/lease_practices.go",
+}
+
+// practicesCallers are the files of practicesFiles that read the records today. The rule fails when one no longer
+// does, so it cannot be checking the wrong directory.
+var practicesCallers = []string{
+	"internal/control/practices.go", "internal/control/practices_acknowledge.go", "internal/control/practices_read.go",
+}
+
+// TestNoDecisionReadsAFinding finds no read of the practices records in the control plane outside the files that may.
+func TestNoDecisionReadsAFinding(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"internal/control"}, practicesRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, hit := range found {
+		file, _, _ := strings.Cut(hit, " holds ")
+		if !slices.Contains(practicesFiles, file) {
+			t.Error(hit)
+		}
+		seen[file] = true
+	}
+	for _, file := range practicesCallers {
+		if !seen[file] {
+			t.Errorf("no read of the practices records in %s, so this rule is checking the wrong file", file)
+		}
+	}
+}
+
+// TestNoDecisionReadsAFindingCanFail runs the same rule on a tree whose claim reads a repository's findings.
+func TestNoDecisionReadsAFindingCanFail(t *testing.T) {
+	found, err := FindSource(filepath.Join("testdata", "practicesreads"), []string{"internal/control"}, practicesRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || !strings.HasPrefix(found[0], "internal/control/claim.go holds") {
+		t.Fatalf("the rule found %v in a tree whose claim reads the findings, want that one file", found)
+	}
+	if slices.Contains(practicesFiles, "internal/control/claim.go") {
+		t.Error("the allowlist holds the file that breaks the rule")
+	}
+}
+
 // markingFields are the names that would let a caller say what a lane is.
 var markingFields = []string{"ready", "briefed", "actual_state", "liveness", "conditions", "reachability", "model_reach", "ledger_reach"}
 
