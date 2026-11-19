@@ -47,14 +47,15 @@ type ProjectFolders interface {
 	// Files lists every file under the folder, as paths relative to it, slash separated and sorted, leaving
 	// out each git directory, the one at its top and those of the repositories inside it. A path with nothing at it holds none.
 	Files(ctx context.Context, path string) ([]string, error)
-	// FirstCommit makes the folder a repository, adds every file, and commits them with the message, and
-	// returns the commit's ID. It runs under no hook, template, or signing the user's git configuration names.
+	// FirstCommit makes the folder a repository on its default branch, adds the files commit names and no other, and
+	// commits them with the message, and returns the commit's ID. The default branch is the one git's user
+	// configuration names as init.defaultBranch, and main when it names none. It runs under no hook, template, or signing the user's git configuration names.
 	// A step that fails leaves what the earlier steps made. A folder that already holds a .git is taken as the
 	// worker's own only when resumed says the worker journaled its git init: a resume answers with the commit
 	// the repository holds and runs nothing, or goes on from an init with no commit, and a .git the worker did
 	// not make is an error. Just before it runs git, which finds the folder by its path, it reads the path again,
 	// and a path that is not the folder Write named is ErrFolderChanged and runs nothing.
-	FirstCommit(ctx context.Context, path, message string, resumed bool, folder FolderID) (string, error)
+	FirstCommit(ctx context.Context, path, message string, resumed bool, folder FolderID, commit CommitSpec) (string, error)
 	// AddRemote runs `git remote add origin <url>` in the repository at path, and answers with git's message
 	// when it fails.
 	AddRemote(ctx context.Context, path, url string) error
@@ -64,6 +65,13 @@ type ProjectFolders interface {
 	// Remote reads what a restart needs to tell whether a step already ran: the URL of origin, the branch HEAD
 	// names, the commit it holds, and the commit origin holds for that branch.
 	Remote(ctx context.Context, path string) (RemoteState, error)
+}
+
+// CommitSpec is what a first commit holds.
+type CommitSpec struct {
+	// Paths are the files the commit adds, relative to the folder and slash separated: the files this worker wrote, and
+	// none that were in the folder before it.
+	Paths []string
 }
 
 // PushSpec is one push of a new repository's first commit.

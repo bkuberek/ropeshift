@@ -73,7 +73,7 @@ func TestFirstCommitRefusesAFolderSwappedForALinkToASibling(t *testing.T) {
 		}
 	}
 	for _, resumed := range []bool{false, true} {
-		commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", resumed, id)
+		commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", resumed, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 		if !errors.Is(err, ports.ErrFolderChanged) || commit != "" {
 			t.Errorf("resumed %v: the first commit is %q (%v), want a refusal that the folder changed", resumed, commit, err)
 		}
@@ -83,7 +83,7 @@ func TestFirstCommitRefusesAFolderSwappedForALinkToASibling(t *testing.T) {
 			t.Errorf("git ran in %s", dir)
 		}
 	}
-	if _, err := f.FirstCommit(t.Context(), moved, "chore: start harbor", false, ""); !errors.Is(err, ports.ErrFolderChanged) {
+	if _, err := f.FirstCommit(t.Context(), moved, "chore: start harbor", false, "", ports.CommitSpec{Paths: []string{"AGENTS.md"}}); !errors.Is(err, ports.ErrFolderChanged) {
 		t.Errorf("a first commit with no folder named: %v", err)
 	}
 }
@@ -165,7 +165,7 @@ func TestFirstCommitRunsNoHookAndSignsNothing(t *testing.T) {
 	f := projectfolders.Folders{Env: gitEnv(t, config, nil)}
 	folder := filepath.Join(t.TempDir(), "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
-	commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id)
+	commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err != nil || commit == "" {
 		t.Fatalf("the first commit is %q (%v)", commit, err)
 	}
@@ -212,12 +212,12 @@ func TestFirstCommitRefusesARepositoryTheWorkerDidNotMake(t *testing.T) {
 	}
 	for name, commit := range map[string]bool{"with no commit": false, "with a commit": true} {
 		folder, made := prepare(commit)
-		if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, made); err == nil || !strings.Contains(err.Error(), "did not make") {
+		if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, made, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err == nil || !strings.Contains(err.Error(), "did not make") {
 			t.Errorf("a .git %s was taken: %q, %v", name, id, err)
 		}
 	}
 	folder, made := prepare(false)
-	if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, made); err != nil || id == "" {
+	if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, made, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err != nil || id == "" {
 		t.Errorf("a resume that journaled its git init is refused: %q, %v", id, err)
 	}
 }

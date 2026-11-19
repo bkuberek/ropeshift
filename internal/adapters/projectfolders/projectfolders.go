@@ -202,11 +202,11 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 	return out, err
 }
 
-// FirstCommit makes the folder a repository, adds its files, and commits them. It runs under no hook and no signing,
+// FirstCommit makes the folder a repository on the default branch, adds the files the commit names, and commits them. It runs under no hook and no signing,
 // whatever the user's git configuration names, and `git init` copies no template, because the folder's hooks are code
 // the commit would run. A .git is the worker's own only when the caller says its journal records the git init: then a
 // commit made before a crash is answered, not made twice, and an init with no commit is gone on from.
-func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed bool, folder ports.FolderID) (string, error) {
+func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed bool, folder ports.FolderID, commit ports.CommitSpec) (string, error) {
 	git := gitcli.Git{Dir: path, Env: f.Env, Extra: gitcli.NoHooksNoSigning()}
 	// Git finds the folder by its path, so the path is read again just before each command, and a path that is no longer
 	// the folder Write named runs nothing.
@@ -228,7 +228,13 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 			return id, nil
 		}
 	}
-	for _, args := range [][]string{{"init", "--quiet", "--template="}, {"add", "-A"}, {"commit", "--quiet", "-m", message}} {
+	// The paths are files, so a path that starts with a dash or holds a glob adds only the file it names.
+	git.Extra = append(git.Extra, "GIT_LITERAL_PATHSPECS=1")
+	for _, args := range [][]string{
+		{"init", "--quiet", "--template=", "--initial-branch=" + f.defaultBranch(ctx, path)},
+		append([]string{"add", "--"}, commit.Paths...),
+		{"commit", "--quiet", "-m", message},
+	} {
 		if err := same(); err != nil {
 			return "", err
 		}
@@ -237,6 +243,16 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 		}
 	}
 	return git.Text(ctx, "rev-parse", "--verify", "HEAD")
+}
+
+// defaultBranch is the branch a new repository at path starts on: the one git's configuration names as
+// init.defaultBranch, and main when it names none.
+func (f Folders) defaultBranch(ctx context.Context, path string) string {
+	name, err := (gitcli.Git{Dir: path, Env: f.Env}).Text(ctx, "config", "--get", "init.defaultBranch")
+	if err != nil || name == "" {
+		return "main"
+	}
+	return name
 }
 
 // AddRemote adds the remote named origin. The URL was checked to be one line git reads as an address and not as an

@@ -2,6 +2,7 @@ package projectremote_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -458,7 +459,7 @@ func TestACrashAfterCreateAndBeforePushCreatesNothingTwice(t *testing.T) {
 		progress.Units = map[string]*projectremote.UnitProgress{".": own}
 	}
 	m.folders.Dir("/srv/acme")
-	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme")
+	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme", ports.CommitSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +486,7 @@ func TestACreateThatNeverReachedTheForgeRunsAgainAfterARestart(t *testing.T) {
 		t.Fatalf("refusal = %+v, err = %v", refusal, err)
 	}
 	m.folders.Dir("/srv/acme")
-	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme")
+	commit, err := m.folders.FirstCommit(context.Background(), "/srv/acme", "chore: start acme", false, "fake:/srv/acme", ports.CommitSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,5 +617,106 @@ func TestTheCommandLeftToPushHoldsNoControlCharacterAndKeepsItsQuotes(t *testing
 	report = m.run(t, monorepo(create("test")), &projectremote.Progress{})
 	if push := report.Remaining[len(report.Remaining)-1]; push != "git -C /srv/acme push --set-upstream origin 'fix;touch pwned'" {
 		t.Errorf("push = %q, want the cleaned branch quoted", push)
+	}
+}
+
+// crashAt is a save of progress that fails from its nth call on, as a worker does that dies there. The journal is what
+// the calls before it saved, as JSON, and nothing the run changed after them.
+func crashAt(n int, progress *projectremote.Progress) (save func() error, journal func() projectremote.Progress) {
+	calls := 0
+	var saved []byte
+	save = func() error {
+		calls++
+		if calls >= n {
+			return errors.New("the worker died")
+		}
+		var err error
+		saved, err = json.Marshal(progress)
+		return err
+	}
+	journal = func() projectremote.Progress {
+		var restored projectremote.Progress
+		if err := json.Unmarshal(saved, &restored); err != nil {
+			panic(err)
+		}
+		return restored
+	}
+	return save, journal
+}
+
+// withoutFile is the paths a shape writes, less one that was in the folder before.
+func withoutFile(shape projectfiles.Shape, left string) []string {
+	return slices.DeleteFunc(projectfiles.Paths(shape, nil), func(p string) bool { return p == left })
+}
+
+// The first commit adds the files the run wrote and none that was in the folder before it, and the commands that
+// make the commit by hand say the same.
+func TestTheFirstCommitAddsOnlyTheFilesTheRunWrote(t *testing.T) {
+	m := newMachine()
+	m.folders.Place("/srv/acme/AGENTS.md", "mine")
+	m.folders.Place("/srv/acme/notes.txt", "mine")
+	request := monorepo(nil)
+	if report := m.run(t, request, &projectremote.Progress{}); report.Outcome != ledger.TemplateOutcomeWritten || report.Commit == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	if got, want := m.folders.Staged("/srv/acme"), withoutFile(projectfiles.Monorepo, "AGENTS.md"); !slices.Equal(got, want) {
+		t.Errorf("the first commit added %v, want %v", got, want)
+	}
+
+	other := newMachine()
+	other.folders.Place("/srv/acme/AGENTS.md", "mine")
+	request.FirstCommit = false
+	report := other.run(t, request, &projectremote.Progress{})
+	add := "git -C /srv/acme add -- " + strings.Join(withoutFile(projectfiles.Monorepo, "AGENTS.md"), " ")
+	if !slices.Contains(report.Commands, add) {
+		t.Errorf("the commands lack %q:\n%s", add, strings.Join(report.Commands, "\n"))
+	}
+}
+
+// A worker that dies after the files are written finds, once it is back, the same files to add: what was in the folder
+// before the first write is in the journal, and the files the first run wrote are not read as left.
+func TestAResumedFirstCommitAddsTheSameFiles(t *testing.T) {
+	for name, saves := range map[string]int{"before the folder is journaled": 2, "before git init is journaled": 3} {
+		t.Run(name, func(t *testing.T) {
+			m := newMachine()
+			m.folders.Place("/srv/acme/AGENTS.md", "mine")
+			job := projectremote.Job{Request: monorepo(nil), NeedsRepository: true}
+			progress := &projectremote.Progress{}
+			if refusal, err := projectremote.Start(context.Background(), m.runtime, job, progress); err != nil || refusal != nil {
+				t.Fatalf("refusal = %+v, err = %v", refusal, err)
+			}
+			save, journal := crashAt(saves, progress)
+			if _, err := projectremote.Finish(context.Background(), m.runtime, job, progress, save); err == nil {
+				t.Fatalf("the run lived through its first %d saves", saves)
+			}
+			restored := journal()
+			report, err := projectremote.Finish(context.Background(), m.runtime, job, &restored, nil)
+			if err != nil || report.Commit == "" {
+				t.Fatalf("report = %+v (%v)", report, err)
+			}
+			if got, want := m.folders.Staged("/srv/acme"), withoutFile(projectfiles.Monorepo, "AGENTS.md"); !slices.Equal(got, want) {
+				t.Errorf("the resumed first commit added %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// A workspace's new code repository adds the files written under its own folder, relative to it.
+func TestACodeRepositoryAddsItsOwnFiles(t *testing.T) {
+	m := newMachine()
+	request := ledger.TemplateWriteRequest{
+		Shape: "workspace", Path: "/srv/acme", FirstCommit: true,
+		Repositories: []ledger.TemplateWriteRepository{{Name: "api", New: true}},
+	}
+	if report := m.run(t, request, &projectremote.Progress{}); report.Commit == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	code := []projectfiles.CodeRepository{{Name: "api", New: true}}
+	all := projectfiles.Paths(projectfiles.Workspace, code)
+	if got, want := m.folders.Staged("/srv/acme/repos/api"), projectfiles.RepositoryPaths("repos/api", all); !slices.Equal(got, want) || len(got) == 0 {
+		t.Errorf("the code repository's first commit added %v, want %v", got, want)
+	}
+	if got, want := m.folders.Staged("/srv/acme"), projectfiles.RepositoryPaths(".", all); !slices.Equal(got, want) {
+		t.Errorf("the folder's first commit added %v, want %v", got, want)
 	}
 }

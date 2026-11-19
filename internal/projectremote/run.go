@@ -65,6 +65,8 @@ type runner struct {
 	prog    *Progress
 	save    func() error
 	changed bool
+	// paths are the files the shape writes, in the folder.
+	paths []string
 }
 
 func (r *runner) persist() error {
@@ -93,6 +95,10 @@ func Finish(ctx context.Context, rt Runtime, job Job, prog *Progress, save func(
 	for _, file := range files {
 		folderFiles = append(folderFiles, ports.FolderFile{Path: file.Path, Text: file.Text})
 		paths = append(paths, file.Path)
+	}
+	r.paths = paths
+	if err := r.noteLeft(ctx); err != nil {
+		return ledger.TemplateWriteReport{}, err
 	}
 	id, err := rt.Folders.Write(ctx, job.Request.Path, folderFiles, ports.FolderID(prog.Folder()))
 	if errors.Is(err, ports.ErrFolderChanged) {
@@ -129,6 +135,30 @@ func Finish(ctx context.Context, rt Runtime, job Job, prog *Progress, save func(
 	return r.report(ctx, units, paths)
 }
 
+// noteLeft journals which of the shape's files the folder held before the first write, once and before that write, so
+// a run that restarts after it still tells the files it wrote from the files that were there.
+func (r *runner) noteLeft(ctx context.Context) error {
+	if r.prog.Listed || r.prog.Folder() != "" {
+		return nil
+	}
+	held, err := r.rt.Folders.Files(ctx, r.job.Request.Path)
+	if err != nil {
+		return fmt.Errorf("reading the folder: %w", err)
+	}
+	for _, file := range r.paths {
+		if slices.Contains(held, file) {
+			r.prog.Left = append(r.prog.Left, file)
+		}
+	}
+	r.prog.Listed = true
+	return r.persist()
+}
+
+// written are the files this run wrote: the shape's files less the ones the folder held before.
+func (r *runner) written() []string {
+	return slices.DeleteFunc(slices.Clone(r.paths), func(file string) bool { return slices.Contains(r.prog.Left, file) })
+}
+
 func changedReport() ledger.TemplateWriteReport {
 	return *refusal(ledger.TemplateRefusedChanged, "the folder is no longer the one this worker wrote: it was swapped for a link or for another folder", "")
 }
@@ -155,7 +185,7 @@ func (r *runner) commit(ctx context.Context, u unit) error {
 			return err
 		}
 	}
-	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id)
+	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id, ports.CommitSpec{Paths: projectfiles.RepositoryPaths(u.rel, r.written())})
 	switch {
 	case errors.Is(err, ports.ErrFolderChanged):
 		r.changed = true
@@ -291,11 +321,11 @@ func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledg
 	var commits []string
 	for _, u := range units[1:] {
 		if r.prog.NeedsRepository && r.prog.unit(u.rel).Commit == "" {
-			commits = append(commits, projectfiles.FirstCommitCommands(u.abs, u.name)...)
+			commits = append(commits, projectfiles.FirstCommitCommands(u.abs, u.name, projectfiles.RepositoryPaths(u.rel, r.written()))...)
 		}
 	}
 	if r.prog.NeedsRepository && own.Commit == "" {
-		commits = append(commits, projectfiles.FirstCommitCommands(r.job.Request.Path, r.job.commitName())...)
+		commits = append(commits, projectfiles.FirstCommitCommands(r.job.Request.Path, r.job.commitName(), projectfiles.RepositoryPaths(ownPath, r.written()))...)
 	}
 	codes := r.job.data(r.prog).Repositories
 	report.Commands = append(commits, projectfiles.Commands(projectfiles.Shape(r.job.Request.Shape), r.job.Request.Path, r.job.commitName(), codes, false)...)
