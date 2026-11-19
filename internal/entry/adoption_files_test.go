@@ -197,7 +197,7 @@ func TestTheAdoptionPlanReadsPracticesWithTheMachinesGit(t *testing.T) {
 	repo.Commit("go.mod", "module acme.test/api\n\ngo 1.24\n\nrequire example.test/dep v1.0.0\n")
 	sources := practiceSources()
 	sources.Snapshots, sources.Secrets = practicegit.Snapshots{Env: repo.Env()}, practicegit.SecretScanner{Env: repo.Env()}
-	got, err := adoption.CheckPractices(t.Context(), sources, planning.PlannedRepository{Name: "api", Path: repo.Dir, ID: "api", Outcome: string(ledger.Registered)}, repo.Dir, "main")
+	got, err := adoption.CheckPractices(t.Context(), sources, planning.PlannedRepository{Name: "api", Path: repo.Dir, ID: "api", Outcome: string(ledger.Registered)}, repo.Dir, "main", adoption.PracticesLimit)
 	if err != nil {
 		t.Fatal(err)
 	}

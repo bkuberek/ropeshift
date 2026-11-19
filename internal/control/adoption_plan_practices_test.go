@@ -1,6 +1,7 @@
 package control_test
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/practices"
 )
@@ -125,5 +127,58 @@ func TestAnAdoptionPlanNotesARepositoryItCouldNotRead(t *testing.T) {
 	}
 	if got.Outcome != string(ledger.Registered) {
 		t.Errorf("a repository the check could not read reads %q", got.Outcome)
+	}
+}
+
+// blockingIn blocks the secret scan of one directory until its context ends, and reads every other as the fake does.
+type blockingIn struct {
+	dir  string
+	rest *fake.Practices
+}
+
+func (b blockingIn) Scan(ctx context.Context, dir, tip, from string) (ports.SecretScan, error) {
+	if dir == b.dir {
+		<-ctx.Done()
+		return ports.SecretScan{}, ctx.Err()
+	}
+	return b.rest.Scan(ctx, dir, tip, from)
+}
+
+// A repository whose check runs past the limit gets a note and no practices, and the plan still lists the others.
+func TestAnAdoptionPlanGoesOnPastARepositoryWhoseCheckRunsLong(t *testing.T) {
+	t.Parallel()
+	m := newAdoptionMachine(t)
+	workspaceOf(m, "AGENTS.md")
+	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	var f fake.Practices
+	f.SetSnapshot("/work/ws", practices.Snapshot{Commit: practicesTip, Paths: []string{"README.md"}})
+	f.SetSnapshot("/work/ws/repos/api", practices.Snapshot{Commit: practicesTip, Paths: []string{"go.mod"}})
+	sources := practicerun.Sources{Snapshots: &f, Secrets: blockingIn{dir: "/work/ws", rest: &f}, Forge: &f, Clock: fake.NewClock(time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC))}
+	plan, err := control.NewAdoptions(control.NewRepositories(m.store())).Checking(sources).Limiting(30*time.Millisecond).Plan(t.Context(), "acme", control.AdoptionRequest{Root: "/work/ws", Practices: true}, m.checkouts, m.layouts, projectMember)
+	if err != nil {
+		t.Fatalf("a check past its limit failed the plan: %v", err)
+	}
+	slow := practicedRepository(t, plan, "/work/ws")
+	if slow.Practices != nil || !strings.Contains(slow.PracticesNote, "not read within") {
+		t.Errorf("the slow repository reads %+v and the note %q", slow.Practices, slow.PracticesNote)
+	}
+	if other := practicedRepository(t, plan, "/work/ws/repos/api"); other.Practices == nil {
+		t.Errorf("the other repository holds no practices: %q", other.PracticesNote)
+	}
+}
+
+// A request that ends while a repository's check runs ends the plan.
+func TestAnAdoptionPlanEndsWithTheRequestThatAskedForIt(t *testing.T) {
+	t.Parallel()
+	m := newAdoptionMachine(t)
+	workspaceOf(m, "AGENTS.md")
+	var f fake.Practices
+	f.SetSnapshot("/work/ws", practices.Snapshot{Commit: practicesTip, Paths: []string{"README.md"}})
+	sources := practicerun.Sources{Snapshots: &f, Secrets: blockingIn{dir: "/work/ws", rest: &f}, Forge: &f, Clock: fake.NewClock(time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC))}
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, err := control.NewAdoptions(control.NewRepositories(m.store())).Checking(sources).Plan(ctx, "acme", control.AdoptionRequest{Root: "/work/ws", Practices: true}, m.checkouts, m.layouts, projectMember)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a plan whose request ended gave %v", err)
 	}
 }

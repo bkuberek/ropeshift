@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"path"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adoption"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -23,6 +24,8 @@ type Adoptions struct {
 	// practices are the reads a dry run makes of each clone's practices, on this machine (FR-PRAC-6). The zero value
 	// reads none.
 	practices practicerun.Sources
+	// limit is how long the check of one repository may run, adoption.PracticesLimit unless set.
+	limit time.Duration
 }
 
 // NewAdoptions returns the use cases over a project's repositories.
@@ -37,6 +40,13 @@ type AdoptionRequest = adoption.Request
 // register, which the clone's machine serves.
 func (a *Adoptions) Checking(sources practicerun.Sources) *Adoptions {
 	a.practices = sources
+	return a
+}
+
+// Limiting returns the use cases with the time one repository's check may run in a plan, in place of
+// adoption.PracticesLimit.
+func (a *Adoptions) Limiting(limit time.Duration) *Adoptions {
+	a.limit = limit
 	return a
 }
 
@@ -97,5 +107,5 @@ func (a *Adoptions) practised(ctx context.Context, in AdoptionRequest, repositor
 	if !in.Practices {
 		return repository, nil
 	}
-	return adoption.CheckPractices(ctx, a.practices, repository, repository.Path, base)
+	return adoption.CheckPractices(ctx, a.practices, repository, repository.Path, base, cmp.Or(a.limit, adoption.PracticesLimit))
 }
