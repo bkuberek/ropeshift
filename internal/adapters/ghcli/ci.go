@@ -1,7 +1,6 @@
 package ghcli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -60,8 +59,9 @@ func (t *tailBuffer) text() string {
 	return string(data)
 }
 
-// runTail runs one command in a checkout and returns the last max bytes of its stdout. A command the forge refused for
-// a rate limit is a RateLimitedError.
+// runTail runs one command in a checkout and returns the last max bytes of its stdout. Its stderr is read to
+// maxErrorOutput, and what a failure carries of it is sanitized and clipped. A command the forge refused for a rate
+// limit is a RateLimitedError.
 func (f Forge) runTail(ctx context.Context, dir string, max int, args ...string) (string, error) {
 	binary, err := f.binary()
 	if err != nil {
@@ -69,12 +69,12 @@ func (f Forge) runTail(ctx context.Context, dir string, max int, args ...string)
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir, cmd.Env = dir, f.environment()
-	tail, stderr := &tailBuffer{max: max}, &bytes.Buffer{}
+	tail, stderr := &tailBuffer{max: max}, &boundedWriter{limit: maxErrorOutput, truncate: true}
 	cmd.Stdout, cmd.Stderr = tail, stderr
 	err = cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		failed := &ghError{args: args, code: exit.ExitCode(), stderr: clip(stderr.String())}
+		failed := &ghError{args: args, code: exit.ExitCode(), stderr: clip(ledger.SanitizeCIText(stderr.buf.String()))}
 		if limited, ok := rateLimitedText(failed.stderr); ok {
 			return "", limited
 		}
