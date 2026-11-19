@@ -387,9 +387,10 @@ func manifestText(added []api.RepositoryAdded, wouldBe bool, indent string) stri
 		case wouldBe:
 			word = "would register"
 		}
-		fmt.Fprintf(&out, "%s%s\t%s\t%s\t%s\t%s", indent, word, dashIfEmpty(one.Name), dashIfEmpty(one.ManifestPath), dashIfEmpty(one.Path), dashIfEmpty(one.Remote))
+		fmt.Fprintf(&out, "%s%s\t%s\t%s\t%s\t%s", indent, word, dashIfEmpty(plainLine(one.Name)), dashIfEmpty(plainPath(one.ManifestPath)),
+			dashIfEmpty(plainPath(one.Path)), dashIfEmpty(plainPath(one.Remote)))
 		if one.Reason != "" {
-			fmt.Fprintf(&out, "\t%s", one.Reason)
+			fmt.Fprintf(&out, "\t%s", plainLine(one.Reason))
 		}
 		out.WriteString("\n")
 	}
