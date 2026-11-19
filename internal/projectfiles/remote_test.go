@@ -127,3 +127,53 @@ func TestARemoteWithACredentialIsRefusedWithoutEchoingIt(t *testing.T) {
 		}
 	}
 }
+
+// A scheme is read in lower case, so a credential behind HTTPS or SSH is refused as a credential and not as an unknown
+// scheme, whose message would repeat the URL.
+func TestARemoteWithACredentialBehindAnUpperCaseSchemeIsRefusedWithoutEchoingIt(t *testing.T) {
+	for _, remote := range []string{
+		"HTTPS://s3cret@example.invalid/orchid/orchid-api.git",
+		"Https://user:s3cret@example.invalid/orchid/orchid-api.git",
+		"HTTP://s3cret@example.invalid/orchid/orchid-api.git",
+		"SSH://git:s3cret@example.invalid/orchid/orchid-api.git",
+		"Git://user:s3cret@example.invalid:9418/orchid-api.git",
+	} {
+		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
+			if err == nil || !strings.Contains(err.Error(), "no user or password") {
+				t.Errorf("%s %q: %v, want the rule that a remote holds no credential", name, remote, err)
+				continue
+			}
+			if strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("%s %q: the refusal echoes the credential: %v", name, remote, err)
+			}
+		}
+	}
+}
+
+// A colon or an at sign written as %3A or %40 in the user part hides a password from a check that looks for the
+// character itself, so the user part holds neither in any case.
+func TestARemoteWithAnEncodedColonOrAtInItsUserIsRefusedWithoutEchoingIt(t *testing.T) {
+	for _, remote := range []string{
+		"ssh://git%3As3cret@example.invalid/orchid/orchid-api.git",
+		"ssh://git%3as3cret@example.invalid/orchid/orchid-api.git",
+		"ssh://s3cret%40mail@example.invalid/orchid/orchid-api.git",
+		"ssh://s3cret%40@example.invalid:2222/orchid/orchid-api.git",
+		"git://git%3AS3cret@example.invalid/orchid-api.git",
+		"SSH://git%3As3cret@example.invalid/orchid/orchid-api.git",
+	} {
+		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
+			if err == nil || !strings.Contains(err.Error(), "no user or password") {
+				t.Errorf("%s %q: %v, want the rule that a remote holds no credential", name, remote, err)
+				continue
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "s3cret") {
+				t.Errorf("%s %q: the refusal echoes the credential: %v", name, remote, err)
+			}
+		}
+	}
+	for _, remote := range []string{"ssh://git@example.invalid/orchid/a%3Ab.git", "https://example.invalid/orchid/a%40b.git"} {
+		if err := projectfiles.CheckRemote(remote); err != nil {
+			t.Errorf("remote %q: a %%3A or %%40 in the path is allowed: %v", remote, err)
+		}
+	}
+}
