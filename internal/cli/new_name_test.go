@@ -155,3 +155,16 @@ func TestNewDryRunShowsTheChosenName(t *testing.T) {
 	}
 	requireAbsent(t, folder)
 }
+
+// The help of --project says what it defaults to once --name names the project: the name, and the folder's name only when
+// there is none.
+func TestNewRepositoryHelpSaysWhatProjectDefaultsTo(t *testing.T) {
+	_, stdout, stderr := runNew(cli.Options{}, "new", "repository", "--help")
+	text := stdout + stderr
+	if !strings.Contains(text, "the project's name when absent") {
+		t.Errorf("the help of --project does not say it defaults to the project's name:\n%s", text)
+	}
+	if strings.Contains(text, "register the repository in; the folder's name when absent") {
+		t.Errorf("the help still says --project defaults to the folder's name:\n%s", text)
+	}
+}
