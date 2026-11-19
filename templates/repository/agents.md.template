@@ -1,9 +1,9 @@
 # AGENTS.md
 
 {{ if .Example -}}
-> Template: the instructions for one code repository, for its root. Copy it to `AGENTS.md`, replace `acme-api` and every example value, and delete every line that starts with `>`. Ropeshift's lanes and reviews work in worktrees of this repository and read this file, never the workspace's, so every rule a change here must follow belongs in this file or in the contract.
+> Template: the instructions for one code repository, for its root. Copy it to `AGENTS.md`, replace `acme-api` and every example value, and delete every line that starts with `>`. Ropeshift's lanes and reviews work in worktrees of this repository and read this file. A lane whose worktree is in the workspace's ignored `.ropeshift/worktrees/` folder also loads the workspace's `CLAUDE.md`, but may not load the `AGENTS.md` it imports, so every rule a change here must follow belongs in this file or in the contract.
 {{ else -}}
-> Started by `ropeshift new`: the instructions for one code repository, for its root. Replace each placeholder, and delete every line that starts with `>`. Ropeshift's lanes and reviews work in worktrees of this repository and read this file, never the workspace's, so every rule a change here must follow belongs in this file or in the contract.
+> Started by `ropeshift new`: the instructions for one code repository, for its root. Replace each placeholder, and delete every line that starts with `>`. Ropeshift's lanes and reviews work in worktrees of this repository and read this file. A lane whose worktree is in the workspace's ignored `.ropeshift/worktrees/` folder also loads the workspace's `CLAUDE.md`, but may not load the `AGENTS.md` it imports, so every rule a change here must follow belongs in this file or in the contract.
 {{ end }}
 This file gives coding agents, ropeshift lanes among them, what they need to change `{{ if .Example }}acme-api{{ else }}{{ .Project }}{{ end }}`: what it is, its commands, its rules, and how a change is checked. `CLAUDE.md` imports it.
 

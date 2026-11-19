@@ -9,11 +9,14 @@
 # the keys below. The worker reads a change at its next start and its next measure.
 
 [worktree]
-# Every lane worktree of every repository goes under this root, outside the workspace and every clone,
-# with each project's and repository's lanes apart: {project} becomes the project's ID and {repo} the name of the clone's folder. Write an absolute
-# path, because the root expands no ~ and no variable. Choose a folder with no CLAUDE.md or AGENTS.md in
-# it or above it, because the agent CLI reads instruction files from every folder above its own. With no
-# root set, the built-in root holds: the installation's worktree directory, by project and repository.
+# A root set here places every lane worktree of every repository, a clone inside the workspace among them,
+# with each project's and repository's lanes apart: {project} becomes the project's ID and {repo} the name
+# of the clone's folder. Write an absolute path, because the root expands no ~ and no variable. A root
+# inside a clone is refused, unless it lies under the workspace's ignored .ropeshift/worktrees/ folder.
+# Choose a folder with no CLAUDE.md or AGENTS.md in it or above it, because the agent CLI reads instruction
+# files from every folder above its own. With no root set, the built-in root holds: the workspace's
+# .ropeshift/worktrees/ folder for a clone inside a workspace that ignores that folder, and the
+# installation's worktree directory, by project and repository, for every other clone.
 {{if .WorktreeRoot}}root = {{tomlString .WorktreeRoot}}{{else}}# root = "/path/to/lanes/{project}/{repo}"{{end}}
 # true pushes each lane's branch and checkpoint refs to the repository's remote when the lane stops, so
 # its work survives the loss of this machine and a parked lane can resume on another. false keeps every

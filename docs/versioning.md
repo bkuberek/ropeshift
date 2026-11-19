@@ -32,11 +32,13 @@ Stability comes from the version, not from a branch: every release is tagged on 
 
 ## Development builds
 
-Only a release build reports a release version. Every other build reports `dev`:
+A release build reports its release version, and a snapshot build reports the snapshot version GoReleaser stamps on it. Every other build reports `dev`:
 
 - `go build`, `make`, or any build from a checkout. The Go toolchain records a pseudo-version for such a build, such as `v0.0.0-20261107230936-dd81c214342b`, and ropeshift does not report it as its version.
 - A build from a tree with uncommitted changes, which the toolchain marks `+dirty`.
 - `go install` at a commit or a branch, which also records a pseudo-version.
+
+`make snapshot` runs `goreleaser release --snapshot`, which stamps the version `v0.0.1-snapshot-<short commit>`, such as `v0.0.1-snapshot-dd81c21`, with the commit, the build date, and whether the tree held changes, as a release build is stamped. It reads no tag, so it never takes a release's version ([snapshot builds](development/versioning.md#snapshot-builds)).
 
 `go install` at a release tag, such as `go install ropeshift.com/ropeshift/cmd/...@v0.4.1`, records that exact version, and the binary reports it. It is not an install channel for now, because no commit holds the built web UI, so that binary serves the placeholder page ([releasing](releasing.md#install-channels)). Every channel installs a release build, which embeds the UI.
 
@@ -57,9 +59,9 @@ ropeshift v0.4.1 (commit dd81c214342b, built 2026-11-08T10:00:00Z, go1.27.3, lin
 | Key | Value |
 |-----|-------|
 | `command` | The name the process started under, `ropeshift` or `ropeshiftd` |
-| `version` | The release version, or `dev` |
+| `version` | The release version, a snapshot's `v0.0.1-snapshot-<short commit>`, or `dev` |
 | `commit` | The full commit the build came from |
-| `date` | When a release build was built, in RFC 3339. Empty for every other build |
+| `date` | When a release or snapshot build was built, in RFC 3339. Empty for every other build |
 | `modified` | Whether the tree held uncommitted changes |
 | `go`, `os`, `arch` | The Go version, and the platform the binary runs on |
 
