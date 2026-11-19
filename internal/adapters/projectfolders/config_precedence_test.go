@@ -94,7 +94,7 @@ func TestFirstCommitRunsNoHookWhateverTheEnvironmentNames(t *testing.T) {
 	id := put(t, f, folder, []ports.FolderFile{{Path: "a.md", Text: "a"}})
 	hooks, marker := hooksThatRecord(t)
 	env, log := recordGit(t, f.Env, precedenceSettings(hooks))
-	if _, err := (projectfolders.Folders{Env: env}).FirstCommit(t.Context(), folder, "chore: start harbor", false, id); err != nil {
+	if _, err := (projectfolders.Folders{Env: env}).FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"a.md"}}); err != nil {
 		t.Fatal(err)
 	}
 	noHookRan(t, marker)

@@ -84,7 +84,7 @@ func TestFirstCommitKeepsTheConfigurationTheEnvironmentHolds(t *testing.T) {
 	folder := filepath.Join(root, "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "a.md", Text: "a"}})
 	env, log := recordGit(t, f.Env, environmentSettings)
-	if _, err := (projectfolders.Folders{Env: env}).FirstCommit(t.Context(), folder, "chore: start harbor", false, id); err != nil {
+	if _, err := (projectfolders.Folders{Env: env}).FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"a.md"}}); err != nil {
 		t.Fatal(err)
 	}
 	commands := commandSettings(t, log)
