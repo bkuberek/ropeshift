@@ -514,6 +514,9 @@ func (r *Repositories) registerClone(ctx context.Context, scope ledger.Workspace
 			// A clone a creation registers says its remote and its path, which a disk gave and nobody checked.
 			reason = plainLine(reason)
 		}
+		if made != nil {
+			path = plainPath(path)
+		}
 		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: reason}
 	}
 	if dir.root == "" {
@@ -540,6 +543,9 @@ func (r *Repositories) registerClone(ctx context.Context, scope ledger.Workspace
 		return refused(real, err.Error()), err
 	}
 	added.Path = real
+	if made != nil {
+		added.Path = plainPath(real)
+	}
 	if again || added.Outcome == ledger.RegistrationRefused {
 		return added, nil
 	}

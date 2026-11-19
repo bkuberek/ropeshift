@@ -50,12 +50,24 @@ type machineCreator struct {
 	// approval is the plan approval whose creations the creator answers, which its answers are keyed by.
 	approval string
 	urls     map[string]string
+	checks   map[string]ledger.CreationCheck
+	// unread are the entries whose check refuses before it reads where the path leads, as the worker's does, and so says
+	// nothing of it.
+	unread map[string]bool
 	// during hears each job before its creation runs.
 	during func(ledger.RepositoryCreation)
 }
 
 func newMachineCreator(machine *fake.Checkouts, approval string) *machineCreator {
-	return &machineCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, approval: approval, urls: map[string]string{}}
+	return &machineCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, approval: approval, urls: map[string]string{}, checks: map[string]ledger.CreationCheck{}, unread: map[string]bool{}}
+}
+
+// leads makes the check of the entry named answer that its path leads to a folder, as a check does that read it.
+func (c *machineCreator) leads(name, folder string) {
+	check := c.checks[name]
+	check.Leads = folder
+	c.checks[name] = check
+	c.SetCheck(c.key(name), check)
 }
 
 // key is the key of the creation of the entry named, which the creator answers by.
@@ -77,7 +89,8 @@ func createdSteps() []ledger.RemoteStep {
 func (c *machineCreator) passes(name, forgeName, branch string) {
 	url := "git@github.com:acme/" + forgeName + ".git"
 	c.urls[name] = url
-	c.SetCheck(c.key(name), ledger.CreationCheck{URL: url, Login: "octo", Branch: branch})
+	c.checks[name] = ledger.CreationCheck{URL: url, Login: "octo", Branch: branch}
+	c.SetCheck(c.key(name), c.checks[name])
 	c.SetReport(c.key(name), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeWritten, Commit: "1a2b3c4", Clone: true,
 		Repositories: []ledger.RepositoryReport{{Name: name, Path: ".", Commit: "1a2b3c4", Remote: url, Steps: createdSteps()}},
@@ -99,6 +112,14 @@ func (c *machineCreator) failsPush(name, forgeName, branch string) {
 // refuses makes the check of the entry named refuse with a reason, what it says, and the command that fixes it.
 func (c *machineCreator) refuses(name, reason, detail, remedy string) {
 	c.SetCheck(c.key(name), ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: reason, Detail: detail, Remedy: remedy}})
+}
+
+func (c *machineCreator) Check(ctx context.Context, job ledger.RepositoryCreation) (ledger.CreationCheck, error) {
+	check, err := c.RepositoryCreator.Check(ctx, job)
+	if c.unread[job.Name] {
+		check.Leads = ""
+	}
+	return check, err
 }
 
 func (c *machineCreator) Create(ctx context.Context, job ledger.RepositoryCreation) (ledger.TemplateWriteReport, error) {
@@ -790,6 +811,13 @@ func (r *Rig) latestCreation(s ports.Store, approval, name string) (ledger.Creat
 // and one that colors, a line break, a bell, a NUL, and a tab.
 const hostile = "Run \x1b[31mgh auth login\x1b[0m\non this\x07 machine\x00 now\x1b]0;title\x07\t!"
 
+// hostilePath is a path a worker read from a disk that carries an escape, a line break, a bell, and a tab, and
+// cleanPath is it as it is kept: the line break a space, the rest dropped, and nothing else changed.
+const (
+	hostilePath = "/mnt/disk/evil\x1b[31m\n/dir\x07\tend"
+	cleanPath   = "/mnt/disk/evil /dirend"
+)
+
 // hostileLine is hostile as it is kept: on one line, with no escape or control character.
 const hostileLine = "Run gh auth login on this machine now !"
 
@@ -841,9 +869,10 @@ func checkWorkerTextIsPlain(r *Rig) error {
 	}
 	for _, name := range names {
 		w.creator.passes(name, name, "main")
+		w.creator.leads(name, hostilePath)
 	}
 	// The check of dirty refuses with text from a disk, and the creation of late refuses after it started.
-	w.creator.SetCheck(w.creator.key("dirty"), ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
+	w.creator.SetCheck(w.creator.key("dirty"), ledger.CreationCheck{Leads: hostilePath, Refusal: &ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut, Detail: hostile, Remedy: "gh auth login\n--hostname\x1b[2J github.com\x07",
 	}})
 	w.creator.SetReport(w.creator.key("late"), ledger.TemplateWriteReport{
@@ -868,7 +897,7 @@ func checkWorkerTextIsPlain(r *Rig) error {
 		return err
 	}
 	dirty, _ := outcomeNamed(preview, "dirty")
-	if dirty.Outcome != ledger.RegistrationRefused || !strings.Contains(dirty.Reason, hostileLine) || dirty.Creation == nil || dirty.Creation.Remedy != "gh auth login --hostname github.com" {
+	if dirty.Outcome != ledger.RegistrationRefused || !strings.Contains(dirty.Reason, hostileLine) || dirty.Creation == nil || dirty.Creation.Remedy != "gh auth login --hostname github.com" || dirty.Path != cleanPath {
 		return Violatedf("the refused check reads %+v with creation %+v", dirty, dirty.Creation)
 	}
 	if err := plainEverywhere("the preview", preview); err != nil {
@@ -882,8 +911,8 @@ func checkWorkerTextIsPlain(r *Rig) error {
 		return err
 	}
 	for name, want := range map[string]ledger.RepositoryOutcome{"dirty": ledger.RegistrationRefused, "late": ledger.RegistrationRefused, "broken": ledger.CreateFailed, "nocommit": ledger.CreateFailed} {
-		if got, _ := outcomeNamed(added, name); got.Outcome != want {
-			return Violatedf("%s reads %+v, want %s", name, got, want)
+		if got, _ := outcomeNamed(added, name); got.Outcome != want || got.Path != cleanPath {
+			return Violatedf("%s reads %+v, want %s at %q", name, got, want, cleanPath)
 		}
 	}
 	if late, _ := outcomeNamed(added, "late"); !strings.Contains(late.Reason, hostileLine) || late.Creation == nil || late.Creation.Remedy != "git -C /work/late status" {
@@ -909,6 +938,10 @@ func checkWorkerTextIsPlain(r *Rig) error {
 	events, err := r.creationEvents(s, w.request.ID)
 	if err != nil || len(events) == 0 {
 		return Violatedf("the creation events are %+v: %v", events, err)
+	}
+	var started ledger.CreationStartedEvent
+	if err := jsonInto(events[0].Data, &started); err != nil || started.Leads != cleanPath {
+		return Violatedf("the creation started as %+v, want where its path leads as %q: %v", started, cleanPath, err)
 	}
 	for _, event := range events {
 		var data any
@@ -998,21 +1031,27 @@ func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 		return err
 	}
 	w.creator.passes("late", "late", "main")
-	w.creator.refuses("exists", ledger.TemplateRefusedRemoteExists, "acme/exists already exists on GitHub", "")
-	// The creation of late finds the repository the forge made for an earlier attempt that timed out.
+	// The worker's detail of the check that found the repository already says how to clone it and what to write, with the
+	// path as the manifest writes it. The creation of late finds the repository the forge made for an earlier attempt that
+	// timed out, and its detail says nothing of the fix.
+	w.creator.refuses("exists", ledger.TemplateRefusedRemoteExists, "acme/exists already exists on GitHub; clone it to ../exists and write `remote` in place of `create`", "")
 	w.creator.SetReport(w.creator.key("late"), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists, Detail: "acme/late already exists on GitHub",
 	})
 	w.creator.refuses("signedout", ledger.TemplateRefusedGHSignedOut, "Run `gh auth login --hostname github.com` on this machine", "gh auth login --hostname github.com")
-	fixes := func(name string, creation *ledger.CreationOutcome) error {
-		want := []string{"clone acme/" + name + " to /work/" + name, "`remote` in place of `create`", "entry for " + name}
-		if creation == nil {
-			return Violatedf("%s carries no creation", name)
+	const fix = "`remote` in place of `create`"
+	once := func(name string, got control.Added, clone string) error {
+		if got.Outcome != ledger.RegistrationRefused || got.RefusalCode != ledger.TemplateRefusedRemoteExists || !strings.Contains(got.Reason, "already exists on GitHub") {
+			return Violatedf("%s reads %+v", name, got)
 		}
-		for _, text := range want {
-			if !strings.Contains(creation.Remedy, text) {
-				return Violatedf("the remedy of %s reads %q, want it to say %q", name, creation.Remedy, text)
-			}
+		if n := strings.Count(got.Reason, fix); n != 1 {
+			return Violatedf("the reason of %s names the fix %d times, want once: %q", name, n, got.Reason)
+		}
+		if n := strings.Count(got.Reason, "clone"); n != 1 {
+			return Violatedf("the reason of %s says how to clone it %d times, want once: %q", name, n, got.Reason)
+		}
+		if got.Creation == nil || !strings.Contains(got.Creation.Remedy, fix) || !strings.Contains(got.Creation.Remedy, clone) {
+			return Violatedf("the remedy of %s reads %+v, want it to say %q and %s", name, got.Creation, clone, fix)
 		}
 		return nil
 	}
@@ -1021,10 +1060,7 @@ func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 		return err
 	}
 	exists, _ := outcomeNamed(preview, "exists")
-	if exists.Outcome != ledger.RegistrationRefused || !strings.Contains(exists.Reason, "already exists on GitHub") || !strings.Contains(exists.Reason, "`remote` in place of `create`") {
-		return Violatedf("the check that found the repository reads %+v", exists)
-	}
-	if err := fixes("exists", exists.Creation); err != nil {
+	if err := once("exists", exists, "clone it to ../exists"); err != nil {
 		return err
 	}
 	// A fix the worker names itself is not replaced.
@@ -1039,36 +1075,45 @@ func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 		return err
 	}
 	late, _ := outcomeNamed(added, "late")
-	if late.Outcome != ledger.RegistrationRefused || !strings.Contains(late.Reason, "already exists on GitHub") {
-		return Violatedf("the creation that found the repository reads %+v", late)
-	}
-	if err := fixes("late", late.Creation); err != nil {
-		return err
-	}
-	events, err := r.creationEvents(s, w.request.ID)
-	if err != nil {
+	if err := once("late", late, "clone acme/late to ../late"); err != nil {
 		return err
 	}
 	latest, err := r.latestCreation(s, w.request.ID, "late")
-	if err != nil || latest.State != ledger.CreationRefused || latest.Finished == nil || !strings.Contains(latest.Finished.Remedy, "`remote` in place of `create`") {
-		return Violatedf("the events leave the creation of late as %+v (%d events): %v", latest, len(events), err)
+	if err != nil || latest.State != ledger.CreationRefused || latest.Finished == nil || !strings.Contains(latest.Finished.Remedy, fix) || strings.Count(latest.Finished.Reason, fix) != 1 {
+		return Violatedf("the events leave the creation of late as %+v: %v", latest, err)
 	}
 	return r.CheckProjection(s)
 }
 
 func checkPreviewShowsWhereTheCreationLeads(r *Rig) error {
 	s := r.Store()
-	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("dirty", "../dirty", ""), []string{"search", "dirty"}, nil)
+	names := []string{"search", "dirty", "late", "broken", "unread"}
+	entries := ""
+	for _, name := range names {
+		entries += creationEntry(name, "../"+name, "")
+	}
+	w, err := r.creationWorld(s, entries, names, nil)
 	if err != nil {
 		return err
 	}
-	w.creator.passes("search", "search", "main")
-	// The path of search leads through a link to a folder on another disk, which the check read, and the check of dirty
-	// refused after it read where its path leads.
-	w.creator.SetCheck(w.creator.key("search"), ledger.CreationCheck{URL: w.creator.urls["search"], Login: "octo", Branch: "main", Leads: "/mnt/disk/search"})
+	for _, name := range names {
+		w.creator.passes(name, name, "main")
+	}
+	w.creator.failsPush("broken", "broken", "main")
+	// The paths of search, late, and broken lead through links to folders on another disk, which the checks read. The check
+	// of dirty refused after it read where its path leads, the creation of late is refused after it started, and the push
+	// of broken failed. The check of unread refused before it read the path, so it says nothing of where it leads and the manifest's path stands.
+	for _, name := range []string{"search", "dirty", "late", "broken"} {
+		w.creator.leads(name, "/mnt/disk/"+name)
+	}
 	w.creator.SetCheck(w.creator.key("dirty"), ledger.CreationCheck{Leads: "/mnt/disk/dirty", Refusal: &ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedNotEmpty, Detail: "/mnt/disk/dirty holds files of its own",
 	}})
+	w.creator.SetReport(w.creator.key("late"), ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedChanged, Detail: "the folder was swapped for a link after it was checked",
+	})
+	w.creator.refuses("unread", ledger.TemplateRefusedGHSignedOut, "Run `gh auth login --hostname github.com` on this machine", "gh auth login --hostname github.com")
+	w.creator.unread["unread"] = true
 	preview, err := r.runCreation(w, true)
 	if err != nil {
 		return err
@@ -1077,6 +1122,9 @@ func checkPreviewShowsWhereTheCreationLeads(r *Rig) error {
 		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"search": {outcome: ledger.Created, path: "/mnt/disk/search"},
 		"dirty":  {outcome: ledger.RegistrationRefused, path: "/mnt/disk/dirty", reason: "holds files of its own", code: ledger.TemplateRefusedNotEmpty},
+		"late":   {outcome: ledger.Created, path: "/mnt/disk/late"},
+		"broken": {outcome: ledger.Created, path: "/mnt/disk/broken"},
+		"unread": {outcome: ledger.RegistrationRefused, path: "/work/unread", reason: "gh auth login --hostname github.com", code: ledger.TemplateRefusedGHSignedOut},
 	}); err != nil {
 		return Violatedf("the preview: %v", err)
 	}
@@ -1086,7 +1134,29 @@ func checkPreviewShowsWhereTheCreationLeads(r *Rig) error {
 	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
 		return err
 	}
-	if _, err := r.runCreation(w, false); err != nil {
+	added, err := r.runCreation(w, false)
+	if err != nil {
+		return err
+	}
+	// A creation that was refused after it started and one that failed partway report where the path leads too.
+	if err := outcomesAre(added, map[string]entryOutcome{
+		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"search": {outcome: ledger.Created, path: "/work/search"},
+		"dirty":  {outcome: ledger.RegistrationRefused, path: "/mnt/disk/dirty", reason: "holds files of its own", code: ledger.TemplateRefusedNotEmpty},
+		"late":   {outcome: ledger.RegistrationRefused, path: "/mnt/disk/late", reason: ledger.TemplateRefusedChanged, code: ledger.TemplateRefusedChanged},
+		"broken": {outcome: ledger.CreateFailed, path: "/mnt/disk/broken", reason: "denied by the forge"},
+		"unread": {outcome: ledger.RegistrationRefused, path: "/work/unread", reason: "gh auth login --hostname github.com", code: ledger.TemplateRefusedGHSignedOut},
+	}); err != nil {
+		return Violatedf("approving it: %v", err)
+	}
+	if err := r.recordedAre(s, w.request.ID, map[string]entryOutcome{
+		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"search": {outcome: ledger.Created, path: "/work/search"},
+		"dirty":  {outcome: ledger.RegistrationRefused, path: "/mnt/disk/dirty", reason: "holds files of its own", code: ledger.TemplateRefusedNotEmpty},
+		"late":   {outcome: ledger.RegistrationRefused, path: "/mnt/disk/late", reason: ledger.TemplateRefusedChanged, code: ledger.TemplateRefusedChanged},
+		"broken": {outcome: ledger.CreateFailed, path: "/mnt/disk/broken", reason: "denied by the forge"},
+		"unread": {outcome: ledger.RegistrationRefused, path: "/work/unread", reason: "gh auth login --hostname github.com", code: ledger.TemplateRefusedGHSignedOut},
+	}); err != nil {
 		return err
 	}
 	events, err := r.creationEvents(s, w.request.ID)
