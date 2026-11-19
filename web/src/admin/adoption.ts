@@ -31,6 +31,24 @@ export function planRequest(folders: string[], depth: number, leaveOut: string[]
   return request;
 }
 
+// keepPractices returns a plan read again with the practices the plan read before listed, for each repository by its path,
+// so a plan read again for its digest or for a tree left out does not drop what the dry run read. A repository that lists
+// practices or a note of its own is left as it is.
+export function keepPractices(next: AdoptionPlan, previous: AdoptionPlan): AdoptionPlan {
+  const before = new Map(previous.repositories.map((row) => [row.path, row]));
+  return {
+    ...next,
+    guides: next.guides ?? previous.guides,
+    repositories: next.repositories.map((row) => {
+      const was = before.get(row.path);
+      if (row.practices || row.practices_note || !was) {
+        return row;
+      }
+      return { ...row, practices: was.practices, practices_note: was.practices_note };
+    }),
+  };
+}
+
 // offersRestructure says a plan has something to restructure: every shape but single always does, and a single
 // repository does when it lacks files.
 export const offersRestructure = (plan: AdoptionPlan): boolean => plan.shape !== "single" || (plan.files ?? []).length > 0;

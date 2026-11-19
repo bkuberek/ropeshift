@@ -179,6 +179,7 @@ describe("Import an existing project, starting the session", () => {
     await userEvent.click(tree);
     await waitFor(() => expect((screen.getByRole("checkbox", { name: /Leave out tools/ }) as HTMLInputElement).checked).toBe(true));
     expect(planCalls(sent).map((call) => (call.body as { leave_out?: string[] }).leave_out)).toEqual([undefined, ["tools"]]);
+    expect(planCalls(sent).map((call) => (call.body as { practices?: boolean }).practices), "only the dry run reads the practices, and a tree left out reads none again").toEqual([true, undefined]);
     await userEvent.click(screen.getByRole("checkbox", { name: "Restructure the planning repository as listed" }));
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     const radios = (await screen.findAllByRole("radio")) as HTMLInputElement[];
@@ -188,6 +189,7 @@ describe("Import an existing project, starting the session", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start adopt session" }));
     await waitFor(() => expect(window.location.pathname).toBe("/projects/ws/planning"));
     expect(planCalls(sent).at(-1)?.body, "Start reads the plan again, as the one the member read").toMatchObject({ root: "/work/ws", leave_out: ["tools"] });
+    expect(planCalls(sent).at(-1)?.body, "Start reads no practices, so no scan holds the adoption up").not.toHaveProperty("practices");
     expect(sent.find((call) => call.method === "POST" && call.path === "/v1/repositories")?.body, "the design repository's history is imported, so it is not registered").toMatchObject({ paths: ["/work/ws", "/work/ws/repos/api"] });
     const left = plan("consolidate-left-out");
     const work = sent.find((call) => call.method === "POST" && call.path === "/v1/work-orders")?.body as Record<string, unknown>;
@@ -282,5 +284,25 @@ describe("Import an existing project, where the plan lives", () => {
     await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
     await screen.findByRole("region", { name: "Clones found" });
     expect(screen.queryByRole("group", { name: "Restructure" })).toBeNull();
+  });
+
+  it("keeps the practices the dry run listed when a tree left out reads the plan again without them", async () => {
+    const found = plan("practices");
+    const api = found.repositories.find((row) => row.path === "/work/ws/repos/api");
+    const read = plan("consolidate");
+    const listed: AdoptionPlan = {
+      ...read,
+      repositories: read.repositories.map((row) => (row.path === "/work/ws/repos/api" ? { ...row, practices: api?.practices } : row)),
+      guides: found.guides,
+    };
+    serveImport((body) => (body.leave_out ? plan("consolidate-left-out") : listed));
+    openPage("/import");
+    await fill("/work/ws");
+    await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
+    await screen.findByRole("region", { name: "Practices found" });
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Leave out tools/ }));
+    await waitFor(() => expect((screen.getByRole("checkbox", { name: /Leave out tools/ }) as HTMLInputElement).checked).toBe(true));
+    const table = within(screen.getByRole("region", { name: "Practices found" }));
+    expect(table.getByText(/^8 findings/), "the findings the dry run read stay on the page").toBeTruthy();
   });
 });
