@@ -18,11 +18,12 @@ var remoteSchemes = []string{"https", "ssh", "git", "file"}
 // remote that holds `::` is refused because git reads `transport::address` as a remote helper, such as `ext::`,
 // which runs a command. An https or http URL with a user, and any URL with a password, are refused without echoing them.
 func checkRemote(remote string) error {
-	if scheme, rest, found := strings.Cut(remote, "://"); found && scheme != "file" {
+	if scheme, rest, found := strings.Cut(remote, "://"); found && !strings.EqualFold(scheme, "file") {
+		scheme = strings.ToLower(scheme)
 		authority, _, _ := strings.Cut(rest, "/")
 		if at := strings.LastIndex(authority, "@"); at >= 0 {
 			web := scheme == "https" || scheme == "http"
-			if web || strings.Contains(authority[:at], ":") {
+			if web || strings.Contains(authority[:at], ":") || encodedSeparator(authority[:at]) {
 				return errors.New("a remote's URL holds no user or password in an http or https URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it")
 			}
 		}
@@ -55,6 +56,12 @@ func checkRemote(remote string) error {
 		return fmt.Errorf("a remote is a URL or scp-like user@host:path, and %q is neither; for a local repository use a file:// URL", remote)
 	}
 	return nil
+}
+
+// encodedSeparator says a user holds a colon or an at sign written as a percent escape, in either case.
+func encodedSeparator(user string) bool {
+	lower := strings.ToLower(user)
+	return strings.Contains(lower, "%3a") || strings.Contains(lower, "%40")
 }
 
 // hostOf drops a user and a port from an authority.
