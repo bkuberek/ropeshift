@@ -288,6 +288,17 @@ func (r *Repo) ShallowClone(name string) *Repo {
 	return &Repo{T: r.T, Dir: dir, Home: r.Home}
 }
 
+// BloblessClone makes a clone beside this one that holds the commits and trees and no blob, as `git clone
+// --filter=blob:none` does, so reading a blob asks this repository for it. A local clone ignores a filter, so it
+// clones through a file URL.
+func (r *Repo) BloblessClone(name string) *Repo {
+	r.T.Helper()
+	r.Git("config", "uploadpack.allowFilter", "true")
+	dir := filepath.Join(filepath.Dir(r.Dir), name)
+	r.Git("clone", "--quiet", "--filter=blob:none", "file://"+filepath.ToSlash(r.Dir), dir)
+	return &Repo{T: r.T, Dir: dir, Home: r.Home}
+}
+
 // RemoteHead reads the commit a remote holds for a ref, or nothing when it holds none.
 func (r *Repo) RemoteHead(remote, ref string) string {
 	r.T.Helper()

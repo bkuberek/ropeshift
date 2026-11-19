@@ -561,3 +561,22 @@ func TestSecretScanDoesNotBlameACommitForAKeyItLeftAlone(t *testing.T) {
 		t.Errorf("matches are %+v", got.Matches)
 	}
 }
+
+// A clone that holds no blob never asks the repository it came from for one, whatever its configuration says.
+func TestSecretScanOfABloblessCloneNeverFetches(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("a.txt", secretScanTokenA+"\n")
+	origin.Commit("a.txt", "clean\n")
+	clone := origin.BloblessClone("blobless")
+	marker := filepath.Join(t.TempDir(), "asked")
+	script := filepath.Join(t.TempDir(), "upload-pack")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	clone.Git("config", "remote.origin.uploadpack", script)
+	_, _ = practicegit.SecretScanner{Env: clone.Env()}.Scan(context.Background(), clone.Dir, "HEAD", "")
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the scan asked the repository the clone came from for a blob")
+	}
+}
