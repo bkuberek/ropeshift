@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -203,5 +204,24 @@ func TestAnAcknowledgementsReasonIsKeptOnOneLineWithNoCredential(t *testing.T) {
 		if len(ack.Reason) > ledger.MaxPracticesReason {
 			t.Errorf("a redacted reason is %d bytes, over the bound of %d", len(ack.Reason), ledger.MaxPracticesReason)
 		}
+	}
+}
+
+// A repository the project removed is not one to acknowledge a finding of: the call is refused as not found, and records
+// nothing.
+func TestAFindingOfARemovedRepositoryIsNotAcknowledged(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolPracticesChecks)
+	repo := r.register("repo-a", "alpha", "worker-1")
+	if _, err := control.NewRepositories(r.store).Remove(t.Context(), "pa", repo.ID, nil, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, "codeowners", "the team owns it", projectMember); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("acknowledging a finding of a removed repository answered %v, want not found", err)
+	}
+	if kept := r.acknowledged(repo.ID); len(kept) != 0 {
+		t.Errorf("the removed repository keeps %+v", kept)
+	}
+	if events := r.events(ledger.EventPracticesAcknowledged); len(events) != 0 {
+		t.Errorf("%d acknowledgement events, want none", len(events))
 	}
 }

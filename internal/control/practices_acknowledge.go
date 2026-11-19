@@ -57,7 +57,7 @@ func CheckPracticesReason(reason string) (string, error) {
 // Acknowledge records a member's reason for leaving a repository's finding open (FR-PRAC-10), by the repository's ID
 // and the finding's ID. The finding need not be in the repository's latest result: a check may not have run since it
 // appeared. It refuses an empty reason, one over ledger.MaxPracticesReason bytes, an ID the finding grammar refuses,
-// and a finding already acknowledged. The acknowledgement is one event, practices.acknowledged. It changes nothing
+// a finding already acknowledged, and a repository the project removed. The acknowledgement is one event, practices.acknowledged. It changes nothing
 // any decision reads: a finding blocks nothing, acknowledged or not.
 func (p *Practices) Acknowledge(ctx context.Context, scope ledger.WorkspaceID, repository, finding, reason string, actor ledger.Actor) (ledger.PracticesAcknowledgement, error) {
 	if !authority.Allowed(actor, authority.ActionAcknowledgePractices) {
@@ -72,8 +72,12 @@ func (p *Practices) Acknowledge(ctx context.Context, scope ledger.WorkspaceID, r
 	}
 	var ack ledger.PracticesAcknowledgement
 	err = p.store.Write(ctx, scope, "practices.acknowledge", func(tx ports.WriteTx) error {
-		if _, err := tx.Repositories().Repository(repository); err != nil {
+		record, err := tx.Repositories().Repository(repository)
+		if err != nil {
 			return err
+		}
+		if record.Removed() {
+			return fmt.Errorf("repository %s was removed: %w", repository, ports.ErrNotFound)
 		}
 		ack = ledger.PracticesAcknowledgement{Repository: repository, Finding: finding, Reason: reason, Member: actor.ID, AcknowledgedAt: tx.Now()}
 		added, err := tx.Practices().Acknowledge(ack)
