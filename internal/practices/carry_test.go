@@ -90,7 +90,7 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 	}{
 		"a full scan":                     {checked(secondCommit, "", ""), 0},
 		"a scan from another commit":      {checked(secondCommit, "3333333333333333333333333333333333333333", ""), 0},
-		"a scan that could not run":       {checked(secondCommit, firstCommit, "the secret scan failed"), 0},
+		"a scan that could not run":       {checked(secondCommit, firstCommit, "the secret scan failed"), 1},
 		"an incremental scan that is met": {checked(secondCommit, firstCommit, ""), 1},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -103,9 +103,24 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 			}
 		})
 	}
+	// A scan that could not run still holds the secrets the earlier result found, so the practice reads a finding, and
+	// reads unknown with its reason when the earlier result held none.
 	unknown := checked(secondCommit, firstCommit, "the secret scan failed")
-	if got := secretsOf(t, practices.CarryForward(previous, unknown)); got.Status != practices.StatusUnknown || got.Reason == "" {
-		t.Errorf("secrets are %+v, want unknown with its reason", got)
+	got := practices.CarryForward(previous, unknown)
+	if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != "" {
+		t.Errorf("secrets are %+v, want a finding", status)
+	}
+	if want := findingsOf(previous, practices.Secrets); !slices.Equal(findingsOf(got, practices.Secrets), want) {
+		t.Errorf("the secrets findings are %v, want %v", findingsOf(got, practices.Secrets), want)
+	}
+	for _, f := range got.Findings {
+		if f.Practice == practices.Secrets && f.Commit != leaked.Commit {
+			t.Errorf("the finding %s is of the commit %s, want it kept as %s", f.ID, f.Commit, leaked.Commit)
+		}
+	}
+	clean := checked(firstCommit, "", "")
+	if status := secretsOf(t, practices.CarryForward(clean, unknown)); status.Status != practices.StatusUnknown || status.Reason != "the secret scan failed" {
+		t.Errorf("secrets are %+v, want unknown with its reason", status)
 	}
 }
 

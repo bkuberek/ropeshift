@@ -4,15 +4,15 @@ import "slices"
 
 // CarryForward adds to the result of an incremental secret scan the `secrets` findings of the result the scan
 // continued from. An incremental scan reads the commits after the one the earlier scan ended at, and a secret a
-// commit added stays in the history, so the findings of the earlier result still hold. A result that scanned the whole
-// history, one whose scan could not run, and one that continued from another commit than the earlier result read
-// carry nothing. It returns a copy and changes neither result.
+// commit added stays in the history, so the findings of the earlier result still hold, whether the new scan found
+// nothing, found secrets, or could not run. A result that scanned the whole history and one that continued from
+// another commit than the earlier result read carry nothing. It returns a copy and changes neither result.
 func CarryForward(previous, next Result) Result {
 	if next.ScannedFrom == "" || next.ScannedFrom != previous.Commit {
 		return next
 	}
 	at := slices.IndexFunc(next.Practices, func(p PracticeStatus) bool { return p.ID == Secrets })
-	if at < 0 || (next.Practices[at].Status != StatusMet && next.Practices[at].Status != StatusFinding) {
+	if at < 0 || next.Practices[at].Status == StatusNotApplicable {
 		return next
 	}
 	return carrySecrets(previous, next, at)

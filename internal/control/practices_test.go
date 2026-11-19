@@ -589,6 +589,11 @@ func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *test
 	unknown := aResult("repo-a", "3333333333333333333333333333333333333333", tipTwo)
 	unknown.Practices[1] = practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusUnknown, Reason: "the secret scan failed"}
 	r.mustReport(third.ID, ledger.PracticesOutcomeChecked, unknown)
+	record, err = r.record("repo-a")
+	if err != nil || record.Commit != unknown.Commit || secretsStatus(t, record.Result).Status != practices.StatusFinding ||
+		!slices.Equal(secretsFindings(record.Result), []string{"secrets:github_token:config/dev.yaml:1a2b3c4d5e6f"}) {
+		t.Errorf("the result is %+v (%v), want the earlier secret kept as a finding though the scan could not run", record, err)
+	}
 	if tip := r.tip("repo-a"); tip != "" {
 		t.Errorf("a scan that could not run left the tip %q, want it cleared", tip)
 	}
