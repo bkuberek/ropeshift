@@ -191,3 +191,51 @@ func TestTheQuestionsViewReadsALanesAndAWorkOrdersQuestions(t *testing.T) {
 		})
 	}
 }
+
+// A decision names the kind of party that recorded it, from the event that recorded it, so a decision whose
+// orchestrator's worker the ledger no longer holds still reads as an orchestrator's, with no name (FR-QD-13).
+func TestDecisionsNameTheKindOfWhoRecordedThem(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	w.Running("wo-ask", "Add the retry budget")
+	gone := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "worker-gone"}
+	asked, err := w.Questions.Ask(ctx, apitest.Scope, questions.Ask{
+		ID: "q-ruled", Text: "What is the retry budget?", Categories: []string{questions.CategoryProduct}, Lane: "lane-wo-ask", Generation: 1,
+		SubjectKind: workorders.SubjectKind, SubjectID: "wo-ask",
+	}, ledger.Actor{Kind: ledger.ActorLane, ID: "lane-wo-ask"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Questions.Take(ctx, apitest.Scope, asked.QuestionID, apitest.LeaseTTL, gone); err != nil {
+		t.Fatal(err)
+	}
+	for _, rung := range []int64{questions.RungLookup, questions.RungOpen} {
+		if _, err := w.Questions.Climb(ctx, apitest.Scope, asked.QuestionID, questions.Step{Rung: rung, Outcome: "no match"}, gone); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := w.Questions.Rule(ctx, apitest.Scope, asked.QuestionID, questions.Ruling{
+		ID: "decision-ruled", Status: questions.DecisionDecided, Statement: "Three calls.", Rationale: "It follows.", Citations: []string{"PAY-12"},
+		Reversibility: questions.Reversible,
+	}, gone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Client.RecordDecision(ctx, api.RecordDecision{
+		ID: "decision-member", Status: questions.DecisionDecided, Statement: "Log retries at warn.", Rationale: "They are worth a look.",
+		Scope: "wo:wo-ask", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, row := range readView[api.Decisions](t, d, api.ViewDecisions, "").Decisions {
+		kinds[row.ID] = row.DecidedByKind
+		if row.ID == "decision-ruled" && row.DecidedByName != "" {
+			t.Errorf("the removed worker's decision names %q", row.DecidedByName)
+		}
+	}
+	if kinds["decision-ruled"] != string(ledger.ActorOrchestrator) || kinds["decision-member"] != string(ledger.ActorMember) {
+		t.Errorf("the decisions read the kinds %v, want the ruling an orchestrator's and the record a member's", kinds)
+	}
+}

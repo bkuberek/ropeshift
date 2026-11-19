@@ -101,22 +101,33 @@ function DecisionLine({ decision }: { decision: Decision }) {
   );
 }
 
-// The filters of who recorded a decision beside one recorder's ID: any orchestrator, which decides as its worker, so its
-// decision names the worker's machine, and any member.
-const byOrchestrator = "orchestrator";
-const byMember = "member";
+// The values of the filter of who recorded a decision. A kind of recorder and one recorder's ID each carry a prefix, so
+// no recorder's ID reads as a kind: a member whose ID is "orchestrator" is filtered by id:orchestrator.
+const byOrchestrator = "kind:orchestrator";
+const byMember = "kind:member";
+const byRecorder = (id: string) => `id:${id}`;
 
-// recordedBy says whether a decision was recorded by who the filter names.
+// recordedBy says whether a decision was recorded by who the filter names. A kind is the one the ledger recorded the
+// decision under, so a decision whose orchestrator's worker is gone still counts as an orchestrator's.
 function recordedBy(decision: Decision, by: string): boolean {
   switch (by) {
     case "":
       return true;
     case byOrchestrator:
-      return Boolean(decision.decided_by_name);
+      return decision.decided_by_kind === "orchestrator";
     case byMember:
-      return Boolean(decision.decided_by) && !decision.decided_by_name;
+      return decision.decided_by_kind === "member";
   }
-  return decision.decided_by === by;
+  return by.startsWith("id:") && decision.decided_by === by.slice("id:".length);
+}
+
+// recorderName names one recorder: an orchestrator by the machine its worker runs on, or by its ID when the ledger no
+// longer names the worker, and anyone else by ID.
+function recorderName(decision: Decision): string {
+  if (decision.decided_by_name) {
+    return `Orchestrator on ${decision.decided_by_name}`;
+  }
+  return decision.decided_by_kind === "orchestrator" ? `Orchestrator ${decision.decided_by}` : (decision.decided_by ?? "");
 }
 
 // RecorderFilter narrows the decisions to those anyone, any orchestrator, any member, or one recorder recorded, a link
@@ -124,8 +135,9 @@ function recordedBy(decision: Decision, by: string): boolean {
 function RecorderFilter({ decisions, by, category }: { decisions: Decision[]; by: string; category: string }) {
   const recorders: { value: string; name: string }[] = [];
   for (const decision of decisions) {
-    if (decision.decided_by && !recorders.some((recorder) => recorder.value === decision.decided_by)) {
-      recorders.push({ value: decision.decided_by, name: decision.decided_by_name ? `Orchestrator on ${decision.decided_by_name}` : decision.decided_by });
+    const value = decision.decided_by ? byRecorder(decision.decided_by) : "";
+    if (value && !recorders.some((recorder) => recorder.value === value)) {
+      recorders.push({ value, name: recorderName(decision) });
     }
   }
   const options = [{ value: "", name: "Anyone" }, { value: byOrchestrator, name: "An orchestrator" }, { value: byMember, name: "A member" }, ...recorders];
@@ -148,8 +160,8 @@ function emptyWords(by: string, category: string): string {
   if (by === byMember) {
     return "No member recorded a decision here.";
   }
-  if (by) {
-    return `${by} recorded no decision here.`;
+  if (by.startsWith("id:")) {
+    return `${by.slice("id:".length)} recorded no decision here.`;
   }
   return category ? `Nothing decided in ${words(category)}.` : "No decisions yet.";
 }

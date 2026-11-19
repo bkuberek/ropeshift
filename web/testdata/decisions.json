@@ -6,6 +6,7 @@
         "product"
       ],
       "decided_by": "member-1",
+      "decided_by_kind": "member",
       "id": "decision-1",
       "lineage": [
         "decision-1",
@@ -26,6 +27,7 @@
         "product"
       ],
       "decided_by": "member-1",
+      "decided_by_kind": "member",
       "id": "decision-2",
       "lineage": [
         "decision-1",
@@ -54,6 +56,7 @@
         "requirement:FR-RETRY-1"
       ],
       "decided_by": "member-1",
+      "decided_by_kind": "member",
       "id": "decision-3",
       "lineage": [
         "decision-1",

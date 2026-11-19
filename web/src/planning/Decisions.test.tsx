@@ -226,49 +226,72 @@ describe("the category filter of the decisions", () => {
 describe("who recorded a decision", () => {
   const recorders = () => screen.findByRole("navigation", { name: "Filter by who recorded" });
 
+  // serveRecorded adds an orchestrator's assumption, a decision of an orchestrator whose worker the ledger no longer
+  // holds, so it has no name, and a member's decision whose ID is the word a filter of kind uses.
   function serveRecorded() {
     const view = golden<Decisions>("decisions");
-    view.decisions.unshift({
-      id: "decision-assumed", status: "assumed", statement: "Retry with backoff.", rationale: "The gateway throttles bursts.",
-      citations: ["PAY-12"], decided_by: worker, decided_by_name: "solo", lineage: ["decision-assumed"],
-    });
+    view.decisions.unshift(
+      {
+        id: "decision-assumed", status: "assumed", statement: "Retry with backoff.", rationale: "The gateway throttles bursts.",
+        citations: ["PAY-12"], decided_by: worker, decided_by_name: "solo", decided_by_kind: "orchestrator", lineage: ["decision-assumed"],
+      },
+      { id: "decision-removed", status: "decided", statement: "Retry once more.", decided_by: "worker-removed", decided_by_kind: "orchestrator", lineage: ["decision-removed"] },
+      { id: "decision-clash", status: "decided", statement: "Cap retries at five.", decided_by: "orchestrator", decided_by_kind: "member", lineage: ["decision-clash"] },
+    );
     return serveViews((call) => (call.path.startsWith("/v1/views/decisions") ? { status: 200, body: view } : undefined));
   }
+
+  const statements = () => screen.getAllByRole("article").map((card) => card.querySelector("h2")?.textContent);
 
   it("offers anyone, any orchestrator, any member, and each one who recorded a decision", async () => {
     serveRecorded();
     openPage("/decisions");
     const links = within(await recorders()).getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["Anyone", "An orchestrator", "A member", "Orchestrator on solo", "member-1"]);
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Anyone", "An orchestrator", "A member", "Orchestrator on solo", "Orchestrator worker-removed", "orchestrator", "member-1",
+    ]);
     expect(within(await recorders()).getByRole("link", { name: "Anyone" }).getAttribute("aria-current")).toBe("true");
   });
 
-  it("lists only what an orchestrator recorded, with its rationale and citations, and offers its overturn", async () => {
+  it("lists what any orchestrator recorded by the kind the ledger names, a removed worker's included, with rationale, citations, and overturn", async () => {
     serveRecorded();
     openPage("/decisions");
     await decision("Retry twice.");
     await userEvent.click(within(await recorders()).getByRole("link", { name: "An orchestrator" }));
     const card = await decision("Retry with backoff.");
     await waitFor(() => expect(screen.queryByRole("article", { name: "Retry twice." })).toBeNull());
-    expect(window.location.search).toBe("?by=orchestrator");
+    expect(window.location.search).toBe("?by=kind%3Aorchestrator");
+    expect(statements()).toEqual(["Retry with backoff.", "Retry once more."]);
     expect(within(card).getByText("The gateway throttles bursts.")).toBeTruthy();
     expect(within(card).getByText("PAY-12")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Overturn decision-assumed" })).toBeTruthy();
   });
 
-  it("lists only what one member recorded", async () => {
+  it("lists what any member recorded, whatever the member's ID", async () => {
     serveRecorded();
-    openPage("/decisions?by=member-1");
-    expect(await decision("Retry twice.")).toBeTruthy();
-    expect(screen.queryByRole("article", { name: "Retry with backoff." })).toBeNull();
+    openPage("/decisions?by=kind%3Amember");
+    await decision("Cap retries at five.");
+    expect(statements()).not.toContain("Retry with backoff.");
+    expect(statements()).not.toContain("Retry once more.");
+    expect(statements()).toContain("Retry twice.");
+  });
+
+  it("lists only what one recorder recorded, even one whose ID is the word a kind filter uses", async () => {
+    serveRecorded();
+    openPage("/decisions");
+    await decision("Retry twice.");
+    const clash = within(await recorders()).getByRole("link", { name: "orchestrator" });
+    expect(clash.getAttribute("href")).toBe(here("/decisions?by=id%3Aorchestrator"));
+    await userEvent.click(clash);
+    await waitFor(() => expect(statements()).toEqual(["Cap retries at five."]));
   });
 
   it("keeps who recorded a decision when the category changes", async () => {
     serveRecorded();
-    openPage("/decisions?by=orchestrator");
+    openPage("/decisions?by=kind%3Aorchestrator");
     await decision("Retry with backoff.");
     const product = within(await screen.findByRole("navigation", { name: "Filter by category" })).getByRole("link", { name: "Product" });
-    expect(product.getAttribute("href")).toBe(here("/decisions?by=orchestrator&category=product"));
+    expect(product.getAttribute("href")).toBe(here("/decisions?by=kind%3Aorchestrator&category=product"));
   });
 
   it("reaches what an orchestrator recorded from the command palette", async () => {
@@ -279,13 +302,13 @@ describe("who recorded a decision", () => {
     await screen.findByRole("dialog", { name: "Command palette" });
     await userEvent.keyboard("orchestrator decisions");
     await userEvent.click(await screen.findByRole("option", { name: /^Orchestrator decisions and assumptions/ }));
-    await waitFor(() => expect(window.location.search).toBe("?by=orchestrator"));
+    await waitFor(() => expect(window.location.search).toBe("?by=kind%3Aorchestrator"));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Retry twice." })).toBeNull());
   });
 
   it("says when nobody it names recorded a decision", async () => {
     serveViews();
-    openPage("/decisions?by=orchestrator");
+    openPage("/decisions?by=kind%3Aorchestrator");
     expect(await screen.findByText("No orchestrator recorded a decision here.")).toBeTruthy();
   });
 });

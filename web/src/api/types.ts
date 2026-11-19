@@ -614,7 +614,7 @@ export type QuestionHolder = { id: string; orchestrator?: string; machine?: stri
 export type Attachment = { question_id: string; lane: string; generation: number; blocking?: boolean; attached_at: number };
 
 // ClosingDecision is the decision or assumption that answered a question, as the ledger holds it.
-export type ClosingDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name" | "scope_title">;
+export type ClosingDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name" | "decided_by_kind" | "scope_title">;
 
 // OrchestratorHold is what keeps a worker's orchestrator from starting or running now. At a usage limit, window names it,
 // resets_at is its reset, absent when nobody reported one, read_at when the worker heard
@@ -829,6 +829,9 @@ export type Decision = {
   decided_by?: string;
   // decided_by_name is the name of the worker whose orchestrator decided, which its ID does not say.
   decided_by_name?: string;
+  // decided_by_kind is the kind of party that recorded the decision, such as member or orchestrator, as the event that
+  // recorded it names, so a decision whose orchestrator's worker is gone still reads as an orchestrator's.
+  decided_by_kind?: string;
   supersedes?: string;
   superseded_by?: string;
   question_id?: string;
