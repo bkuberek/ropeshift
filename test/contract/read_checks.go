@@ -228,7 +228,7 @@ func checkAChangeReadsWhatItsDependencyMerged(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	merged := r.ID("merged")
+	merged := r.Commit()
 	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: merged}); err != nil {
 		return err
 	}

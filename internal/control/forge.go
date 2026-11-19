@@ -335,7 +335,7 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 	if report.PullRequest == nil || report.PullRequest.Number <= 0 {
 		return fmt.Errorf("%w: a publish that worked names no pull request", workorders.ErrInvalid)
 	}
-	pr := headOrNone(*report.PullRequest)
+	pr := commitsOrNone(*report.PullRequest)
 	noHead := !ledger.CommitHash(report.PullRequest.HeadCommit)
 	readAt := tx.Now()
 	// A publish's view of the pull request was taken before its report arrived, and the worker's own reads may have
@@ -640,12 +640,16 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 	return head.String() + notesSection(notes, noteBudget(head.Len(), out.Len())) + out.String(), nil
 }
 
-// headOrNone is a pull request as a worker reported it, with a head that is no commit hash taken away. A worker's
-// report is untrusted, and the head goes on to name commits in requests to workers, in git commands, and in the
-// commit work is reviewed at, so a head that git would read as an option or a path is no head at all.
-func headOrNone(pr ledger.PullRequest) ledger.PullRequest {
+// commitsOrNone is a pull request as a worker reported it, with a head or a merge commit that is no commit hash taken
+// away. A worker's report is untrusted, and these go on to name commits in requests to workers, in git commands, in the
+// commit work is reviewed at, and in the commit a dependent's work starts from, so one that git would read as an option or
+// a path is no commit at all.
+func commitsOrNone(pr ledger.PullRequest) ledger.PullRequest {
 	if !ledger.CommitHash(pr.HeadCommit) {
 		pr.HeadCommit = ""
+	}
+	if !ledger.CommitHash(pr.MergeCommit) {
+		pr.MergeCommit = ""
 	}
 	return pr
 }
@@ -662,7 +666,7 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	if err != nil {
 		return err
 	}
-	read := headOrNone(report.PullRequest)
+	read := commitsOrNone(report.PullRequest)
 	if !ledger.CommitHash(report.PullRequest.HeadCommit) {
 		// A read of a head that is no commit says nothing of the head the ledger holds, nor of the checks on it, so
 		// neither is replaced: the head would otherwise be blanked, and the next read of it counted as a new push.

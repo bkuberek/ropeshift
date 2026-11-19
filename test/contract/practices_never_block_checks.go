@@ -228,7 +228,7 @@ func checkFindingsDoNotBlockAMerge(r *Rig) error {
 			return d, err
 		}
 		d.outcome("the worker is asked to merge pull request %d at the reviewed head by %s on %s into %s", merge.Number, merge.Method, merge.Binding, merge.Base)
-		if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged")}); err != nil {
+		if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit()}); err != nil {
 			return d, err
 		}
 		if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {

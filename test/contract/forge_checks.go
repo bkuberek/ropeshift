@@ -623,7 +623,7 @@ func checkForgeMergeEndsWork(r *Rig) error {
 	}
 	// The read of the person's merge ends the work in the transaction that records it.
 	merged := closed
-	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.ID("merge"), "2026-01-02T03:04:05Z"
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.Commit(), "2026-01-02T03:04:05Z"
 	if err := f.read(merged); err != nil {
 		return err
 	}
