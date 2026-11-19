@@ -51,6 +51,9 @@ type ManifestOutcome struct {
 	Repository string            `json:"repository,omitempty"`
 	Checkout   string            `json:"checkout,omitempty"`
 	Reason     string            `json:"reason,omitempty"`
+	// Creation is what creating the repository came to, for an entry with `create` that the version's work orders
+	// name: the check's answer for one a preview reads or a refusal, and the steps for one a run created or tried to.
+	Creation *CreationOutcome `json:"creation,omitempty"`
 }
 
 // RepositoryState says whether a repository is in its project.
