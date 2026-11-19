@@ -497,11 +497,6 @@ func TestSnapshotCapsWhatItReads(t *testing.T) {
 		t.Fatalf("Read of a file over 1 MiB = %d bytes, %v; want false", len(got), ok)
 	}
 
-	big := gittest.New(t)
-	big.Commit(".gitignore", ".env\n"+strings.Repeat("#", limit))
-	if snapshotOf(t, big, "main").Ignored[".env"] {
-		t.Fatal("a .gitignore over 1 MiB counted")
-	}
 }
 
 func TestSnapshotRefusesNamesThatAreNotRefs(t *testing.T) {
@@ -810,4 +805,49 @@ func TestSnapshotAsksCheckIgnoreOnceForEveryProbe(t *testing.T) {
 			t.Errorf("git %s has no %s", calls[0], want)
 		}
 	}
+}
+
+// A `.gitignore` over the limit of one blob is not copied, and no probe below its folder is answered, because the
+// answer would come from the rules that were copied alone: a rule of the file could un-ignore a path.
+func TestSnapshotLeavesTheProbesBelowAnOversizedIgnoreFileUnanswered(t *testing.T) {
+	const limit = 1 << 20
+	padding := strings.Repeat("#", limit)
+	t.Run("a nested file", func(t *testing.T) {
+		repo := gittest.New(t)
+		writeFile(t, filepath.Join(repo.Dir, ".gitignore"), ".env\n")
+		writeFile(t, filepath.Join(repo.Dir, "package.json"), "{}")
+		writeFile(t, filepath.Join(repo.Dir, "sub", ".gitignore"), "!.env\n"+padding)
+		writeFile(t, filepath.Join(repo.Dir, "sub", "package.json"), "{}")
+		repo.Git("add", "--", ".")
+		repo.Git("commit", "--quiet", "-m", "files")
+		snapshot := snapshotOf(t, repo, "main")
+		if answered, _ := answers(snapshot, "sub"); answered != 0 {
+			t.Errorf("the folder of the oversized file has %d answers, want none", answered)
+		}
+		if got, ok := snapshot.Ignored[".env"]; !ok || !got {
+			t.Errorf("Ignored[.env] = %v, %v; want the root answered by its own file", got, ok)
+		}
+	})
+	t.Run("the root file", func(t *testing.T) {
+		repo := gittest.New(t)
+		writeFile(t, filepath.Join(repo.Dir, ".gitignore"), ".env\n"+padding)
+		writeFile(t, filepath.Join(repo.Dir, "web", "package.json"), "{}")
+		repo.Git("add", "--", ".")
+		repo.Git("commit", "--quiet", "-m", "files")
+		snapshot := snapshotOf(t, repo, "main")
+		if len(practices.Probes(snapshot.Paths)) == 0 {
+			t.Fatal("no probes")
+		}
+		if len(snapshot.Ignored) != 0 {
+			t.Errorf("answers %v for probes below an oversized root .gitignore, want none", snapshot.Ignored)
+		}
+	})
+	t.Run("a file of exactly the limit is copied", func(t *testing.T) {
+		repo := gittest.New(t)
+		rule := ".env\n"
+		repo.Commit(".gitignore", rule+strings.Repeat("#", limit-len(rule)))
+		if !snapshotOf(t, repo, "main").Ignored[".env"] {
+			t.Error("a .gitignore of exactly 1 MiB did not count")
+		}
+	})
 }

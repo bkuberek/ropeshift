@@ -222,8 +222,9 @@ func snapshotCopyTarget(root, name string) (string, bool) {
 // commit ignore it. It copies those files into a temporary repository of their own and asks git there once for all
 // of the probes, so the working tree, the person's global excludes, and the checkout's `info/exclude` never count.
 // A probe whose path is not safe is answered as not ignored, and git is never asked about it. The copy holds at most
-// limits.files files and limits.bytes bytes: once a file would pass either, it and every file after it are not copied,
-// and the probes below the folder of each of them have no answer, which the evaluator reads as unknown. The
+// limits.files files and limits.bytes bytes: once a file would pass either, it and every file after it are not copied.
+// A file over snapshotBlobLimit is not copied either. The probes below the folder of each file not copied have no
+// answer, which the evaluator reads as unknown. The
 // temporary repository is gone when this returns.
 func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries []snapshotEntry, paths []string, limits ignoreCopyLimits) (map[string]bool, error) {
 	probes := practices.Probes(paths)
@@ -266,6 +267,7 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 		}
 		content, err := snapshotBlob(ctx, git, commit, name)
 		if errors.Is(err, errSnapshotTooLarge) {
+			uncopied = append(uncopied, folder)
 			continue
 		}
 		if err != nil {
