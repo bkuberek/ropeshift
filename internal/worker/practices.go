@@ -117,13 +117,19 @@ func (rt *PracticesRuntime) read(path string) (practicesJournal, bool, error) {
 	return journal, true, nil
 }
 
-// unreadableSuffix names a journal the worker could not read, which is kept beside where it was.
-const unreadableSuffix = ".unreadable"
+const (
+	// unreadableSuffix names a journal the worker could not read, which is kept beside where it was.
+	unreadableSuffix = ".unreadable"
+	// unreadableKeep is how many journals set aside a worker keeps, the newest.
+	unreadableKeep = 10
+	// unreadableMaxAge is how long a worker keeps a journal it set aside.
+	unreadableMaxAge = 7 * 24 * time.Hour
+)
 
 // load returns a request's journal as read does, and sets one that cannot be read or parsed aside, under the same name
-// with the suffix `.unreadable`, so the next pass finds no journal and the failure is reported once. The error says where
-// the journal went.
-func (rt *PracticesRuntime) load(path string) (practicesJournal, bool, error) {
+// with the suffix `.unreadable` and dated now, so the next pass finds no journal and the failure is reported once. The
+// error says where the journal went.
+func (rt *PracticesRuntime) load(path string, now time.Time) (practicesJournal, bool, error) {
 	journal, found, err := rt.read(path)
 	if err == nil {
 		return journal, found, nil
@@ -132,7 +138,43 @@ func (rt *PracticesRuntime) load(path string) (practicesJournal, bool, error) {
 	if moved := os.Rename(path, aside); moved != nil {
 		return practicesJournal{}, false, fmt.Errorf("%w (and it could not be set aside: %v)", err, moved)
 	}
+	_ = os.Chtimes(aside, now, now)
+	rt.pruneAside(now)
 	return practicesJournal{}, false, fmt.Errorf("%w (set aside as %s)", err, aside)
+}
+
+// pruneAside deletes the journals set aside that are older than unreadableMaxAge, and all but the newest
+// unreadableKeep of the others. It is best effort: one it cannot delete is left.
+func (rt *PracticesRuntime) pruneAside(now time.Time) {
+	matches, err := filepath.Glob(filepath.Join(rt.StateDir, "practices", "*"+unreadableSuffix))
+	if err != nil {
+		return
+	}
+	type kept struct {
+		path string
+		when time.Time
+	}
+	var fresh []kept
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if now.Sub(info.ModTime()) > unreadableMaxAge {
+			_ = os.Remove(path)
+			continue
+		}
+		fresh = append(fresh, kept{path, info.ModTime()})
+	}
+	slices.SortFunc(fresh, func(a, b kept) int {
+		if c := b.when.Compare(a.when); c != 0 {
+			return c
+		}
+		return strings.Compare(a.path, b.path)
+	})
+	for _, old := range fresh[min(len(fresh), unreadableKeep):] {
+		_ = os.Remove(old.path)
+	}
 }
 
 // save replaces a request's journal through a rename, so a crash leaves the old one or the new one.
@@ -202,6 +244,7 @@ func (w *Worker) tendPracticesChecks(ctx context.Context) {
 		w.config.Report(fmt.Errorf("reading the journals of the practices checks: %w", err))
 		return
 	}
+	rt.pruneAside(w.clock.Now())
 	if len(state.PracticesChecks) == 0 && len(held) == 0 {
 		return
 	}
@@ -258,7 +301,7 @@ func (w *Worker) sendJournaledPractices(ctx context.Context, rt *PracticesRuntim
 	if err != nil {
 		return err
 	}
-	journal, found, err := rt.load(path)
+	journal, found, err := rt.load(path, w.clock.Now())
 	if err != nil || !found || journal.State != practicesRan || journal.Report == nil {
 		return err
 	}
@@ -274,7 +317,7 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 	if err != nil {
 		return err
 	}
-	journal, found, err := rt.load(path)
+	journal, found, err := rt.load(path, w.clock.Now())
 	if err != nil {
 		return err
 	}

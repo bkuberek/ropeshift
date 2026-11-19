@@ -981,8 +981,10 @@ func TestAnUnreadableJournalIsReportedOnceAndSetAside(t *testing.T) {
 	if errs := r.reported.all(); len(errs) != 1 || !strings.Contains(errs[0].Error(), request.ID+".json.unreadable") {
 		t.Errorf("the worker reported %v, want the journal once, with where it was set aside", errs)
 	}
-	if _, err := os.Stat(journal + ".unreadable"); err != nil {
+	if info, err := os.Stat(journal + ".unreadable"); err != nil {
 		t.Errorf("the unreadable journal was not set aside: %v", err)
+	} else if !info.ModTime().Equal(r.clock.Now()) {
+		t.Errorf("the journal set aside is dated %v, want when the worker set it aside, %v", info.ModTime(), r.clock.Now())
 	}
 	if raw, err := os.ReadFile(journal); err != nil || !strings.Contains(string(raw), `"reported"`) {
 		t.Errorf("the request's journal is %q (%v), want the fresh run's", raw, err)
@@ -1101,5 +1103,69 @@ func TestAFailureNamesNoTemporaryHomeOrConfigurationFolder(t *testing.T) {
 	want := "scratch <temp>/scratch and <temp>/scratch config ~/.gitconfig and ~/.gitconfig xdg <config>/git/config home only ~/.profile"
 	if !strings.Contains(report.Detail, want) {
 		t.Errorf("the detail is %q, want it to hold %q", report.Detail, want)
+	}
+}
+
+// aside writes a journal set aside, dated the age before the worker's clock.
+func (r *practicesRig) aside(name string, age time.Duration) {
+	r.t.Helper()
+	dir := filepath.Join(r.state, "practices")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		r.t.Fatal(err)
+	}
+	path := filepath.Join(dir, name+".json.unreadable")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	when := r.clock.Now().Add(-age)
+	if err := os.Chtimes(path, when, when); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// asideNames lists the journals set aside that the worker still keeps.
+func (r *practicesRig) asideNames() []string {
+	r.t.Helper()
+	matches, err := filepath.Glob(filepath.Join(r.state, "practices", "*.unreadable"))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	var names []string
+	for _, match := range matches {
+		names = append(names, strings.TrimSuffix(filepath.Base(match), ".json.unreadable"))
+	}
+	slices.Sort(names)
+	return names
+}
+
+// A worker keeps the newest ten journals it set aside, and none older than seven days.
+func TestJournalsSetAsideAreKeptBoundedByCountAndAge(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	subject := r.workerOn(&capturedPractices{WorkerLink: r.link}, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(30 * 24 * time.Hour)
+	// Twelve journals set aside within the week: the two oldest go.
+	for i := range 12 {
+		r.aside(fmt.Sprintf("new-%02d", i), time.Duration(i+1)*time.Minute)
+	}
+	// Journals older than seven days go whatever their number.
+	r.aside("old-8d", 8*24*time.Hour)
+	r.aside("old-20d", 20*24*time.Hour)
+	r.offer(subject)
+	var want []string
+	for i := range 10 {
+		want = append(want, fmt.Sprintf("new-%02d", i))
+	}
+	if got := r.asideNames(); !slices.Equal(got, want) {
+		t.Errorf("the worker keeps %v, want the newest ten of the week: %v", got, want)
+	}
+	// The bound by age alone: the clock moves on until the journals older than the fifth are past the week.
+	r.clock.Advance(7*24*time.Hour - 5*time.Minute - 30*time.Second)
+	r.offer(subject)
+	if got := r.asideNames(); !slices.Equal(got, want[:5]) {
+		t.Errorf("after the week the worker keeps %v, want %v", got, want[:5])
 	}
 }
