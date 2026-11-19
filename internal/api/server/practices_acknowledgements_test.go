@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -403,4 +404,46 @@ func TestAnAcknowledgementOfARetiredPracticeIsWithdrawnOverTheRoute(t *testing.T
 	}
 	_, err = d.Client.AcknowledgePractices(t.Context(), api.PracticesAcknowledge{Repository: "widgets", Finding: retired, Reason: "x"})
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+}
+
+// A delegate's body that names no repository is refused before any card exists, so the reason it carries is kept in no
+// approval record, redacted or not.
+func TestABodyThatNamesNoRepositoryPreparesNoCardAndKeepsNoCredential(t *testing.T) {
+	d := practicesDaemon(t, nil, "")
+	d.HoldClone(t, "repo-a", "widgets")
+	token := "ghp_" + strings.Repeat("a", 30)
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	for name, call := range map[string]struct {
+		path string
+		body string
+	}{
+		"an acknowledgement with no repository":    {api.PracticesAcknowledgementsPath, `{"finding":"codeowners","reason":"see ` + token + `"}`},
+		"an acknowledgement with an empty name":    {api.PracticesAcknowledgementsPath, `{"repository":"","finding":"codeowners","reason":"see ` + token + `"}`},
+		"an acknowledgement that names it as null": {api.PracticesAcknowledgementsPath, `{"repository":null,"finding":"codeowners","reason":"see ` + token + `"}`},
+		"a withdrawal with no repository":          {api.PracticesWithdrawPath, `{"finding":"codeowners","note":"` + token + `"}`},
+	} {
+		err := delegate.Do(t.Context(), http.MethodPost, apitest.Route(call.path), json.RawMessage(call.body), nil)
+		var prepared *api.Prepared
+		var refused *api.Error
+		if errors.As(err, &prepared) || !errors.As(err, &refused) || refused.Status < 400 || refused.Status >= 500 {
+			t.Errorf("%s answered %v, want a refusal and no card", name, err)
+		}
+	}
+	rows, err := control.NewApprovals(d.Store).List(t.Context(), apitest.Scope, "")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("the refused calls left %d approval records (%v), want none", len(rows), err)
+	}
+	err = d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		events, err := control.ReadAllEvents(tx.Events)
+		for _, event := range events {
+			if strings.Contains(string(event.Data), token) {
+				t.Errorf("event %s holds the credential", event.Type)
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

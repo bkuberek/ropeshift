@@ -36,11 +36,12 @@ func practicesFindingSubject(_ *handler, _ *http.Request, body []byte) string {
 // and replays it, so a rename or a new prefix since the card was prepared cannot change which repository it names. The
 // body is read as the handler reads it, into the request's own fields, so a key spelled in another case cannot name
 // what the card does not. The reason is the one the acknowledgement keeps, redacted and on one line, so the card holds no
-// credential a delegate wrote.
+// credential a delegate wrote. A body that names no repository is refused here, before any card exists to keep its
+// reason.
 func practicesAcknowledgementAsID(h *handler, r *http.Request, body []byte) ([]byte, error) {
 	var in api.PracticesAcknowledge
-	if err := json.Unmarshal(body, &in); err != nil || in.Repository == "" {
-		return body, nil
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: %v", authority.ErrInvalid, err)
 	}
 	id, err := h.acknowledgedRepository(r, in.Repository)
 	if err != nil {
@@ -56,8 +57,8 @@ func practicesAcknowledgementAsID(h *handler, r *http.Request, body []byte) ([]b
 // practicesWithdrawalAsID is practicesAcknowledgementAsID for a withdrawal's body.
 func practicesWithdrawalAsID(h *handler, r *http.Request, body []byte) ([]byte, error) {
 	var in api.PracticesWithdraw
-	if err := json.Unmarshal(body, &in); err != nil || in.Repository == "" {
-		return body, nil
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: %v", authority.ErrInvalid, err)
 	}
 	id, err := h.acknowledgedRepository(r, in.Repository)
 	if err != nil {
