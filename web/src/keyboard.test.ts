@@ -354,11 +354,13 @@ const paths: Record<string, KeyPath> = {
       await k.press("Enter");
     },
   },
-  // The dialog opens on its Reason, over the first repository with an open finding and its first open finding.
+  // The dialog opens on its first field, the Repository picker, over the first repository with an open finding and its first open finding, and Tab reaches the Reason.
   "POST /v1/projects/{project}/practices/acknowledgements": {
     sent: post(/^\/v1\/projects\/default\/practices\/acknowledgements$/, { repository: "id-api", finding: "env-ignored:ignore:.", reason: "the folder is not a project root" }),
     run: async (k, page) => {
       await dialog(k, page, "Acknowledge a practices finding");
+      await k.landed(inDialog(page).getByLabel("Repository", { exact: true }));
+      await k.tabTo(inDialog(page).getByLabel("Reason", { exact: true }));
       await k.type("the folder is not a project root");
       await k.activate(inDialog(page).getByRole("button", { name: "Acknowledge", exact: true }));
     },
