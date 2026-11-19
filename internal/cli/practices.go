@@ -58,7 +58,7 @@ func (c *invocation) practicesCommand(args []string) int {
 			waiting[entry.Request.ID] = entry
 		}
 		if len(waiting) > 0 {
-			c.say("Asked %s to run the practices check.\n", api.Count(int64(len(waiting)), "worker", "workers"))
+			c.say("Requested the practices check of %s.\n", api.Count(int64(len(waiting)), "repository", "repositories"))
 		}
 		var code int
 		if notes, code = c.awaitPractices(client, waiting); code != ExitOK {
@@ -99,14 +99,14 @@ func (c *invocation) awaitPractices(client *api.ProjectClient, waiting map[strin
 			entry := waiting[id]
 			switch request.State {
 			case ledger.PracticesExpired:
-				notes = append(notes, practicesLine(fmt.Sprintf("the check on %s did not report within 30 minutes; a later report still becomes the latest result", request.Worker)))
+				notes = append(notes, practicesLine(fmt.Sprintf("the check on %s did not report within 30 minutes; a later report still becomes the latest result", cmp.Or(request.WorkerName, request.Worker))))
 			case ledger.PracticesReported:
 				view, err := client.Practices(c.ctx, entry.Repository)
 				if err != nil {
 					return nil, c.failure(err)
 				}
 				if len(view.Repositories) == 1 && (view.Repositories[0].Result == nil || view.Repositories[0].Result.Request != id) {
-					notes = append(notes, practicesLine(fmt.Sprintf("the check on %s reported no result for %s", request.Worker, cmp.Or(entry.Name, entry.Repository))))
+					notes = append(notes, practicesLine(fmt.Sprintf("the check on %s reported no result for %s", cmp.Or(request.WorkerName, request.Worker), cmp.Or(entry.Name, entry.Repository))))
 				}
 			default:
 				continue
@@ -141,7 +141,7 @@ func practicesText(view api.PracticesView, reason string, now time.Time) string 
 		switch {
 		case why != "":
 		case view.Request != nil:
-			why = "a check was requested on " + practicesLine(view.Request.Worker) + " and has not reported"
+			why = "a check was requested on " + practicesLine(cmp.Or(view.Request.WorkerName, view.Request.Worker)) + " and has not reported"
 		default:
 			why = "no check has reported"
 		}

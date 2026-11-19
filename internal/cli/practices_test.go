@@ -23,7 +23,7 @@ const (
 	aTip      = "1111111111111111111111111111111111111111"
 )
 
-// practicesSession serves a project whose worker `plan` keeps a checkout of each repository named, with the two
+// practicesSession serves a project whose worker `plan`, with the ID worker-plan, keeps a checkout of each repository named, with the two
 // repositories widgets and gadgets held, and the CLI polling every few milliseconds.
 func practicesSession(t *testing.T, options apitest.Options, keeps ...string) *session {
 	t.Helper()
@@ -34,21 +34,21 @@ func practicesSession(t *testing.T, options apitest.Options, keeps ...string) *s
 		for _, id := range keeps {
 			host.Checkouts[id] = true
 		}
-		return map[string]control.AssistantHost{"plan": host}, nil
+		return map[string]control.AssistantHost{"worker-plan": host}, nil
 	}
-	options.LocalWorker = func(context.Context) (string, error) { return "plan", nil }
+	options.LocalWorker = func(context.Context) (string, error) { return "worker-plan", nil }
 	s := newSessionWith(t, options)
 	token, err := s.daemon.Client.CreateJoinToken(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	credential, err := s.daemon.Client.Register(t.Context(), ledger.Registration{JoinToken: token, WorkerID: "plan", Name: "plan"})
+	credential, err := s.daemon.Client.Register(t.Context(), ledger.Registration{JoinToken: token, WorkerID: "worker-plan", Name: "plan"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	worker := api.NewUnixClient(s.daemon.Socket).Project(apitest.ProjectName).WithCredential(credential.Credential)
 	t.Cleanup(worker.Close)
-	if _, err := worker.OpenSession(t.Context(), "plan", ledger.SessionRequest{Protocol: ledger.ProtocolVersion}); err != nil {
+	if _, err := worker.OpenSession(t.Context(), "worker-plan", ledger.SessionRequest{Protocol: ledger.ProtocolVersion}); err != nil {
 		t.Fatal(err)
 	}
 	s.daemon.HoldClone(t, widgetsID, "widgets")
@@ -144,6 +144,7 @@ func TestPracticesAsksForTheCheckWaitsForTheReportAndPrintsTheResult(t *testing.
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
 	for _, want := range []string{
+		"Requested the practices check of 1 repository.\n",
 		"widgets at 1111111 (base main), checked 2m ago on plan\n",
 		"high  env-ignored:ignore:.\n",
 		"  `.env` is not ignored\n",
@@ -348,5 +349,18 @@ func TestPracticesSaysWhenAReportedCheckLeftNoResult(t *testing.T) {
 	wait()
 	if code != cli.ExitOK || !strings.Contains(stdout, "the check on plan reported no result for widgets\n") || !strings.Contains(stdout, "widgets not checked yet: no check has reported\n") {
 		t.Errorf("exit %d, output:\n%s", code, stdout)
+	}
+}
+
+// A repository whose request is open and has no result says which worker it waits on, by the worker's name, not by the
+// ID the ledger keeps it under.
+func TestPracticesNamesTheWorkerAnOpenRequestWaitsOnByItsName(t *testing.T) {
+	s := practicesSession(t, apitest.Options{}, widgetsID)
+	if _, err := s.daemon.Client.CheckPractices(t.Context(), []string{"widgets"}); err != nil {
+		t.Fatal(err)
+	}
+	stdout := s.must("practices", "--latest", "--repository", "widgets")
+	if want := "widgets not checked yet: a check was requested on plan and has not reported\n"; !strings.Contains(stdout, want) {
+		t.Errorf("the output lacks %q:\n%s", want, stdout)
 	}
 }
