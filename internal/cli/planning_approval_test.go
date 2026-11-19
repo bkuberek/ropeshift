@@ -85,3 +85,34 @@ func TestPlanShowPrintsTheRefsAndIDsOfAnApprovalAsPlainLines(t *testing.T) {
 		t.Errorf("plan show prints a control character:\n%q", out)
 	}
 }
+
+// A decision's ID and statement came from a plan file or a member, so both revision views print them as plain text: the
+// plan's own revision, and the revision an approval is read beside.
+func TestPlanShowPrintsTheDecisionsOfARevisionAsPlainLines(t *testing.T) {
+	p := newPlane(t)
+	approval := adoptedApproval(t)
+	revision := &api.PlanRevisionView{
+		Plan: "p1", Title: "Adopt shop", Revision: &planning.Revision{ApprovedVersion: 1},
+		Decisions: []api.RevisionDecision{{ID: "d\n1", Statement: "use\x1b[2J this\none\x07", Scope: "plan", Reversibility: "two_way"}},
+	}
+	p.on("GET /v1/plans/{id}", func(*http.Request, []byte) (any, *api.Error) {
+		return api.PlanView{
+			Plan:     planning.Plan{ID: "p1", Title: "Adopt shop", Status: "active"},
+			Revision: revision,
+			Approval: &api.PlanApprovalView{Approval: approval, Detail: api.PlanDetailOf(approval), Revision: revision},
+		}, nil
+	})
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"plan", "show", "p1"}, &stdout, &stderr, cli.Options{Socket: p.Socket}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"\n  decision d 1 (two_way, plan): use this one\n", "\n    decision d 1 (two_way, plan): use this one\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plan show lacks %q:\n%q", want, out)
+		}
+	}
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("plan show prints a control character:\n%q", out)
+	}
+}

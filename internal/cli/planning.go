@@ -135,7 +135,7 @@ func writeRevision(out *strings.Builder, view api.PlanRevisionView) {
 }
 
 func revisionDecisionLine(decision api.RevisionDecision) string {
-	return fmt.Sprintf("decision %s (%s, %s): %s", decision.ID, decision.Reversibility, decision.Scope, decision.Statement)
+	return fmt.Sprintf("decision %s (%s, %s): %s", plainLine(decision.ID), decision.Reversibility, decision.Scope, plainLine(decision.Statement))
 }
 
 // writePlanApproval prints what a member reads before approving a plan version: who asked, how it
