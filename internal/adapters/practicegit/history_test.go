@@ -598,3 +598,22 @@ func TestSecretScanFindsNoNewKeyInAnEditAfterAnUnterminatedBegin(t *testing.T) {
 		t.Errorf("matches are %+v", got.Matches)
 	}
 }
+
+// A key found in a file a commit changed in place, and added whole by a later commit, is one match at the earlier one.
+func TestSecretScanKeepsTheEarliestCommitOfAKeyFoundInAChangedFile(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	before := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "KUpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	after := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "ZZpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	first := repo.Commit("keys/id_rsa", "# key\n"+before+"\n")
+	replaced := repo.Commit("keys/id_rsa", "# key\n"+after+"\n")
+	repo.Commit("keys/id_rsa", "gone\n")
+	repo.Commit("keys/id_rsa", "# key\n"+after+"\n")
+	tip := repo.Commit("keys/id_rsa", "gone again\n")
+	want := []practices.SecretMatch{
+		{Rule: "private_key", Path: "keys/id_rsa", Line: 2, Commit: first, Digest: secretScanDigest(before)},
+		{Rule: "private_key", Path: "keys/id_rsa", Line: 2, Commit: replaced, Digest: secretScanDigest(after)},
+	}
+	slices.SortFunc(want, func(a, b practices.SecretMatch) int { return strings.Compare(a.Digest, b.Digest) })
+	secretScanExpect(t, secretScan(t, repo, tip, ""), want...)
+}
