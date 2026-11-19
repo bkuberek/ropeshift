@@ -15,6 +15,8 @@ type PracticesRead struct {
 	Result *ledger.PracticesRecord
 	// Open is the request offered for the repository that has not expired, and nil when none is.
 	Open *ledger.PracticesRequest
+	// Acknowledgements are the findings a member acknowledged, by finding.
+	Acknowledgements []ledger.PracticesAcknowledgement
 	// Now is the time of the read, which the open request's state is read at.
 	Now int64
 }
@@ -51,6 +53,9 @@ func (p *Practices) Read(ctx context.Context, scope ledger.WorkspaceID, named ..
 			case err == nil:
 				read.Open = &open
 			case !errors.Is(err, ports.ErrNotFound):
+				return err
+			}
+			if read.Acknowledgements, err = tx.Practices().Acknowledgements(repository.ID); err != nil {
 				return err
 			}
 			out = append(out, read)
