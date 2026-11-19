@@ -77,6 +77,8 @@ Select Register 2 repositories. A message confirms it, and Repositories lists bo
 
 Each repository is named after its clone's folder, and its base is its default branch. Each starts with the safe settings: the review reads its branch on this machine, and nothing is pushed before a merge; a change merges with a merge commit; and you merge each change yourself. Forge reads not needed, because a repository reviewed on its branch needs no `gh` sign-in. Step 8 describes each setting.
 
+Registering also asks this machine's worker to run the practices check on each repository: env files, secrets, CI, lockfiles, and the other practices that keep a project sound. A finding never blocks work. [Best practices](best-practices.md) says what each practice checks and how to read and fix what the check found.
+
 ### 7. Register the planning repository
 
 A project of several repositories plans in one of them, its planning repository: the plan of record lives there, and planning sessions run there. Harbor's is `harbor-plan`, a clone of its own beside the folder of clones.
@@ -438,6 +440,7 @@ The work order's page shows the expected CI time, or "no history", with the time
 ### CI duration history
 
 When every required check of a head finishes, ropeshift keeps a CI record: the repository, the head, when ropeshift first held the head, when the first required run started, when the last one completed, how long the push waited for a run to start, the attempt, and the class of the result: pass, failure, infrastructure, or a check that waits for a person. A failure beside runs the forge cancelled because of it is a failure. A rerun of the same head is another record, and a head with no required check has none. A repository's expected duration is the p50 and p85, by nearest rank, of the push-to-completed times of its `ci_history_window` most recent records that ended in a pass or a failure, so an infrastructure fault says nothing about how long CI takes. With fewer than `ci_history_min_records` of them the repository has no history, and the no-history keys give the expected duration until it has. The read schedule above runs by the repository's own p50 and p85 from the record that makes the minimum.
+
 ## On the command line
 
 [The CLI for power users](cli-for-power-users.md#set-up-your-projects) gives the command for each step of this guide.

@@ -22,7 +22,7 @@ const guidesFolder = "/tmp/ropeshift-guides"
 // subscription is the word `claude auth status` reports for a sign-in with a subscription.
 const subscription = "claude.ai"
 
-// harbor is the world the guides 1 to 7 walk: a fresh installation of Harbor, a project of two code
+// harbor is the world the guides 1 to 8 walk: a fresh installation of Harbor, a project of two code
 // repositories and a planning repository. It holds what the web UI cannot make: the daemon and its connected
 // worker, the fake agent CLI signed in with a subscription, as on a person's own machine, so the worker starts
 // at attended, three clones on disk that no project has registered, and the fake GitHub CLI signed in to a
