@@ -9,6 +9,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/practices"
 )
 
 // LayoutShape is the shape `ropeshift adopt` proposes for what it detects around a clone (FR-ADOPT-12).
@@ -108,6 +110,12 @@ type PlannedRepository struct {
 	ID      string `json:"id,omitempty"`
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason,omitempty"`
+	// Practices is the practices check of the clone at the base branch a registration would record, as a dry run
+	// reads it: no forge binding, the whole history, and nothing recorded (FR-PRAC-6). It is nil for a dry run
+	// that asked for none and for a clone the check could not read, and PracticesNote then says why. Neither
+	// is part of the plan's digest, so a finding never refuses a restructuring.
+	Practices     *practices.Result `json:"practices,omitempty"`
+	PracticesNote string            `json:"practices_note,omitempty"`
 }
 
 // What a planned file does to a file of the planning repository.
@@ -203,7 +211,7 @@ type AdoptionPlan struct {
 	// Notes say what the detection could not settle, with the flag that settles it.
 	Notes []string `json:"notes,omitempty"`
 	// Digest is the SHA-256 of the plan's JSON with no digest, no notes, and nothing a registration said of each
-	// repository, which the registration itself changes. A restructuring sends it back, so a layout that changed
+	// repository, which the registration itself changes, and none of its practices. A restructuring sends it back, so a layout that changed
 	// in between is found.
 	Digest string `json:"digest,omitempty"`
 }
