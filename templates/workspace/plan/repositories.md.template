@@ -27,7 +27,11 @@ plan = "{{ .Project }}-v1"
 # The repository's name in the project. Work orders name it in `repo`, and contracts in `reads`.
 {{ end -}}
 name = "{{ $r.Name }}"
-{{ if $r.Remote -}}
+{{ if and $.Example (eq $i 1) -}}
+# A repository that does not exist yet has `create` and no `remote`. Approving a plan version whose work
+# orders name it in `repo` creates it on GitHub under the owner, with its first commit and `origin`.
+create = "github:acme"
+{{ else if $r.Remote -}}
 {{ if eq $i 0 -}}
 # Approval registers the clone at `path` only when its remote is this one. A repository with no remote
 # has no `remote` key, and approval then registers the clone whatever its remote is.
@@ -40,6 +44,11 @@ remote = {{ tomlString $r.Remote }}
 # clone, and must not be that clone. Keep it in step with CODE_DIR and REPOSITORIES in the Makefile.
 {{ end -}}
 path = "repos/{{ $r.Name }}"
+{{ if eq $i 0 -}}
+# To have approval create the repository on GitHub, give `create = "github:<owner>"` in place of `remote`.
+# `visibility` is "private", the default, or "public", and `default_branch` is the first commit's branch,
+# git's init.defaultBranch or main when absent. Both apply only with `create`.
+{{ end -}}
 {{ if $.Example -}}
 description = "{{ if eq $i 0 }}The HTTP API{{ else }}The web client{{ end }}"
 {{ else -}}
