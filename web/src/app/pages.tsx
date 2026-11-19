@@ -163,7 +163,7 @@ function plansPage(live: Live, id: string, project: string) {
 
 // The decisions, which a category narrows as it narrows the open questions. The categories come from their own
 // read, so the filter stands whatever the filter leaves out of the list.
-function DecisionsPage({ live, id, category }: { live: Live; id: string; category: string }) {
+function DecisionsPage({ live, id, category, by }: { live: Live; id: string; category: string; by: string }) {
   const categories = useRead(() => readCategories(), "categories", live);
   return (
     <ViewPage<DecisionsView>
@@ -173,7 +173,7 @@ function DecisionsPage({ live, id, category }: { live: Live; id: string; categor
       title={(read) => (!id ? "Decisions" : read === null || read.decisions.some((row) => row.id === id) ? id : "No such decision")}
       note={(read) => (id ? "" : count(read.decisions.length, "decision"))}
       actions={(read) => <RecordDecision decisions={read?.decisions ?? []} />}
-      body={(read) => <Decisions view={read} selected={id} category={category} categories={categories.view?.categories ?? []} />}
+      body={(read) => <Decisions view={read} selected={id} category={category} categories={categories.view?.categories ?? []} by={by} />}
     />
   );
 }
@@ -246,7 +246,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "traceability":
       return documentsPage(live, params, project, "traceability");
     case "decisions":
-      return <DecisionsPage live={live} id={param("id")} category={param("category")} />;
+      return <DecisionsPage live={live} id={param("id")} category={param("category")} by={param("by")} />;
     case "questions":
       return questionsPage(live, param("category"), param("status"), param("id"));
     case "work":
