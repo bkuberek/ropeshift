@@ -34,11 +34,8 @@ func checkRemote(remote string) error {
 				return errors.New(credentialRefusal)
 			}
 		}
-	} else if !url {
-		// An scp-like remote is user@host:path, and an @ after its first colon is a password written as user:password@host.
-		if _, path, colon := strings.Cut(remote, ":"); colon && strings.Contains(path, "@") {
-			return errors.New(credentialRefusal)
-		}
+	} else if passwordInScpRemote(remote) {
+		return errors.New(credentialRefusal)
 	}
 	if i := strings.IndexFunc(remote, func(r rune) bool { return !remoteRune(r) }); i >= 0 {
 		bad := []rune(remote[i:])[0]
@@ -69,6 +66,18 @@ func checkRemote(remote string) error {
 		return fmt.Errorf("a remote is a URL or scp-like user@host:path, and %q is neither; for a local repository use a file:// URL", shown)
 	}
 	return nil
+}
+
+// passwordInScpRemote says an scp-like remote is written user:password@host:path: the text after its first colon, up to
+// its first slash, holds an at sign that a colon follows. An at sign in the path, as in team/repo@v2.git, is a path.
+func passwordInScpRemote(remote string) bool {
+	_, afterColon, found := strings.Cut(remote, ":")
+	if !found {
+		return false
+	}
+	head, _, _ := strings.Cut(afterColon, "/")
+	at := strings.Index(head, "@")
+	return at >= 0 && strings.Contains(head[at:], ":")
 }
 
 // redacted is a remote as a message may repeat it: the user part before the last at sign of its authority, which for a
