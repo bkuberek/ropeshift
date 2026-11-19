@@ -32,17 +32,21 @@ func TestPlainTextDropsEscapeSequencesAndControlCharactersAndKeepsNewlineAndTab(
 // agent's brief, meet: what the text says stays apart from what a terminal obeys, and no word is joined or lost.
 func TestPlainTextKeepsWordsApartAndNothingOfASequenceBehind(t *testing.T) {
 	for name, tt := range map[string]struct{ in, want string }{
-		"a C1 sequence leaves none of its parameters":         {"a\u009b2Jb\u009d0;t\u009cc", "abc"},
-		"a C1 sequence with intermediate bytes":               {"a\u009b1 qb", "ab"},
-		"an unterminated OSC stops at the newline":            {"a\x1b]0;title\nnext line", "a\nnext line"},
-		"an unterminated C1 OSC stops at the newline":         {"a\u009d0;title\nnext line", "a\nnext line"},
-		"an unterminated OSC with no newline ends the text":   {"a\x1b]0;title", "a"},
-		"a terminated OSC leaves the text after it":           {"a\x1b]0;t\x07b\nc", "ab\nc"},
-		"a line separator becomes a newline":                  {"one\u2028two", "one\ntwo"},
-		"a paragraph separator becomes a newline":             {"one\u2029two", "one\ntwo"},
-		"invalid UTF-8 is made valid":                         {"a\xffb\xc3", "a\ufffdb\ufffd"},
-		"a two-character escape takes its intermediate bytes": {"a\x1b(Bb", "ab"},
-		"a carriage return before a newline is one newline":   {"a\r\nb", "a\nb"},
+		"a C1 sequence leaves none of its parameters":           {"a\u009b2Jb\u009d0;t\u009cc", "abc"},
+		"a C1 sequence with intermediate bytes":                 {"a\u009b1 qb", "ab"},
+		"an unterminated OSC stops at the newline":              {"a\x1b]0;title\nnext line", "a\nnext line"},
+		"an unterminated C1 OSC stops at the newline":           {"a\u009d0;title\nnext line", "a\nnext line"},
+		"an unterminated OSC with no newline ends the text":     {"a\x1b]0;title", "a"},
+		"a terminated OSC leaves the text after it":             {"a\x1b]0;t\x07b\nc", "ab\nc"},
+		"an unterminated OSC takes the words up to the newline": {"a\x1b]0;x kept\nnext", "a\nnext"},
+		"an unterminated OSC stops at a line separator":         {"a\x1b]0;x\u2028kept\nnext", "a\nkept\nnext"},
+		"an unterminated OSC stops at a paragraph separator":    {"a\x1b]0;x\u2029kept\nnext", "a\nkept\nnext"},
+		"an unterminated C1 OSC stops at a line separator":      {"a\u009d0;x\u2028kept", "a\nkept"},
+		"a line separator becomes a newline":                    {"one\u2028two", "one\ntwo"},
+		"a paragraph separator becomes a newline":               {"one\u2029two", "one\ntwo"},
+		"invalid UTF-8 is made valid":                           {"a\xffb\xc3", "a\ufffdb\ufffd"},
+		"a two-character escape takes its intermediate bytes":   {"a\x1b(Bb", "ab"},
+		"a carriage return before a newline is one newline":     {"a\r\nb", "a\nb"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := ledger.PlainText(tt.in)
