@@ -28,6 +28,7 @@ const (
 	readWorkSource      = "a repository's work source"
 	readAcceptedCommits = "an accepted commit"
 	readLayouts         = "a repository's layout"
+	readCreations       = "a plan approval's repositories"
 )
 
 // unavailableRead is one wiring field of serverReads, what its refusal names, and the reason it carries.
@@ -49,6 +50,7 @@ var unavailableReads = []unavailableRead{
 	{"workSource", readWorkSource, ports.ErrRepositoryReadsUnavailable},
 	{"acceptedCommits", readAcceptedCommits, ports.ErrRepositoryReadsUnavailable},
 	{"layouts", readLayouts, ports.ErrRepositoryReadsUnavailable},
+	{"creator", readCreations, ports.ErrRepositoryReadsUnavailable},
 }
 
 // serverReads is what a group server wires where solo mode wires a clone or a terminal.
@@ -71,6 +73,8 @@ type serverReads struct {
 	acceptedCommits control.PlanSource
 	// layouts reads how the clones on a machine are laid out, for the plan of an adoption.
 	layouts ports.Layouts
+	// creator creates the repositories a plan approval names, on the daemon's own worker.
+	creator ports.RepositoryCreator
 }
 
 // unavailableServerReads wires every read a group server cannot make to its refusal.
@@ -98,12 +102,19 @@ func unavailableServerReads() serverReads {
 			return nil, repositoryRead(readAcceptedCommits)
 		},
 		layouts: unavailableLayouts{},
+		creator: unavailableCreator{},
 	}
 }
 
 // repositoryRead is the refusal of a read a server would make from a clone.
 func repositoryRead(read string) error {
 	return fmt.Errorf("%w: reading %s: a group server reads no repository on its own machine in this version", ports.ErrRepositoryReadsUnavailable, read)
+}
+
+// creationRefused is the refusal of a repository a plan approval would create, because no worker runs beside a group
+// server to create it.
+func creationRefused() error {
+	return fmt.Errorf("%w: creating %s: a group server runs no worker that creates a repository in this version", ports.ErrRepositoryReadsUnavailable, readCreations)
 }
 
 // paneRead is the refusal of a view of a worker's terminal.
@@ -241,6 +252,17 @@ func (unavailableLayouts) CodeTrees(context.Context, string) ([]ports.CodeTree, 
 
 func (unavailableLayouts) Instructions(context.Context, string) (bool, error) {
 	return false, repositoryRead(readLayouts)
+}
+
+// unavailableCreator creates no repository.
+type unavailableCreator struct{}
+
+func (unavailableCreator) Check(context.Context, ledger.RepositoryCreation) (ledger.CreationCheck, error) {
+	return ledger.CreationCheck{}, creationRefused()
+}
+
+func (unavailableCreator) Create(context.Context, ledger.RepositoryCreation) (ledger.TemplateWriteReport, error) {
+	return ledger.TemplateWriteReport{}, creationRefused()
 }
 
 // unavailablePanes reaches no terminal.

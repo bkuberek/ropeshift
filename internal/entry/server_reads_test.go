@@ -16,6 +16,11 @@ import (
 // probes call every method of the refusal wired in one field of serverReads, and return what each answered.
 // A slice that replaces a field with a real read removes its row from unavailableReads and its probe here.
 var probes = map[string]func(reads serverReads) []error{
+	"creator": func(reads serverReads) []error {
+		_, checkErr := reads.creator.Check(context.Background(), ledger.RepositoryCreation{})
+		_, createErr := reads.creator.Create(context.Background(), ledger.RepositoryCreation{})
+		return []error{checkErr, createErr}
+	},
 	"knowledge": func(reads serverReads) []error {
 		var out []error
 		for _, source := range reads.knowledge {
