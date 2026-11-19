@@ -589,16 +589,44 @@ func closeLane(tx ports.WriteTx, row ledger.LaneRow, draft ledger.EventDraft, ou
 }
 
 // withoutNotes drops the security notes from the report a canceled lane ended with. The lane's work was canceled, so
-// no review of it is kept, and the notes of its report are model text that no record needs.
+// no review of it is kept, and the notes of its report are model text that no record needs. A payload that is not a
+// JSON object is refused, because the event that ends the lane would hold nothing, and so is a null, which reads as a
+// report of no fields.
 func withoutNotes(payload json.RawMessage) (json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
 	}
+	if fields == nil {
+		return nil, fmt.Errorf("%w: a lane's report is a JSON object, and not null", workorders.ErrInvalid)
+	}
 	if _, found := fields["notes"]; !found {
 		return payload, nil
 	}
 	delete(fields, "notes")
+	return json.Marshal(fields)
+}
+
+// redactedReport redacts the verdicts of the report a canceled lane ended with, which the event that ends the lane
+// keeps, because a verdict is model text and no credential of it is kept.
+func redactedReport(payload json.RawMessage) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	raw, found := fields["verdicts"]
+	if !found {
+		return payload, nil
+	}
+	var verdicts []workorders.CriterionVerdict
+	if err := json.Unmarshal(raw, &verdicts); err != nil {
+		return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	redacted, err := json.Marshal(redactedVerdicts(verdicts))
+	if err != nil {
+		return nil, err
+	}
+	fields["verdicts"] = redacted
 	return json.Marshal(fields)
 }
 
@@ -630,6 +658,9 @@ func endCanceled(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp fu
 	}
 	data, err := withoutNotes(e.Payload)
 	if err != nil {
+		return false, err
+	}
+	if data, err = redactedReport(data); err != nil {
 		return false, err
 	}
 	draft := ledger.EventDraft{
@@ -821,7 +852,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if err := result.Validate(); err != nil {
 		return err
 	}
-	// A note is model text, so every place that keeps the result keeps it redacted: the notes, the event, and the comment.
+	// A verdict and a note are model text, so every place that keeps the result keeps it redacted: the verdicts, the
+	// notes, the event, and the comment.
+	result.Verdicts = redactedVerdicts(result.Verdicts)
 	result.Notes = redactedNotes(result.Notes)
 	current, err := tx.WorkOrders().Get(holder.WorkOrder)
 	if err != nil {

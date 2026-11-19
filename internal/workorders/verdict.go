@@ -22,6 +22,9 @@ const (
 // (FR-REVIEW-8).
 const DefaultMaxReviewRounds int64 = 3
 
+// MaxVerdictReasons bounds the reasons of one verdict, in bytes, as MaxNoteReasons bounds a note's.
+const MaxVerdictReasons = 4096
+
 // CriterionVerdict is one criterion's verdict as a review lane reports it: what it found, why, and what
 // it rests on. A citation is a file and line, a requirement ID, or a document as kind:id.
 type CriterionVerdict struct {
@@ -44,6 +47,9 @@ func (v CriterionVerdict) Validate() error {
 	}
 	if strings.TrimSpace(v.Reasons) == "" {
 		return fmt.Errorf("%w: the verdict for criterion %q gives no reasons", ErrInvalid, v.Criterion)
+	}
+	if len(v.Reasons) > MaxVerdictReasons {
+		return fmt.Errorf("%w: the reasons of the verdict for criterion %q are %d bytes, and the bound is %d", ErrInvalid, v.Criterion, len(v.Reasons), MaxVerdictReasons)
 	}
 	for _, citation := range v.Citations {
 		if strings.TrimSpace(citation) == "" {
