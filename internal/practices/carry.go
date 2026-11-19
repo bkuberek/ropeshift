@@ -15,6 +15,12 @@ func CarryForward(previous, next Result) Result {
 	if at < 0 || (next.Practices[at].Status != StatusMet && next.Practices[at].Status != StatusFinding) {
 		return next
 	}
+	return carrySecrets(previous, next, at)
+}
+
+// carrySecrets adds to next the `secrets` findings of previous that it does not hold, and reads its `secrets` practice,
+// at the given index, as a finding when it holds any. It returns a copy.
+func carrySecrets(previous, next Result, at int) Result {
 	// A result that left findings out leaves them out of every result that continues from it.
 	next.Truncated = next.Truncated || previous.Truncated
 	known := map[string]bool{}
@@ -42,12 +48,18 @@ func CarryForward(previous, next Result) Result {
 }
 
 // SecretsUnverified says why the secrets of a result's history cannot be read from it: the scan did not read every
-// commit it should have, so a result that found nothing cannot say there is nothing. A `secrets` practice that is met
-// becomes unknown with the reason. One with findings stays a finding, because a secret that was found is no less found,
-// and one that is unknown or not applicable stays as it is. It returns a copy and changes nothing it was given.
-func SecretsUnverified(result Result, reason string) Result {
+// commit it should have, so a result that found nothing cannot say there is nothing. The result keeps the `secrets`
+// findings of previous, the result the scan would have continued from, as they were found, because a secret that was
+// found is no less found. A `secrets` practice then reads a finding when the result holds any secret. Without one, a
+// practice that is met becomes unknown with the reason, and one that is unknown or not applicable stays as it is. It
+// returns a copy and changes neither result.
+func SecretsUnverified(previous, result Result, reason string) Result {
 	at := slices.IndexFunc(result.Practices, func(p PracticeStatus) bool { return p.ID == Secrets })
-	if at < 0 || result.Practices[at].Status != StatusMet {
+	if at < 0 || result.Practices[at].Status == StatusNotApplicable {
+		return result
+	}
+	result = carrySecrets(previous, result, at)
+	if result.Practices[at].Status != StatusMet {
 		return result
 	}
 	result.Practices = slices.Clone(result.Practices)

@@ -388,7 +388,7 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		}
 	}
 	if unverified != "" {
-		result = practices.SecretsUnverified(result, unverified)
+		result = practices.SecretsUnverified(previous.Result, result, unverified)
 	}
 	if err := tx.Practices().SaveResult(ledger.PracticesRecord{
 		Repository: request.Repository, Request: request.ID, Commit: result.Commit, Result: result, CheckedAt: result.CheckedAt.UnixMilli(),
