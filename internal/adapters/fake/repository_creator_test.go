@@ -34,8 +34,8 @@ func TestRepositoryCreatorRecordsEachJobAndAnswersWhatATestSet(t *testing.T) {
 	}
 
 	refusal := &ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut}
-	creator.SetCheck("web", ledger.CreationCheck{Refusal: refusal, URL: "git@github.com:acme/web.git", Login: "octo", Branch: "trunk"})
-	creator.SetReport("web", ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeWritten, Commit: "1a2b3c4"})
+	creator.SetCheck(web.Key, ledger.CreationCheck{Refusal: refusal, URL: "git@github.com:acme/web.git", Login: "octo", Branch: "trunk"})
+	creator.SetReport(web.Key, ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeWritten, Commit: "1a2b3c4"})
 	if check, err = creator.Check(t.Context(), web); err != nil || check.Refusal != refusal || check.URL != "git@github.com:acme/web.git" || check.Login != "octo" || check.Branch != "trunk" {
 		t.Errorf("a set check answers %+v (%v)", check, err)
 	}
@@ -51,12 +51,12 @@ func TestRepositoryCreatorRecordsEachJobAndAnswersWhatATestSet(t *testing.T) {
 	}
 }
 
-// A test fails a check or a create for one name, and the other names are not touched.
-func TestRepositoryCreatorFailsOneNameAsTold(t *testing.T) {
+// A test fails a check or a create for one key, and the other keys are not touched.
+func TestRepositoryCreatorFailsOneKeyAsTold(t *testing.T) {
 	creator := fake.NewRepositoryCreator()
 	gone := errors.New("GitHub did not answer within 30 seconds; read the preview again")
-	creator.FailCheck("web", gone)
-	creator.FailCreate("web", errors.New("the journal cannot be written"))
+	creator.FailCheck(creationJob("web").Key, gone)
+	creator.FailCreate(creationJob("web").Key, errors.New("the journal cannot be written"))
 
 	if _, err := creator.Check(t.Context(), creationJob("web")); !errors.Is(err, gone) {
 		t.Errorf("a failed check answers %v", err)
@@ -72,6 +72,32 @@ func TestRepositoryCreatorFailsOneNameAsTold(t *testing.T) {
 	}
 	if got := creator.Created(); len(got) != 2 {
 		t.Errorf("a failed create is still a job the creator was given: %+v", got)
+	}
+}
+
+// The answers are the creation's, by its key, so one entry of two approvals is told apart: a retry of the second
+// approval's creation does not read what a test set for the first.
+func TestRepositoryCreatorAnswersByTheCreationsKey(t *testing.T) {
+	creator := fake.NewRepositoryCreator()
+	first := creationJob("api")
+	second := first
+	second.Key = ledger.CreationKey("approval-2", "api")
+	refusal := &ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists}
+	creator.SetCheck(first.Key, ledger.CreationCheck{Refusal: refusal})
+	creator.SetReport(first.Key, ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists})
+	creator.FailCreate(second.Key, errors.New("the push failed"))
+
+	if check, err := creator.Check(t.Context(), first); err != nil || check.Refusal != refusal {
+		t.Errorf("the first approval's check answers %+v (%v)", check, err)
+	}
+	if check, err := creator.Check(t.Context(), second); err != nil || check.Refusal != nil {
+		t.Errorf("the second approval's check answers %+v (%v), want it to pass", check, err)
+	}
+	if report, err := creator.Create(t.Context(), first); err != nil || report.Outcome != ledger.TemplateOutcomeRefused {
+		t.Errorf("the first approval's creation answers %+v (%v)", report, err)
+	}
+	if _, err := creator.Create(t.Context(), second); err == nil {
+		t.Error("the second approval's creation did not fail as told")
 	}
 }
 
