@@ -340,6 +340,8 @@ type PracticesReader interface {
 	Request(id string) (ledger.PracticesRequest, error)
 	// Open returns a repository's request that is offered and has not expired at now, or ErrNotFound.
 	Open(repository string, now int64) (ledger.PracticesRequest, error)
+	// Latest returns a repository's request that was made last, in any state, or ErrNotFound.
+	Latest(repository string) (ledger.PracticesRequest, error)
 	// Offered lists the requests offered to a worker, oldest first, with those past their expiry that no tick has
 	// stored as expired yet.
 	Offered(worker string) ([]ledger.PracticesRequest, error)

@@ -26,6 +26,7 @@ var PracticesChecks = []Check{
 	{"PRQ6", "registering clones requests one check of each repository registered, as a registration, and a repository no worker keeps, a known one, and a dry run request none", checkRegistrationRequestsACheckOfEachRepository},
 	{"PRQ7", "registering from a manifest requests one check of each repository it registers", checkManifestRegistrationRequestsACheckOfEachRepository},
 	{"PRQ8", "a request that fails at a registration from a manifest leaves the registration standing and is logged", checkAFailedRequestLeavesAManifestRegistration},
+	{"PRQ9", "a repository's latest request is the one made last, whatever its state", checkPracticesLatestRequest},
 }
 
 // practicesWrite runs one write transaction on the practices records, with the event any committed transaction needs.
@@ -97,6 +98,65 @@ func checkPracticesRequestsAreRead(r *Rig) error {
 		}
 		if _, err := p.Open("repo-c", 1500); !errors.Is(err, ports.ErrNotFound) {
 			return Violatedf("a repository with no request has an open one: %v", err)
+		}
+		return nil
+	})
+}
+
+func checkPracticesLatestRequest(r *Rig) error {
+	s := r.Store()
+	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error {
+		for _, request := range []ledger.PracticesRequest{
+			aPracticesRequest("req-2", "repo-a", "worker-1", 3000, 4000),
+			aPracticesRequest("req-1", "repo-a", "worker-1", 1000, 2000),
+			aPracticesRequest("req-3", "repo-b", "worker-1", 5000, 9000),
+		} {
+			if err := p.Insert(request); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return Violatedf("inserting requests: %v", err)
+	}
+	latest := func(repository, want string) error {
+		return practicesRead(r, s, func(p ports.PracticesReader) error {
+			got, err := p.Latest(repository)
+			if err != nil || got.ID != want {
+				return Violatedf("%s's latest request is %+v, %v; want %s", repository, got, err, want)
+			}
+			return nil
+		})
+	}
+	if err := latest("repo-a", "req-2"); err != nil {
+		return err
+	}
+	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error {
+		if _, err := p.Settle("req-2", 3500); err != nil {
+			return err
+		}
+		return p.Insert(aPracticesRequest("req-4", "repo-a", "worker-1", 3000, 4000))
+	}); err != nil {
+		return Violatedf("settling and inserting: %v", err)
+	}
+	if err := latest("repo-a", "req-4"); err != nil {
+		return err
+	}
+	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error {
+		_, err := p.Expire(4500)
+		return err
+	}); err != nil {
+		return Violatedf("expiring: %v", err)
+	}
+	if err := latest("repo-a", "req-4"); err != nil {
+		return err
+	}
+	if err := latest("repo-b", "req-3"); err != nil {
+		return err
+	}
+	return practicesRead(r, s, func(p ports.PracticesReader) error {
+		if _, err := p.Latest("repo-c"); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("a repository with no request has a latest one: %v", err)
 		}
 		return nil
 	})
