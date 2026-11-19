@@ -1024,3 +1024,20 @@ func TestAJobBranchWithWhitespaceIsPassedOver(t *testing.T) {
 		t.Errorf("remaining is %v, want a push of the default branch devel", report.Remaining)
 	}
 }
+
+// When neither HEAD, the job, nor the default branch names a branch git takes, no push is left for a person, since it
+// would name no branch, and the push step says no branch was found. The other steps' commands are still left.
+func TestNoPushIsLeftWhenNoBranchIsFound(t *testing.T) {
+	m := newMachine()
+	m.folders.SetDefaultBranch("+main")
+	m.folders.CommitError = errors.New("Author identity unknown")
+	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	want := []string{"gh repo create test/acme --private", "git -C /srv/acme remote add origin https://github.com/test/acme.git"}
+	if !slices.Equal(report.Remaining, want) {
+		t.Errorf("remaining = %q, want %q", report.Remaining, want)
+	}
+	steps := report.Repositories[0].Steps
+	if push := steps[len(steps)-1]; push.Step != ledger.RemoteStepPush || !strings.Contains(push.Detail, "no branch was found") {
+		t.Errorf("the push step reports %+v, want it to say no branch was found", push)
+	}
+}

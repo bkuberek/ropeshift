@@ -332,8 +332,13 @@ func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledg
 	report.Commands = append(commits, projectfiles.Commands(projectfiles.Shape(r.job.Request.Shape), r.job.Request.Path, r.job.commitName(), codes, false)...)
 	if r.prog.Commit {
 		for _, u := range units {
-			report.Repositories = append(report.Repositories, r.repositoryReport(u))
-			report.Remaining = append(report.Remaining, r.remaining(ctx, u)...)
+			repository := r.repositoryReport(u)
+			remaining, branchless := r.remaining(ctx, u)
+			if branchless {
+				noBranchFound(&repository)
+			}
+			report.Repositories = append(report.Repositories, repository)
+			report.Remaining = append(report.Remaining, remaining...)
 		}
 	}
 	return report, nil
@@ -356,15 +361,15 @@ func (r *runner) repositoryReport(u unit) ledger.RepositoryReport {
 	return out
 }
 
-// remaining are the exact commands that finish the steps of one repository that did not run.
-func (r *runner) remaining(ctx context.Context, u unit) []string {
+// remaining are the exact commands that finish the steps of one repository that did not run. A push is left only to a
+// branch: when none is found, the push and its credential setup are left out, and branchless says so.
+func (r *runner) remaining(ctx context.Context, u unit) (out []string, branchless bool) {
 	if u.remote == nil {
-		return nil
+		return nil, false
 	}
 	up := r.prog.unit(u.rel)
 	url := urlOf(u, r.prog)
 	folder := projectfiles.Quote(u.abs)
-	var out []string
 	for _, name := range stepNames(u) {
 		if up.step(name).State == ledger.RemoteStepDone {
 			continue
@@ -380,13 +385,32 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 			out = append(out, "git -C "+folder+" remote add origin "+projectfiles.Quote(url))
 		case ledger.RemoteStepPush:
 			branch := r.branch(ctx, u)
+			if branch == "" {
+				branchless = true
+				continue
+			}
 			if r.helper(u) != "" || (u.remote.Create != nil && strings.HasPrefix(url, "https://")) {
 				out = append(out, "gh auth setup-git")
 			}
 			out = append(out, "git -C "+folder+" push --set-upstream origin -- "+projectfiles.Quote(branch))
 		}
 	}
-	return out
+	return out, branchless
+}
+
+// noBranchFound says, in a repository's push step, that no push is left because no branch was found to push.
+func noBranchFound(repository *ledger.RepositoryReport) {
+	const found = "no branch was found to push: neither HEAD, the job's branch, nor the default branch names one git takes, so no push is left to run"
+	for i, step := range repository.Steps {
+		if step.Step != ledger.RemoteStepPush {
+			continue
+		}
+		if step.Detail == "" {
+			repository.Steps[i].Detail = found
+		} else {
+			repository.Steps[i].Detail = step.Detail + "; " + found
+		}
+	}
 }
 
 // branch is the branch a repository's HEAD names, which asks origin for it, within the limit one step has. A branch that
