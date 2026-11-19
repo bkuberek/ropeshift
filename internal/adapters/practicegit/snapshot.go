@@ -3,6 +3,7 @@
 package practicegit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +25,8 @@ import (
 // in the checkout when it is set, and nil is this process's.
 type Snapshots struct {
 	Env []string
+
+	ignoreLimits ignoreCopyLimits
 }
 
 var _ ports.PracticeSnapshots = Snapshots{}
@@ -36,6 +39,29 @@ var snapshotHexName = regexp.MustCompile(`^[0-9a-f]{4,64}$`)
 
 // snapshotBlobLimit is the largest blob the snapshot reads, in bytes. A larger one is unreadable.
 const snapshotBlobLimit = 1 << 20
+
+// The ignore copy holds at most snapshotIgnoreCopyFiles files and snapshotIgnoreCopyBytes bytes of `.gitignore`
+// blobs in all, however many the commit tracks.
+const (
+	snapshotIgnoreCopyFiles       = 10_000
+	snapshotIgnoreCopyBytes int64 = 16 << 20
+)
+
+// ignoreCopyLimits are the caps of one ignore copy, and a zero field is the default cap.
+type ignoreCopyLimits struct {
+	files int
+	bytes int64
+}
+
+func (l ignoreCopyLimits) withDefaults() ignoreCopyLimits {
+	if l.files <= 0 {
+		l.files = snapshotIgnoreCopyFiles
+	}
+	if l.bytes <= 0 {
+		l.bytes = snapshotIgnoreCopyBytes
+	}
+	return l
+}
 
 // snapshotNoReplace makes git read the objects a commit names and not the ones a replace ref names in their place.
 var snapshotNoReplace = []string{"GIT_NO_REPLACE_OBJECTS=1"}
@@ -64,7 +90,7 @@ func (s Snapshots) Snapshot(ctx context.Context, dir, commit string) (practices.
 	for i, entry := range entries {
 		paths[i] = entry.path
 	}
-	ignored, err := snapshotIgnored(ctx, git, resolved, entries, paths)
+	ignored, err := snapshotIgnored(ctx, git, resolved, entries, paths, s.ignoreLimits.withDefaults())
 	if err != nil {
 		return practices.Snapshot{}, err
 	}
@@ -146,9 +172,12 @@ func snapshotBlob(ctx context.Context, git gitcli.Git, commit, name string) ([]b
 }
 
 // snapshotReader returns a reader that asks git for one blob of the commit per call, so it holds no process
-// and needs no close.
+// and needs no close. A path that is not safe is unreadable, and git is not asked for it.
 func snapshotReader(ctx context.Context, git gitcli.Git, commit string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
+		if !snapshotSafePath(name) {
+			return "", false
+		}
 		content, err := snapshotBlob(ctx, git, commit, name)
 		if err != nil {
 			return "", false
@@ -164,9 +193,10 @@ func snapshotIsIgnoreFile(entry snapshotEntry) bool {
 }
 
 // snapshotSafePath reports whether a tracked path stays inside a checkout and clear of git's own directory. A
-// tree can name an entry `..`, so a tracked path is not always local.
+// tree can name an entry `..`, so a tracked path is not always local. Its components are split at a slash and at a
+// backslash, which separates them on Windows.
 func snapshotSafePath(name string) bool {
-	for part := range strings.SplitSeq(name, "/") {
+	for part := range strings.SplitSeq(strings.ReplaceAll(name, `\`, "/"), "/") {
 		if part == "" || part == "." || part == ".." || strings.EqualFold(part, ".git") {
 			return false
 		}
@@ -189,11 +219,14 @@ func snapshotCopyTarget(root, name string) (string, bool) {
 }
 
 // snapshotIgnored answers, for each path of practices.Probes, whether the `.gitignore` files committed at the
-// commit ignore it. It copies those files into a temporary repository of their own and asks git there, so
-// the working tree, the person's global excludes, and the checkout's `info/exclude` never count. A probe
-// whose path is not safe is answered as not ignored, and git is never asked about it. The temporary
-// repository is gone when this returns.
-func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries []snapshotEntry, paths []string) (map[string]bool, error) {
+// commit ignore it. It copies those files into a temporary repository of their own and asks git there once for all
+// of the probes, so the working tree, the person's global excludes, and the checkout's `info/exclude` never count.
+// A probe whose path is not safe is answered as not ignored, and git is never asked about it. The copy holds at most
+// limits.files files and limits.bytes bytes: once a file would pass either, it and every file after it are not copied.
+// A file over snapshotBlobLimit is not copied either. The probes below the folder of each file not copied have no
+// answer, which the evaluator reads as unknown. The
+// temporary repository is gone when this returns.
+func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries []snapshotEntry, paths []string, limits ignoreCopyLimits) (map[string]bool, error) {
 	probes := practices.Probes(paths)
 	ignored := make(map[string]bool, len(probes))
 	var ignoreFiles []string
@@ -220,17 +253,29 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 	if _, err := scratch.Output(ctx, "init", "--quiet", "--template="); err != nil {
 		return nil, fail(err)
 	}
+	var uncopied []string
+	copied, total := 0, int64(0)
 	for _, name := range ignoreFiles {
 		target, ok := snapshotCopyTarget(root, name)
 		if !ok {
 			continue
 		}
+		folder := path.Dir(name)
+		if len(uncopied) > 0 || copied >= limits.files {
+			uncopied = append(uncopied, folder)
+			continue
+		}
 		content, err := snapshotBlob(ctx, git, commit, name)
 		if errors.Is(err, errSnapshotTooLarge) {
+			uncopied = append(uncopied, folder)
 			continue
 		}
 		if err != nil {
 			return nil, fail(err)
+		}
+		if total+int64(len(content)) > limits.bytes {
+			uncopied = append(uncopied, folder)
+			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return nil, fail(fmt.Errorf("copying %s: %w", name, err))
@@ -238,24 +283,57 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 		if err := os.WriteFile(target, content, 0o600); err != nil {
 			return nil, fail(fmt.Errorf("copying %s: %w", name, err))
 		}
+		copied++
+		total += int64(len(content))
 	}
+
+	asked := make(map[string]string, len(probes))
+	var stdin bytes.Buffer
 	for _, probe := range probes {
-		if !snapshotSafePath(probe) {
+		switch {
+		case !snapshotSafePath(probe):
 			ignored[probe] = false
+		case snapshotBelowAny(probe, uncopied):
+		default:
+			literal := snapshotLiteral(probe)
+			asked[literal] = probe
+			stdin.WriteString(literal)
+			stdin.WriteByte(0)
+		}
+	}
+	if len(asked) == 0 {
+		return ignored, nil
+	}
+	for _, probe := range asked {
+		ignored[probe] = false
+	}
+	// Without -v, check-ignore writes each ignored path as it was given, ends it with NUL, and exits 1 when none is.
+	out, err := scratch.Feed(ctx, stdin.Bytes(), "check-ignore", "--no-index", "--stdin", "-z")
+	var exit *exec.ExitError
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
+		return nil, fail(fmt.Errorf("checking which paths are ignored: %w", err))
+	}
+	for literal := range strings.SplitSeq(string(out), "\x00") {
+		if literal == "" {
 			continue
 		}
-		_, err := scratch.Output(ctx, "check-ignore", "--no-index", "-q", "--", snapshotLiteral(probe))
-		var exit *exec.ExitError
-		switch {
-		case err == nil:
-			ignored[probe] = true
-		case errors.As(err, &exit) && exit.ExitCode() == 1:
-			ignored[probe] = false
-		default:
-			return nil, fail(fmt.Errorf("checking whether %s is ignored: %w", probe, err))
+		probe, ok := asked[literal]
+		if !ok {
+			return nil, fail(fmt.Errorf("checking which paths are ignored: git answered for %q, which was not asked", literal))
 		}
+		ignored[probe] = true
 	}
 	return ignored, nil
+}
+
+// snapshotBelowAny reports whether a path is in one of the folders, where "." is the root of the repository.
+func snapshotBelowAny(name string, folders []string) bool {
+	for _, folder := range folders {
+		if folder == "." || strings.HasPrefix(name, folder+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // snapshotPathlessError is an error whose text names none of the paths of the temporary repository, and that still

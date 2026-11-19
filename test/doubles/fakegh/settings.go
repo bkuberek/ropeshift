@@ -79,6 +79,11 @@ func (r *response) settingsReply(parts []string, query url.Values) (settingsRepl
 	switch {
 	case len(parts) == 3:
 		visibility := r.state.Visibility
+		for _, repository := range r.state.Repositories {
+			if strings.EqualFold(repository.Owner, parts[1]) && strings.EqualFold(repository.Name, parts[2]) && repository.Visibility != "" {
+				visibility = repository.Visibility
+			}
+		}
 		if visibility == "" {
 			visibility = "private"
 		}

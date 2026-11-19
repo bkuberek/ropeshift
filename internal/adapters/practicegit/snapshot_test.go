@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -496,11 +497,6 @@ func TestSnapshotCapsWhatItReads(t *testing.T) {
 		t.Fatalf("Read of a file over 1 MiB = %d bytes, %v; want false", len(got), ok)
 	}
 
-	big := gittest.New(t)
-	big.Commit(".gitignore", ".env\n"+strings.Repeat("#", limit))
-	if snapshotOf(t, big, "main").Ignored[".env"] {
-		t.Fatal("a .gitignore over 1 MiB counted")
-	}
 }
 
 func TestSnapshotRefusesNamesThatAreNotRefs(t *testing.T) {
@@ -626,4 +622,232 @@ func TestSnapshotErrorsNameNoPathOfTheTemporaryRepository(t *testing.T) {
 	if !strings.Contains(err.Error(), "<temp>") {
 		t.Errorf("the error is %q, want the folder replaced by a placeholder", err)
 	}
+}
+
+// ignoreFolders commits a `.gitignore` of the given size in each of the folders, and a manifest in each of the
+// manifest folders, in one commit, and returns the snapshot of it. Each `.gitignore` ignores the env files.
+func ignoreFolders(t *testing.T, folders, manifests []string, size int) practices.Snapshot {
+	t.Helper()
+	repo := gittest.New(t)
+	rule := ".env*\n"
+	for _, folder := range folders {
+		writeFile(t, filepath.Join(repo.Dir, folder, ".gitignore"), rule+strings.Repeat("#", max(size-len(rule), 0)))
+	}
+	for _, folder := range manifests {
+		writeFile(t, filepath.Join(repo.Dir, folder, "package.json"), "{}")
+	}
+	repo.Git("add", "--", ".")
+	repo.Git("commit", "--quiet", "-m", "folders")
+	return snapshotOf(t, repo, "main")
+}
+
+// answers lists the probes of a folder, and says how many have an answer and how many of those say ignored.
+func answers(snapshot practices.Snapshot, folder string) (answered, ignored int) {
+	for _, probe := range practices.Probes(snapshot.Paths) {
+		if !strings.HasPrefix(probe, folder+"/") {
+			continue
+		}
+		if got, ok := snapshot.Ignored[probe]; ok {
+			answered++
+			if got {
+				ignored++
+			}
+		}
+	}
+	return answered, ignored
+}
+
+// The `.gitignore` files copied hold at most 16 MiB in all. A folder whose file is not copied has no ignore answers,
+// which the evaluator reads as unknown, and the folders whose files were copied are answered.
+func TestSnapshotCapsTheBytesOfTheIgnoreCopy(t *testing.T) {
+	folders := make([]string, 17)
+	for i := range folders {
+		folders[i] = "d" + strings.Repeat("0", 2-len(strconv.Itoa(i))) + strconv.Itoa(i)
+	}
+	// Each file is under the 1 MiB limit of one blob, and 17 of them are over 16 MiB.
+	snapshot := ignoreFolders(t, folders, folders, 1<<20-100)
+	if answered, ignored := answers(snapshot, "d15"); answered != 5 || ignored != 5 {
+		t.Errorf("the last folder within the cap has %d answers, %d ignored; want 5 and 5", answered, ignored)
+	}
+	if answered, _ := answers(snapshot, "d16"); answered != 0 {
+		t.Errorf("the folder past the cap has %d answers, want none", answered)
+	}
+}
+
+// Only the number of `.gitignore` files the limit names are copied, in path order, and a folder whose file is past
+// it is left unanswered, while the folders before it and the ones with no file of their own are answered.
+func TestSnapshotCapsTheCountOfTheIgnoreCopy(t *testing.T) {
+	repo := gittest.New(t)
+	for _, folder := range []string{"a", "b", "c", "d"} {
+		writeFile(t, filepath.Join(repo.Dir, folder, ".gitignore"), ".env*\n")
+		writeFile(t, filepath.Join(repo.Dir, folder, "package.json"), "{}")
+	}
+	writeFile(t, filepath.Join(repo.Dir, "e", "package.json"), "{}")
+	repo.Git("add", "--", ".")
+	repo.Git("commit", "--quiet", "-m", "folders")
+	snapshots := practicegit.WithIgnoreCopyLimits(practicegit.Snapshots{Env: repo.Env()}, 3, 1<<20)
+	snapshot, err := snapshots.Snapshot(t.Context(), repo.Dir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for folder, want := range map[string]int{"a": 5, "b": 5, "c": 5, "d": 0} {
+		if answered, ignored := answers(snapshot, folder); answered != want || ignored != want {
+			t.Errorf("folder %s has %d answers, %d ignored; want %d", folder, answered, ignored, want)
+		}
+	}
+	if answered, ignored := answers(snapshot, "e"); answered != 5 || ignored != 0 {
+		t.Errorf("a folder with no .gitignore has %d answers, %d ignored; want 5 and 0", answered, ignored)
+	}
+}
+
+// A tracked path whose components, split at a slash or a backslash, name git's own directory, or climb, is not
+// safe on any system: a backslash separates components on Windows. Its folder's probes are answered as not ignored
+// and its `.gitignore` is not copied.
+func TestSnapshotRefusesPathsWithBackslashComponents(t *testing.T) {
+	for _, folder := range []string{`a\.git`, `.git\a`, `a\.GIT\b`, `a\..\b`, `a\.\b`} {
+		t.Run(folder, func(t *testing.T) {
+			repo := gittest.New(t)
+			repo.Commit("README.md", "x\n")
+			ignore := hashObject(t, repo, "blob", []byte(".env\n"))
+			manifest := hashObject(t, repo, "blob", []byte("{}"))
+			inner := craftedTree(t, repo,
+				treeEntry{"100644", ".gitignore", ignore},
+				treeEntry{"100644", "package.json", manifest})
+			root := craftedTree(t, repo, treeEntry{"40000", folder, inner})
+			commit := craftedCommit(t, repo, root)
+			_, scratch := scratchIn(t)
+
+			snapshot := snapshotOf(t, repo, commit)
+
+			unsafe := 0
+			for _, probe := range practices.Probes(snapshot.Paths) {
+				got, ok := snapshot.Ignored[probe]
+				if !ok {
+					t.Errorf("no answer for probe %q", probe)
+				}
+				if strings.HasPrefix(probe, folder+"/") {
+					unsafe++
+					if got {
+						t.Errorf("Ignored[%q] = true, want false for an unsafe path", probe)
+					}
+				}
+			}
+			if unsafe == 0 {
+				t.Fatalf("no probe in folder %q: %q", folder, practices.Probes(snapshot.Paths))
+			}
+			if got := entriesOf(t, scratch); len(got) != 0 {
+				t.Fatalf("the snapshot left %v in the temporary directory", got)
+			}
+		})
+	}
+}
+
+// Read returns false for a path that is not safe, without asking git for it.
+func TestSnapshotReadRefusesUnsafePathsWithoutGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the recording git is a shell script")
+	}
+	repo := gittest.New(t)
+	commit := repo.Commit("README.md", "x\n")
+	runs := gittest.RecordGit(t)
+	snapshot := snapshotOf(t, repo, commit)
+	before := len(runs("cat-file"))
+	for _, name := range []string{"", ".git/config", ".GIT/config", "../README.md", "a/../README.md", "./README.md", "/README.md", `a\.git\x`, `..\README.md`} {
+		if got, ok := snapshot.Read(name); ok || got != "" {
+			t.Errorf("Read(%q) = %q, %v; want false", name, got, ok)
+		}
+	}
+	if after := len(runs("cat-file")); after != before {
+		t.Errorf("Read of unsafe paths ran git cat-file %d times", after-before)
+	}
+	if got, ok := snapshot.Read("README.md"); !ok || got != "x\n" {
+		t.Errorf("Read(README.md) = %q, %v; want its text", got, ok)
+	}
+}
+
+// One git process answers every probe, reading the paths from stdin and writing the ignored ones, NUL separated, so a
+// name with a newline is answered as well as any other.
+func TestSnapshotAsksCheckIgnoreOnceForEveryProbe(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the recording git is a shell script")
+	}
+	repo := gittest.New(t)
+	repo.Commit("README.md", "x\n")
+	ignore := hashObject(t, repo, "blob", []byte(".env*\n"))
+	manifest := hashObject(t, repo, "blob", []byte("{}"))
+	inner := craftedTree(t, repo, treeEntry{"100644", "package.json", manifest})
+	root := craftedTree(t, repo,
+		treeEntry{"100644", ".gitignore", ignore},
+		treeEntry{"40000", "api", inner},
+		treeEntry{"40000", "a\nb", inner},
+		treeEntry{"40000", ":c", inner},
+		treeEntry{"40000", "web", inner})
+	commit := craftedCommit(t, repo, root)
+	runs := gittest.RecordGit(t)
+
+	snapshot := snapshotOf(t, repo, commit)
+
+	probes := practices.Probes(snapshot.Paths)
+	if len(probes) != 25 {
+		t.Fatalf("%d probes, want 25: %q", len(probes), probes)
+	}
+	for _, probe := range probes {
+		if ignored, ok := snapshot.Ignored[probe]; !ok || !ignored {
+			t.Errorf("Ignored[%q] = %v, %v; want it answered as ignored", probe, ignored, ok)
+		}
+	}
+	calls := runs("check-ignore")
+	if len(calls) != 1 {
+		t.Fatalf("git check-ignore ran %d times, want once: %q", len(calls), calls)
+	}
+	for _, want := range []string{"--stdin", "-z"} {
+		if !slices.Contains(strings.Fields(calls[0]), want) {
+			t.Errorf("git %s has no %s", calls[0], want)
+		}
+	}
+}
+
+// A `.gitignore` over the limit of one blob is not copied, and no probe below its folder is answered, because the
+// answer would come from the rules that were copied alone: a rule of the file could un-ignore a path.
+func TestSnapshotLeavesTheProbesBelowAnOversizedIgnoreFileUnanswered(t *testing.T) {
+	const limit = 1 << 20
+	padding := strings.Repeat("#", limit)
+	t.Run("a nested file", func(t *testing.T) {
+		repo := gittest.New(t)
+		writeFile(t, filepath.Join(repo.Dir, ".gitignore"), ".env\n")
+		writeFile(t, filepath.Join(repo.Dir, "package.json"), "{}")
+		writeFile(t, filepath.Join(repo.Dir, "sub", ".gitignore"), "!.env\n"+padding)
+		writeFile(t, filepath.Join(repo.Dir, "sub", "package.json"), "{}")
+		repo.Git("add", "--", ".")
+		repo.Git("commit", "--quiet", "-m", "files")
+		snapshot := snapshotOf(t, repo, "main")
+		if answered, _ := answers(snapshot, "sub"); answered != 0 {
+			t.Errorf("the folder of the oversized file has %d answers, want none", answered)
+		}
+		if got, ok := snapshot.Ignored[".env"]; !ok || !got {
+			t.Errorf("Ignored[.env] = %v, %v; want the root answered by its own file", got, ok)
+		}
+	})
+	t.Run("the root file", func(t *testing.T) {
+		repo := gittest.New(t)
+		writeFile(t, filepath.Join(repo.Dir, ".gitignore"), ".env\n"+padding)
+		writeFile(t, filepath.Join(repo.Dir, "web", "package.json"), "{}")
+		repo.Git("add", "--", ".")
+		repo.Git("commit", "--quiet", "-m", "files")
+		snapshot := snapshotOf(t, repo, "main")
+		if len(practices.Probes(snapshot.Paths)) == 0 {
+			t.Fatal("no probes")
+		}
+		if len(snapshot.Ignored) != 0 {
+			t.Errorf("answers %v for probes below an oversized root .gitignore, want none", snapshot.Ignored)
+		}
+	})
+	t.Run("a file of exactly the limit is copied", func(t *testing.T) {
+		repo := gittest.New(t)
+		rule := ".env\n"
+		repo.Commit(".gitignore", rule+strings.Repeat("#", limit-len(rule)))
+		if !snapshotOf(t, repo, "main").Ignored[".env"] {
+			t.Error("a .gitignore of exactly 1 MiB did not count")
+		}
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -773,4 +774,40 @@ func TestSettingsBoundsAQuotedReason(t *testing.T) {
 	if err != nil || facts.VisibilityUnknown == "" || len(facts.VisibilityUnknown) > maxDetail || !utf8.ValidString(facts.VisibilityUnknown) {
 		t.Errorf("the visibility reason is %d bytes: %v", len(facts.VisibilityUnknown), err)
 	}
+}
+
+// The visibility the fake forge reports for a repository is the one the repository was created with, and a
+// repository it does not hold reports the forge-wide visibility.
+func TestSettingsReadsTheVisibilityAFakeRepositoryWasCreatedWith(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		flag      string
+		forgeWide string
+		want      practices.Visibility
+	}{
+		{"created public", "--public", "", practices.VisibilityPublic},
+		{"created private under a public default", "--private", "public", practices.VisibilityPrivate},
+		{"created public under a private default", "--public", "private", practices.VisibilityPublic},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			forge, repo, gh, _ := fixture(t)
+			doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Visibility = tt.forgeWide })
+			if out, err := exec.Command(filepath.Join(gh, Binary), "repo", "create", "acme/widgets", tt.flag).CombinedOutput(); err != nil {
+				t.Fatalf("gh repo create: %v\n%s", err, out)
+			}
+			facts, err := forge.Settings(t.Context(), repo, "main")
+			if err != nil || facts.Visibility != tt.want || facts.VisibilityUnknown != "" {
+				t.Fatalf("a repository %s reads %+v: %v", tt.name, facts, err)
+			}
+		})
+	}
+	t.Run("a repository the fake does not hold", func(t *testing.T) {
+		facts, _, err := readSettings(t, func(s *ghstate.State) {
+			s.Visibility = "public"
+			s.Repositories = []ghstate.Repository{{Owner: "acme", Name: "other", Visibility: "private"}}
+		})
+		if err != nil || facts.Visibility != practices.VisibilityPublic {
+			t.Fatalf("reads %+v: %v", facts, err)
+		}
+	})
 }
