@@ -53,6 +53,10 @@ var ManifestChecks = []Check{
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 	{"RM34", "approving a planning branch's version before intake records it registers each existing clone its manifest lists, and the preview of that version lists them, with an entry that creates read as planned unless a work order on the branch names it; the approval keeps one record once intake records the commit", checkBranchVersionRegistersItsManifest},
 	{"RM35", "an entry with create that no work order of the version names in repo is planned in the preview and in the approval's record, and nothing is created or registered for it; a later version whose work order names it is not planned", checkUntargetedCreationIsPlanned},
+	{"RM45", "a contract whose reads name an entry with create, and a work order of another plan that names it in repo, target nothing of the version the ledger holds: the entry stays planned", checkReadsAndAnotherPlanTargetNothingHeld},
+	{"RM46", "a contract whose reads name an entry with create targets nothing of the version a planning branch holds: the request carries no target for it and the entry stays planned", checkReadsTargetNothingOnABranch},
+	{"RM47", "a work order of a contract of another plan on the branch is no target of this plan's version: the request carries no target for it and the entry stays planned", checkAnotherPlansWorkTargetsNothingOnABranch},
+	{"RM48", "an entry with create that a member registers by hand with the manifest, with no plan approval, is never planned: it registers from the clone at its path, or is refused for having none", checkHandRegisteredCreateEntryIsNeverPlanned},
 }
 
 const manifestPlan = "platform-v1"
@@ -2131,6 +2135,193 @@ func checkUntargetedCreationIsPlanned(r *Rig) error {
 	}
 	if err := outcomesAre(added, want); err != nil {
 		return Violatedf("approving the version that gives search work: %v", err)
+	}
+	return r.CheckProjection(s)
+}
+
+// aLanePlanAsksAbout takes a plan lane's branch in a tick and returns the request that asks about the plan titled,
+// when the branch holds more than one plan and so raises a request for each.
+func (r *Rig) aLanePlanAsksAbout(s ports.Store, files map[string]string, title string) (authority.Approval, error) {
+	if _, err := r.planLane(s); err != nil {
+		return authority.Approval{}, err
+	}
+	var asked []string
+	if _, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked)); err != nil {
+		return authority.Approval{}, err
+	}
+	return r.theOpenPlanApprovalFor(s, title)
+}
+
+// carriedTargets reads the repository names a request carries for the work its version holds.
+func carriedTargets(request authority.Approval) ([]string, error) {
+	var detail planning.PlanDetail
+	if err := json.Unmarshal([]byte(request.Detail), &detail); err != nil {
+		return nil, Violatedf("the detail of %s is %q: %v", request.ID, request.Detail, err)
+	}
+	return detail.Targets, nil
+}
+
+// anotherPlansWork is a second plan of the project, with a contract whose one work order changes the repository named.
+func anotherPlansWork(repo string) map[string]string {
+	return map[string]string{
+		"other-plan.md": PlanText("other-v1", "Another plan", ""),
+		"other.md":      placedContract{ID: "other", Plan: "other-v1", Orders: []orderIn{{ID: "other-1", Repo: repo}}}.text(),
+	}
+}
+
+func checkReadsAndAnotherPlanTargetNothingHeld(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText(createdEntry("search")+createdEntry("docs"), "api", "billing")))
+	files.Write("core.md", []byte(placedContract{ID: "core", Plan: manifestPlan, Reads: []string{"search"}, Orders: []orderIn{{ID: "core-1", Repo: "api"}}}.text()))
+	for path, text := range anotherPlansWork("docs") {
+		files.Write(path, []byte(text))
+	}
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	request, err := r.theOpenPlanApprovalFor(s, "The platform")
+	if err != nil {
+		return err
+	}
+	want := map[string]entryOutcome{
+		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"billing": {outcome: ledger.Registered, path: "/work/billing"},
+		"search":  {outcome: ledger.Planned, reason: plannedReason("search")},
+		"docs":    {outcome: ledger.Planned, reason: plannedReason("docs")},
+	}
+	repositories := r.repositories(s)
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", true, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(preview, want); err != nil {
+		return Violatedf("the preview of a version whose contract reads search, beside another plan's work on docs: %v", err)
+	}
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("approving it: %v", err)
+	}
+	return r.recordedAre(s, request.ID, want)
+}
+
+func checkReadsTargetNothingOnABranch(r *Rig) error {
+	s := r.Store()
+	kept, err := r.branchManifestProject(s)
+	if err != nil {
+		return err
+	}
+	files := map[string]string{
+		"plan.md":         "+++\nkind = \"plan\"\nid = \"" + manifestPlan + "\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nOne plan for every repository.\n",
+		"repositories.md": manifestText(createdEntry("web"), "api", "billing"),
+		"core.md":         placedContract{ID: "core", Plan: manifestPlan, Reads: []string{"web"}, Orders: []orderIn{{ID: "core-1", Repo: "api"}}}.text(),
+	}
+	_, request, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	return r.branchTargetsOnly(s, request, kept, "api", "web")
+}
+
+func checkAnotherPlansWorkTargetsNothingOnABranch(r *Rig) error {
+	s := r.Store()
+	kept, err := r.branchManifestProject(s)
+	if err != nil {
+		return err
+	}
+	files := map[string]string{
+		"plan.md":         "+++\nkind = \"plan\"\nid = \"" + manifestPlan + "\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nOne plan for every repository.\n",
+		"repositories.md": manifestText(createdEntry("web"), "api", "billing"),
+		"core.md":         placedContract{ID: "core", Plan: manifestPlan, Orders: []orderIn{{ID: "core-1", Repo: "api"}}}.text(),
+	}
+	for path, text := range anotherPlansWork("web") {
+		files[path] = text
+	}
+	request, err := r.aLanePlanAsksAbout(s, files, "The platform")
+	if err != nil {
+		return err
+	}
+	return r.branchTargetsOnly(s, request, kept, "api", "web")
+}
+
+// branchTargetsOnly checks that the request of a plan a branch holds carries the one target named, and that the
+// preview of its version reads the entry named planned, beside billing registering and api held.
+func (r *Rig) branchTargetsOnly(s ports.Store, request authority.Approval, kept *fake.Checkouts, target, planned string) error {
+	carried, err := carriedTargets(request)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(carried, []string{target}) {
+		return Violatedf("the request carries the targets %v, want only %s", carried, target)
+	}
+	preview, err := r.repositories(s).RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", true, r.member())
+	if err != nil {
+		return err
+	}
+	return outcomesAre(preview, map[string]entryOutcome{
+		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"billing": {outcome: ledger.Registered, path: "/work/billing"},
+		planned:   {outcome: ledger.Planned, reason: plannedReason(planned)},
+	})
+}
+
+func checkHandRegisteredCreateEntryIsNeverPlanned(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "search", Path: "../search", Create: "github:acme"},
+	}}
+	repositories := r.repositories(s)
+	for _, dryRun := range []bool{true, false} {
+		added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, dryRun, r.member())
+		if err != nil {
+			return err
+		}
+		search, found := outcomeNamed(added, "search")
+		if !found || search.Outcome != ledger.RegistrationRefused || !strings.Contains(search.Reason, "no git clone is at /work/search") {
+			return Violatedf("registering an entry with create by hand, with no clone at its path (dry run %v), reads %+v", dryRun, search)
+		}
+	}
+	kept.Place(cloneOf("search", "search"))
+	for _, dryRun := range []bool{true, false} {
+		added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, dryRun, r.member())
+		if err != nil {
+			return err
+		}
+		search, found := outcomeNamed(added, "search")
+		if !found || search.Outcome != ledger.Registered {
+			return Violatedf("registering an entry with create by hand, with a clone at its path (dry run %v), reads %+v", dryRun, search)
+		}
+	}
+	if held, err := repositories.Resolve(r.Ctx, r.Scope, "search"); err != nil || held.Name != "search" {
+		return Violatedf("the clone registered by hand reads %+v: %v", held, err)
 	}
 	return r.CheckProjection(s)
 }
