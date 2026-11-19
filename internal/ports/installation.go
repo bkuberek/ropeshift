@@ -86,9 +86,10 @@ type SpendReader interface {
 // SpendWriter writes the installation's tallies of spend.
 type SpendWriter interface {
 	SpendReader
-	// NoteSpend raises what an owner's generation was charged in a scope to a figure its worker reported, and adds the
-	// difference to the scope's UTC day. A repeated or smaller figure adds nothing, because the ledger never lowers one.
-	NoteSpend(scope, owner string, generation int64, chargedUSD float64) error
+	// NoteSpend raises what an owner's generation was charged in a scope to what a report of its usage charges, and adds the
+	// difference to the scope's UTC day. The mark keeps the highest of each figure and the highest charge of any one report,
+	// as ReportUsage does, so a report that charges less adds nothing, and a floor the report names is ignored.
+	NoteSpend(scope, owner string, generation int64, usage ledger.GenerationUsage) error
 }
 
 // SharedTx is one write transaction of the shared records, which holds the installation's revision.

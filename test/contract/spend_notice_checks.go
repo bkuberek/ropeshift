@@ -29,6 +29,8 @@ var SpendNoticeChecks = []Check{
 	{"SN11", "an assistant's spend is tallied apart from the work's, and tells one soft notice a day at assistant_daily_warn", checkTheAssistantsDailyWarning},
 	{"SN12", "an orchestrator's spend is tallied for its machine and the day, and tells one soft notice a day at orchestrator_daily_warn", checkTheOrchestratorsDailyWarning},
 	{"SN13", "an orchestrator's warning is told for the day its report counted in, and a floor a report names is no spend", checkTheOrchestratorsWarningKeepsItsDay},
+	{"SN14", "an assistant's mark keeps the highest of each figure its generation reported, and the highest charge, so its day reads what a work order's generation is charged", checkTheAssistantsSpendKeepsTheHighestOfEachFigure},
+	{"SN15", "an orchestrator's mark keeps the highest of each figure its generation reported, and the highest charge, so its day reads what a work order's generation is charged", checkTheOrchestratorsSpendKeepsTheHighestOfEachFigure},
 }
 
 func checkTheAssistantsDailyWarning(r *Rig) error {

@@ -102,7 +102,7 @@ func assistantSpent(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 	if _, err := tx.Append(draft); err != nil {
 		return err
 	}
-	if err := tx.Lanes().NoteSpend(ledger.SpendScopeAssistant, e.Lane, e.Generation, ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD); err != nil {
+	if err := tx.Lanes().NoteSpend(ledger.SpendScopeAssistant, e.Lane, e.Generation, usage); err != nil {
 		return err
 	}
 	reads := projectWritesOf(tx)
@@ -137,8 +137,7 @@ func orchestratorSpent(tx ports.SharedTx, worker string, e ledger.UploadEvent) e
 		return fmt.Errorf("%w: a generation's usage is negative", workorders.ErrInvalid)
 	}
 	usage.FloorUSD = 0
-	charged := ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD
-	return tx.Spend().NoteSpend(ledger.OrchestratorSpendScope(worker), e.Lane, e.Generation, charged)
+	return tx.Spend().NoteSpend(ledger.OrchestratorSpendScope(worker), e.Lane, e.Generation, usage)
 }
 
 // warnOrchestrator tells every project the worker serves, once for the UTC day, that its machine's orchestrator reached
