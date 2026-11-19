@@ -328,6 +328,10 @@ func CheckBranch(name string) error {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(forbiddenInBranch, r) {
 			return bad("holds a character git refuses")
 		}
+		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints.
+		if HiddenRune(r) {
+			return bad("holds a character that is not seen")
+		}
 	}
 	for part := range strings.SplitSeq(name, "/") {
 		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {

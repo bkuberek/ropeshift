@@ -73,6 +73,16 @@ func TestABranchNameIsAGitRefName(t *testing.T) {
 	}
 }
 
+// A branch name that holds a character a reader does not see, such as a bidirectional override or a zero-width space,
+// reads as another name in what ropeshift prints, so it is refused.
+func TestABranchNameHoldsNoHiddenCharacter(t *testing.T) {
+	for _, name := range []string{"ma\u202ein", "ma\u200bin", "\u202emain", "main\u200b"} {
+		if err := CheckBranch(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
 func TestANewRepositoryLeavesEveryMergeToThePerson(t *testing.T) {
 	r := NewRepository("r")
 	if r.MergeAuthority != PersonMerges {
