@@ -148,8 +148,12 @@ func practicesText(view api.PracticesView, reason string, now time.Time) string 
 		return fmt.Sprintf("%s not checked yet: %s\n", name, why)
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "%s at %s (base %s), checked %s ago on %s\n", name, practicesLine(practicesCommit(result.Commit)), practicesLine(result.BaseBranch),
-		api.AgeWords(now.Sub(result.CheckedAt).Milliseconds()), practicesLine(result.Worker))
+	fmt.Fprintf(&out, "%s at %s (base %s), checked %s ago", name, practicesLine(practicesCommit(result.Commit)), practicesLine(result.BaseBranch),
+		api.AgeWords(now.Sub(result.CheckedAt).Milliseconds()))
+	if worker := practicesLine(result.Worker); worker != "" {
+		out.WriteString(" on " + worker)
+	}
+	out.WriteString("\n")
 	acknowledged := map[string]api.PracticesAcknowledgement{}
 	for _, ack := range view.Acknowledgement {
 		acknowledged[ack.Finding] = ack

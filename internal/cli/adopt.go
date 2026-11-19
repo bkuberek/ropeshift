@@ -57,7 +57,9 @@ func (c *invocation) adopt(args []string) int {
 	if code != ExitOK {
 		return code
 	}
-	request := api.AdoptionPlanRequest{Root: root, Depth: *depth, Planning: *planningName, Design: *designName, LeaveOut: leaveOut}
+	// Only a dry run reads each repository's practices: an adoption that records asks for the recorded check when it
+	// registers.
+	request := api.AdoptionPlanRequest{Root: root, Depth: *depth, Planning: *planningName, Design: *designName, LeaveOut: leaveOut, Practices: *dryRun}
 	for _, path := range positional {
 		absolute, err := filepath.Abs(path)
 		if err != nil {
