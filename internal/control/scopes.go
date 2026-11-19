@@ -19,11 +19,27 @@ const legacySeparator = "/"
 
 // scopeFacts resolves a scope through the ledger: from a work order to the contract version it is pinned to,
 // and from a contract version to its plan, never from the text of an ID (ADR-0030). It reads the plan of a
-// contract version once.
+// contract version once. Over a read, which no write changes, it also reads each work order and each list of work
+// orders once.
 type scopeFacts struct {
 	planned ports.PlanningReader
 	orders  ports.WorkOrderReader
 	plans   map[contractVersion]string
+	// held is what a read of work orders found, and nil for facts over a transaction that may write.
+	held *readOrders
+}
+
+// readOrders is the work orders one read found, each asked for once.
+type readOrders struct {
+	byID       map[string]readOrder
+	all        []workorders.WorkOrder
+	allRead    bool
+	byContract map[string][]workorders.WorkOrder
+}
+
+type readOrder struct {
+	order workorders.WorkOrder
+	found bool
 }
 
 // contractVersion names one version of a contract, and version 0 its latest.
@@ -34,6 +50,13 @@ type contractVersion struct {
 
 func newScopeFacts(planned ports.PlanningReader, orders ports.WorkOrderReader) *scopeFacts {
 	return &scopeFacts{planned: planned, orders: orders, plans: map[contractVersion]string{}}
+}
+
+// newReadScopeFacts is newScopeFacts for a read, which keeps what it reads of work orders for the whole read.
+func newReadScopeFacts(planned ports.PlanningReader, orders ports.WorkOrderReader) *scopeFacts {
+	facts := newScopeFacts(planned, orders)
+	facts.held = &readOrders{byID: map[string]readOrder{}, byContract: map[string][]workorders.WorkOrder{}}
+	return facts
 }
 
 // planOf is the plan a version of a contract belongs to, or its latest version's for version 0, or none for a
@@ -63,11 +86,52 @@ func (f *scopeFacts) planOf(contract string, version int64) (string, error) {
 
 // order reads a work order, and says whether the ledger holds it.
 func (f *scopeFacts) order(id string) (workorders.WorkOrder, bool, error) {
+	if f.held != nil {
+		if seen, ok := f.held.byID[id]; ok {
+			return seen.order, seen.found, nil
+		}
+	}
 	order, err := f.orders.Get(id)
 	if errors.Is(err, ports.ErrNotFound) {
+		f.remember(id, workorders.WorkOrder{}, false)
 		return workorders.WorkOrder{}, false, nil
 	}
+	if err == nil {
+		f.remember(id, order, true)
+	}
 	return order, err == nil, err
+}
+
+func (f *scopeFacts) remember(id string, order workorders.WorkOrder, found bool) {
+	if f.held != nil {
+		f.held.byID[id] = readOrder{order, found}
+	}
+}
+
+// everyOrder lists every work order.
+func (f *scopeFacts) everyOrder() ([]workorders.WorkOrder, error) {
+	if f.held != nil && f.held.allRead {
+		return f.held.all, nil
+	}
+	orders, err := f.orders.List()
+	if err == nil && f.held != nil {
+		f.held.all, f.held.allRead = orders, true
+	}
+	return orders, err
+}
+
+// contractOrders lists the work orders of one contract.
+func (f *scopeFacts) contractOrders(contract string) ([]workorders.WorkOrder, error) {
+	if f.held != nil {
+		if orders, ok := f.held.byContract[contract]; ok {
+			return orders, nil
+		}
+	}
+	orders, err := f.orders.ByContract(contract)
+	if err == nil && f.held != nil {
+		f.held.byContract[contract] = orders
+	}
+	return orders, err
 }
 
 // binds says whether a scope covers a work order: a plan covers the work pinned to versions of contracts it
@@ -171,21 +235,21 @@ func (f *scopeFacts) runsIn(scope questions.Scope, repository string) (bool, err
 			return false, err
 		}
 		if order.ContractID == "" {
-			orders, err = f.orders.List()
+			orders, err = f.everyOrder()
 		} else {
-			orders, err = f.orders.ByContract(order.ContractID)
+			orders, err = f.contractOrders(order.ContractID)
 		}
 		if err != nil {
 			return false, err
 		}
 	case questions.ScopeContract:
 		var err error
-		if orders, err = f.orders.ByContract(scope.ID); err != nil {
+		if orders, err = f.contractOrders(scope.ID); err != nil {
 			return false, err
 		}
 	case questions.ScopePlan:
 		var err error
-		if orders, err = f.orders.List(); err != nil {
+		if orders, err = f.everyOrder(); err != nil {
 			return false, err
 		}
 	}
@@ -469,6 +533,11 @@ func overlappingDecisions(reader ports.QuestionReader, facts *scopeFacts, scope 
 	if err != nil {
 		return nil, err
 	}
+	return overlapping(standing, facts, scope)
+}
+
+// overlapping lists those of the decisions whose scope overlaps one.
+func overlapping(standing []questions.Decision, facts *scopeFacts, scope string) ([]questions.Decision, error) {
 	var found []questions.Decision
 	for _, decision := range standing {
 		overlap, err := facts.overlaps(decision.Scope, scope)
@@ -500,4 +569,35 @@ func overlapsOf(tx ports.WriteTx, record questions.Question) ([]string, error) {
 // ledger the read holds.
 func DecisionsOverlapping(tx ports.ReadTx, scope string) ([]questions.Decision, error) {
 	return overlappingDecisions(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), scope)
+}
+
+// OverlapsOfScopes lists, for each scope, the IDs of the decisions in force whose scope overlaps it, resolved through
+// the ledger the read holds. It reads the decisions in force once, and each work order and contract once, for all the
+// scopes, so a page of records costs the same reads whatever number of scopes it holds. A scope no decision overlaps
+// has no entry.
+func OverlapsOfScopes(tx ports.ReadTx, scopes []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	var standing []questions.Decision
+	var facts *scopeFacts
+	for _, scope := range scopes {
+		if _, done := out[scope]; done || scope == "" {
+			continue
+		}
+		if facts == nil {
+			var err error
+			if standing, err = decisionsInForce(tx.Questions()); err != nil {
+				return nil, err
+			}
+			facts = newReadScopeFacts(tx.Planning(), tx.WorkOrders())
+		}
+		found, err := overlapping(standing, facts, scope)
+		if err != nil {
+			return nil, err
+		}
+		out[scope] = nil
+		for _, decision := range found {
+			out[scope] = append(out[scope], decision.ID)
+		}
+	}
+	return out, nil
 }
