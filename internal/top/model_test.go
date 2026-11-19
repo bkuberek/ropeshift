@@ -243,6 +243,45 @@ func TestASpendStopSaysWhatItIsChargedAndNamesItsCommands(t *testing.T) {
 	}
 }
 
+// A repository creation a member must settle says which repository of which plan version stopped and why, and names the
+// commands that run it again and leave it undone. One that runs now names none. What a repository or a forge said prints
+// with control characters replaced.
+func TestARepositoryCreationSaysWhereItStoppedAndNamesItsCommands(t *testing.T) {
+	creation := func(name, state string, actions []string) api.NeedItem {
+		return api.NeedItem{Kind: api.NeedRepositoryCreation, ID: "ap-1/" + name, RepositoryCreation: &api.RepositoryCreationNeed{
+			Approval: "ap-1", Plan: "tt-v2", PlanVersion: 2, Name: name, ManifestPath: "repos/" + name, Path: "/work/tt/repos/" + name,
+			State: state, Reason: "push\x1b[31m failed", Actions: actions,
+		}}
+	}
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{
+		creation("api", api.RepositoryCreationFailed, api.RepositoryCreationActions),
+		creation("web", api.RepositoryCreationRunning, []string{}),
+		creation("a\x1b]0;x\x07b", api.RepositoryCreationInterrupted, api.RepositoryCreationActions),
+	}
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{
+		"repository api of plan tt-v2 v2 failed: push?[31m failed",
+		"repository web of plan tt-v2 v2 running: push?[31m failed",
+		"    ropeshift plan retry tt-v2 api --version 2", "    ropeshift plan skip tt-v2 api --version 2 --reason R",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	running := keyed(t, loaded(t, snapshot), "j").View()
+	if strings.Contains(running, "plan retry tt-v2 web") || strings.Contains(running, "plan skip tt-v2 web") || strings.Contains(running, "    ropeshift plan") {
+		t.Errorf("a creation that runs names a command:\n%s", running)
+	}
+	hostile := keyed(t, keyed(t, loaded(t, snapshot), "j"), "j").View()
+	if !strings.Contains(hostile, "    ropeshift plan retry tt-v2 a?]0;x?b --version 2") || strings.ContainsAny(hostile, "\x1b\x07") {
+		t.Errorf("an interrupted creation with a hostile name names no cleaned command:\n%s", hostile)
+	}
+	if strings.ContainsAny(frame+running, "\x1b\x07") {
+		t.Errorf("a control character reached a frame: %q", frame)
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"

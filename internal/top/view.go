@@ -150,6 +150,22 @@ func commandsFor(item api.NeedItem) []string {
 			}
 		}
 		return commands
+	case api.NeedRepositoryCreation:
+		if item.RepositoryCreation == nil {
+			return nil
+		}
+		need := item.RepositoryCreation
+		plan, name, version := clean(need.Plan), clean(need.Name), strconv.FormatInt(need.PlanVersion, 10)
+		var commands []string
+		for _, action := range need.Actions {
+			switch action {
+			case api.ActRepositoryRetry:
+				commands = append(commands, "ropeshift plan retry "+plan+" "+name+" --version "+version)
+			case api.ActRepositorySkip:
+				commands = append(commands, "ropeshift plan skip "+plan+" "+name+" --version "+version+" --reason R")
+			}
+		}
+		return commands
 	case api.NeedCI:
 		if item.CI == nil {
 			return nil
@@ -236,6 +252,13 @@ func what(item api.NeedItem) string {
 	case item.Spend != nil:
 		need := item.Spend
 		return fmt.Sprintf("at its hard spend limit of $%.2f, with $%.2f charged  %s", need.Spend.HardLimit, need.Spend.Charged.ChargedUSD, clean(need.WorkOrder.Title))
+	case item.RepositoryCreation != nil:
+		need := item.RepositoryCreation
+		line := fmt.Sprintf("repository %s of plan %s v%d %s", clean(need.Name), clean(need.Plan), need.PlanVersion, clean(need.State))
+		if need.Reason != "" {
+			line += ": " + clean(need.Reason)
+		}
+		return line
 	case item.Work == nil:
 		return ""
 	}
