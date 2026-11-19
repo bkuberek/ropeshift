@@ -76,22 +76,71 @@ func TestACreateSurvivesAPruneOutsideTheLock(t *testing.T) {
 func loseFirstRegistration(t *testing.T, repo *gittest.Repo) (env []string, fired func() bool) {
 	t.Helper()
 	mark := filepath.Join(t.TempDir(), "fired")
-	hooks := filepath.Join(repo.Dir, ".git", "hooks")
-	script := `#!/bin/sh
+	writePostCheckout(t, repo, `#!/bin/sh
 [ -e "$LOSE_REGISTRATION_MARK" ] && exit 0
 : > "$LOSE_REGISTRATION_MARK"
 rm -f "$(git rev-parse --path-format=absolute --git-dir)/gitdir"
 git --git-dir="$(git rev-parse --path-format=absolute --git-common-dir)" worktree prune
-`
+`)
+	return append(repo.Env(), "LOSE_REGISTRATION_MARK="+mark), func() bool {
+		_, err := os.Stat(mark)
+		return err == nil
+	}
+}
+
+// countAdds installs a post-checkout hook that counts the worktree adds that succeed, and returns the
+// worktree environment that arms it, and the count.
+func countAdds(t *testing.T, repo *gittest.Repo) (env []string, adds func() int) {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "adds")
+	writePostCheckout(t, repo, "#!/bin/sh\necho >> \"$COUNT_ADDS_FILE\"\n")
+	return append(repo.Env(), "COUNT_ADDS_FILE="+file), func() int {
+		data, _ := os.ReadFile(file)
+		return strings.Count(string(data), "\n")
+	}
+}
+
+func writePostCheckout(t *testing.T, repo *gittest.Repo, script string) {
+	t.Helper()
+	hooks := filepath.Join(repo.Dir, ".git", "hooks")
 	if err := os.MkdirAll(hooks, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(hooks, "post-checkout"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return append(repo.Env(), "LOSE_REGISTRATION_MARK="+mark), func() bool {
-		_, err := os.Stat(mark)
-		return err == nil
+}
+
+// From git 2.48, `worktree.useRelativePaths` writes a registration's links as relative paths, and `git
+// worktree list` still prints each worktree's absolute path with every link resolved. The check after an
+// add finds the worktree the add made, so the create adds it once.
+func TestACreateWithRelativeWorktreePathsFindsItsRegistrationTheFirstTime(t *testing.T) {
+	repo := gittest.New(t)
+	version, err := gitcli.ParseVersion(repo.Git("--version"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version.Major < 2 || version.Major == 2 && version.Minor < 48 {
+		t.Skipf("git %s has no worktree.useRelativePaths", version)
+	}
+	repo.Commit("README.txt", "seed\n")
+	repo.Git("config", "worktree.useRelativePaths", "true")
+	env, adds := countAdds(t, repo)
+	worktrees := gitcli.Worktrees{Env: env}
+	spec := ports.WorktreeSpec{Repository: repo.Dir, Path: filepath.Join(t.TempDir(), "lane"), Detached: true}
+
+	if _, err := worktrees.Create(t.Context(), spec); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if n := adds(); n != 1 {
+		t.Errorf("the create added the worktree %d times, want once", n)
+	}
+	link, err := os.ReadFile(filepath.Join(spec.Path, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target := strings.TrimSpace(strings.TrimPrefix(string(link), "gitdir:")); filepath.IsAbs(target) {
+		t.Errorf("the worktree links to %s, an absolute path, so the setting did not apply", target)
 	}
 }
 

@@ -174,6 +174,9 @@ func lostRegistration(err error) bool {
 		return true
 	}
 	text := err.Error()
+	// Git 2.44 and later print the first when the registration is gone before the add reads it back. Git 2.56
+	// and later print the second when a command reads a worktree whose registration is gone, where earlier
+	// versions print "not a git repository: " and the registration's path, which the check below reads.
 	if strings.Contains(text, "could not find created worktree '") ||
 		strings.Contains(text, "gitfile does not point to a valid repository: ") {
 		return true
