@@ -314,7 +314,7 @@ func (f Folders) DefaultBranch(ctx context.Context, path string) string {
 // AddRemote adds the remote named origin. The URL was checked to be one line git reads as an address and not as an
 // option.
 func (f Folders) AddRemote(ctx context.Context, path, url string) error {
-	if _, err := (gitcli.Git{Dir: path, Env: f.Env}).Output(ctx, "remote", "add", "origin", url); err != nil {
+	if _, err := (gitcli.Git{Dir: path, Env: f.Env}).Output(ctx, "remote", "add", "origin", "--", url); err != nil {
 		return describe(err)
 	}
 	return nil
@@ -329,7 +329,7 @@ func (f Folders) Push(ctx context.Context, path string, push ports.PushSpec) err
 		const key = "credential.https://github.com.helper"
 		git.Config = [][2]string{{key, ""}, {key, `!"` + push.CredentialHelper + `" auth git-credential`}}
 	}
-	if _, err := git.Output(ctx, "push", "--set-upstream", "origin", push.Branch); err != nil {
+	if _, err := git.Output(ctx, "push", "--set-upstream", "--", "origin", push.Branch); err != nil {
 		return describe(err)
 	}
 	return nil

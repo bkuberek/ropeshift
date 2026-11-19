@@ -27,8 +27,12 @@ const (
 
 // Compare orders two releases by semantic versioning precedence: negative when a is the earlier, zero
 // when they are the same, and positive when a is the later. It reports false when either is not a
-// release, as a development build and an unreadable one are not.
+// release, as a development build and an unreadable one are not, and when both are snapshots that
+// differ: a snapshot names the commit it came from, and a commit hash orders nothing.
 func Compare(a, b string) (int, bool) {
+	if a != b && isSnapshot(a) && isSnapshot(b) {
+		return 0, false
+	}
 	left, ok := parseRelease(a)
 	if !ok {
 		return 0, false
@@ -43,6 +47,19 @@ func Compare(a, b string) (int, bool) {
 		}
 	}
 	return comparePreRelease(left.pre, right.pre), true
+}
+
+// snapshotStage is how the pre-release of a snapshot build starts: snapshot-<short commit>.
+const snapshotStage = "snapshot-"
+
+// isSnapshot reports whether v is a snapshot build, which carries a commit hash where a release carries a
+// stage and a number.
+func isSnapshot(v string) bool {
+	if !isRelease(v) {
+		return false
+	}
+	_, pre, _ := strings.Cut(v, "-")
+	return strings.HasPrefix(pre, snapshotStage)
 }
 
 type parsedRelease struct {
@@ -125,13 +142,18 @@ func IsRelease(v string) bool { return isRelease(v) }
 // Warning says that a running daemon is older than the build installed at its path, and how to run the
 // installed one. A daemon that reports no version predates the report, so it is older than any release.
 // The warning is empty when the daemon is as new as the installed build or newer, when either is not a
-// release, and when the installed build could not be read.
+// release, and when the installed build could not be read. Two snapshots have no order, so a daemon that
+// runs a different snapshot than the installed one is told to restart, and neither is called older: the
+// installed build is the one a restart runs.
 func Warning(running string, installed Installed) string {
 	if running == "" {
 		if !isRelease(installed.Version) {
 			return ""
 		}
 		return stale(installed, "an older build")
+	}
+	if running != installed.Version && isSnapshot(running) && isSnapshot(installed.Version) {
+		return stale(installed, running)
 	}
 	order, ok := Compare(running, installed.Version)
 	if !ok || order >= 0 {

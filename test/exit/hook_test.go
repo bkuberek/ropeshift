@@ -285,13 +285,9 @@ func TestAHookPastItsDeadlineStillSpools(t *testing.T) {
 			_ = writer.Close()
 		}
 	})
-	var reader *os.File
-	select {
-	case reader = <-opened:
-	case err := <-exited:
-		t.Fatalf("the hook ended before its spool line was down: %v", err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("the hook never opened its spool")
+	reader, err := takeSpoolReader(opened, exited, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
 	}
 	defer reader.Close()
 	raw, err := io.ReadAll(reader)
@@ -304,6 +300,60 @@ func TestAHookPastItsDeadlineStillSpools(t *testing.T) {
 	digestOf := func(string) (string, error) { return lanes.TokenDigest(hookToken), nil }
 	if event, err := lanes.OpenHook(bytes.TrimSpace(raw), digestOf); err != nil || event.Subject != "toolu_1" {
 		t.Errorf("spooled %q: %+v, %v", raw, event, err)
+	}
+}
+
+// takeSpoolReader waits for the open of the spool to return its reader. A hook writes its line the moment its
+// open of the spool is met, and exits, so the exit can be ready before the test sees the open return. A hook that
+// exited and left no reader to open the spool to is the only one its deadline ended, and an open that met no writer
+// never returns, so wait is how long the open has to return once the hook has exited. The exit is put back for the
+// test to read.
+func takeSpoolReader(opened <-chan *os.File, exited chan error, wait time.Duration) (*os.File, error) {
+	select {
+	case reader := <-opened:
+		return reader, nil
+	case err := <-exited:
+		select {
+		case reader := <-opened:
+			exited <- err
+			return reader, nil
+		case <-time.After(wait):
+			return nil, fmt.Errorf("the hook ended before its spool line was down: %v", err)
+		}
+	case <-time.After(wait):
+		return nil, errors.New("the hook never opened its spool")
+	}
+}
+
+// A hook that has its reader writes its line and exits at once, so its exit and the open's return can both be
+// waiting when the test looks, and the test must take the reader, as the hook did not end early.
+func TestAHookThatExitsAsItsSpoolOpensDidNotEndEarly(t *testing.T) {
+	for range 200 {
+		opened, exited := make(chan *os.File, 1), make(chan error, 1)
+		want := new(os.File)
+		opened <- want
+		exited <- nil
+		got, err := takeSpoolReader(opened, exited, time.Second)
+		if err != nil || got != want {
+			t.Fatalf("a hook that exited as its spool opened gave %v, %v; want its reader", got, err)
+		}
+		select {
+		case err := <-exited:
+			if err != nil {
+				t.Fatalf("the hook's exit came back as %v", err)
+			}
+		default:
+			t.Fatal("the hook's exit was not left for the test to read")
+		}
+	}
+}
+
+// A hook that exits with no reader to have written to is one its deadline ended.
+func TestAHookThatExitsWithNoReaderEndedEarly(t *testing.T) {
+	exited := make(chan error, 1)
+	exited <- nil
+	if _, err := takeSpoolReader(make(chan *os.File, 1), exited, 50*time.Millisecond); err == nil || !strings.Contains(err.Error(), "ended before its spool line was down") {
+		t.Errorf("a hook that exited with no reader gave %v, want it ended early", err)
 	}
 }
 

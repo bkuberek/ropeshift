@@ -141,7 +141,7 @@ func baseTip(ctx context.Context, git Git, remote, base string) (string, error) 
 	// remote-tracking ref to another fetch of the clone.
 	hookless := git
 	hookless.Extra = append(slices.Clone(git.Extra), noHooks...)
-	if err := hookless.Fetch(ctx, "--quiet", "--no-tags", remote, "refs/heads/"+base); err != nil {
+	if err := hookless.Fetch(ctx, "--quiet", "--no-tags", "--", remote, "refs/heads/"+base); err != nil {
 		return "", err
 	}
 	return fields[0], nil
@@ -212,7 +212,7 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 		if release, err := git.holdWorktrees(cleanup); err == nil {
 			defer release()
 		}
-		_, _ = git.run(cleanup, "worktree", "remove", "--force", dir)
+		_, _ = git.run(cleanup, "worktree", "remove", "--force", "--", dir)
 		_ = os.RemoveAll(dir)
 		_, _ = git.run(cleanup, "worktree", "prune")
 	}()
@@ -222,7 +222,7 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 			return err
 		}
 		defer release()
-		_, err = git.must(ctx, "worktree", "add", "--quiet", "--detach", dir, tip)
+		_, err = git.must(ctx, "worktree", "add", "--quiet", "--detach", "--", dir, tip)
 		return err
 	})
 	if err != nil {
@@ -302,7 +302,7 @@ func publish(ctx context.Context, git Git, remote, base, tip, made string) (ledg
 		}
 		return merged(made), nil
 	}
-	pushed, err := git.run(ctx, "push", "--quiet", "--no-verify", remote, made+":refs/heads/"+base)
+	pushed, err := git.run(ctx, "push", "--quiet", "--no-verify", "--", remote, made+":refs/heads/"+base)
 	if err != nil {
 		return ledger.MergeResult{}, err
 	}

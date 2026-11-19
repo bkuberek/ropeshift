@@ -225,6 +225,39 @@ func TestRemoteListsOriginsBranchAfterTheEndOfOptions(t *testing.T) {
 	}
 }
 
+// AddRemote puts `--` before the URL, so an address that reads as an option is an address.
+func TestAddRemoteNamesTheURLAfterTheEndOfOptions(t *testing.T) {
+	f, repo := committed(t)
+	ran := gittest.RecordGit(t)
+	const url = "--upload-pack=true"
+	if err := f.AddRemote(t.Context(), repo.Dir, url); err != nil {
+		t.Fatal(err)
+	}
+	if got := repo.Git("remote", "get-url", "origin"); got != url {
+		t.Errorf("origin = %q, want %q", got, url)
+	}
+	want := []string{"remote add origin -- " + url}
+	if got := ran("remote add"); !slices.Equal(got, want) {
+		t.Errorf("git ran %q, want %q", got, want)
+	}
+}
+
+// Push puts `--` before the remote and the branch, so a branch that reads as an option is never one.
+func TestPushNamesTheRemoteAndTheBranchAfterTheEndOfOptions(t *testing.T) {
+	f, repo := committed(t)
+	if err := f.AddRemote(t.Context(), repo.Dir, bare(t, repo)); err != nil {
+		t.Fatal(err)
+	}
+	ran := gittest.RecordGit(t)
+	if err := f.Push(t.Context(), repo.Dir, ports.PushSpec{Branch: "--delete"}); err == nil {
+		t.Fatal("a push of a branch named --delete succeeded")
+	}
+	want := []string{"push --set-upstream -- origin --delete"}
+	if got := ran("push"); !slices.Equal(got, want) {
+		t.Errorf("git ran %q, want %q", got, want)
+	}
+}
+
 // A push that names a credential helper adds its settings after the ones the environment already carries, so the count
 // grows and none of the environment's own is replaced.
 func TestAPushThatNamesACredentialHelperKeepsTheConfigurationTheEnvironmentHolds(t *testing.T) {

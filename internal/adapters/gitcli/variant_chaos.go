@@ -47,9 +47,9 @@ func snapshotAdd() []string {
 
 // pushArguments is one push. The broken variant forces it.
 func pushArguments(remote, ref string) []string {
-	args := []string{"push", "--quiet", "--no-verify", remote, ref + ":" + ref}
+	args := []string{"push", "--quiet", "--no-verify"}
 	if s := sabotage.Load(); s != nil && s.ForcePush {
-		return append(args, "--force")
+		args = append(args, "--force")
 	}
-	return args
+	return append(args, "--", remote, ref+":"+ref)
 }

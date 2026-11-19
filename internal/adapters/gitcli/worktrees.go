@@ -203,12 +203,12 @@ func (w Worktrees) create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 		if err := w.fetchMissing(ctx, repository, base); err != nil {
 			return ports.Worktree{}, err
 		}
-		args = append(args, "--detach", spec.Path, base)
+		args = append(args, "--detach", "--", spec.Path, base)
 	default:
 		if _, err := repository.Commit(ctx, "refs/heads/"+spec.Branch); err == nil {
-			args = append(args, spec.Path, spec.Branch)
+			args = append(args, "--", spec.Path, spec.Branch)
 		} else {
-			args = append(args, "-b", spec.Branch, spec.Path, base)
+			args = append(args, "-b", spec.Branch, "--", spec.Path, base)
 		}
 	}
 	if err := repository.changeWorktrees(ctx, args...); err != nil {
@@ -321,7 +321,7 @@ func (w Worktrees) Remove(ctx context.Context, repository, path string) error {
 	if !current.Clean {
 		return fmt.Errorf("%w: %s", ports.ErrWorktreeDirty, path)
 	}
-	return w.git(repository).changeWorktrees(ctx, "remove", path)
+	return w.git(repository).changeWorktrees(ctx, "remove", "--", path)
 }
 
 // Discard deletes a worktree whatever it holds, and keeps its branch. Only a caller that
@@ -330,7 +330,7 @@ func (w Worktrees) Discard(ctx context.Context, repository, path string) error {
 	if _, err := os.Stat(filepath.Join(path, ".git")); errors.Is(err, os.ErrNotExist) {
 		return w.git(repository).changeWorktrees(ctx, "prune")
 	}
-	return w.git(repository).changeWorktrees(ctx, "remove", "--force", path)
+	return w.git(repository).changeWorktrees(ctx, "remove", "--force", "--", path)
 }
 
 // DefaultBranch reads a remote's HEAD where it has one, and a checkout's HEAD otherwise.
