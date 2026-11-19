@@ -41,8 +41,9 @@ type CreationStartedEvent struct {
 	Name         string `json:"name"`
 	Key          string `json:"key"`
 	ManifestPath string `json:"manifest_path"`
-	// Path is where the entry's path leads on the worker's machine.
+	// Path is the entry's path on the worker's machine, and Leads where it leads, every link followed.
 	Path          string `json:"path"`
+	Leads         string `json:"leads,omitempty"`
 	Forge         string `json:"forge"`
 	Owner         string `json:"owner"`
 	ForgeName     string `json:"forge_name"`

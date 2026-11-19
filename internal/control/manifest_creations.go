@@ -161,14 +161,14 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 	})
 	if check.Refusal != nil {
 		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome, at)
-		added := withCreation(refused(at, refusalText(*check.Refusal, outcome.Remedy)), outcome)
+		added := withCreation(refused(cmp.Or(check.Leads, at), refusalText(*check.Refusal, outcome.Remedy)), outcome)
 		added.RefusalCode = plainLine(check.Refusal.Reason)
 		return added, nil
 	}
 	if run.dryRun {
-		return Added{Path: at, Outcome: ledger.Created, Creation: &outcome}, nil
+		return Added{Path: cmp.Or(check.Leads, at), Outcome: ledger.Created, Creation: &outcome}, nil
 	}
-	finished, err := r.runCreation(ctx, scope, run, entry, job, outcome, actor)
+	finished, err := r.runCreation(ctx, scope, run, entry, job, check.Leads, outcome, actor)
 	if err != nil {
 		return refused(at, err.Error()), err
 	}
@@ -226,6 +226,10 @@ func plainCreation(creation ledger.CreationOutcome) ledger.CreationOutcome {
 	return creation
 }
 
+// busyRemedy is what a check that finds another creation at the path says to do: the refusal is transient, and the
+// entry is neither created nor failed.
+const busyRemedy = "another creation at this path is running; preview again when it finishes"
+
 // remedyFor is the fix a refusal of the creator names: the command the worker gave, or, for a repository that exists on
 // the forge, which ropeshift never adopts, the clone to make at the entry's path and the manifest change that registers
 // it. A creation that timed out after the forge made the repository is refused this way on every retry.
@@ -233,6 +237,8 @@ func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestReposit
 	switch {
 	case report.Remedy != "":
 		return plainLine(report.Remedy)
+	case report.Reason == ledger.TemplateRefusedBusy:
+		return busyRemedy
 	case report.Reason == ledger.TemplateRefusedRemoteExists:
 		return plainLine(fmt.Sprintf("clone %s/%s to %s, and write `remote` in place of `create` in the manifest's entry for %s", outcome.Owner, outcome.ForgeName, path, entry.Name))
 	}
@@ -274,9 +280,9 @@ func (r *Repositories) resuming(ctx context.Context, scope ledger.WorkspaceID, a
 
 // runCreation records that a creation starts, runs it on the worker's machine, and records what it came to. The
 // creation reads as running from just after its start is recorded until its finish is.
-func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID, run entryRun, entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, actor ledger.Actor) (ledger.CreationFinishedEvent, error) {
+func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID, run entryRun, entry planning.ManifestRepository, job ledger.RepositoryCreation, leads string, outcome ledger.CreationOutcome, actor ledger.Actor) (ledger.CreationFinishedEvent, error) {
 	started := ledger.CreationStartedEvent{
-		Name: entry.Name, Key: job.Key, ManifestPath: entry.Path, Path: job.Path, Forge: outcome.Forge, Owner: outcome.Owner, ForgeName: outcome.ForgeName,
+		Name: entry.Name, Key: job.Key, ManifestPath: entry.Path, Path: job.Path, Leads: plainLine(leads), Forge: outcome.Forge, Owner: outcome.Owner, ForgeName: outcome.ForgeName,
 		Visibility: outcome.Visibility, DefaultBranch: outcome.DefaultBranch,
 	}
 	if r.worker != nil {

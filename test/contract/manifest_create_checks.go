@@ -35,17 +35,12 @@ var ManifestCreateChecks = []Check{
 	{"RM50", "an entry that creates a repository where there is no creator, or no clone of the planning repository, is refused with why and nothing is checked or created", checkCreationWithNoCreatorOrNoPlanningCloneIsRefused},
 	{"RM51", "a creation left started resumes from the creator's journal and is not registered from the folder it left: a run finds the clone it half made and resumes the creation", checkInterruptedCreationResumesFromTheCreator},
 	{"RM52", "a creation the creator refuses after it started, as a folder that changed under it, is recorded as finished and refused right after its start, so each start has its finish: nothing registers, and the entry reads as refused with the reason", checkRefusedCreationPairsItsFinish},
+	{"RM56", "the preview of an entry to create shows where its path leads, every link followed, and the creation's start records that beside the path", checkPreviewShowsWhereTheCreationLeads},
+	{"RM57", "a check that refuses because another creation holds the path is a refusal that says to preview again, never a failed creation: in the preview and in an approval, which creates the other entries", checkBusyPathIsATransientRefusal},
 	{"RM53", "text a worker's refusal or step carries, with an escape, a control character, or a line break in it, is stored and returned plain and on one line: in the outcome, the creation, the approval's record, and each event", checkWorkerTextIsPlain},
 	{"RM54", "a creation holds the registration from its check through its creation: a second decision of the approval waits for the first, finds its record, and asks the creator nothing", checkCreationHoldsTheRegistrationThroughCreate},
 	{"RM55", "a repository that exists on the forge, as when an earlier creation timed out after the forge made it, is refused, at the check and at the creation, with the fix: clone it at the entry's path and write remote in place of create in the manifest", checkExistingRepositoryRefusalNamesTheFix},
 }
-
-// The reasons the worker's checks of a creation refuse with, which a path that leads out of the bound and a forge that
-// does not answer within the check's limit give.
-const (
-	refusedOutsideBound = "path_outside_bound"
-	refusedGHTimeout    = "gh_timeout"
-)
 
 // machineCreator is the fake creator over a worker's machine: a creation that writes leaves the clone it made on the
 // machine, with the origin it was given, so the registration that follows reads it as it would read the real one.
@@ -408,8 +403,8 @@ func checkEachCreationRefusalIsTold(r *Rig) error {
 	w.creator.refuses("signedout", ledger.TemplateRefusedGHSignedOut, "Run `gh auth login --hostname github.com` on this machine", "gh auth login --hostname github.com")
 	w.creator.refuses("exists", ledger.TemplateRefusedRemoteExists, "acme/exists already exists on GitHub; clone it to ../exists and write `remote` in place of `create`", "")
 	w.creator.refuses("owner", ledger.TemplateRefusedOwner, "acme is neither the signed-in account nor one of its organizations; the owners available are octo", "")
-	w.creator.refuses("outside", refusedOutsideBound, "/work/outside leads, through a link of a folder above it, to /elsewhere/outside, outside /work", "")
-	w.creator.refuses("slow", refusedGHTimeout, "GitHub did not answer within 30 seconds; read the preview again", "")
+	w.creator.refuses("outside", ledger.TemplateRefusedOutsideBound, "/work/outside leads, through a link of a folder above it, to /elsewhere/outside, outside /work", "")
+	w.creator.refuses("slow", ledger.TemplateRefusedGHTimeout, "GitHub did not answer within 30 seconds; read the preview again", "")
 	want := map[string]entryOutcome{
 		"api":       {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"taken":     {outcome: ledger.RegistrationRefused, path: "/work/taken", reason: "its name is held by another repository"},
@@ -424,8 +419,8 @@ func checkEachCreationRefusalIsTold(r *Rig) error {
 		"signedout": {outcome: ledger.RegistrationRefused, path: "/work/signedout", reason: "gh auth login --hostname github.com", code: ledger.TemplateRefusedGHSignedOut},
 		"exists":    {outcome: ledger.RegistrationRefused, path: "/work/exists", reason: "already exists on GitHub", code: ledger.TemplateRefusedRemoteExists},
 		"owner":     {outcome: ledger.RegistrationRefused, path: "/work/owner", reason: "neither the signed-in account", code: ledger.TemplateRefusedOwner},
-		"outside":   {outcome: ledger.RegistrationRefused, path: "/work/outside", reason: refusedOutsideBound + ": /work/outside leads", code: refusedOutsideBound},
-		"slow":      {outcome: ledger.RegistrationRefused, path: "/work/slow", reason: refusedGHTimeout + ": GitHub did not answer within 30 seconds", code: refusedGHTimeout},
+		"outside":   {outcome: ledger.RegistrationRefused, path: "/work/outside", reason: ledger.TemplateRefusedOutsideBound + ": /work/outside leads", code: ledger.TemplateRefusedOutsideBound},
+		"slow":      {outcome: ledger.RegistrationRefused, path: "/work/slow", reason: ledger.TemplateRefusedGHTimeout + ": GitHub did not answer within 30 seconds", code: ledger.TemplateRefusedGHTimeout},
 	}
 	preview, err := r.runCreation(w, true)
 	if err != nil {
@@ -720,8 +715,6 @@ func mustJSON(value any) json.RawMessage {
 	return raw
 }
 
-const refusedFolderChanged = "folder_changed"
-
 func checkRefusedCreationPairsItsFinish(r *Rig) error {
 	s := r.Store()
 	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("site", "../site", ""), []string{"search", "site"}, nil)
@@ -732,7 +725,7 @@ func checkRefusedCreationPairsItsFinish(r *Rig) error {
 	w.creator.passes("site", "site", "main")
 	// The creator's checks pass, and the creation then finds the folder is no longer the one it checked.
 	w.creator.SetReport(w.creator.key("search"), ledger.TemplateWriteReport{
-		Outcome: ledger.TemplateOutcomeRefused, Reason: refusedFolderChanged, Detail: "the folder was swapped for a link after it was checked",
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedChanged, Detail: "the folder was swapped for a link after it was checked",
 	})
 	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
 		return err
@@ -743,7 +736,7 @@ func checkRefusedCreationPairsItsFinish(r *Rig) error {
 	}
 	if err := outcomesAre(added, map[string]entryOutcome{
 		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
-		"search": {outcome: ledger.RegistrationRefused, path: "/work/search", reason: refusedFolderChanged + ": the folder was swapped for a link", code: refusedFolderChanged},
+		"search": {outcome: ledger.RegistrationRefused, path: "/work/search", reason: ledger.TemplateRefusedChanged + ": the folder was swapped for a link", code: ledger.TemplateRefusedChanged},
 		"site":   {outcome: ledger.Created, path: "/work/site"},
 	}); err != nil {
 		return Violatedf("approving it: %v", err)
@@ -767,7 +760,7 @@ func checkRefusedCreationPairsItsFinish(r *Rig) error {
 		started.Name != "search" || finished.Name != "search" || finished.Key != started.Key {
 		return Violatedf("the refused creation did not pair its start and its finish: %+v then %+v", events[0].Type, events[1].Type)
 	}
-	if finished.Outcome != ledger.CreationRefused || !strings.Contains(finished.Reason, refusedFolderChanged) || finished.RefusalCode != refusedFolderChanged || len(finished.Steps) != 0 {
+	if finished.Outcome != ledger.CreationRefused || !strings.Contains(finished.Reason, ledger.TemplateRefusedChanged) || finished.RefusalCode != ledger.TemplateRefusedChanged || len(finished.Steps) != 0 {
 		return Violatedf("the refused creation finished as %+v", finished)
 	}
 	if latest, err := r.latestCreation(s, w.request.ID, "search"); err != nil || latest.State != ledger.CreationRefused {
@@ -854,7 +847,7 @@ func checkWorkerTextIsPlain(r *Rig) error {
 		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut, Detail: hostile, Remedy: "gh auth login\n--hostname\x1b[2J github.com\x07",
 	}})
 	w.creator.SetReport(w.creator.key("late"), ledger.TemplateWriteReport{
-		Outcome: ledger.TemplateOutcomeRefused, Reason: refusedFolderChanged, Detail: hostile, Remedy: "git -C /work/late\nstatus\x1b[1m",
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedChanged, Detail: hostile, Remedy: "git -C /work/late\nstatus\x1b[1m",
 	})
 	w.creator.SetReport(w.creator.key("broken"), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeWritten, Commit: "5d6e7f8", Clone: true,
@@ -1059,6 +1052,103 @@ func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 	latest, err := r.latestCreation(s, w.request.ID, "late")
 	if err != nil || latest.State != ledger.CreationRefused || latest.Finished == nil || !strings.Contains(latest.Finished.Remedy, "`remote` in place of `create`") {
 		return Violatedf("the events leave the creation of late as %+v (%d events): %v", latest, len(events), err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkPreviewShowsWhereTheCreationLeads(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("dirty", "../dirty", ""), []string{"search", "dirty"}, nil)
+	if err != nil {
+		return err
+	}
+	w.creator.passes("search", "search", "main")
+	// The path of search leads through a link to a folder on another disk, which the check read, and the check of dirty
+	// refused after it read where its path leads.
+	w.creator.SetCheck(w.creator.key("search"), ledger.CreationCheck{URL: w.creator.urls["search"], Login: "octo", Branch: "main", Leads: "/mnt/disk/search"})
+	w.creator.SetCheck(w.creator.key("dirty"), ledger.CreationCheck{Leads: "/mnt/disk/dirty", Refusal: &ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedNotEmpty, Detail: "/mnt/disk/dirty holds files of its own",
+	}})
+	preview, err := r.runCreation(w, true)
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(preview, map[string]entryOutcome{
+		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"search": {outcome: ledger.Created, path: "/mnt/disk/search"},
+		"dirty":  {outcome: ledger.RegistrationRefused, path: "/mnt/disk/dirty", reason: "holds files of its own", code: ledger.TemplateRefusedNotEmpty},
+	}); err != nil {
+		return Violatedf("the preview: %v", err)
+	}
+	if search, _ := outcomeNamed(preview, "search"); search.Manifest != "../search" {
+		return Violatedf("the preview names the entry's path %q, want it as the manifest wrote it", search.Manifest)
+	}
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	if _, err := r.runCreation(w, false); err != nil {
+		return err
+	}
+	events, err := r.creationEvents(s, w.request.ID)
+	if err != nil || len(events) == 0 {
+		return Violatedf("the creation events are %+v: %v", events, err)
+	}
+	var started ledger.CreationStartedEvent
+	if err := jsonInto(events[0].Data, &started); err != nil {
+		return err
+	}
+	if started.Name != "search" || started.Path != "/work/search" || started.Leads != "/mnt/disk/search" || started.ManifestPath != "../search" {
+		return Violatedf("the creation started as %+v, want the path /work/search and where it leads, /mnt/disk/search", started)
+	}
+	return r.CheckProjection(s)
+}
+
+// busyRemedy is what a check that finds another creation at the path says to do.
+const busyRemedy = "another creation at this path is running; preview again when it finishes"
+
+func checkBusyPathIsATransientRefusal(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("busy", "../busy", "")+creationEntry("search", "../search", ""), []string{"busy", "search"}, nil)
+	if err != nil {
+		return err
+	}
+	w.creator.passes("search", "search", "main")
+	w.creator.refuses("busy", ledger.TemplateRefusedBusy, "another creation on this worker writes /work/busy", "")
+	want := map[string]entryOutcome{
+		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"busy":   {outcome: ledger.RegistrationRefused, path: "/work/busy", reason: "another creation", code: ledger.TemplateRefusedBusy},
+		"search": {outcome: ledger.Created, path: "/work/search"},
+	}
+	for _, dryRun := range []bool{true, false} {
+		if !dryRun {
+			if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+				return err
+			}
+		}
+		added, err := r.runCreation(w, dryRun)
+		if err != nil {
+			return err
+		}
+		what := map[bool]string{true: "the preview", false: "approving it"}[dryRun]
+		if err := outcomesAre(added, want); err != nil {
+			return Violatedf("%s: %v", what, err)
+		}
+		busy, _ := outcomeNamed(added, "busy")
+		if busy.Outcome == ledger.CreateFailed || busy.Creation == nil || busy.Creation.Remedy != busyRemedy || !strings.Contains(busy.Reason, busyRemedy) {
+			return Violatedf("%s reads the busy entry as %+v with creation %+v, want a refusal that says %q", what, busy, busy.Creation, busyRemedy)
+		}
+	}
+	if created := asked(w.creator.Created()); !slices.Equal(created, []string{"search"}) {
+		return Violatedf("approving created %v, want only search", created)
+	}
+	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started search", "finished search"}) {
+		return Violatedf("the creation events are %v, want none for the entry another creation holds: %v", types, err)
+	}
+	if err := r.recordedAre(s, w.request.ID, want); err != nil {
+		return err
+	}
+	if found, err := w.repositories.Resolve(r.Ctx, r.Scope, "busy"); err == nil {
+		return Violatedf("an entry another creation holds registered as %+v", found)
 	}
 	return r.CheckProjection(s)
 }
