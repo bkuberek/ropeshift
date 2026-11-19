@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 )
 
@@ -211,5 +213,35 @@ func TestPlanShowSaysWhyAConsolidationRemovesNothing(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("plan show lacks %q:\n%s", want, stdout.String())
 		}
+	}
+}
+
+// The reason a registration was refused is the server's text, so a control sequence in it never reaches the terminal.
+func TestAdoptSaysWhyTheRepositoryItRunsInWasNotRegisteredWithNoControlSequence(t *testing.T) {
+	p := newPlane(t)
+	const root = "/work/shop"
+	p.on("POST "+api.AdoptionPlanPath, func(*http.Request, []byte) (any, *api.Error) {
+		return planning.AdoptionPlan{
+			Layout:       planning.DetectedLayout{Root: root},
+			Planning:     planning.PlanningRepository{Name: "shop", Path: root},
+			Repositories: []planning.PlannedRepository{{Name: "shop", Path: root}},
+		}, nil
+	})
+	p.on("POST "+api.ProjectsPath, func(*http.Request, []byte) (any, *api.Error) {
+		return api.Project{Name: "shop", State: ledger.ProjectActive}, nil
+	})
+	p.on("POST /v1/projects/shop/repositories", func(*http.Request, []byte) (any, *api.Error) {
+		return api.RepositoryAddReport{Repositories: []api.RepositoryAdded{{Path: root, Outcome: ledger.RegistrationRefused, Reason: "\x1b[31mrefused\x1b]0;title\x07 for \u202etxt"}}}, nil
+	})
+	var stdout, stderr bytes.Buffer
+	opts := cli.Options{
+		Socket: p.Socket, RepositoryRoot: func(context.Context) (string, error) { return root, nil },
+		RepositoryHere: func(context.Context) (string, error) { return "identity", nil },
+	}
+	if code := cli.Run([]string{"adopt", "--project", "shop", "--no-attach"}, &stdout, &stderr, opts); code != cli.ExitConflict {
+		t.Fatalf("exit %d: %s (%v)", code, stderr.String(), p.reads())
+	}
+	if want := "this repository was not registered: refused for txt\n"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr is %q, want it to hold %q", stderr.String(), want)
 	}
 }

@@ -145,9 +145,11 @@ func (c *Client) send(ctx context.Context, method, path string, in, out any) err
 // maxAnswer bounds an answer the client reads whole before it decodes it.
 const maxAnswer = 16 << 20
 
+// readError decodes the error body of a response, reading at most maxAnswer bytes of it. A body that is cut, or is no
+// error body, leaves the status line as the error.
 func readError(response *http.Response) error {
 	var body ErrorBody
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, maxAnswer)).Decode(&body); err != nil {
 		return &Error{Status: response.StatusCode, Detail: ErrorDetail{Code: CodeUnavailable, Message: response.Status}}
 	}
 	return &Error{Status: response.StatusCode, Detail: body.Error}

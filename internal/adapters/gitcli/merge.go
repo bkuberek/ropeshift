@@ -149,8 +149,12 @@ func baseTip(ctx context.Context, git Git, remote, base string) (string, error) 
 
 // alreadyMerged finds the merge an earlier attempt made: a commit on the base since the branch left it that
 // names the reviewed commit as a trailer. A base that holds the reviewed commit itself, which a person who
-// merged it by hand leaves, is merged too.
+// merged it by hand leaves, is merged too. A reviewed commit that is no commit ID is merged by no commit, and never
+// reaches git, where it could read as an option.
 func alreadyMerged(ctx context.Context, git Git, commit, tip string) (ledger.MergeResult, bool, error) {
+	if !ledger.CommitHash(commit) {
+		return ledger.MergeResult{}, false, nil
+	}
 	span := tip
 	if fork, err := git.run(ctx, "merge-base", commit, tip); err != nil {
 		return ledger.MergeResult{}, false, err

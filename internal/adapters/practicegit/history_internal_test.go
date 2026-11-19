@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
@@ -86,5 +87,31 @@ func TestSecretScanEnvironmentOverridesRepositoryConfiguration(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(secretScanEnvironment, " "), "GIT_NO_REPLACE_OBJECTS=1") {
 		t.Errorf("the environment is %v", secretScanEnvironment)
+	}
+}
+
+// A blob that several paths hold is scanned once, and its matches are reported for each path.
+func TestSecretScanTreeScansABlobOnceForAllItsPaths(t *testing.T) {
+	t.Parallel()
+	token := "ghp_" + strings.Repeat("a", 36)
+	repo := gittest.New(t)
+	repo.Commit("one/key.txt", "key "+token+"\n")
+	repo.Commit("two/key.txt", "key "+token+"\n")
+	tip := repo.Commit("three/key.txt", "key "+token+"\n")
+	found := newSecretFindings()
+	scans := 0
+	found.find = func(text string) []ledger.SecretMatch {
+		scans++
+		return ledger.FindSecrets(text)
+	}
+	git := gitcli.Git{Dir: repo.Dir, Env: repo.Env(), Extra: secretScanEnvironment}
+	if err := found.scanTree(context.Background(), git, tip); err != nil {
+		t.Fatal(err)
+	}
+	if scans != 1 {
+		t.Errorf("the blob was scanned %d times, want once", scans)
+	}
+	if got := found.result("").Matches; len(got) != 3 || got[0].Path != "one/key.txt" || got[1].Path != "three/key.txt" || got[2].Path != "two/key.txt" {
+		t.Errorf("matches are %+v", got)
 	}
 }

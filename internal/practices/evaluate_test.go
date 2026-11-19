@@ -232,6 +232,19 @@ func TestSecrets(t *testing.T) {
 	}
 }
 
+func TestSecretsOfAPartialScanAreUnknownUnlessItFoundSomething(t *testing.T) {
+	in := input(clean())
+	in.SecretsPartial = "the repository is a shallow clone"
+	got := statusOf(t, Evaluate(in), Secrets)
+	if got.Status != StatusUnknown || !strings.Contains(got.Reason, "the repository is a shallow clone") {
+		t.Errorf("status = %v", got)
+	}
+	in.Secrets = []SecretMatch{{Rule: "github_token", Path: "a.txt", Line: 1, Commit: "0123456789abcdef", Digest: "1a2b3c4d5e6f7a8b9c0d"}}
+	if got := statusOf(t, Evaluate(in), Secrets).Status; got != StatusFinding {
+		t.Errorf("status with a match = %s", got)
+	}
+}
+
 func TestPreCommit(t *testing.T) {
 	for name, tt := range map[string]struct {
 		files map[string]string

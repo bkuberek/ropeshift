@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,8 @@ const (
 	secretScanBinaryProbe = 8000
 	// secretScanBatchBytes bounds the blobs one `git cat-file --batch` run reads.
 	secretScanBatchBytes = 8 << 20
+	// secretScanCheckObjects bounds the objects one `git cat-file --batch-check` run is asked about.
+	secretScanCheckObjects = 4096
 )
 
 // secretScanEnvironment is what every git command of the scan runs under, so the repository's own settings cannot
@@ -43,9 +46,12 @@ type SecretScanner struct {
 }
 
 // Scan scans the tracked files at tip, and the patches of the history reachable from tip. The history scan skips
-// what `from` reaches when `from` is an ancestor of tip, and otherwise reads the whole history. It reads the lines
-// each commit added and no others. A match found in the tree and in the history is one match, with the earliest
-// commit that added it; a match only the tree holds is reported at tip. No match and no error holds the matched text.
+// what `from` reaches when `from` is an ancestor of tip, and otherwise reads the whole history. The rules that match
+// one line read the lines each commit added and no others; the rules that match across lines, a private key, also read
+// each file a commit changed, and count a match for the commit when it covers a line the commit added. A match found in the tree and in the history is one match, with the earliest
+// commit that added it; a match only the tree holds is reported at tip. The result names `from` by its commit ID when
+// the scan skipped what it reaches, and says it is partial for a shallow clone. No match and no error holds the
+// matched text.
 func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.SecretScan, error) {
 	if err := ctx.Err(); err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
@@ -60,10 +66,10 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	// repository, and no context lines between hunks.
 	args := []string{"log", "-p", "--no-color", "--no-ext-diff", "--no-textconv", "--no-show-signature", "--root",
 		"--diff-merges=first-parent", "--text", "--no-relative", "--unified=0", "--inter-hunk-context=0", "--no-renames",
-		"--src-prefix=a/", "--dst-prefix=b/", "--topo-order", "--reverse", "--format=%H", tipCommit}
+		"--full-index", "--src-prefix=a/", "--dst-prefix=b/", "--topo-order", "--reverse", "--format=%H", tipCommit}
 	scanned := ""
 	if base, ok := secretScanBase(ctx, git, from, tipCommit); ok {
-		scanned = from
+		scanned = base
 		args = append(args, "^"+base)
 	}
 	args = append(args, "--")
@@ -74,10 +80,32 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	if err := git.Stream(ctx, func(r io.Reader) error { return found.readPatches(r) }, args...); err != nil {
 		return ports.SecretScan{}, secretScanFailure(ctx, "scan the history for secrets", err)
 	}
+	if err := found.scanTouchedBlobs(ctx, git); err != nil {
+		return ports.SecretScan{}, secretScanFailure(ctx, "scan the changed files for secrets", err)
+	}
 	if err := found.scanTree(ctx, git, tipCommit); err != nil {
 		return ports.SecretScan{}, secretScanFailure(ctx, "scan the tree for secrets", err)
 	}
-	return found.result(scanned), nil
+	partial, err := secretScanPartial(ctx, git)
+	if err != nil {
+		return ports.SecretScan{}, secretScanFailure(ctx, "check the repository for a shallow history", err)
+	}
+	result := found.result(scanned)
+	result.Partial = partial
+	return result, nil
+}
+
+// secretScanPartial says why the history a scan can read is less than the repository's: a shallow clone holds
+// only the commits down to its boundary. It is empty for a repository with its whole history.
+func secretScanPartial(ctx context.Context, git gitcli.Git) (string, error) {
+	answer, err := git.Text(ctx, "rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return "", err
+	}
+	if answer == "true" {
+		return "the repository is a shallow clone, so the history before its shallow boundary was not scanned", nil
+	}
+	return "", nil
 }
 
 // secretScanFailure reports a failed stage. A scan whose context ended reports that and not the signal that stopped git.
@@ -114,38 +142,91 @@ func secretScanBase(ctx context.Context, git gitcli.Git, from, tip string) (stri
 // secretKey names a secret in a path: the same text in the same file is one finding.
 type secretKey struct{ rule, path, digest string }
 
+// secretFound is a match and the place of its commit in the history, oldest first.
+type secretFound struct {
+	match practices.SecretMatch
+	rank  int
+}
+
+// secretTouch is a run of lines a commit added to a file, which is the blob it left at a path.
+type secretTouch struct {
+	path, commit string
+	first, last  int
+}
+
 // secretFindings collects the matches of one scan, and the paths it skipped.
 type secretFindings struct {
-	matches map[secretKey]practices.SecretMatch
+	matches map[secretKey]secretFound
 	skipped map[string]bool
+	// rank holds the place of each commit the history scan read, oldest first.
+	rank map[string]int
+	// touched holds, for each blob a commit left in a file it changed and did not create, the runs of lines the commit
+	// added to it.
+	touched map[string][]secretTouch
+	// find scans a text with the secret rules.
+	find func(text string) []ledger.SecretMatch
 }
 
 func newSecretFindings() *secretFindings {
-	return &secretFindings{matches: map[secretKey]practices.SecretMatch{}, skipped: map[string]bool{}}
+	return &secretFindings{
+		matches: map[secretKey]secretFound{}, skipped: map[string]bool{}, rank: map[string]int{}, touched: map[string][]secretTouch{},
+		find: ledger.FindSecrets,
+	}
 }
 
-// add keeps the first match of a key, which is the earliest commit, because the history is read oldest first and the
-// tree is read after it.
+// add keeps the match of a key that sits in the earliest commit. A commit the history scan did not read, such as the
+// tip when no commit is new, comes after every commit it did.
 func (f *secretFindings) add(m practices.SecretMatch) {
 	key := secretKey{m.Rule, m.Path, m.Digest}
-	if _, ok := f.matches[key]; !ok {
-		f.matches[key] = m
+	rank, ok := f.rank[m.Commit]
+	if !ok {
+		rank = math.MaxInt
+	}
+	if kept, seen := f.matches[key]; !seen || rank < kept.rank {
+		f.matches[key] = secretFound{m, rank}
+	}
+}
+
+// locatedMatch is a match with the first and last line of a file it covers.
+type locatedMatch struct {
+	ledger.SecretMatch
+	line, last int
+}
+
+// locate gives each match, which are sorted and apart, the lines it covers in text, whose first line is line `first`
+// of a file. It reads the text once.
+func locate(text string, first int, matches []ledger.SecretMatch) []locatedMatch {
+	located := make([]locatedMatch, 0, len(matches))
+	line, offset := first, 0
+	for _, m := range matches {
+		line += strings.Count(text[offset:m.Start], "\n")
+		inside := strings.Count(text[m.Start:m.End], "\n")
+		last := line + inside
+		if m.End > m.Start && text[m.End-1] == '\n' {
+			last--
+		}
+		located = append(located, locatedMatch{SecretMatch: m, line: line, last: last})
+		line, offset = line+inside, m.End
+	}
+	return located
+}
+
+// addMatches adds what a scan of a text found, as found in a path at a commit.
+func (f *secretFindings) addMatches(located []locatedMatch, path, commit string) {
+	for _, m := range located {
+		f.add(practices.SecretMatch{Rule: m.Rule, Path: path, Line: m.line, Commit: commit, Digest: m.Digest})
 	}
 }
 
 // addText scans text, whose first line is line `first` of a file, and adds what it finds.
 func (f *secretFindings) addText(text, path, commit string, first int) {
-	for _, m := range ledger.FindSecrets(text) {
-		f.add(practices.SecretMatch{
-			Rule: m.Rule, Path: path, Line: first + strings.Count(text[:m.Start], "\n"), Commit: commit, Digest: m.Digest,
-		})
-	}
+	f.addMatches(locate(text, first, f.find(text)), path, commit)
 }
 
 func (f *secretFindings) result(scannedFrom string) ports.SecretScan {
 	matches := make([]practices.SecretMatch, 0, len(f.matches))
-	for _, m := range f.matches {
-		matches = append(matches, m)
+	for _, found := range f.matches {
+		matches = append(matches, found.match)
 	}
 	slices.SortFunc(matches, func(a, b practices.SecretMatch) int {
 		if c := strings.Compare(a.Path, b.Path); c != 0 {
@@ -164,7 +245,7 @@ func secretScanBinary(content []byte) bool {
 	return bytes.IndexByte(content[:min(len(content), secretScanBinaryProbe)], 0) >= 0
 }
 
-// scanTree scans each tracked blob at commit. A blob is read once however many paths hold it.
+// scanTree scans each tracked blob at commit. A blob is read and scanned once however many paths hold it.
 func (f *secretFindings) scanTree(ctx context.Context, git gitcli.Git, commit string) error {
 	listing, err := git.Output(ctx, "ls-tree", "-r", "-l", "-z", "--full-tree", commit)
 	if err != nil {
@@ -193,35 +274,111 @@ func (f *secretFindings) scanTree(ctx context.Context, git gitcli.Git, commit st
 		}
 		paths[fields[2]] = append(paths[fields[2]], path)
 	}
+	return readBlobsIn(ctx, git, objects, size, func(object string, content []byte) {
+		if secretScanBinary(content) {
+			for _, path := range paths[object] {
+				f.skipped[path] = true
+			}
+			return
+		}
+		text := string(content)
+		located := locate(text, 1, f.find(text))
+		for _, path := range paths[object] {
+			f.addMatches(located, path, commit)
+		}
+	})
+}
+
+// scanTouchedBlobs scans, for the secret rules that match across lines, each blob a commit left in a file it
+// changed and did not create. A commit that changes lines inside such a match shows none of the lines around them, so
+// its added lines alone do not hold the match. A match counts for a commit when it covers a line the commit added.
+func (f *secretFindings) scanTouchedBlobs(ctx context.Context, git gitcli.Git) error {
+	objects := make([]string, 0, len(f.touched))
+	for object := range f.touched {
+		objects = append(objects, object)
+	}
+	slices.Sort(objects)
+	size, err := blobSizes(ctx, git, objects)
+	if err != nil {
+		return err
+	}
+	var readable []string
+	for _, object := range objects {
+		if size[object] > secretScanMaxBytes {
+			for _, touch := range f.touched[object] {
+				f.skipped[touch.path] = true
+			}
+			continue
+		}
+		readable = append(readable, object)
+	}
+	return readBlobsIn(ctx, git, readable, size, func(object string, content []byte) {
+		touches := f.touched[object]
+		if secretScanBinary(content) {
+			for _, touch := range touches {
+				f.skipped[touch.path] = true
+			}
+			return
+		}
+		text := string(content)
+		for _, m := range locate(text, 1, ledger.FindBlockSecrets(text)) {
+			for _, touch := range touches {
+				if touch.first <= m.last && m.line <= touch.last {
+					f.addMatches([]locatedMatch{m}, touch.path, touch.commit)
+				}
+			}
+		}
+	})
+}
+
+// blobSizes reads the size of each blob with `git cat-file --batch-check`.
+func blobSizes(ctx context.Context, git gitcli.Git, objects []string) (map[string]int, error) {
+	size := make(map[string]int, len(objects))
+	for len(objects) > 0 {
+		n := min(len(objects), secretScanCheckObjects)
+		out, err := git.Feed(ctx, []byte(strings.Join(objects[:n], "\n")+"\n"), "cat-file", "--batch-check")
+		if err != nil {
+			return nil, err
+		}
+		answers := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+		if len(answers) != n {
+			return nil, fmt.Errorf("read the sizes of %d blobs: %d answers", n, len(answers))
+		}
+		for i, answer := range answers {
+			fields := strings.Fields(answer)
+			length, err := 0, error(nil)
+			if len(fields) == 3 {
+				length, err = strconv.Atoi(fields[2])
+			}
+			if len(fields) != 3 || fields[0] != objects[i] || fields[1] != "blob" || err != nil || length < 0 {
+				return nil, fmt.Errorf("read the size of blob %s: unexpected answer", objects[i])
+			}
+			size[objects[i]] = length
+		}
+		objects = objects[n:]
+	}
+	return size, nil
+}
+
+// readBlobsIn reads blobs, whose sizes are known, in runs of about secretScanBatchBytes, and hands each blob's
+// content to visit.
+func readBlobsIn(ctx context.Context, git gitcli.Git, objects []string, size map[string]int, visit func(object string, content []byte)) error {
 	for len(objects) > 0 {
 		n, total := 0, 0
 		for n < len(objects) && (n == 0 || total+size[objects[n]] <= secretScanBatchBytes) {
 			total += size[objects[n]]
 			n++
 		}
-		if err := f.scanBlobs(ctx, git, commit, objects[:n], paths); err != nil {
+		out, err := git.Feed(ctx, []byte(strings.Join(objects[:n], "\n")+"\n"), "cat-file", "--batch")
+		if err != nil {
+			return err
+		}
+		if err := readBlobs(bytes.NewReader(out), objects[:n], visit); err != nil {
 			return err
 		}
 		objects = objects[n:]
 	}
 	return nil
-}
-
-// scanBlobs reads blobs with one `git cat-file --batch` run and scans each for every path that holds it.
-func (f *secretFindings) scanBlobs(ctx context.Context, git gitcli.Git, commit string, objects []string, paths map[string][]string) error {
-	out, err := git.Feed(ctx, []byte(strings.Join(objects, "\n")+"\n"), "cat-file", "--batch")
-	if err != nil {
-		return err
-	}
-	return readBlobs(bytes.NewReader(out), objects, func(object string, content []byte) {
-		for _, path := range paths[object] {
-			if secretScanBinary(content) {
-				f.skipped[path] = true
-				continue
-			}
-			f.addText(string(content), path, commit, 1)
-		}
-	})
 }
 
 // readBlobs reads the answers of `git cat-file --batch` for objects, in order, and hands each blob's content to visit.
@@ -273,6 +430,10 @@ type patchReader struct {
 	found  *secretFindings
 	commit string
 	path   string
+	// blob is the file's blob after the commit, empty when the commit deleted the file, created it, or left a
+	// submodule there: a file a commit created holds all it matches in the lines it added.
+	blob               string
+	created, submodule bool
 	// skipFile says the file's added text is not scanned; added counts the bytes of it so far.
 	skipFile bool
 	added    int
@@ -289,8 +450,17 @@ func (p *patchReader) line(line string, truncated bool) {
 	switch {
 	case isCommitID(line):
 		p.commit = line
+		if _, seen := p.found.rank[line]; !seen {
+			p.found.rank[line] = len(p.found.rank)
+		}
 	case strings.HasPrefix(line, "diff --git "):
-		p.path, p.skipFile, p.added = patchPath(strings.TrimPrefix(line, "diff --git ")), false, 0
+		p.path, p.skipFile, p.added, p.blob, p.created, p.submodule = patchPath(strings.TrimPrefix(line, "diff --git ")), false, 0, "", false, false
+	case strings.HasPrefix(line, "new file mode "):
+		p.created, p.submodule = true, strings.HasSuffix(line, " 160000")
+	case strings.HasPrefix(line, "new mode "):
+		p.submodule = strings.HasSuffix(line, " 160000")
+	case strings.HasPrefix(line, "index "):
+		p.readIndex(line)
 	case strings.HasPrefix(line, "Binary files ") && !strings.HasSuffix(line, " and /dev/null differ"):
 		p.found.skipped[p.path] = true
 	case strings.HasPrefix(line, "@@ "):
@@ -353,6 +523,22 @@ func (p *patchReader) startHunk(header string) {
 	p.next, p.newLeft = hunkRange(fields[2])
 }
 
+// readIndex reads the blob a file has after the commit from `index <old>..<new> [mode]`, which holds full IDs.
+func (p *patchReader) readIndex(line string) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return
+	}
+	_, after, ok := strings.Cut(fields[1], "..")
+	if !ok || strings.Trim(after, "0") == "" {
+		return
+	}
+	p.blob = after
+	if len(fields) > 2 && fields[2] == "160000" {
+		p.submodule = true
+	}
+}
+
 // endHunk scans the lines added so far in the hunk.
 func (p *patchReader) endHunk() {
 	if len(p.text) > 0 && !p.skipFile {
@@ -362,6 +548,10 @@ func (p *patchReader) endHunk() {
 			p.found.skipped[p.path] = true
 		} else {
 			p.found.addText(text, p.path, p.commit, p.first)
+			if p.blob != "" && !p.created && !p.submodule {
+				p.found.touched[p.blob] = append(p.found.touched[p.blob],
+					secretTouch{path: p.path, commit: p.commit, first: p.first, last: p.first + len(p.text) - 1})
+			}
 		}
 	}
 	p.text = nil

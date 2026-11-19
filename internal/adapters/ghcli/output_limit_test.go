@@ -91,3 +91,35 @@ func TestRunTailReadsStderrOnlyToTheLimit(t *testing.T) {
 		t.Errorf("stderr past the limit was read: %q", failed.stderr)
 	}
 }
+
+// The stderr a failed `gh` leaves in the error is text a stranger may have written, so no control sequence reaches
+// the error.
+func TestRunKeepingSanitizesStderr(t *testing.T) {
+	forge := standIn(t, "printf '\\033[31mboom\\033]0;title\\007 now\\n' >&2\nexit 3")
+	_, err := forge.runKeeping(t.Context(), t.TempDir(), "pr", "list")
+	var failed *ghError
+	if !errors.As(err, &failed) || failed.code != 3 {
+		t.Fatalf("a failed gh gave %v", err)
+	}
+	if strings.ContainsAny(failed.stderr, "\x1b\x07") {
+		t.Errorf("stderr holds a control sequence: %q", failed.stderr)
+	}
+	if !strings.Contains(failed.stderr, "boom") {
+		t.Errorf("stderr is %q, want it to keep the text", failed.stderr)
+	}
+}
+
+// A `gh` whose child keeps stdout open after it exits does not hold runTail past the wait delay.
+func TestRunTailDoesNotWaitForAChildThatKeepsStdoutOpen(t *testing.T) {
+	forge := standIn(t, "sleep 20 &\necho log")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = forge.runTail(t.Context(), t.TempDir(), 1024, "run", "view")
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("runTail waited for the child that kept stdout open")
+	}
+}

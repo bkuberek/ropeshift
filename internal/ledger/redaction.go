@@ -15,7 +15,8 @@ const CredentialRulesVersion = 1
 // keeps the words around it, so a line still says which variable held the value. Skip says a value is no credential: one
 // the forge already masked as ***, or one too short to be one. A secret rule matches a long, fixed-format credential,
 // so a match of it is a secret in a file as well as in a log. The rules that are not secret rules match shapes that
-// placeholders and short values also take, and only redaction applies them.
+// placeholders and short values also take, and only redaction applies them. A block rule matches text that spans
+// lines, so a change to some of those lines is no match of it without the lines around them.
 type redactionRule struct {
 	name    string
 	pattern *regexp.Regexp
@@ -23,6 +24,7 @@ type redactionRule struct {
 	group   int
 	skip    func(value string) bool
 	secret  bool
+	block   bool
 }
 
 func (r redactionRule) marker() string { return "[redacted: " + r.name + "]" }
@@ -63,10 +65,16 @@ func secretRule(r redactionRule) redactionRule {
 	return r
 }
 
+// blockRule marks a secret rule as one that matches text spanning lines.
+func blockRule(r redactionRule) redactionRule {
+	r.block = true
+	return r
+}
+
 // credentialRules is the rule set, in the order it is applied: a private key goes first, because it holds lines that
 // other rules would match inside it. A value the forge already masked as *** matches none of them and stays masked.
 var credentialRules = []redactionRule{
-	secretRule(whole("private_key", `(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)),
+	blockRule(secretRule(whole("private_key", `(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`))),
 	// The end of a key whose start was cut off by the window a log was read through: everything from the start of the
 	// text to its END line goes, because nothing says where the body began.
 	whole("private_key", `(?s)\A.*?-----END [A-Z ]*PRIVATE KEY-----`),

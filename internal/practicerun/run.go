@@ -62,7 +62,7 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 	case err != nil:
 		in.SecretsUnknown = reasonOf("the secret scan failed: ", err)
 	default:
-		in.Secrets, in.ScannedFrom, in.Skipped = scan.Matches, scan.ScannedFrom, scan.Skipped
+		in.Secrets, in.ScannedFrom, in.Skipped, in.SecretsPartial = scan.Matches, scan.ScannedFrom, scan.Skipped, scan.Partial
 	}
 	var settingsErr error
 	if req.Binding != (ledger.ForgeBinding{}) {

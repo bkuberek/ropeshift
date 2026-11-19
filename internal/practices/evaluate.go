@@ -87,9 +87,12 @@ type Input struct {
 	MergeAuthority string
 	// Forge holds the forge's facts, and is nil for a repository with no forge binding.
 	Forge *ForgeFacts
-	// Secrets are the matches of the secret scan, and SecretsUnknown says why the scan could not run.
+	// Secrets are the matches of the secret scan, and SecretsUnknown says why the scan could not run. SecretsPartial
+	// says why the scan read less history than the repository has: with no match, a partial scan leaves the
+	// practice unknown, because it cannot say the history is clean.
 	Secrets        []SecretMatch
 	SecretsUnknown string
+	SecretsPartial string
 }
 
 // envProbeNames are the env files whose ignore answer the check asks for in each folder that holds a manifest.
@@ -352,6 +355,8 @@ func (e *evaluator) secrets() outcome {
 		return findingOutcome(findings...)
 	case e.in.SecretsUnknown != "":
 		return unknownOutcome(e.in.SecretsUnknown)
+	case e.in.SecretsPartial != "":
+		return unknownOutcome("the secret scan was partial: " + e.in.SecretsPartial)
 	}
 	return metOutcome()
 }
