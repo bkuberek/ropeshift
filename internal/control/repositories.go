@@ -456,11 +456,8 @@ func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.Workspace
 			return forgot, err
 		}
 		if !gone {
-			// A store that cannot keep one only while none is kept is left as the registration made it.
-			if keeper, atomic := kept.(ports.KeepsIfAbsent); atomic {
-				if _, err := keeper.KeepIfAbsent(ctx, scope, id, held[id]); err != nil {
-					return forgot, err
-				}
+			if _, err := kept.KeepIfAbsent(ctx, scope, id, held[id]); err != nil {
+				return forgot, err
 			}
 			continue
 		}

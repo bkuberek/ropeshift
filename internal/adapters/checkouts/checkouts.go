@@ -467,4 +467,3 @@ func statOf(path string) (os.FileInfo, error) {
 }
 
 var _ ports.Checkouts = (*File)(nil)
-var _ ports.KeepsIfAbsent = (*File)(nil)

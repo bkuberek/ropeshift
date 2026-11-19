@@ -312,4 +312,3 @@ func (f *Checkouts) All(_ context.Context) ([]ports.Checkout, error) {
 }
 
 var _ ports.Checkouts = (*Checkouts)(nil)
-var _ ports.KeepsIfAbsent = (*Checkouts)(nil)

@@ -77,6 +77,9 @@ type Checkouts interface {
 	Ignored(ctx context.Context, clone, path string) (ignored bool, err error)
 	// Keep records path as this worker's checkout of a project's repository, in place of any other.
 	Keep(ctx context.Context, project ledger.WorkspaceID, repository, path string) error
+	// KeepIfAbsent records path as this worker's checkout of a project's repository only while it keeps none, as one
+	// step that no other Keep or KeepIfAbsent interleaves with, and says whether it kept it.
+	KeepIfAbsent(ctx context.Context, project ledger.WorkspaceID, repository, path string) (bool, error)
 	// Forget drops this worker's checkout of a project's repository.
 	Forget(ctx context.Context, project ledger.WorkspaceID, repository string) error
 	// ForgetAt drops this worker's checkout of a project's repository only while it is still kept at path, and says
@@ -90,14 +93,6 @@ type Checkouts interface {
 	// All lists every checkout this worker keeps with its project and repository, by project and then
 	// repository.
 	All(ctx context.Context) ([]Checkout, error)
-}
-
-// KeepsIfAbsent is a store of checkouts that can keep one only while none is kept.
-type KeepsIfAbsent interface {
-	Checkouts
-	// KeepIfAbsent records path as this worker's checkout of a project's repository only while it keeps none, as one
-	// step that no other Keep or KeepIfAbsent interleaves with, and says whether it kept it.
-	KeepIfAbsent(ctx context.Context, project ledger.WorkspaceID, repository, path string) (bool, error)
 }
 
 // RopeshiftFolder is the name of the folder a repository keeps ropeshift's own files in, its profile layer and,
