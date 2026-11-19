@@ -185,7 +185,7 @@ func Start(ctx context.Context, rt Runtime, job Job, prog *Progress) (*ledger.Te
 	}
 	for _, u := range job.units() {
 		if u.remote != nil && u.remote.Create != nil {
-			if err := checkRepositoryName(u.ghName); err != nil {
+			if err := ledger.CheckForgeRepositoryName(u.ghName); err != nil {
 				return refusal(ledger.TemplateRefusedInvalid, "repository "+u.name+": "+err.Error(), ""), nil
 			}
 		}
@@ -210,22 +210,6 @@ func Start(ctx context.Context, rt Runtime, job Job, prog *Progress) (*ledger.Te
 	prog.Lists = true
 	prog.Started = true
 	return nil, nil
-}
-
-// maxRepositoryName is the longest name a GitHub repository has.
-const maxRepositoryName = 100
-
-// checkRepositoryName refuses a name GitHub cannot give a repository: one of 1 to 100 letters, digits, dots,
-// underscores, and hyphens, which is neither "." nor "..".
-func checkRepositoryName(name string) error {
-	if name == "" || len(name) > maxRepositoryName || name == "." || name == ".." || strings.ContainsFunc(name, func(r rune) bool { return !nameRune(r) }) {
-		return fmt.Errorf("a GitHub repository name has 1 to 100 letters, digits, dots, underscores, and hyphens and is not . or .., and %q is not one", name)
-	}
-	return nil
-}
-
-func nameRune(r rune) bool {
-	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-'
 }
 
 func refusal(reason, detail, remedy string) *ledger.TemplateWriteReport {

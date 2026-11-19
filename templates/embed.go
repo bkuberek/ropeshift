@@ -54,7 +54,6 @@ var example = Data{
 	Project: "acme",
 	Repositories: []Repository{
 		{Name: "acme-api", Remote: "git@github.com:acme/acme-api.git"},
-		{Name: "acme-web", Remote: "git@github.com:acme/acme-web.git"},
 	},
 	Example: true,
 }

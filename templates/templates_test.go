@@ -435,14 +435,25 @@ func TestTheExampleHoldsTheAcmeRepositories(t *testing.T) {
 	}
 	var got []string
 	for _, repository := range manifest.Repositories {
-		got = append(got, repository.Name+" "+repository.Remote+" "+repository.Path)
+		got = append(got, repository.Name+" "+repository.Remote+" "+repository.Create+" "+repository.Path)
 	}
 	want := []string{
-		"acme-api git@github.com:acme/acme-api.git repos/acme-api",
-		"acme-web git@github.com:acme/acme-web.git repos/acme-web",
+		"acme-api git@github.com:acme/acme-api.git  repos/acme-api",
+		"acme-web  github:acme repos/acme-web",
 	}
 	if manifest.ID != "acme" || !slices.Equal(got, want) {
 		t.Errorf("the example manifest %s holds %v, want acme with %v", manifest.ID, got, want)
+	}
+}
+
+func TestTheFirstManifestEntryNamesTheKeysThatCreateItsRepository(t *testing.T) {
+	for _, data := range []templates.Data{{Example: true}, {Project: "orchid", Repositories: []templates.Repository{{Name: "api", Remote: "x"}}}} {
+		text := render(t, "workspace/plan/repositories.md", data)
+		for _, key := range []string{"create", "visibility", "default_branch"} {
+			if !strings.Contains(text, "`"+key+"`") && !strings.Contains(text, "`"+key+" =") {
+				t.Errorf("the manifest with %+v does not name %s", data, key)
+			}
+		}
 	}
 }
 

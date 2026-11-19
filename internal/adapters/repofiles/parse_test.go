@@ -547,3 +547,54 @@ func TestTheOnboardedDecisionExampleKeepsTheRecord(t *testing.T) {
 		t.Errorf("onboarding changed the record's prose:\n%s", doc.Statement)
 	}
 }
+
+func TestAManifestEntryThatCreatesDecodesItsKeysAndIgnoresNone(t *testing.T) {
+	manifest, err := ParseManifest([]byte(`+++
+kind = "repositories"
+id = "platform"
+plan = "platform-v1"
+
+[[repository]]
+name = "api"
+path = "repos/api"
+create = "github:acme"
+visibility = "public"
+default_branch = "trunk"
+
+[[repository]]
+name = "web"
+path = "repos/web"
+create = "github:acme"
++++
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, web := manifest.Repositories[0], manifest.Repositories[1]
+	if api.Create != "github:acme" || api.Visibility != "public" || api.DefaultBranch != "trunk" || api.ForgeName() != "api" {
+		t.Errorf("api reads %+v", api)
+	}
+	if web.Create != "github:acme" || web.Visibility != "" || web.DefaultBranch != "" {
+		t.Errorf("web reads %+v", web)
+	}
+	if len(manifest.Ignored) != 0 {
+		t.Errorf("the keys with no effect read %v", manifest.Ignored)
+	}
+}
+
+func TestAManifestThatCreatesARepositoryBadlyIsABadFile(t *testing.T) {
+	_, err := ParseManifest([]byte(`+++
+kind = "repositories"
+id = "platform"
+
+[[repository]]
+name = "api"
+path = "repos/api"
+remote = "git@github.com:acme/api.git"
+create = "github:acme"
++++
+`))
+	if !errors.Is(err, planning.ErrBadFile) || !strings.Contains(err.Error(), "manifest platform: repository api sets both create and remote") {
+		t.Fatalf("the manifest reads %v", err)
+	}
+}

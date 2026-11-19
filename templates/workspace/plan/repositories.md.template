@@ -40,11 +40,26 @@ remote = {{ tomlString $r.Remote }}
 # clone, and must not be that clone. Keep it in step with CODE_DIR and REPOSITORIES in the Makefile.
 {{ end -}}
 path = "repos/{{ $r.Name }}"
+{{ if eq $i 0 -}}
+# A repository that does not exist yet may give `create = "github:<owner>"` in place of `remote`, with an
+# optional `visibility` of "private" or "public" and an optional `default_branch`. The two optional keys
+# apply only with `create`. Ropeshift reads and checks these keys, and refuses a manifest that combines
+# them wrongly.
+{{ end -}}
 {{ if $.Example -}}
-description = "{{ if eq $i 0 }}The HTTP API{{ else }}The web client{{ end }}"
+description = "The HTTP API"
 {{ else -}}
 description = "State what {{ $r.Name }} is for"
 {{ end -}}
+{{ end -}}
+{{ if .Example }}
+[[repository]]
+name = "acme-web"
+create = "github:acme"
+visibility = "private"
+default_branch = "main"
+path = "repos/acme-web"
+description = "The web client, whose repository does not exist yet"
 {{ end -}}
 +++
 

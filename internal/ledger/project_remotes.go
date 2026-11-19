@@ -91,6 +91,45 @@ func CheckOwner(owner string) error {
 	return nil
 }
 
+// UnsupportedForgeError is a request to create a repository on a forge other than GitHub.
+type UnsupportedForgeError struct{ Forge string }
+
+func (e *UnsupportedForgeError) Error() string {
+	return fmt.Sprintf("creating a repository on %s is not supported yet; ropeshift creates repositories on GitHub", e.Forge)
+}
+
+// ParseForgeOwner reads github:<owner>, and a repository created under it is private. Any other forge is an
+// UnsupportedForgeError.
+func ParseForgeOwner(value string) (*RemoteCreate, error) {
+	forge, owner, found := strings.Cut(value, ":")
+	if !found || forge == "" || owner == "" {
+		return nil, fmt.Errorf("%q is not github:<owner>", value)
+	}
+	if forge != ForgeGitHub {
+		return nil, &UnsupportedForgeError{Forge: forge}
+	}
+	if err := CheckOwner(owner); err != nil {
+		return nil, err
+	}
+	return &RemoteCreate{Forge: forge, Owner: owner, Visibility: VisibilityPrivate}, nil
+}
+
+// maxForgeRepositoryName is the longest name a GitHub repository has.
+const maxForgeRepositoryName = 100
+
+// CheckForgeRepositoryName refuses a name GitHub cannot give a repository: one of 1 to 100 letters, digits, dots,
+// underscores, and hyphens, which is neither "." nor "..".
+func CheckForgeRepositoryName(name string) error {
+	if name == "" || len(name) > maxForgeRepositoryName || name == "." || name == ".." || strings.ContainsFunc(name, func(r rune) bool { return !forgeNameRune(r) }) {
+		return fmt.Errorf("a GitHub repository name has 1 to 100 letters, digits, dots, underscores, and hyphens and is not . or .., and %q is not one", name)
+	}
+	return nil
+}
+
+func forgeNameRune(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-'
+}
+
 // CheckURL refuses a remote URL that is empty, holds whitespace, or starts with a dash, which git would read as an
 // option.
 func CheckURL(url string) error {
@@ -123,7 +162,7 @@ func (r ProjectRemote) Check() error {
 // or public.
 func (c RemoteCreate) Check() error {
 	if c.Forge != ForgeGitHub {
-		return fmt.Errorf("%w: creating a repository on %s is not supported yet; ropeshift creates repositories on GitHub", ErrInvalidProjectRemote, c.Forge)
+		return fmt.Errorf("%w: %w", ErrInvalidProjectRemote, &UnsupportedForgeError{Forge: c.Forge})
 	}
 	if err := CheckOwner(c.Owner); err != nil {
 		return err

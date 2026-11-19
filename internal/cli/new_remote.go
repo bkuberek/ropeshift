@@ -49,17 +49,12 @@ func (f *newFlags) asked() bool {
 
 // parseForgeOwner reads github:<owner>. Any other forge is a usage error that names the one supported.
 func parseForgeOwner(value string) (*ledger.RemoteCreate, error) {
-	forge, owner, found := strings.Cut(value, ":")
-	if !found || forge == "" || owner == "" {
-		return nil, fmt.Errorf("%q is not github:<owner>", value)
+	create, err := ledger.ParseForgeOwner(value)
+	var unsupported *ledger.UnsupportedForgeError
+	if errors.As(err, &unsupported) {
+		return nil, fmt.Errorf("%w: --create-remote github:<owner>", err)
 	}
-	if forge != ledger.ForgeGitHub {
-		return nil, fmt.Errorf("creating a repository on %s is not supported yet; ropeshift creates repositories on GitHub: --create-remote github:<owner>", forge)
-	}
-	if err := ledger.CheckOwner(owner); err != nil {
-		return nil, err
-	}
-	return &ledger.RemoteCreate{Forge: forge, Owner: owner, Visibility: ledger.VisibilityPrivate}, nil
+	return create, err
 }
 
 // forgeForm says a value reads as forge:owner and not as a URL: letters before the colon, and after it no slash, no
