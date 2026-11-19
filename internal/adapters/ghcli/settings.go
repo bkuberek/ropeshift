@@ -38,7 +38,7 @@ var _ ports.ForgeSettings = Forge{}
 func (f Forge) Settings(ctx context.Context, repo ports.ForgeRepo, branch string) (practices.ForgeFacts, error) {
 	b := repo.Binding
 	if !safeName(b.Owner) || !safeName(b.Repo) {
-		reason := fmt.Sprintf("the repository %q is no repository name", clip(b.Owner+"/"+b.Repo))
+		reason := clip(fmt.Sprintf("the repository %q is no repository name", b.Owner+"/"+b.Repo))
 		return practices.ForgeFacts{VisibilityUnknown: reason, ProtectedUnknown: reason, ReviewUnknown: reason}, nil
 	}
 	root := fmt.Sprintf("repos/%s/%s", url.PathEscape(b.Owner), url.PathEscape(b.Repo))
@@ -73,7 +73,7 @@ func (f Forge) Settings(ctx context.Context, repo ports.ForgeRepo, branch string
 	if refs, ok := refPath(branch); ok {
 		branchFacts(get, root, refs, &facts)
 	} else {
-		reason := fmt.Sprintf("the base branch %q is no branch name", clip(branch))
+		reason := clip(fmt.Sprintf("the base branch %q is no branch name", branch))
 		facts.ProtectedUnknown, facts.ReviewUnknown = reason, reason
 	}
 	if err := ctx.Err(); err != nil {
@@ -179,7 +179,7 @@ func visibilityOf(body []byte) (practices.Visibility, error) {
 	case practices.VisibilityPublic, practices.VisibilityPrivate, practices.VisibilityInternal:
 		return visibility, nil
 	}
-	return "", fmt.Errorf("the forge reports the visibility %q", clip(repo.Visibility))
+	return "", errors.New(clip(fmt.Sprintf("the forge reports the visibility %q", repo.Visibility)))
 }
 
 // branchRead is the answer of the branch read: whether it says protected, or why it settled nothing.
@@ -236,13 +236,61 @@ func readRules(get func(path string) (apiResponse, error), path string) rulesRea
 			return read
 		}
 		switch {
-		case read.reviews >= 1 || !strings.Contains(response.Header["link"], `rel="next"`):
+		case read.reviews >= 1 || !hasNextPage(response.Header["link"]):
 			return read
 		case page == maxRulePages:
 			read.reason = firstReason(read.reason, "the branch has more rules than ropeshift reads")
 		}
 	}
 	return read
+}
+
+// hasNextPage says whether a Link header names a next page: a link-value with a rel parameter that holds the relation
+// type next, in either case, quoted or not, alone or in a list of relation types
+// (https://www.rfc-editor.org/rfc/rfc8288#section-3).
+func hasNextPage(link string) bool {
+	for _, value := range splitOutside(link, ',') {
+		parameters := splitOutside(value, ';')
+		for _, parameter := range parameters[1:] {
+			name, rel, ok := strings.Cut(parameter, "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(name), "rel") {
+				continue
+			}
+			for _, relation := range strings.Fields(strings.Trim(strings.TrimSpace(rel), `"`)) {
+				if strings.EqualFold(relation, "next") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// splitOutside splits text at each sep that is not inside a <uri> or a quoted string.
+func splitOutside(text string, sep byte) []string {
+	var parts []string
+	start, quoted, bracketed := 0, false, false
+	for i := 0; i < len(text); i++ {
+		switch c := text[i]; {
+		case quoted:
+			switch c {
+			case '\\':
+				i++
+			case '"':
+				quoted = false
+			}
+		case bracketed:
+			bracketed = c != '>'
+		case c == '"':
+			quoted = true
+		case c == '<':
+			bracketed = true
+		case c == sep:
+			parts = append(parts, text[start:i])
+			start = i + 1
+		}
+	}
+	return append(parts, text[start:])
 }
 
 // add takes the rules of one page, and says why the page could not be read, or nothing. The reason of a rule whose
@@ -273,7 +321,7 @@ func (r *rulesRead) add(body []byte) string {
 }
 
 // readReviews reads the protection's count of approving reviews, which is 0 for a protection with no review rule. A
-// 404 settles that only when its message says reviews are not enabled.
+// 404 settles that only when its message says reviews are not enabled, and a body with no count settles nothing.
 func readReviews(response apiResponse, err error) (int, string) {
 	var answered *apiError
 	if errors.As(err, &answered) && answered.Status == 404 && strings.Contains(strings.ToLower(answered.Message), "not enabled") {
@@ -283,12 +331,15 @@ func readReviews(response apiResponse, err error) (int, string) {
 		return 0, reasonOf(err)
 	}
 	var protection struct {
-		Count int `json:"required_approving_review_count"`
+		Count *int `json:"required_approving_review_count"`
 	}
 	if err := json.Unmarshal(response.Body, &protection); err != nil {
 		return 0, reasonOf(fmt.Errorf("reading gh api: %w", err))
 	}
-	return protection.Count, ""
+	if protection.Count == nil {
+		return 0, "the branch protection has no readable required_approving_review_count"
+	}
+	return *protection.Count, ""
 }
 
 // safeName says an owner or repository name can be put in a path: it is not empty, is not a path segment that climbs, and does

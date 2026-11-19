@@ -4,11 +4,13 @@
 
 // A CSI sequence, an OSC string ended by BEL or ST, and any other two-character escape, with the C1 forms of CSI and OSC.
 const sequences = /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]|(?:\u001b\]|\u009d)[^\u0007\u001b\u009c]*(?:\u0007|\u001b\\|\u009c)?|\u001b[ -~]/g;
-// The C0 set except newline and tab, DEL, and the C1 set.
-// eslint-disable-next-line no-control-regex
-const controls = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+// The control characters (the C0 set, DEL, and the C1 set) except newline and tab, and the format characters: the
+// bidirectional overrides, isolates, and marks, and the zero-width characters. This is the set ledger.HiddenRune names,
+// and web/testdata/hidden-runes.json holds it to the same one.
+const hidden = /(?![\n\t])[\p{Cc}\p{Cf}]/gu;
 
-// plainText drops escape sequences and every control character except newline and tab.
+// plainText drops escape sequences, every control character except newline and tab, and every character that hides or
+// reorders text.
 export function plainText(text: string | undefined): string {
-  return (text ?? "").replace(sequences, "").replace(controls, "");
+  return (text ?? "").replace(sequences, "").replace(hidden, "");
 }

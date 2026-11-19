@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/practices"
@@ -342,12 +343,12 @@ func TestSettingsLeavesTheFactUnknownForABodyThatIsNoJSON(t *testing.T) {
 	}
 }
 
-// The unknown reason is clipped as every message of the adapter is.
+// The unknown reason, prefix included, holds at most maxDetail bytes.
 func TestSettingsClipsALongMessage(t *testing.T) {
 	facts, _, err := readSettings(t, func(s *ghstate.State) {
 		s.SettingsStatus = map[string]ghstate.SettingsAnswer{repoPath: refused(500, strings.Repeat("x", 3*maxDetail))}
 	})
-	if err != nil || len(facts.VisibilityUnknown) > maxDetail+len("HTTP 500: ") {
+	if err != nil || len(facts.VisibilityUnknown) > maxDetail {
 		t.Fatalf("a long message left a reason of %d bytes: %v", len(facts.VisibilityUnknown), err)
 	}
 }
@@ -637,5 +638,139 @@ func TestSettingsLeavesTheReviewUnknownWhenALaterPageFails(t *testing.T) {
 	})
 	if err != nil || !facts.Protected || facts.ProtectedUnknown != "" || facts.ReviewCount != 0 || !strings.Contains(facts.ReviewUnknown, "HTTP 403") {
 		t.Fatalf("a second page the forge refused reads %+v: %v", facts, err)
+	}
+}
+
+// A protection body with no count settles nothing: the review stays unknown, with a reason, and is not 0.
+func TestSettingsLeavesTheReviewUnknownForAProtectionWithNoCount(t *testing.T) {
+	for _, body := range []string{`{}`, `{"required_approving_review_count":null}`} {
+		t.Run(body, func(t *testing.T) {
+			facts, _, err := readSettings(t, func(s *ghstate.State) {
+				s.Protected = true
+				s.SettingsStatus = map[string]ghstate.SettingsAnswer{reviewsPath: {Status: 200, Body: body}}
+			})
+			if err != nil || !facts.Protected || facts.ReviewCount != 0 || !strings.Contains(facts.ReviewUnknown, "required_approving_review_count") {
+				t.Fatalf("a protection with no count reads %+v: %v", facts, err)
+			}
+		})
+	}
+}
+
+// A count of 0 that the body states is a review the forge settled as not required.
+func TestSettingsReadsAProtectionCountOfZero(t *testing.T) {
+	facts, _, err := readSettings(t, func(s *ghstate.State) {
+		s.Protected = true
+		s.SettingsStatus = map[string]ghstate.SettingsAnswer{reviewsPath: {Status: 200, Body: `{"required_approving_review_count":0}`}}
+	})
+	if err != nil || facts.ReviewCount != 0 || facts.ReviewUnknown != "" {
+		t.Fatalf("a stated count of 0 reads %+v: %v", facts, err)
+	}
+}
+
+// The rel of a Link header is matched case-insensitively, quoted or not, among the relations of a link and among the
+// links of a header (https://www.rfc-editor.org/rfc/rfc8288).
+func TestHasNextPage(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		link string
+		want bool
+	}{
+		{"quoted", `<https://api.github.com/x?page=2>; rel="next"`, true},
+		{"unquoted", `<https://api.github.com/x?page=2>; rel=next`, true},
+		{"upper case quoted", `<https://api.github.com/x?page=2>; REL="next"`, true},
+		{"upper case unquoted", `<https://api.github.com/x?page=2>; REL=next`, true},
+		{"mixed case value", `<https://api.github.com/x?page=2>; Rel="NeXt"`, true},
+		{"no space after the semicolon", `<https://api.github.com/x?page=2>;rel=next`, true},
+		{"a relation list", `<https://api.github.com/x?page=2>; rel="prev next"`, true},
+		{"after other links", `<https://api.github.com/x?page=1>; rel="prev", <https://api.github.com/x?page=3>; rel="next"`, true},
+		{"after another parameter", `<https://api.github.com/x?page=2>; title="a, b"; rel=next`, true},
+		{"a comma in the address", `<https://api.github.com/x?a=1,2&page=2>; rel=next`, true},
+		{"prev only", `<https://api.github.com/x?page=1>; rel="prev"`, false},
+		{"first and last", `<https://api.github.com/x?page=1>; rel="first", <https://api.github.com/x?page=9>; rel="last"`, false},
+		{"a relation that only holds next", `<https://api.github.com/x?page=2>; rel="nextpage"`, false},
+		{"next in the address", `<https://api.github.com/rel=next>; rel="last"`, false},
+		{"next in another parameter", `<https://api.github.com/x?page=2>; title="rel=next"; rel="last"`, false},
+		{"empty", ``, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasNextPage(tt.link); got != tt.want {
+				t.Errorf("hasNextPage(%q) is %t, want %t", tt.link, got, tt.want)
+			}
+		})
+	}
+}
+
+// A page whose Link header names the next page in the unquoted form is followed to that page.
+func TestSettingsFollowsAnUnquotedNextLink(t *testing.T) {
+	facts, gh, err := readSettings(t, func(s *ghstate.State) {
+		s.Rules = []ghstate.Rule{pullRequestRule(2)}
+		s.SettingsStatus = map[string]ghstate.SettingsAnswer{rulesCall: {
+			Status: 200, Body: `[{"type":"deletion"}]`, Headers: map[string]string{"Link": `<https://api.github.com/x?page=2>; REL=next`},
+		}}
+	})
+	if err != nil || facts.ReviewCount != 2 {
+		t.Fatalf("an unquoted next link reads %+v: %v", facts, err)
+	}
+	if got, want := settingsCalls(t, gh), []string{repoPath, branchPath, rulesCall, rulesPage(2)}; !slices.Equal(got, want) {
+		t.Errorf("gh read %q, want %q", got, want)
+	}
+}
+
+// A reason is cut on a rune boundary and holds at most maxDetail bytes, its prefix included.
+func TestSettingsBoundsAReasonOfMultiByteText(t *testing.T) {
+	for _, message := range []string{strings.Repeat("é", 3*maxDetail), strings.Repeat("\u202e世", 3*maxDetail), "a" + strings.Repeat("😀", 3*maxDetail)} {
+		facts, _, err := readSettings(t, func(s *ghstate.State) {
+			s.SettingsStatus = map[string]ghstate.SettingsAnswer{repoPath: refused(500, message)}
+		})
+		reason := facts.VisibilityUnknown
+		if err != nil || len(reason) > maxDetail || !utf8.ValidString(reason) || !strings.HasPrefix(reason, "HTTP 500: ") {
+			t.Fatalf("a long multi-byte message left a reason of %d bytes, valid UTF-8 %t: %v", len(reason), utf8.ValidString(reason), err)
+		}
+	}
+}
+
+// clip cuts on a rune boundary, whatever byte the bound falls on.
+func TestClipCutsOnARuneBoundary(t *testing.T) {
+	for _, unit := range []string{"é", "世", "😀"} {
+		for pad := range 4 {
+			text := strings.Repeat("a", pad) + strings.Repeat(unit, maxDetail)
+			got := clip(text)
+			if len(got) > maxDetail || !utf8.ValidString(got) || !strings.HasPrefix(text, got) {
+				t.Errorf("clip of %d bytes of %q after %d bytes is %d bytes, valid UTF-8 %t", len(text), unit, pad, len(got), utf8.ValidString(got))
+			}
+		}
+	}
+	if got := clip("  short \n"); got != "short" {
+		t.Errorf("clip trims to %q", got)
+	}
+}
+
+// A reason that quotes text with %q holds at most maxDetail bytes, though the quoting grows what it quotes.
+func TestSettingsBoundsAQuotedReason(t *testing.T) {
+	hostile := strings.Repeat("\x01\u202e", maxDetail)
+	forge, repo, _, _ := fixture(t)
+	repo.Binding.Owner, repo.Binding.Repo = "-"+hostile, "widgets"
+	facts, err := forge.Settings(t.Context(), repo, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reason := range []string{facts.VisibilityUnknown, facts.ProtectedUnknown, facts.ReviewUnknown} {
+		if reason == "" || len(reason) > maxDetail || !utf8.ValidString(reason) {
+			t.Errorf("the repository reason is %d bytes, valid UTF-8 %t", len(reason), utf8.ValidString(reason))
+		}
+	}
+	forge, repo, _, _ = fixture(t)
+	facts, err = forge.Settings(t.Context(), repo, hostile+"//")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reason := range []string{facts.ProtectedUnknown, facts.ReviewUnknown} {
+		if reason == "" || len(reason) > maxDetail || !utf8.ValidString(reason) {
+			t.Errorf("the branch reason is %d bytes, valid UTF-8 %t", len(reason), utf8.ValidString(reason))
+		}
+	}
+	facts, _, err = readSettings(t, func(s *ghstate.State) { s.Visibility = hostile })
+	if err != nil || facts.VisibilityUnknown == "" || len(facts.VisibilityUnknown) > maxDetail || !utf8.ValidString(facts.VisibilityUnknown) {
+		t.Errorf("the visibility reason is %d bytes: %v", len(facts.VisibilityUnknown), err)
 	}
 }

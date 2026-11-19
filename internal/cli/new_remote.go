@@ -201,14 +201,14 @@ func (c *invocation) newProject(request ledger.TemplateWriteRequest, data projec
 	}
 	needs, err := c.needsRepositoryAt(request.Path)
 	if err != nil {
-		return c.finish(err, nil, nil)
+		return c.finish(plainErr(err), nil, nil)
 	}
 	if err := os.MkdirAll(filepath.Dir(request.Path), 0o755); err != nil {
-		return c.finish(err, nil, nil)
+		return c.finish(plainErr(err), nil, nil)
 	}
 	report, err := c.newProjectRun(c.ctx, request, needs)
 	if err != nil {
-		return c.finish(err, nil, nil)
+		return c.finish(plainErr(err), nil, nil)
 	}
 	report = plainReport(report)
 	if report.Outcome == ledger.TemplateOutcomeRefused {
@@ -236,20 +236,36 @@ func (c *invocation) newProject(request ledger.TemplateWriteRequest, data projec
 // by BEL or ST, and any other two-character escape. The C1 forms of CSI and OSC are matched as well.
 var ansiSequence = regexp.MustCompile(`(?:\x1b\[|\x{9b})[0-?]*[ -/]*[@-~]|(?:\x1b\]|\x{9d})[^\x07\x1b\x{9c}]*(?:\x07|\x1b\\|\x{9c})?|\x1b[ -~]`)
 
-// plainText makes text a tool printed safe to show on a terminal: it drops escape sequences and every control
-// character except newline and tab, the C0 set, DEL, and the C1 set. A step's detail is clipped git or gh stderr, so
-// it is untrusted.
+// plainText makes text a tool printed safe to show on a terminal: it drops escape sequences and every character
+// ledger.HiddenRune names, which is every control character, the C0 set, DEL, and the C1 set, and every
+// bidirectional override and zero-width character, but keeps newline and tab. A step's detail is clipped git or gh
+// stderr, so it is untrusted.
 func plainText(text string) string {
 	text = ansiSequence.ReplaceAllString(text, "")
 	return strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\t' {
 			return r
 		}
-		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+		if ledger.HiddenRune(r) {
 			return -1
 		}
 		return r
 	}, text)
+}
+
+// plainError is an error whose text is plainText of the wrapped error's, so what a tool printed reaches the person
+// with nothing that hides or reorders it.
+type plainError struct{ err error }
+
+func (e plainError) Error() string { return plainText(e.err.Error()) }
+func (e plainError) Unwrap() error { return e.err }
+
+// plainErr wraps an error as a plainError, and leaves nil alone.
+func plainErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return plainError{err}
 }
 
 // plainReport returns a report whose free text from git and gh holds no control character.
@@ -431,7 +447,7 @@ func (c *invocation) newInteractive(args []string) int {
 			if errors.Is(err, errStopped) {
 				return ExitError
 			}
-			return c.usageError("%v", err)
+			return c.usageError("%v", plainErr(err))
 		}
 	}
 	for _, repository := range request.Repositories {
