@@ -309,6 +309,9 @@ export function App() {
       ...(project
         ? [
             { key: "action:register", group: "Actions" as const, title: "Register repositories", icon: "repo" as const, to: inProject(project, "/repositories?dialog=register") },
+            { key: "action:practices-check", group: "Actions" as const, title: "Run the practices check", icon: "play" as const, to: inProject(project, addressOf("", { focus: "Run check" })), keywords: "practices findings secrets ci lockfile security" },
+            { key: "action:practices-acknowledge", group: "Actions" as const, title: "Acknowledge a practices finding", icon: "check" as const, to: inProject(project, "/repositories?dialog=acknowledge"), keywords: "practices finding reason leave open" },
+            { key: "action:practices-withdraw", group: "Actions" as const, title: "Withdraw an acknowledgement", icon: "restart" as const, to: inProject(project, "/repositories?dialog=withdraw"), keywords: "practices finding acknowledged take back" },
             { key: "action:new-work", group: "Actions" as const, title: "New work order", icon: "plus" as const, to: inProject(project, "/work?dialog=new"), keywords: "create add work" },
             { key: "action:start-review", group: "Actions" as const, title: "Start contract review", icon: "play" as const, to: inProject(project, "/plans?dialog=review"), keywords: "plan review lane questions" },
             { key: "action:fleet", group: "Actions" as const, title: "Pause or drain the fleet", icon: "pause" as const, to: inProject(project, "/settings?section=fleet") },

@@ -595,6 +595,31 @@
     "command": "source list"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/practices",
+    "command": "practices"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/practices/checks",
+    "command": "practices"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/practices/checks/{request}",
+    "command": "practices"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/practices/acknowledgements",
+    "command": "practices acknowledge"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/practices/acknowledgements/withdraw",
+    "command": "practices withdraw"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/projects/{project}/work-orders",
     "command": "work create"

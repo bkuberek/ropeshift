@@ -1,13 +1,21 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import { addRepositories, changeRepository, readRepositories, removeRepository } from "../api/admin";
+import { listPractices } from "../api/practices";
+import { plainText } from "./untrustedText";
+import type { PracticesList } from "../api/practices";
 import type { MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
 import type { Live } from "../api/useView";
 import { usePageActions } from "../app/pageActions";
 import type { Entry } from "../app/ranking";
 import { addressOf, go, Link } from "../app/route";
-import { Page } from "../parts/parts";
-import { Button, Segmented } from "../ui/controls";
+import { Page, useClock } from "../parts/parts";
+import { AcknowledgeDialog, WithdrawDialog } from "../practices/FindingDialogs";
+import { OpenCounts } from "../practices/parts";
+import { PracticesTab } from "../practices/PracticesTab";
+import { useCheck } from "../practices/useCheck";
+import { useDialogParam } from "../planning/useDialogParam";
+import { Button, LinkTabs, Segmented } from "../ui/controls";
 import { Absent, Badge, EmptyState, LookBadge, Panel, Refusal, TableRegion } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
@@ -168,6 +176,22 @@ function SignIn({ view }: { view: RepositoryView }) {
   return view.review_target === "branch" ? <span className="subtle">not needed</span> : <Absent>no report yet</Absent>;
 }
 
+// Findings is a repository's open findings by severity in the table, and a link to the tab that lists them.
+function Findings({ view, read, id, name }: { view: PracticesList["repositories"][number] | undefined; read: { view: PracticesList | null; failure: string }; id: string; name: string }) {
+  if (!view) {
+    return read.view || !read.failure ? <Absent>{read.view ? "Not checked yet" : "reading…"}</Absent> : <Absent>unavailable</Absent>;
+  }
+  if (!view.result) {
+    return <Absent>Not checked yet</Absent>;
+  }
+  return (
+    <Link to={addressOf("/repositories", { repo: id, tab: "practices" })} stay className="row-tight">
+      <span className="visually-hidden">Findings of {plainText(name)}: </span>
+      <OpenCounts view={view} />
+    </Link>
+  );
+}
+
 // RepositoriesPage lists the project's repositories, opens one's record below the table, and registers
 // more from a folder of clones after a dry run.
 export function RepositoriesPage({
@@ -175,6 +199,7 @@ export function RepositoriesPage({
   project,
   label: projectLabel,
   selected,
+  tab,
   dialog,
   folder = "",
   worker = "",
@@ -184,6 +209,8 @@ export function RepositoriesPage({
   project: string;
   label: string;
   selected: string;
+  // tab is the tab of the selected repository's record: its settings, or `practices`.
+  tab: string;
   dialog: string;
   // folder and worker fill the Register dialog when Start a project from a template hands a folder it wrote to registration.
   folder?: string;
@@ -201,6 +228,14 @@ export function RepositoriesPage({
   }, [dialog]);
   const rows = (read.view?.repositories ?? []).filter((view) => view.state !== "removed");
   const chosen = rows.find((view) => view.id === selected);
+  // The practices check's latest result of each repository, which the Findings column and the Practices tab read, and
+  // the dialogs of the command palette that acknowledge a finding and withdraw the acknowledgement.
+  const practices = useRead<PracticesList>(() => listPractices(), `repositories:practices:${project}`, live);
+  const checks = practices.view?.repositories ?? [];
+  const check = useCheck(checks, practices.again, live);
+  const acknowledging = useDialogParam("acknowledge");
+  const withdrawing = useDialogParam("withdraw");
+  const now = useClock();
   // The command palette changes or removes a repository by selecting it: Change focuses its name, and Remove opens
   // the dialog that asks first.
   usePageActions(
@@ -261,6 +296,7 @@ export function RepositoriesPage({
                       <th scope="col">Merge method</th>
                       <th scope="col">Merge authority</th>
                       <th scope="col">Forge</th>
+                      <th scope="col">Findings</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -286,13 +322,28 @@ export function RepositoriesPage({
                         <td data-label="Forge">
                           <Forge view={view} />
                         </td>
+                        <td data-label="Findings">
+                          <Findings view={checks.find((row) => row.repository === view.id)} read={practices} id={view.id} name={label(view)} />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </TableRegion>
             </Panel>
-            {chosen ? <RecordForm key={chosen.id} view={chosen} archived={archived} projectLabel={projectLabel} after={read.again} removeAsked={dialog === "remove"} /> : null}
+            {chosen ? (
+              <LinkTabs
+                label="Record"
+                tabs={[
+                  { to: addressOf("/repositories", { repo: chosen.id }), label: "Settings", current: tab !== "practices" },
+                  { to: addressOf("/repositories", { repo: chosen.id, tab: "practices" }), label: "Practices", current: tab === "practices" },
+                ]}
+              />
+            ) : null}
+            {chosen && tab === "practices" ? (
+              <PracticesTab repository={chosen.id} name={label(chosen)} views={checks} check={check} archived={archived} after={practices.again} readAt={practices.readAt} now={now} />
+            ) : null}
+            {chosen && tab !== "practices" ? <RecordForm key={chosen.id} view={chosen} archived={archived} projectLabel={projectLabel} after={read.again} removeAsked={dialog === "remove"} /> : null}
             {!chosen && selected ? <Refusal>No repository {selected} in {projectLabel}.</Refusal> : null}
           </div>
         )}
@@ -304,6 +355,8 @@ export function RepositoriesPage({
         after={read.again}
         prefill={dialog === "register" && folder ? { folder, worker } : undefined}
       />
+      {acknowledging.open && practices.view ? <AcknowledgeDialog views={checks} onClose={acknowledging.close} after={practices.again} /> : null}
+      {withdrawing.open && practices.view ? <WithdrawDialog views={checks} onClose={withdrawing.close} after={practices.again} /> : null}
     </Page>
   );
 }

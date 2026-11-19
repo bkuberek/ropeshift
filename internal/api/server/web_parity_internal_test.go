@@ -33,11 +33,6 @@ var opExempt = map[string]string{
 var opGaps = map[string]string{
 	// Raising the project's daily or weekly limit is not on a page yet; SP4 builds it (ADR-0037).
 	authority.OpSpendRaiseProject: "SP4",
-	// Running the practices check is not on a page yet; P5i builds it.
-	authority.OpPracticesCheck: "P5i",
-	// Acknowledging a finding and withdrawing the acknowledgement are not on a page yet; P5i builds them.
-	authority.OpPracticesAcknowledge: "P5i",
-	authority.OpPracticesWithdraw:    "P5i",
 }
 
 var (

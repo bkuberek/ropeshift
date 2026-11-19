@@ -346,6 +346,34 @@ const paths: Record<string, KeyPath> = {
       await k.activate(page.getByRole("button", { name: "Save", exact: true }));
     },
   },
+  // The palette takes the keyboard to Run check on the Overview, and Enter presses it, for every repository.
+  "POST /v1/projects/{project}/practices/checks": {
+    sent: post(/^\/v1\/projects\/default\/practices\/checks$/, { repositories: [] }),
+    answers: reply([/\/v1\/projects\/default\/practices\/checks$/, { checks: [] }, "POST"]),
+    run: async (k, page) => {
+      await k.palette("Run the practices check");
+      await k.landed(page.getByRole("button", { name: "Run check", exact: true }));
+      await k.press("Enter");
+    },
+  },
+  // The dialog opens on its first field, the Repository picker, over the first repository with an open finding and its first open finding, and Tab reaches the Reason.
+  "POST /v1/projects/{project}/practices/acknowledgements": {
+    sent: post(/^\/v1\/projects\/default\/practices\/acknowledgements$/, { repository: "id-api", finding: "env-ignored:ignore:.", reason: "the folder is not a project root" }),
+    run: async (k, page) => {
+      await dialog(k, page, "Acknowledge a practices finding");
+      await k.landed(inDialog(page).getByLabel("Repository", { exact: true }));
+      await k.tabTo(inDialog(page).getByLabel("Reason", { exact: true }));
+      await k.type("the folder is not a project root");
+      await k.activate(inDialog(page).getByRole("button", { name: "Acknowledge", exact: true }));
+    },
+  },
+  "POST /v1/projects/{project}/practices/acknowledgements/withdraw": {
+    sent: post(/^\/v1\/projects\/default\/practices\/acknowledgements\/withdraw$/, { repository: "id-api", finding: "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f" }),
+    run: async (k, page) => {
+      await dialog(k, page, "Withdraw an acknowledgement");
+      await k.activate(inDialog(page).getByRole("button", { name: "Withdraw acknowledgement", exact: true }));
+    },
+  },
   "POST /v1/projects/{project}/repositories/{id}/remove": {
     sent: post(/^\/v1\/projects\/default\/repositories\/id-api\/remove$/),
     run: async (k, page) => {

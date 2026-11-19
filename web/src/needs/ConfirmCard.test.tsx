@@ -140,3 +140,39 @@ describe("a confirmation card", () => {
     expect(screen.getAllByText("Failed to run").length).toBeGreaterThan(0);
   });
 });
+
+// A delegate's or the assistant's acknowledgement of a practices finding, or the withdrawal of one, is a card that names the
+// finding, why its practice matters, and the reason, as the API prepares it.
+describe("a practices card", () => {
+  const practicesCard = (operation: "practices.acknowledge" | "practices.withdraw", label: string, summary: string): CardItem => {
+    const base = cardOf(cards(), "repository.raise_merge_authority");
+    const changes = [
+      { field: "finding", to: "codeowners" },
+      { field: "why", to: "It names who reviews each path." },
+      { field: "reason", to: "the whole team owns every path" },
+    ];
+    const path = operation === "practices.acknowledge" ? "/v1/projects/default/practices/acknowledgements" : "/v1/projects/default/practices/acknowledgements/withdraw";
+    const detail = { operation, label, method: "POST", path, arguments: { repository: "repo-1", finding: "codeowners" }, why: "The plan names this step.", changes };
+    return {
+      ...base,
+      id: operation,
+      card: { ...base.card, approval: { ...base.card.approval, id: operation, summary, subject: "practices-finding:repo-1:codeowners", detail: JSON.stringify(detail) }, detail },
+    };
+  };
+
+  it.each([
+    ["practices.acknowledge", "Acknowledge a practices finding", "Acknowledge a practices finding: codeowners in widgets"],
+    ["practices.withdraw", "Withdraw a finding's acknowledgement", "Withdraw a finding's acknowledgement: codeowners in widgets"],
+  ] as const)("reads %s with the finding, why it matters, and the reason", (operation, label, summary) => {
+    const view = cards();
+    const item = practicesCard(operation, label, summary);
+    view.items = [item, ...view.items];
+    show(view, item);
+    const card = theCard(summary);
+    const changes = within(card).getByRole("region", { name: "What it changes" });
+    expect(changes.textContent).toContain("codeowners");
+    expect(changes.textContent).toContain("It names who reviews each path.");
+    expect(changes.textContent).toContain("the whole team owns every path");
+    expect(within(card).getByRole("button", { name: "Confirm" })).toBeTruthy();
+  });
+});

@@ -101,6 +101,7 @@ import {
   startOrchestrator,
   waitLongerForCI,
 } from "./client";
+import { acknowledgeFinding, checkPractices, listPractices, readPracticesCheck, withdrawAcknowledgement } from "./practices";
 import { readForgeAccounts } from "./projectRemote";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
 import { readCalibration, readCIDurations, readDelivery, readDeliveryHistory, readEstimate, readPlanForecast } from "./measures";
@@ -261,6 +262,11 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/work-orders": step("createPlanWork", () => createPlanWork({ id: "wo-1", goal: "Saved searches", repository: "" })),
   "POST /v1/projects/{project}/work-orders/{id}/claims": step("claimAndStart", () => claimAndStart("wo-1", "worker-1")),
   "POST /v1/projects/{project}/work-orders/{id}/lanes": step("startClaimed", () => startClaimed("wo-1", "lane-1")),
+  "GET /v1/projects/{project}/practices": step("listPractices", () => listPractices()),
+  "POST /v1/projects/{project}/practices/checks": step("checkPractices", () => checkPractices([])),
+  "GET /v1/projects/{project}/practices/checks/{request}": step("readPracticesCheck", () => readPracticesCheck("request-1")),
+  "POST /v1/projects/{project}/practices/acknowledgements": step("acknowledgeFinding", () => acknowledgeFinding("repo-1", "codeowners", "the owners are the whole team")),
+  "POST /v1/projects/{project}/practices/acknowledgements/withdraw": step("withdrawAcknowledgement", () => withdrawAcknowledgement("repo-1", "codeowners")),
   "GET /v1/projects/{project}/roster": step("readRoster", () => readRoster("project")),
   "GET /v1/projects/{project}/roster/history": step("readRosterHistory", () => readRosterHistory("project")),
   "POST /v1/projects/{project}/roster/changes": step("changeRoster", () => changeRoster("project", { op: "disable", agent: "reviewer" })),
@@ -372,7 +378,7 @@ describe("each client function the table names", () => {
 
 // The modules that hold the client functions. A function a component, a hook, or a flow imports is one the
 // UI uses, and one only these import is a wrapper with no control.
-const modules = new Set(["client.ts", "admin.ts", "delegates.ts", "measures.ts", "talk.ts", "runWork.ts", "projectRemote.ts"]);
+const modules = new Set(["client.ts", "admin.ts", "delegates.ts", "measures.ts", "talk.ts", "runWork.ts", "projectRemote.ts", "practices.ts"]);
 const skipped = new Set(["testing.ts", "test-setup.ts", "serve.ts"]);
 
 function sources(dir: string): string[] {
