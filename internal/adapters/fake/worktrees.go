@@ -225,6 +225,9 @@ func (w *Worktrees) Dirty(path string) {
 	w.byPath[path] = entry
 }
 
+// LaneHead is the commit a worktree made from no base stands at: a valid commit ID, as a real worktree has.
+const LaneHead = "fa4e0000000000000000000000000000000000ad"
+
 // Create makes a worktree, or returns the one that matches.
 func (w *Worktrees) Create(_ context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
 	w.mu.Lock()
@@ -242,7 +245,7 @@ func (w *Worktrees) Create(_ context.Context, spec ports.WorktreeSpec) (ports.Wo
 		return ports.Worktree{}, fmt.Errorf("%w: %s is checked out at %s", ports.ErrWorktreeConflict, spec.Branch, holder)
 	}
 	w.specs = append(w.specs, spec)
-	head := "fake-head"
+	head := LaneHead
 	if spec.Base != "" {
 		head = spec.Base
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -147,7 +148,7 @@ func TestAHintInAHeartbeatReadsThePullRequestAtOnce(t *testing.T) {
 	if reads() != first {
 		t.Fatalf("a hint for another repository read this one: %d reads", reads())
 	}
-	board.Note("project-1", widgets, "fake-head")
+	board.Note("project-1", widgets, fake.LaneHead)
 	beat()
 	if reads() != first+1 {
 		t.Fatalf("a hint in a heartbeat did not read the pull request: %d reads, %d before", reads(), first)

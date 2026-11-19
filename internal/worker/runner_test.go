@@ -323,7 +323,7 @@ func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
 	if err := json.Unmarshal(r.outcome().Payload, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Branch != "lane/lane-1" || result.Head != "fake-head" {
+	if result.Branch != "lane/lane-1" || result.Head != fake.LaneHead {
 		t.Errorf("the lane's end names %s at %s", result.Branch, result.Head)
 	}
 	if result.Change != nil {
