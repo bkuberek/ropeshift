@@ -146,7 +146,7 @@ func checkCompletionOpensAReview(r *Rig) error {
 			writes = append(writes, op)
 		}
 	})
-	head := r.ID("commit")
+	head := r.Commit()
 	if err := r.NewOps(stepped).EndLane(r.Ctx, r.Scope, holder, LaneFinished(head, LaneCheck(criterionOne, true)), r.worker("a")); err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (r *Rig) recordedWork(s ports.Store, criteria ...string) (workorders.WorkOr
 func checkReworkIsReviewedAgain(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func checkReworkIsReviewedAgain(r *Rig) error {
 	if _, err := ops.Rework(r.Ctx, r.Scope, id, reworkReason, r.Actor); err != nil {
 		return err
 	}
-	again := r.ID("commit")
+	again := r.Commit()
 	if err := r.attempt(s, id, LaneFinished(again)); err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func checkNoCommitNoReview(r *Rig) error {
 func checkReviewEndsAlone(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func checkReviewEndsAlone(r *Rig) error {
 		{laneResult(workorders.OutcomeBlocked, "needs an answer"), workorders.Blocked},
 		{laneResult(workorders.OutcomeFailed, "crashed"), workorders.Failed},
 	} {
-		other, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+		other, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 		if err != nil {
 			return err
 		}
@@ -347,7 +347,7 @@ func checkWorkWaitsForItsReview(r *Rig) error {
 	forge := &fake.Forge{}
 
 	// A forge that says the work is green does not move it while its review is open.
-	head := r.ID("commit")
+	head := r.Commit()
 	waiting, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -372,7 +372,7 @@ func checkWorkWaitsForItsReview(r *Rig) error {
 	if err := r.stateIs(s, open.ID, workorders.Canceled); err != nil {
 		return err
 	}
-	sentBack, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	sentBack, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func checkWorkWaitsForItsReview(r *Rig) error {
 	}
 
 	// Once the review ends, the tick settles the work as it always did.
-	other := r.ID("commit")
+	other := r.Commit()
 	later, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(other))
 	if err != nil {
 		return err
@@ -400,7 +400,7 @@ func checkWorkWaitsForItsReview(r *Rig) error {
 func checkReviewStartsAtTheCommit(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -440,7 +440,7 @@ func (r *Rig) claimOf(s ports.Store, id string) (workorders.Claim, error) {
 func checkReviewIsNotDispatchedToTheReviewedLane(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -484,7 +484,7 @@ func checkReviewIsNotDispatchedToTheReviewedLane(r *Rig) error {
 func checkReviewPackHoldsTheReportedChecks(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.AwaitingReview(s, []string{criterionOne, criterionTwo}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true), LaneCheck(criterionTwo, false)))
+	id, err := r.AwaitingReview(s, []string{criterionOne, criterionTwo}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true), LaneCheck(criterionTwo, false)))
 	if err != nil {
 		return err
 	}
@@ -548,7 +548,7 @@ func (r *Rig) packOfLane(s ports.Store, id string) (contextpacks.Pack, error) {
 
 func checkWorkerIsToldWhatIsJudged(r *Rig) error {
 	s := r.Store()
-	head := r.ID("commit")
+	head := r.Commit()
 	var reviewID string
 	rig, err := newStatusRigOn(r, s, func(ports.Store) (string, error) {
 		id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
@@ -600,7 +600,7 @@ func checkReviewLaneIsArchived(r *Rig) error {
 	ops := r.NewOps(s)
 	var reviewID, reviewedID string
 	rig, err := newStatusRigOn(r, s, func(ports.Store) (string, error) {
-		id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+		id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 		if err != nil {
 			return "", err
 		}
@@ -676,7 +676,7 @@ func checkWorkerIsToldWhereTheWorkBegan(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	head := r.ID("commit")
+	head := r.Commit()
 	if err := ops.EndLane(r.Ctx, r.Scope, workorders.Holder{Lease: grant.Lease, Lane: lane, Generation: generation}, LaneFinished(head), r.worker("a")); err != nil {
 		return err
 	}
@@ -707,7 +707,7 @@ func checkCanceledReviewLaneIsArchived(r *Rig) error {
 	s := r.Store()
 	var reviewID string
 	rig, err := newStatusRigOn(r, s, func(ports.Store) (string, error) {
-		id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+		id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 		if err != nil {
 			return "", err
 		}
@@ -744,7 +744,7 @@ func checkCanceledReviewLaneIsArchived(r *Rig) error {
 // among the contract's work.
 func checkContractPlannedNoReview(r *Rig) error {
 	s := r.Store()
-	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}

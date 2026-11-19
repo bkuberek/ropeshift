@@ -979,9 +979,10 @@ func TestAnAuditRowNamesTheKindOfItsDelegate(t *testing.T) {
 // own, and returns the review it left.
 func finishedWork(t *testing.T, d *apitest.Daemon, w *apitest.World, id string) string {
 	t.Helper()
+	commit := sha256.Sum256([]byte("head-" + id))
 	w.Running(id, "Add the retry budget").Finish(workorders.LaneResult{
 		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Checks: []workorders.CheckResult{{Name: "unit", Passed: true, Criterion: "c1"}}},
-		Branch: "lane/" + id, Head: "head-" + id,
+		Branch: "lane/" + id, Head: hex.EncodeToString(commit[:]),
 	})
 	var review string
 	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {

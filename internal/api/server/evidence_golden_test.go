@@ -43,12 +43,12 @@ func anEvidenceWorld(t *testing.T) *apitest.Daemon {
 			Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "The budget stops the retries after the third.", Citations: []string{"retry.go:21"},
 		})
 	}
-	shipped("wo-shipped", "Add the retry budget", "fed987", ledger.ChangeSize{Files: 3, Added: 42, Removed: 7}, 8*time.Minute)
+	shipped("wo-shipped", "Add the retry budget", "fed9870000000000000000000000000000000000", ledger.ChangeSize{Files: 3, Added: 42, Removed: 7}, 8*time.Minute)
 	clock.Advance(10 * time.Minute)
 	if _, err := d.Client.Accept(t.Context(), "wo-shipped"); err != nil {
 		t.Fatal(err)
 	}
-	shipped("wo-ruled", "Trim the retry log", "cab321", ledger.ChangeSize{Files: 1, Added: 4, Removed: 19}, 6*time.Minute)
+	shipped("wo-ruled", "Trim the retry log", "cab3210000000000000000000000000000000000", ledger.ChangeSize{Files: 1, Added: 4, Removed: 19}, 6*time.Minute)
 
 	apitest.Detail(w, clock)
 	project.Change()

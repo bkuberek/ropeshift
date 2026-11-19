@@ -275,6 +275,15 @@ func (r *Rig) Store() ports.Store {
 	return store
 }
 
+// Commit returns a fresh commit ID: 40 hexadecimal characters, as a git commit has.
+func (r *Rig) Commit() string {
+	var entropy [20]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%x", entropy)
+}
+
 // ID returns a fresh ID. It stands for the ULID a client generates.
 func (r *Rig) ID(prefix string) string {
 	var entropy [8]byte

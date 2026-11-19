@@ -39,7 +39,7 @@
         "artifacts": [
           {
             "created_at": 1790000904001,
-            "digest": "def456",
+            "digest": "def4560000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-2",
             "kind": "branch",
@@ -99,7 +99,7 @@
         "artifacts": [
           {
             "created_at": 1790000844001,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-5",
             "kind": "branch",
@@ -154,7 +154,7 @@
             "citations": [
               "cut.go:12"
             ],
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000844001,
             "criterion": "c1",
             "fence": 2,
@@ -189,7 +189,7 @@
         "artifacts": [
           {
             "created_at": 1790000424001,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-10",
             "kind": "branch",
@@ -214,7 +214,7 @@
             "citations": [
               "trim.go:44"
             ],
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000424001,
             "point": "injection",
             "reasons": "trim.go passes the log name to a shell command.",
@@ -225,7 +225,7 @@
           },
           {
             "attempt": 2,
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000424001,
             "point": "dependencies",
             "reasons": "go.mod adds a module at a branch and not at a version.",
@@ -251,7 +251,7 @@
               "trim.go:30",
               "FR-LOG-2"
             ],
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000424001,
             "criterion": "c1",
             "fence": 2,
@@ -287,7 +287,7 @@
         "artifacts": [
           {
             "created_at": 1790000184000,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-13",
             "kind": "branch",

@@ -231,16 +231,16 @@ func TestTheDocumentsViewShowsEachTracedWorkOrdersVerdictForTheCriterion(t *test
 	if got := verdictOf(planDocuments(t, d, "Traced").Requirements[0], "c1"); got != nil {
 		t.Errorf("work no review has judged carries the verdict %+v", got)
 	}
-	w.Run(id).Finish(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/budget", Head: "abc123"})
+	w.Run(id).Finish(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/budget", Head: "abc1230000000000000000000000000000000000"})
 	w.Reviewed(id,
 		workorders.CriterionVerdict{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It retries twice."},
 		workorders.CriterionVerdict{Criterion: "c2", Verdict: workorders.VerdictFail, Reasons: "It never stops."},
 	)
 	plan := planDocuments(t, d, "Traced")
-	if got := verdictOf(plan.Requirements[0], "c1"); got == nil || got.Verdict != workorders.VerdictPass || got.Commit != "abc123" {
+	if got := verdictOf(plan.Requirements[0], "c1"); got == nil || got.Verdict != workorders.VerdictPass || got.Commit != "abc1230000000000000000000000000000000000" {
 		t.Errorf("c1 of R-1 reads %+v", got)
 	}
-	if got := verdictOf(plan.Requirements[0], "c2"); got == nil || got.Verdict != workorders.VerdictFail || got.Commit != "abc123" {
+	if got := verdictOf(plan.Requirements[0], "c2"); got == nil || got.Verdict != workorders.VerdictFail || got.Commit != "abc1230000000000000000000000000000000000" {
 		t.Errorf("c2 of R-1 reads %+v", got)
 	}
 	if got := verdictOf(plan.Requirements[1], "c2"); got == nil || got.Verdict != workorders.VerdictFail {

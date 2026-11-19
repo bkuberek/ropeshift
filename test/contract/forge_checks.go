@@ -77,7 +77,7 @@ func newForgeRigWith(r *Rig, target ledger.ReviewTarget, ready func(store ports.
 	if err != nil {
 		return nil, err
 	}
-	f := &forgeRig{statusRig: st, repository: repository, head: r.ID("commit")}
+	f := &forgeRig{statusRig: st, repository: repository, head: r.Commit()}
 	raw, err := json.Marshal(LaneFinished(f.head, checks...))
 	if err != nil {
 		return nil, err
@@ -695,7 +695,7 @@ func checkForgeReworkUpdatesThePullRequest(r *Rig) error {
 	if _, err := ops.StartLane(r.Ctx, r.Scope, f.grant.Lease, f.lane, r.Actor); err != nil {
 		return err
 	}
-	again := r.ID("commit")
+	again := r.Commit()
 	raw, err := json.Marshal(LaneFinished(again))
 	if err != nil {
 		return err

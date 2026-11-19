@@ -119,7 +119,7 @@ func checkPlanningPackHoldsHistory(r *Rig) error {
 
 // readyReview leaves a change's review ready for a lane to claim.
 func (r *Rig) readyReview(s ports.Store) (string, error) {
-	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return "", err
 	}
@@ -277,7 +277,7 @@ func checkPlanningLaneIsToldItsVersion(r *Rig) error {
 
 	// Its session ends, so a later version it submitted has nobody to tell, and records no message that expires.
 	holder := workorders.Holder{Lease: planner.grant.Lease, Lane: planner.lane, Generation: 1}
-	if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)), ledger.Actor{Kind: ledger.ActorWorker, ID: planner.auth.WorkerID}); err != nil {
+	if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)), ledger.Actor{Kind: ledger.ActorWorker, ID: planner.auth.WorkerID}); err != nil {
 		return err
 	}
 	if _, err := r.versionFromLane(s, plan, planner.grant.WorkOrder); err != nil {

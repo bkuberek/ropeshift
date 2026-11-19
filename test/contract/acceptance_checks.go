@@ -191,7 +191,7 @@ func checkLaneCannotAccept(r *Rig) error {
 		{name: "a failed check", checks: []workorders.CheckResult{LaneCheck(criterionOne, false)}},
 	}
 	for _, row := range evidence {
-		head := r.ID("commit")
+		head := r.Commit()
 		id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head, row.checks...))
 		if err != nil {
 			return err
@@ -238,7 +238,7 @@ func checkLaneCannotAccept(r *Rig) error {
 func checkForgeCounts(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -275,7 +275,7 @@ func checkForgeCounts(r *Rig) error {
 func checkForgeFailure(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -301,7 +301,7 @@ func checkForgeFailure(r *Rig) error {
 func checkSecondPrincipal(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	finished := LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true))
+	finished := LaneFinished(r.Commit(), LaneCheck(criterionOne, true))
 	byOrchestrator, err := r.Awaiting(s, []string{criterionOne}, finished)
 	if err != nil {
 		return err
@@ -337,7 +337,7 @@ func checkSecondPrincipal(r *Rig) error {
 func checkMemberNeeded(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne, criterionTwo}, LaneFinished(head, LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
@@ -369,7 +369,7 @@ func checkMemberNeeded(r *Rig) error {
 func checkFailedCheck(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	failed := LaneFinished(r.ID("commit"), LaneCheck(criterionOne, false))
+	failed := LaneFinished(r.Commit(), LaneCheck(criterionOne, false))
 	byTick, err := r.Awaiting(s, []string{criterionOne}, failed)
 	if err != nil {
 		return err
@@ -386,7 +386,7 @@ func checkFailedCheck(r *Rig) error {
 	if err := r.stateIs(s, byTick, workorders.Ready); err != nil {
 		return err
 	}
-	byMember, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	byMember, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -406,7 +406,7 @@ func checkFailedCheck(r *Rig) error {
 func checkEarlierAttempt(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	first, second := r.ID("commit"), r.ID("commit")
+	first, second := r.Commit(), r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(first, LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
@@ -447,7 +447,7 @@ func checkEarlierAttempt(r *Rig) error {
 func checkEvidenceLinked(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head, LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
@@ -490,7 +490,7 @@ func checkBranchChangeSize(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
 	branchOf := func(change *ledger.ChangeSize) (ledger.Artifact, ledger.Artifact, error) {
-		result := LaneFinished(r.ID("commit"))
+		result := LaneFinished(r.Commit())
 		result.Change = change
 		id, err := r.Awaiting(s, []string{criterionOne}, result)
 		if err != nil {
@@ -540,7 +540,7 @@ var errRolledBack = errors.New("rolled back on purpose")
 // reliably catch a compare-and-set that went missing.
 func checkAcceptanceMovesOnce(r *Rig) error {
 	s := r.Store()
-	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -570,7 +570,7 @@ func checkAcceptanceMovesOnce(r *Rig) error {
 func checkAcceptanceRetry(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -593,7 +593,7 @@ func checkAcceptanceRetry(r *Rig) error {
 func checkReworkReady(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
@@ -621,7 +621,7 @@ func checkReworkReady(r *Rig) error {
 func checkForgeUnreachable(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, false)))
+	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, false)))
 	if err != nil {
 		return err
 	}
@@ -635,7 +635,7 @@ func checkForgeUnreachable(r *Rig) error {
 func checkForgeRerun(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne, criterionTwo}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -670,7 +670,7 @@ func checkForgeRerun(r *Rig) error {
 func checkAcceptanceRace(r *Rig) error {
 	s := r.Store()
 	for range acceptanceRaces {
-		id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+		id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 		if err != nil {
 			return err
 		}
@@ -725,7 +725,7 @@ func (f racingForge) Checks(ctx context.Context, scope ledger.WorkspaceID, reque
 func checkForgeKeepsItsAttempt(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	first := r.ID("commit")
+	first := r.Commit()
 	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(first))
 	if err != nil {
 		return err
@@ -741,7 +741,7 @@ func checkForgeKeepsItsAttempt(r *Rig) error {
 		if _, err := ops.Rework(r.Ctx, r.Scope, id, reworkReason, r.Actor); err != nil {
 			return err
 		}
-		return r.anotherAttempt(s, id, LaneFinished(r.ID("commit")))
+		return r.anotherAttempt(s, id, LaneFinished(r.Commit()))
 	}}
 	if moved, err := ops.Settle(r.Ctx, r.Scope, racing, r.tick()); err != nil || len(moved) != 0 {
 		return Violatedf("a tick moved %v: %v", moved, err)
@@ -762,11 +762,11 @@ func checkForgeKeepsItsAttempt(r *Rig) error {
 func checkAcceptanceReplays(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	accepted, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	accepted, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}
-	reworked, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	reworked, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}

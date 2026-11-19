@@ -47,7 +47,7 @@ describe("the Changes tab", () => {
     const c1 = within(screen.getByRole("list", { name: "Criteria" })).getAllByRole("listitem")[0] as HTMLElement;
     expect(c1.textContent).toContain("Pass");
     expect(c1.textContent).toContain("The budget stops the retries after the third.");
-    expect(within(c1).getByText("cab321").getAttribute("title")).toBe("cab321");
+    expect(within(c1).getByText("cab321000000").getAttribute("title")).toBe("cab3210000000000000000000000000000000000");
     expect(c1.textContent).toContain("on commit");
     const checks = within(screen.getByRole("list", { name: "Checks" })).getAllByRole("listitem");
     expect(checks).toHaveLength(1);
@@ -85,7 +85,7 @@ describe("the Changes tab", () => {
     none.unmount();
     const noted = standing("reviewed");
     noted.notes = [
-      { point: "secrets", reasons: "<img src=x onerror=alert(1)>", citations: ["config.yaml:4"], review_id: "rv-1", work_order_id: "wo-ruled", commit: "cab321", seq: 0 },
+      { point: "secrets", reasons: "<img src=x onerror=alert(1)>", citations: ["config.yaml:4"], review_id: "rv-1", work_order_id: "wo-ruled", commit: "cab3210000000000000000000000000000000000", seq: 0 },
     ];
     const { container } = render(<ChangesView standing={noted} />);
     const panel = within(screen.getByRole("heading", { level: 3, name: "Security notes" }).closest("section") as HTMLElement);

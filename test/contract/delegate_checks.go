@@ -734,14 +734,14 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
 	actor := authority.DelegateActor(theMember.ID, "dlg_1")
-	lane, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	lane, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}
 	if _, err := ops.Accept(r.Ctx, r.Scope, lane, actor); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate accepted work only its lane vouches for: %v", err)
 	}
-	head := r.ID("commit")
+	head := r.Commit()
 	pending, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -776,7 +776,7 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	if _, err := ops.Accept(r.Ctx, r.Scope, green, actor); err != nil {
 		return Violatedf("a delegate's acceptance of verified work: %v", err)
 	}
-	head = r.ID("commit")
+	head = r.Commit()
 	unreviewed, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -802,7 +802,7 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	if err := r.stateIs(s, again, workorders.Ready); err != nil {
 		return Violatedf("a failed review with rounds left should send the work back: %v", err)
 	}
-	head = r.ID("commit")
+	head = r.Commit()
 	if err := r.attempt(s, again, LaneFinished(head)); err != nil {
 		return err
 	}
@@ -903,7 +903,7 @@ func checkDelegateReviewBounds(r *Rig) error {
 	if err != nil {
 		return Violatedf("a delegate's start of a contract review: %v", err)
 	}
-	head := r.ID("commit")
+	head := r.Commit()
 	if err := r.attempt(s, review.ID, LaneFinished(head)); err != nil {
 		return err
 	}

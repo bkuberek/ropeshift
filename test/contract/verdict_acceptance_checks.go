@@ -94,7 +94,7 @@ func (r *Rig) atLevel(s ports.Store, level ledger.MergeAuthority) error {
 
 // judged is a work order whose lane completed at a commit and whose review waits for a lane.
 func (r *Rig) judged(s ports.Store, criteria ...string) (id, head string, err error) {
-	head = r.ID("commit")
+	head = r.Commit()
 	id, err = r.AwaitingReview(s, criteria, LaneFinished(head))
 	return id, head, err
 }
@@ -232,7 +232,7 @@ func checkOnlyAReviewReportsVerdicts(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	result := LaneFinished(r.ID("commit"))
+	result := LaneFinished(r.Commit())
 	result.Verdicts = []workorders.CriterionVerdict{say(criterionOne, workorders.VerdictPass)}
 	before, err := r.Revision(s, r.Scope)
 	if err != nil {
@@ -420,7 +420,7 @@ func checkCannotJudgeWaits(r *Rig) error {
 	}
 
 	// A lane's own check does not cover what the review could not judge, so the work waits.
-	head := r.ID("commit")
+	head := r.Commit()
 	laneOnly, err := r.AwaitingReview(s, []string{criterionOne, criterionTwo}, LaneFinished(head, LaneCheck(criterionTwo, true)))
 	if err != nil {
 		return err
@@ -436,7 +436,7 @@ func checkCannotJudgeWaits(r *Rig) error {
 	}
 
 	// A passing forge check on that criterion covers it, and the tick accepts at review_approves.
-	other := r.ID("commit")
+	other := r.Commit()
 	covered, err := r.AwaitingReview(s, []string{criterionOne, criterionTwo}, LaneFinished(other))
 	if err != nil {
 		return err
@@ -460,7 +460,7 @@ func checkCannotJudgeWaits(r *Rig) error {
 	if err := r.atLevel(s, ledger.PersonMerges); err != nil {
 		return err
 	}
-	third := r.ID("commit")
+	third := r.Commit()
 	waiting, err := r.AwaitingReview(s, []string{criterionOne, criterionTwo}, LaneFinished(third))
 	if err != nil {
 		return err
@@ -494,7 +494,7 @@ func checkReviewRoundsAreBounded(r *Rig) error {
 	if err := r.stateIs(s, id, workorders.Ready); err != nil {
 		return Violatedf("round 1 of 2: %v", err)
 	}
-	if err := r.attempt(s, id, LaneFinished(r.ID("commit"))); err != nil {
+	if err := r.attempt(s, id, LaneFinished(r.Commit())); err != nil {
 		return err
 	}
 	if err := failing(); err != nil {
@@ -528,7 +528,7 @@ func checkStaleVerdictsDecideNothing(r *Rig) error {
 	}
 	// A verdict on the commit another attempt left does not speak for this one, even where the new
 	// attempt ends at the same commit.
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -648,7 +648,7 @@ func checkTickReworksAfterTheReview(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
 	forge := &fake.Forge{}
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -684,7 +684,7 @@ func checkReviewWithoutVerdictsLeavesTheEvidence(r *Rig) error {
 
 	// A review that failed gave no verdict, so a forge result that covers every criterion settles the work
 	// as it did before the review existed.
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -699,7 +699,7 @@ func checkReviewWithoutVerdictsLeavesTheEvidence(r *Rig) error {
 	}
 
 	// A review a member canceled gave none either.
-	other := r.ID("commit")
+	other := r.Commit()
 	canceled, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(other))
 	if err != nil {
 		return err

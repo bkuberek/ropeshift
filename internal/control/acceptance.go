@@ -697,8 +697,9 @@ func recordForgeChecks(tx ports.WriteTx, w workorders.WorkOrder, branch ledger.A
 
 // recordEvidence keeps what a lane's end says, in the transaction that stores the end, so an
 // outcome can never stand without the artifacts and checks it rests on (FR-LANE-2). Only the
-// branch, with the size of its change, and the merge that imported a design repository's history come from the worker. A lane's checks hang from it as the artifact
-// they prove.
+// branch, with its head and the size of its change, and the merge that imported a design
+// repository's history come from the worker. A head or a merge that is no commit ID is left out.
+// A lane's checks hang from the branch as the artifact they prove.
 func recordEvidence(tx ports.WriteTx, holder workorders.Holder, fence int64, result workorders.LaneResult) error {
 	addArtifact := func(kind, uri, digest string, change *ledger.ChangeSize) (string, error) {
 		id, err := newID(tx.Now())
@@ -710,7 +711,11 @@ func recordEvidence(tx ports.WriteTx, holder workorders.Holder, fence int64, res
 	var branch string
 	if result.Branch != "" {
 		var err error
-		if branch, err = addArtifact(ledger.ArtifactBranch, result.Branch, result.Head, result.Change); err != nil {
+		head := result.Head
+		if !ledger.CommitHash(head) {
+			head = ""
+		}
+		if branch, err = addArtifact(ledger.ArtifactBranch, result.Branch, head, result.Change); err != nil {
 			return err
 		}
 	}

@@ -128,7 +128,7 @@ func (r *Rig) registerWorker(s ports.Store) error {
 // finishLikeThePlans finishes work like a plan's, which the delivery fold then keeps a record of, so the next
 // estimate of the plan's work rests on one more record.
 func (r *Rig) finishLikeThePlans(s ports.Store) error {
-	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}
@@ -435,7 +435,7 @@ func checkForecastDependencies(r *Rig) error {
 	if err := r.registerWorker(s); err != nil {
 		return err
 	}
-	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}
@@ -500,7 +500,7 @@ func checkForecastOfAReplacedVersion(r *Rig) error {
 
 	// Work like the plan's finishes, so the next run estimates the version's work anew, and intake records the
 	// plan's second version between that run's read and its keep.
-	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}

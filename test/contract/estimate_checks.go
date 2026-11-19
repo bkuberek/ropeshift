@@ -128,7 +128,7 @@ func madeNow(e delivery.Estimate, set delivery.EstimateSet) bool {
 
 func checkEstimateAtCreation(r *Rig) error {
 	s := r.Store()
-	first, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	first, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func checkEstimateRefresh(r *Rig) error {
 	}
 
 	// Work like the open work finishes, and once the fold keeps its record, both open works' estimates draw on it.
-	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}

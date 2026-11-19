@@ -214,7 +214,7 @@ func TestAReviewsSpendStopOffersNoReplan(t *testing.T) {
 		if err := tx.Lanes().Start("lane-judged", "wo-judged", 1, ledger.LanePolicies{}); err != nil {
 			return err
 		}
-		branch := ledger.Artifact{ID: "artifact-judged", Lane: "lane-judged", Kind: ledger.ArtifactBranch, URI: "refs/heads/judged", Digest: "c0ffee", Fence: 1}
+		branch := ledger.Artifact{ID: "artifact-judged", Lane: "lane-judged", Kind: ledger.ArtifactBranch, URI: "refs/heads/judged", Digest: "c0ffee0000000000000000000000000000000000", Fence: 1}
 		if err := tx.Lanes().AddArtifact(branch); err != nil {
 			return err
 		}

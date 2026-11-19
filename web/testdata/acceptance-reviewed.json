@@ -16,7 +16,7 @@
       "lane_id": "lane-wo-ruled",
       "kind": "branch",
       "uri": "lane/lane-wo-ruled",
-      "digest": "cab321",
+      "digest": "cab3210000000000000000000000000000000000",
       "fence": 2,
       "change": {
         "files": 1,
@@ -58,7 +58,7 @@
       "review_id": "generated-3",
       "work_order_id": "wo-ruled",
       "attempt": 2,
-      "commit": "cab321",
+      "commit": "cab3210000000000000000000000000000000000",
       "lane_id": "lane-generated-3",
       "generation": 1,
       "fence": 2,

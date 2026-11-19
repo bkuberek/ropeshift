@@ -302,7 +302,7 @@ func TestAWakeStatesWhatADelegateWroteAsTheDelegates(t *testing.T) {
 		t.Fatal(err)
 	}
 	endLane(t, d.Daemon, "wo-failed", workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonCrashed}})
-	endLane(t, d.Daemon, "wo-finished", workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/wo-finished", Head: "abc123"})
+	endLane(t, d.Daemon, "wo-finished", workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/wo-finished", Head: "abc1230000000000000000000000000000000000"})
 	if _, err := d.Client.SetFleetMode(ctx, api.SetFleetMode{Mode: ledger.FleetRun}); err != nil {
 		t.Fatal(err)
 	}

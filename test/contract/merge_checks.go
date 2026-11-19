@@ -30,6 +30,7 @@ var MergeChecks = []Check{
 	{"MG10", "a merge refused because the head moved sends the work back to review at the new head, and voids what the old head had", checkStaleMergeReviewsTheNewHead},
 	{"MG11", "a read whose head moved past the reviewed commit sends work in integrating back to review, and voids the member's open approval", checkMovedHeadVoidsTheApproval},
 	{"MG12", "at person_merges accepted work through a pull request waits in integrating for the person's merge, which ropeshift never makes", checkPersonMergesWaitsInIntegrating},
+	{"MG13", "a merge refused as stale at a head that is no commit ID leaves the work in integrating at the reviewed commit", checkStaleMergeAtNoCommitIDIsIgnored},
 }
 
 // newMergeRig is a forge rig whose repository merges at a level, with a method.
@@ -585,7 +586,7 @@ func checkMergeOfWorkSentBack(r *Rig) error {
 }
 
 // moved pushes a new head to the rig's pull request on the forge, as someone's push leaves it, and returns it.
-func (f *forgeRig) movedHead() string { return f.r.ID("moved") }
+func (f *forgeRig) movedHead() string { return f.r.Commit() }
 
 // reviewsNow lists the rig's reviews, oldest first.
 func (f *forgeRig) reviewsNow() ([]workorders.WorkOrder, error) {
@@ -705,6 +706,43 @@ func checkMovedHeadVoidsTheApproval(r *Rig) error {
 	}
 	if err := f.noMerge(); err != nil {
 		return err
+	}
+	return r.CheckProjection(f.store)
+}
+
+func checkStaleMergeAtNoCommitIDIsIgnored(r *Rig) error {
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, "")
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	first, err := f.oneMerge()
+	if err != nil {
+		return err
+	}
+	const notACommit = "--upload-pack=x"
+	if err := f.mergeCame(first, ledger.MergeResult{Outcome: ledger.MergeStaleHead, Head: notACommit, Detail: "the pull request's head moved"}); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Integrating); err != nil {
+		return err
+	}
+	if all, err := f.reviewsNow(); err != nil || len(all) != 1 {
+		return Violatedf("a head that is no commit ID opened reviews %+v: %v", all, err)
+	}
+	view, err := f.standing()
+	if err != nil {
+		return err
+	}
+	for _, artifact := range view.Artifacts {
+		if artifact.Digest == notACommit {
+			return Violatedf("the attempt's commits %+v hold a head that is no commit ID", view.Artifacts)
+		}
+	}
+	if count, _, err := f.r.eventsAbout(f.store, f.grant.WorkOrder, workorders.EventType(workorders.TriggerHeadMoved)); err != nil || count != 0 {
+		return Violatedf("%d moves back to review for a head that is no commit ID: %v", count, err)
 	}
 	return r.CheckProjection(f.store)
 }

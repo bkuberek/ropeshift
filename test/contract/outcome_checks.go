@@ -172,7 +172,7 @@ func checkWorkOutcomes(r *Rig) error {
 
 // finishPlanned runs a plan's ready work order to done.
 func (r *Rig) finishPlanned(s ports.Store, id string) error {
-	if err := r.anotherAttempt(s, id, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true))); err != nil {
+	if err := r.anotherAttempt(s, id, LaneFinished(r.Commit(), LaneCheck(criterionOne, true))); err != nil {
 		return err
 	}
 	_, err := r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor)

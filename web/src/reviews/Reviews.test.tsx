@@ -70,7 +70,7 @@ describe("the queue", () => {
     expect(ruled.getByText("Integrating")).toBeTruthy();
     expect(ruled.queryByText(/security note/)).toBeNull();
     expect(ruled.getByText("1 passed, 1 running")).toBeTruthy();
-    expect(ruled.getByText("Your approval of the merge: required checks are still running on cab321: e2e")).toBeTruthy();
+    expect(ruled.getByText("Your approval of the merge: required checks are still running on cab32100: e2e")).toBeTruthy();
   });
 
   it("links each work order to its page, and counts the work in its tab", async () => {
@@ -145,7 +145,7 @@ describe("the queue", () => {
     expect(dialog.textContent).toContain("#11");
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve merge" }));
     await waitFor(() => expect(changes(sent)).toHaveLength(1));
-    expect(changes(sent)[0]).toMatchObject({ method: "POST", path: "/v1/approvals/generated-13/decide", body: { digest: "cab321", allow: true, reason: "" } });
+    expect(changes(sent)[0]).toMatchObject({ method: "POST", path: "/v1/approvals/generated-13/decide", body: { digest: "cab3210000000000000000000000000000000000", allow: true, reason: "" } });
   });
 
   it("denies a merge with a reason through the same card", async () => {
@@ -156,7 +156,7 @@ describe("the queue", () => {
     await userEvent.type(within(dialog).getByRole("textbox"), "Wait for the e2e check.");
     await userEvent.click(within(dialog).getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(changes(sent)).toHaveLength(1));
-    expect(changes(sent)[0]).toMatchObject({ body: { digest: "cab321", allow: false, reason: "Wait for the e2e check." } });
+    expect(changes(sent)[0]).toMatchObject({ body: { digest: "cab3210000000000000000000000000000000000", allow: false, reason: "Wait for the e2e check." } });
   });
 
   it("names a held merge by what it asks", async () => {
@@ -214,7 +214,7 @@ describe("the pull requests tab", () => {
     const ruled = within(rows[0] as HTMLElement);
     expect(ruled.getByText("#11")).toBeTruthy();
     expect(ruled.getByText("lane/lane-wo-ruled into main")).toBeTruthy();
-    expect(ruled.getByText("cab321").getAttribute("title")).toBe("cab321");
+    expect(ruled.getByText("cab321000000").getAttribute("title")).toBe("cab3210000000000000000000000000000000000");
     expect(ruled.getByText("Read by the review")).toBeTruthy();
     expect(ruled.getByText("1 passed, 1 running")).toBeTruthy();
     expect(ruled.getByText("Merges cleanly")).toBeTruthy();

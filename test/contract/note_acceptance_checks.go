@@ -12,8 +12,8 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// commitNames matches the commits the rig names, which differ between two works that settle alike.
-var commitNames = regexp.MustCompile(`commit-\d+`)
+// commitNames matches the short commits the rig names, which differ between two works that settle alike.
+var commitNames = regexp.MustCompile(`\b[0-9a-f]{8}\b`)
 
 // aToken is shaped like a GitHub token, built here so that no file holds one.
 var aToken = "ghp_" + strings.Repeat("a1", 12)
@@ -245,7 +245,7 @@ func checkOnlyAReviewReportsNotes(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	result := LaneFinished(r.ID("commit"))
+	result := LaneFinished(r.Commit())
 	result.Notes = twoNotes()
 	before, err := r.Revision(s, r.Scope)
 	if err != nil {

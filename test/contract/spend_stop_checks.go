@@ -399,7 +399,7 @@ func checkSpendStopInterrupts(r *Rig) error {
 		return err
 	}
 	// The lane finishes its work past the limit, and a lane that completed is no stop.
-	result, err := json.Marshal(LaneFinished(r.ID("commit")))
+	result, err := json.Marshal(LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}

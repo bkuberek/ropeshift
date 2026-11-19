@@ -39,7 +39,7 @@ func (s *statusRig) parkingUpload(wake, expr string) (ledger.UploadReply, error)
 
 func (s *statusRig) parkedUpload(wake string, pushed bool) (ledger.UploadReply, error) {
 	raw, err := json.Marshal(ledger.ParkedCommit{Wake: wake, Checkpoint: ledger.Checkpoint{
-		Lane: s.lane, Generation: 1, Branch: "lane/x", Head: "abc", SnapshotRef: "refs/ropeshift/checkpoints/x/1", Pushed: pushed,
+		Lane: s.lane, Generation: 1, Branch: "lane/x", Head: "abc1230000000000000000000000000000000000", SnapshotRef: "refs/ropeshift/checkpoints/x/1", Pushed: pushed,
 		PendingInstruction: "Finish the retry",
 	}})
 	if err != nil {

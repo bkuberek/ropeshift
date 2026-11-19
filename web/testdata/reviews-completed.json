@@ -7,7 +7,7 @@
         "artifacts": [
           {
             "created_at": 1790001864001,
-            "digest": "fed987",
+            "digest": "fed9870000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-1",
             "kind": "branch",
@@ -44,8 +44,8 @@
             "approved_at": 1790002104001,
             "approved_by_id": "member-1",
             "approved_by_kind": "member",
-            "approved_commit": "fed987",
-            "id": "integration:wo-merging:fed987",
+            "approved_commit": "fed9870000000000000000000000000000000000",
+            "id": "integration:wo-merging:fed9870000000000000000000000000000000000",
             "merge_authority": "person_approves",
             "pull_request": 12,
             "work_order_id": "wo-merging"
@@ -65,7 +65,7 @@
               "state": "passed"
             }
           ],
-          "head_commit": "fed987",
+          "head_commit": "fed9870000000000000000000000000000000000",
           "mergeable": "MERGEABLE",
           "number": 12,
           "state": "open",
@@ -86,7 +86,7 @@
             "citations": [
               "retry.go:21"
             ],
-            "commit": "fed987",
+            "commit": "fed9870000000000000000000000000000000000",
             "created_at": 1790002044001,
             "criterion": "c1",
             "fence": 2,
@@ -98,7 +98,7 @@
             "work_order_id": "wo-merging"
           }
         ],
-        "why": "the worker is merging fed987 into main",
+        "why": "the worker is merging fed98700 into main",
         "work_order_id": "wo-merging"
       },
       "work_order": {
@@ -122,7 +122,7 @@
         "artifacts": [
           {
             "created_at": 1790001324001,
-            "digest": "cab321",
+            "digest": "cab3210000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-5",
             "kind": "branch",
@@ -169,7 +169,7 @@
               "state": "pending"
             }
           ],
-          "head_commit": "cab321",
+          "head_commit": "cab3210000000000000000000000000000000000",
           "mergeable": "MERGEABLE",
           "number": 11,
           "state": "open",
@@ -190,7 +190,7 @@
             "citations": [
               "retry.go:21"
             ],
-            "commit": "cab321",
+            "commit": "cab3210000000000000000000000000000000000",
             "created_at": 1790001504001,
             "criterion": "c1",
             "fence": 2,
@@ -202,7 +202,7 @@
             "work_order_id": "wo-ruled"
           }
         ],
-        "why": "required checks are still running on cab321: e2e",
+        "why": "required checks are still running on cab32100: e2e",
         "work_order_id": "wo-ruled"
       },
       "work_order": {
@@ -258,7 +258,7 @@
         "artifacts": [
           {
             "created_at": 1790000904001,
-            "digest": "def456",
+            "digest": "def4560000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-10",
             "kind": "branch",
@@ -318,7 +318,7 @@
         "artifacts": [
           {
             "created_at": 1790000844001,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-13",
             "kind": "branch",
@@ -373,7 +373,7 @@
             "citations": [
               "cut.go:12"
             ],
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000844001,
             "criterion": "c1",
             "fence": 2,
@@ -408,7 +408,7 @@
         "artifacts": [
           {
             "created_at": 1790000424001,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-18",
             "kind": "branch",
@@ -433,7 +433,7 @@
             "citations": [
               "trim.go:44"
             ],
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000424001,
             "point": "injection",
             "reasons": "trim.go passes the log name to a shell command.",
@@ -444,7 +444,7 @@
           },
           {
             "attempt": 2,
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000424001,
             "point": "dependencies",
             "reasons": "go.mod adds a module at a branch and not at a version.",
@@ -470,7 +470,7 @@
               "trim.go:30",
               "FR-LOG-2"
             ],
-            "commit": "abc123",
+            "commit": "abc1230000000000000000000000000000000000",
             "created_at": 1790000424001,
             "criterion": "c1",
             "fence": 2,
@@ -506,7 +506,7 @@
         "artifacts": [
           {
             "created_at": 1790000184000,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-21",
             "kind": "branch",

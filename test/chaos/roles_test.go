@@ -3,6 +3,7 @@
 package chaos
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -389,7 +390,8 @@ func roleEndLane(c *child) error {
 	holder := workorders.Holder{
 		Lease: c.lease(), Lane: c.spec.Lane, Generation: c.spec.Generation,
 	}
-	result := contract.LaneFinished("commit-"+c.spec.Lane, contract.LaneCheck("c1", true))
+	commit := sha256.Sum256([]byte("commit-" + c.spec.Lane))
+	result := contract.LaneFinished(fmt.Sprintf("%x", commit), contract.LaneCheck("c1", true))
 	err := c.ops.EndLane(c.ctx, c.scope, holder, result, c.actor)
 	var fenced *workorders.FencedError
 	if errors.As(err, &fenced) && fenced.State == workorders.Acceptance {
