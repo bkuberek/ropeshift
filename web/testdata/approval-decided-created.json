@@ -1,0 +1,123 @@
+{
+  "id": "generated-1",
+  "lane_id": "",
+  "work_order_id": "",
+  "generation": 0,
+  "kind": "plan",
+  "subject": "generated-2@1",
+  "subject_digest": "sha256:f00215512db9773f254129da2daf6a7272420bfcfb6774bae20dca277ae2890b",
+  "summary": "Plan The platform, version 1: 1 contract, 1 repositories",
+  "requested_by": "system:intake",
+  "state": "approved",
+  "decided_by": "member:member-1",
+  "decided_kind": "member",
+  "decided_digest": "sha256:f00215512db9773f254129da2daf6a7272420bfcfb6774bae20dca277ae2890b",
+  "decided_at": 1790000000000,
+  "policy_version": 1,
+  "raised_at": 1790000000000,
+  "channel": "cli",
+  "plan_id": "generated-2",
+  "plan_version": 1,
+  "detail": "{\"title\":\"The platform\",\"ref\":\"platform-v1\",\"counts\":{\"contract\":1,\"repositories\":1},\"difference\":{\"added\":[\"contract:alpha\",\"plan:platform-v1\",\"repositories:platform\"]},\"source\":\"plan.md@3\",\"shown\":{\"ids\":[]}}",
+  "repositories": [
+    {
+      "name": "billing",
+      "manifest_path": "../billing",
+      "remote": "git@example.invalid:acme/billing.git",
+      "path": "/work/billing",
+      "outcome": "registered",
+      "repository": {
+        "id": "id-billing",
+        "name": "billing",
+        "remote": "git@example.invalid:acme/billing.git",
+        "default_branch": "main",
+        "merge_method": "merge",
+        "merge_authority": "person_merges",
+        "review_target": "branch",
+        "start_from": "merged",
+        "state": "active"
+      },
+      "checkout": "/work/billing"
+    },
+    {
+      "name": "web",
+      "manifest_path": "../web",
+      "remote": "git@github.com:acme/web.git",
+      "path": "/work/web",
+      "outcome": "created",
+      "repository": {
+        "id": "id-web",
+        "name": "web",
+        "remote": "git@github.com:acme/web.git",
+        "default_branch": "main",
+        "merge_method": "merge",
+        "merge_authority": "person_merges",
+        "review_target": "branch",
+        "start_from": "merged",
+        "state": "active"
+      },
+      "checkout": "/work/web",
+      "creation": {
+        "forge": "github",
+        "owner": "acme",
+        "forge_name": "web",
+        "visibility": "private",
+        "default_branch": "main",
+        "url": "git@github.com:acme/web.git",
+        "login": "octo",
+        "commit": "1a2b3c4",
+        "steps": [
+          {
+            "step": "create",
+            "outcome": "done"
+          },
+          {
+            "step": "origin",
+            "outcome": "done"
+          },
+          {
+            "step": "push",
+            "outcome": "done"
+          }
+        ],
+        "makefile": "web=git@github.com:acme/web.git=../web"
+      }
+    },
+    {
+      "name": "docs",
+      "manifest_path": "../docs",
+      "remote": "git@github.com:acme/docs.git",
+      "path": "/work/docs",
+      "outcome": "create_failed",
+      "reason": "docs was created only in part, and is kept as it is: the push step failed: remote: Permission denied",
+      "creation": {
+        "forge": "github",
+        "owner": "acme",
+        "forge_name": "docs",
+        "visibility": "public",
+        "default_branch": "main",
+        "url": "git@github.com:acme/docs.git",
+        "login": "octo",
+        "commit": "5d6e7f8",
+        "steps": [
+          {
+            "step": "create",
+            "outcome": "done"
+          },
+          {
+            "step": "origin",
+            "outcome": "done"
+          },
+          {
+            "step": "push",
+            "outcome": "failed",
+            "detail": "remote: Permission denied"
+          }
+        ],
+        "remaining": [
+          "git -C /work/docs push --set-upstream origin main"
+        ]
+      }
+    }
+  ]
+}
