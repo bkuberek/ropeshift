@@ -10,12 +10,12 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const templateWriteColumns = `id, worker_id, requested_by, requested_at, expires_at, shape, path, project, repositories, first_commit, remote, state, report, reported_at`
+const templateWriteColumns = `id, worker_id, requested_by, requested_at, expires_at, shape, path, name, project, repositories, first_commit, remote, state, report, reported_at`
 
 var (
 	stmtInsertTemplateWrite = define("template_write.insert",
-		`INSERT INTO template_writes (workspace_id, id, worker_id, requested_by, requested_at, expires_at, shape, path, project, repositories, first_commit, remote, state)
-VALUES (:workspace_id, :id, :worker_id, :requested_by, :requested_at, :expires_at, :shape, :path, :project, :repositories, :first_commit, :remote, :state)`)
+		`INSERT INTO template_writes (workspace_id, id, worker_id, requested_by, requested_at, expires_at, shape, path, name, project, repositories, first_commit, remote, state)
+VALUES (:workspace_id, :id, :worker_id, :requested_by, :requested_at, :expires_at, :shape, :path, :name, :project, :repositories, :first_commit, :remote, :state)`)
 
 	stmtFindTemplateWrite = define("template_write.find",
 		`SELECT `+templateWriteColumns+` FROM template_writes WHERE workspace_id = :workspace_id AND id = :id`)
@@ -47,7 +47,7 @@ func scanTemplateWrite(row scanner) (ledger.TemplateWriteRecord, error) {
 	var r ledger.TemplateWriteRecord
 	var repositories, remote, state, report string
 	var firstCommit int64
-	err := row.Scan(&r.ID, &r.Worker, &r.RequestedBy, &r.RequestedAt, &r.ExpiresAt, &r.Request.Shape, &r.Request.Path, &r.Request.Project,
+	err := row.Scan(&r.ID, &r.Worker, &r.RequestedBy, &r.RequestedAt, &r.ExpiresAt, &r.Request.Shape, &r.Request.Path, &r.Request.Name, &r.Request.Project,
 		&repositories, &firstCommit, &remote, &state, &report, &r.ReportedAt)
 	if err != nil {
 		return ledger.TemplateWriteRecord{}, err
@@ -118,7 +118,7 @@ func (t templateWriteTx) Insert(r ledger.TemplateWriteRecord) error {
 	}
 	_, err = t.exec(stmtInsertTemplateWrite, t.scoped(params{
 		"id": r.ID, "worker_id": r.Worker, "requested_by": r.RequestedBy, "requested_at": r.RequestedAt, "expires_at": r.ExpiresAt,
-		"shape": r.Request.Shape, "path": r.Request.Path, "project": r.Request.Project, "repositories": string(repositories),
+		"shape": r.Request.Shape, "path": r.Request.Path, "name": r.Request.Name, "project": r.Request.Project, "repositories": string(repositories),
 		"first_commit": firstCommit, "remote": string(remote), "state": string(ledger.TemplateWriteOffered),
 	}))
 	return err
