@@ -232,3 +232,55 @@ func TestHeldNamesTheShapePathsTheFolderHolds(t *testing.T) {
 		t.Errorf("a folder that is not there holds %v (%v)", got, err)
 	}
 }
+
+// A worker that died between git add and git commit finds the files in the index and no commit: the resume commits them,
+// as a run that never died does, and an ignored file stays out.
+func TestAResumedFirstCommitAfterTheAddEndsInACommit(t *testing.T) {
+	gittest.Require(t)
+	excludes := filepath.Join(t.TempDir(), "ignore")
+	if err := os.WriteFile(excludes, []byte("CLAUDE.md\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := gitEnv(t, identity+"[core]\n\texcludesFile = "+excludes+"\n", nil)
+	f := projectfolders.Folders{Env: env}
+	folder := filepath.Join(t.TempDir(), "harbor")
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}, {Path: "CLAUDE.md", Text: "@AGENTS.md\n"}, {Path: "plan/goal.md", Text: "goal\n"}})
+	git := gitcli.Git{Dir: folder, Env: env}
+	for _, args := range [][]string{{"init", "--quiet"}, {"add", "--", "AGENTS.md", "plan/goal.md"}} {
+		if _, err := git.Output(t.Context(), args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spec := ports.CommitSpec{Paths: []string{"AGENTS.md", "CLAUDE.md", "plan/goal.md"}}
+	commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, id, spec)
+	if err != nil || commit == "" {
+		t.Fatalf("the resumed first commit is %q (%v)", commit, err)
+	}
+	if got, want := treeOf(t, env, folder), []string{"AGENTS.md", "plan/goal.md"}; !slices.Equal(got, want) {
+		t.Errorf("the first commit holds %v, want %v", got, want)
+	}
+}
+
+// An include in the global configuration is read, as git reads it: the branch an included file names is the one a new
+// repository starts on.
+func TestFirstCommitReadsTheDefaultBranchThroughAnInclude(t *testing.T) {
+	gittest.Require(t)
+	included := filepath.Join(t.TempDir(), "branch.gitconfig")
+	if err := os.WriteFile(included, []byte("[init]\n\tdefaultBranch = trunk\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := gitEnv(t, identity+"[include]\n\tpath = "+included+"\n", nil)
+	f := projectfolders.Folders{Env: env}
+	folder := filepath.Join(t.TempDir(), "harbor")
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	branch, err := (gitcli.Git{Dir: folder, Env: env}).Text(t.Context(), "symbolic-ref", "--short", "HEAD")
+	if err != nil || branch != "trunk" {
+		t.Errorf("the repository is on %q (%v), want trunk", branch, err)
+	}
+	if got := f.DefaultBranch(t.Context(), folder); got != "trunk" {
+		t.Errorf("the default branch is %q, want trunk", got)
+	}
+}

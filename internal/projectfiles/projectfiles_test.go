@@ -328,7 +328,7 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 // ignore, read as files and never as pathspecs.
 func addOf(folder string, paths ...string) string {
 	git := "git -C " + folder + " --literal-pathspecs"
-	return git + " ls-files -z --others --exclude-standard -- " + strings.Join(paths, " ") + " | xargs -0 " + git + " add --"
+	return git + " ls-files -z --cached --others --exclude-standard -- " + strings.Join(paths, " ") + " | xargs -0 " + git + " add --"
 }
 
 // shapePaths are the paths a shape writes, sorted, from the table of FR-TPL-1, with the workspace's manifest when it
@@ -346,7 +346,7 @@ func shapePaths(shape projectfiles.Shape, repositories []projectfiles.CodeReposi
 // before is not added, and each new code repository adds the files of its own.
 func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 	written := []string{"AGENTS.md", "plan/goal.md"}
-	got := projectfiles.CommandsStaging(projectfiles.Monorepo, "/work/orchid", "orchid", nil, written)
+	got := projectfiles.CommandsStaging(projectfiles.Monorepo, "/work/orchid", "orchid", nil, written, "")
 	want := []string{
 		"git -C /work/orchid init",
 		addOf("/work/orchid", "AGENTS.md", "plan/goal.md"),
@@ -359,7 +359,7 @@ func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 	}
 	fresh := []projectfiles.CodeRepository{{Name: "api", New: true}}
 	got = projectfiles.CommandsStaging(projectfiles.Workspace, "/work/orchid", "orchid", fresh,
-		[]string{"AGENTS.md", "repos/api/AGENTS.md", "repos/api/.gitignore"})
+		[]string{"AGENTS.md", "repos/api/AGENTS.md", "repos/api/.gitignore"}, "")
 	for _, line := range []string{
 		addOf("/work/orchid/repos/api", "AGENTS.md", ".gitignore"),
 		addOf("/work/orchid", "AGENTS.md"),
@@ -373,7 +373,7 @@ func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 // A path with a character a shell would split is quoted, and the add names each path after --, so it copies to a
 // terminal whole and reads each path as a file.
 func TestTheAddCommandQuotesEachPath(t *testing.T) {
-	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", []string{"-n.md", "a b.md", "plan/goal.md"})
+	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", []string{"-n.md", "a b.md", "plan/goal.md"}, "")
 	if want := addOf("/work/orchid", "-n.md", "'a b.md'", "plan/goal.md"); got[1] != want {
 		t.Errorf("the add is %q, want %q", got[1], want)
 	}
@@ -393,8 +393,25 @@ func TestRepositoryPathsDivideTheFilesAmongTheRepositories(t *testing.T) {
 
 // With no file to add the commands add nothing: a pathspec of none would list every file of the folder.
 func TestTheFirstCommitCommandsOfNoFileMakeTheRepositoryAndAddNothing(t *testing.T) {
-	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", nil)
+	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", nil, "")
 	if want := []string{"git -C /work/orchid init"}; !slices.Equal(got, want) {
 		t.Errorf("commands %v, want %v", got, want)
+	}
+}
+
+// A copy-pasted init starts the repository on the branch the run chose, and on git's own default when none is named.
+func TestTheInitCommandNamesTheBranchTheRunChose(t *testing.T) {
+	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", []string{"AGENTS.md"}, "trunk")
+	if want := "git -C /work/orchid init --initial-branch=trunk"; got[0] != want {
+		t.Errorf("the init is %q, want %q", got[0], want)
+	}
+	if got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", nil, "trunk"); got[0] != "git -C /work/orchid init --initial-branch=trunk" || len(got) != 1 {
+		t.Errorf("commands of no file are %v", got)
+	}
+	also := projectfiles.CommandsStaging(projectfiles.Workspace, "/work/orchid", "orchid", []projectfiles.CodeRepository{{Name: "api", New: true}}, []string{"AGENTS.md", "repos/api/AGENTS.md"}, "trunk")
+	for _, want := range []string{"git -C /work/orchid/repos/api init --initial-branch=trunk", "git -C /work/orchid init --initial-branch=trunk"} {
+		if !slices.Contains(also, want) {
+			t.Errorf("commands lack %q:\n%s", want, strings.Join(also, "\n"))
+		}
 	}
 }

@@ -235,7 +235,7 @@ func TestEachShapeWritesItsFilesIntoAnAbsentAndAnEmptyFolder(t *testing.T) {
 				for _, repository := range c.repositories {
 					data = append(data, projectfiles.CodeRepository{Name: repository.Name, Remote: repository.Remote})
 				}
-				if commands := projectfiles.Commands(c.shape, folder, named, data, true); !slices.Equal(view.Report.Commands, commands) || view.Report.Project != project {
+				if commands := projectfiles.CommandsStaging(c.shape, folder, named, data, projectfiles.Paths(c.shape, data), "main"); !slices.Equal(view.Report.Commands, commands) || view.Report.Project != project {
 					t.Errorf("the report names project %q and commands %v, want %q and %v", view.Report.Project, view.Report.Commands, project, commands)
 				}
 				if view.Report.Clone || view.Registrable {
@@ -292,7 +292,7 @@ func TestAFailedFirstCommitKeepsTheFilesAndSaysWhy(t *testing.T) {
 	if want := shapeFiles(t, projectfiles.Repository, folder, nil); !slices.Equal(filesUnder(t, folder), want) {
 		t.Errorf("the folder holds %v, want %v", filesUnder(t, folder), want)
 	}
-	if want := projectfiles.Commands(projectfiles.Repository, folder, "harbor", nil, true); !slices.Equal(view.Report.Commands, want) {
+	if want := projectfiles.CommandsStaging(projectfiles.Repository, folder, "harbor", nil, projectfiles.Paths(projectfiles.Repository, nil), "main"); !slices.Equal(view.Report.Commands, want) {
 		t.Errorf("the commands are %v, want %v", view.Report.Commands, want)
 	}
 }

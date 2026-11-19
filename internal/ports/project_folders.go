@@ -51,9 +51,13 @@ type ProjectFolders interface {
 	// at one of them. It looks at each path and at nothing else, so what else the folder holds is never read, and a
 	// folder that is not there holds none. The answer keeps the order of paths.
 	Held(ctx context.Context, folder string, paths []string) ([]string, error)
-	// FirstCommit makes the folder a repository on its default branch, adds the files commit names and no other, and
-	// commits them with the message, and returns the commit's ID. The default branch is the one git's user
-	// configuration names as init.defaultBranch, and main when it names none. It runs under no hook, template, or signing the user's git configuration names.
+	// DefaultBranch is the branch FirstCommit starts a new repository at the folder on: the one the global and then the
+	// system git configuration name as init.defaultBranch, as `git init` reads them, and main when they name none or name a
+	// branch git would refuse. A clone around the folder changes nothing.
+	DefaultBranch(ctx context.Context, folder string) string
+	// FirstCommit makes the folder a repository on its default branch, adds the files commit names that git does not
+	// ignore, and no other, and commits them with the message, and returns the commit's ID. It runs under no hook,
+	// template, or signing the user's git configuration names, and with no file to add it commits nothing and says so.
 	// A step that fails leaves what the earlier steps made. A folder that already holds a .git is taken as the
 	// worker's own only when resumed says the worker journaled its git init: a resume answers with the commit
 	// the repository holds and runs nothing, or goes on from an init with no commit, and a .git the worker did

@@ -316,14 +316,16 @@ func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledg
 		return ledger.TemplateWriteReport{}, err
 	}
 	report.Clone = report.Commit != "" && after.CloneTop != "" && after.CloneTop == after.Real
+	// The branch a first commit made by hand starts on is the one the run chose, which the push that finishes a failed run falls back to too.
+	branch := r.rt.Folders.DefaultBranch(ctx, r.job.Request.Path)
 	var commits []string
 	for _, u := range units[1:] {
 		if r.prog.NeedsRepository && r.prog.unit(u.rel).Commit == "" {
-			commits = append(commits, projectfiles.FirstCommitCommands(u.abs, u.name, projectfiles.RepositoryPaths(u.rel, r.written()))...)
+			commits = append(commits, projectfiles.FirstCommitCommands(u.abs, u.name, projectfiles.RepositoryPaths(u.rel, r.written()), branch)...)
 		}
 	}
 	if r.prog.NeedsRepository && own.Commit == "" {
-		commits = append(commits, projectfiles.FirstCommitCommands(r.job.Request.Path, r.job.commitName(), projectfiles.RepositoryPaths(ownPath, r.written()))...)
+		commits = append(commits, projectfiles.FirstCommitCommands(r.job.Request.Path, r.job.commitName(), projectfiles.RepositoryPaths(ownPath, r.written()), branch)...)
 	}
 	codes := r.job.data(r.prog).Repositories
 	report.Commands = append(commits, projectfiles.Commands(projectfiles.Shape(r.job.Request.Shape), r.job.Request.Path, r.job.commitName(), codes, false)...)
@@ -388,7 +390,7 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 
 // branch is the branch a repository's HEAD names as plain text, which asks origin for it, within the limit one step has.
 // The text is cleaned before it is quoted, because cleaning a quoted word can take its closing quote. A read that fails
-// or names no branch reads as main.
+// or names no branch reads as the branch the run chose for a first commit.
 func (r *runner) branch(ctx context.Context, u unit) string {
 	ctx, cancel := context.WithTimeout(ctx, stepLimit)
 	defer cancel()
@@ -397,5 +399,5 @@ func (r *runner) branch(ctx context.Context, u unit) string {
 			return branch
 		}
 	}
-	return "main"
+	return ledger.PlainText(r.rt.Folders.DefaultBranch(ctx, u.abs))
 }

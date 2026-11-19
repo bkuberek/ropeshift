@@ -23,8 +23,9 @@ type ProjectFolders struct {
 	// tops are the tops of the clones placed or made, and commits the commit made at each.
 	tops    map[string]bool
 	commits map[string]string
-	// staged are the paths each first commit was given to add.
-	staged map[string][]string
+	// staged are the paths each first commit was given to add, and initial the branch a first commit starts on.
+	staged  map[string][]string
+	initial string
 	// CommitError is what a first commit fails with, as git does when no identity is set. The folder is still made
 	// a repository, as `git init` does before the commit fails.
 	CommitError error
@@ -226,6 +227,23 @@ func (f *ProjectFolders) Write(_ context.Context, folder string, files []ports.F
 		f.calls = append(f.calls, fmt.Sprintf("write %s: %d files", folder, created))
 	}
 	return id, nil
+}
+
+// DefaultBranch is the branch a first commit starts on: main, until a test names another.
+func (f *ProjectFolders) DefaultBranch(context.Context, string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.initial != "" {
+		return f.initial
+	}
+	return "main"
+}
+
+// SetDefaultBranch names the branch a first commit starts on, in place of main.
+func (f *ProjectFolders) SetDefaultBranch(branch string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.initial = branch
 }
 
 // Held says which of the paths the folder holds.
