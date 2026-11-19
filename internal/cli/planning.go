@@ -143,8 +143,8 @@ func revisionDecisionLine(decision api.RevisionDecision) string {
 // "forecast pending" before the forecast tick has forecast it.
 func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	approval := view.Approval
-	fmt.Fprintf(out, "approval\t%s\t%s\tversion %d\trequested by %s\n", approval.ID, approval.State, approval.PlanVersion, approval.RequestedBy)
-	fmt.Fprintf(out, "  %s\n", view.Detail.Difference.Summary())
+	fmt.Fprintf(out, "approval\t%s\t%s\tversion %d\trequested by %s\n", approval.ID, approval.State, approval.PlanVersion, plainLine(approval.RequestedBy))
+	fmt.Fprintf(out, "  %s\n", plainLine(view.Detail.Difference.Summary()))
 	for _, line := range []struct {
 		label string
 		refs  []string
@@ -157,7 +157,7 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 		fmt.Fprintf(out, "  %s: criteria %s; work orders %s\n", contract.Ref, partsWords(contract.Criteria), partsWords(contract.WorkOrders))
 	}
 	for _, draft := range view.Drafts {
-		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", draft.ID, draft.Question, draft.Answer)
+		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", draft.ID, plainLine(draft.Question), plainLine(draft.Answer))
 	}
 	if view.Revision != nil && view.Revision.Revision != nil {
 		fmt.Fprintf(out, "  decisions since version %d, which this version is read beside:\n", view.Revision.Revision.ApprovedVersion)
