@@ -9,10 +9,13 @@ import (
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
+// laneHead is the commit the lane of laneEnd reports.
+const laneHead = "abc1230000000000000000000000000000000000"
+
 func laneEnd(checks ...workorders.CheckResult) workorders.LaneResult {
 	return workorders.LaneResult{
 		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Artifacts: []string{"notes.md"}, Checks: checks},
-		Branch: "lane/wo", Head: "abc1230000000000000000000000000000000000",
+		Branch: "lane/wo", Head: laneHead,
 	}
 }
 

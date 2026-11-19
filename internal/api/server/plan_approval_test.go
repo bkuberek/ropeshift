@@ -396,7 +396,7 @@ func TestShowingAPlanReadsTheSecondVersionOfABranchTheLedgerHoldsNoRecordOf(t *t
 		t.Fatal(err)
 	}
 	drafts := []planning.DraftDecision{{ID: "d2", Question: "How many retries?", Answer: "Three", Rationale: "It is what the spec says."}}
-	detail, err := json.Marshal(planning.PlanDetail{Title: "Retry budget", Ref: "retry", Decisions: len(drafts), Drafts: drafts, Source: "abc123"})
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Retry budget", Ref: "retry", Decisions: len(drafts), Drafts: drafts, Source: laneHead})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func branchWaitingForAcceptance(t *testing.T) (*apitest.Daemon, string) {
 	t.Helper()
 	d := apitest.Start(t)
 	d.Completed(t, "wo-plan", laneEnd(workorders.CheckResult{Name: "unit", Criterion: "c1", Passed: true}))
-	detail, err := json.Marshal(planning.PlanDetail{Title: "Berths", Ref: "harbor-v1", Source: "abc123"})
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Berths", Ref: "harbor-v1", Source: laneHead})
 	if err != nil {
 		t.Fatal(err)
 	}

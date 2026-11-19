@@ -340,7 +340,7 @@ func checkPersonMergesTheApprovedPullRequest(r *Rig) error {
 // movedPlan is a commit the planning branch moved to after its approval, whose plan changed.
 func (p *planMergeRig) movedPlan() string {
 	p.files = laneFiles("A second draft.")
-	return p.r.ID("moved")
+	return p.r.Commit()
 }
 
 // askedAgainAt says the planning work went back to acceptance at the new head, which asks for its own

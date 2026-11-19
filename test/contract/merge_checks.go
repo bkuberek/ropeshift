@@ -585,7 +585,7 @@ func checkMergeOfWorkSentBack(r *Rig) error {
 }
 
 // moved pushes a new head to the rig's pull request on the forge, as someone's push leaves it, and returns it.
-func (f *forgeRig) movedHead() string { return f.r.ID("moved") }
+func (f *forgeRig) movedHead() string { return f.r.Commit() }
 
 // reviewsNow lists the rig's reviews, oldest first.
 func (f *forgeRig) reviewsNow() ([]workorders.WorkOrder, error) {
