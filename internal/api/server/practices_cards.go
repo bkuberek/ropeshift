@@ -32,24 +32,35 @@ func practicesFindingSubject(_ *handler, _ *http.Request, body []byte) string {
 	return repository + ":" + finding
 }
 
-// practicesRepositoryAsID says an acknowledgement's or a withdrawal's body by the repository's identity, as the card
-// binds to, shows, and replays it, so a rename or a new prefix since the card was prepared cannot change which
-// repository it names.
-func practicesRepositoryAsID(h *handler, r *http.Request, body []byte) ([]byte, error) {
-	var fields map[string]any
-	if err := json.Unmarshal(body, &fields); err != nil {
+// practicesAcknowledgementAsID says an acknowledgement's body by the repository's identity, as the card binds to, shows,
+// and replays it, so a rename or a new prefix since the card was prepared cannot change which repository it names. The
+// body is read as the handler reads it, into the request's own fields, so a key spelled in another case cannot name
+// what the card does not.
+func practicesAcknowledgementAsID(h *handler, r *http.Request, body []byte) ([]byte, error) {
+	var in api.PracticesAcknowledge
+	if err := json.Unmarshal(body, &in); err != nil || in.Repository == "" {
 		return body, nil
 	}
-	named, _ := fields["repository"].(string)
-	if named == "" {
-		return body, nil
-	}
-	id, err := h.acknowledgedRepository(r, named)
+	id, err := h.acknowledgedRepository(r, in.Repository)
 	if err != nil {
 		return nil, err
 	}
-	fields["repository"] = id
-	return json.Marshal(fields)
+	in.Repository = id
+	return json.Marshal(in)
+}
+
+// practicesWithdrawalAsID is practicesAcknowledgementAsID for a withdrawal's body.
+func practicesWithdrawalAsID(h *handler, r *http.Request, body []byte) ([]byte, error) {
+	var in api.PracticesWithdraw
+	if err := json.Unmarshal(body, &in); err != nil || in.Repository == "" {
+		return body, nil
+	}
+	id, err := h.acknowledgedRepository(r, in.Repository)
+	if err != nil {
+		return nil, err
+	}
+	in.Repository = id
+	return json.Marshal(in)
 }
 
 // practicesAcknowledgeCheck refuses a call that cannot make an acknowledgement before it becomes a card.

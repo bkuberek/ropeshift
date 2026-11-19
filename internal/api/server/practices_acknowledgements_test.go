@@ -298,3 +298,56 @@ func TestTheAssistantsAcknowledgementIsACardInItsConversation(t *testing.T) {
 		t.Errorf("the conversation holds %+v, want the acknowledgement as one card", cards)
 	}
 }
+
+// A delegate's body that spells a key in another case is read by the handler as the same field, so the card binds to the
+// repository's identity, and carries it, whatever the case of the key or how often the key is spelled.
+func TestACardNamesTheRepositoryByIdentityWhateverTheCaseOfTheBodysKeys(t *testing.T) {
+	d := practicesDaemon(t, nil, "")
+	d.HoldClone(t, "repo-a", "widgets")
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	for name, body := range map[string]string{
+		"a capitalized key":   `{"Repository":"widgets","finding":"codeowners","reason":"the team owns it"}`,
+		"an upper case key":   `{"REPOSITORY":"widgets","FINDING":"codeowners","REASON":"the team owns it"}`,
+		"a key spelled twice": `{"repository":"repo-a","Repository":"widgets","finding":"codeowners","reason":"the team owns it"}`,
+		"the exact key":       `{"repository":"widgets","finding":"codeowners","reason":"the team owns it"}`,
+	} {
+		err := delegate.Do(t.Context(), http.MethodPost, apitest.Route(api.PracticesAcknowledgementsPath), json.RawMessage(body), nil)
+		card := preparedCard(t, err)
+		if card.Subject != "practices_finding:repo-a:codeowners" {
+			t.Errorf("%s: the card binds to %q, want the repository's identity", name, card.Subject)
+		}
+		var args api.PracticesAcknowledge
+		if err := json.Unmarshal(cardDetail(t, card).Arguments, &args); err != nil || args.Repository != "repo-a" {
+			t.Errorf("%s: the card replays the repository %q (%v), want its identity", name, args.Repository, err)
+		}
+		if _, err := d.Client.DecideApproval(t.Context(), card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: false}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := delegate.Do(t.Context(), http.MethodPost, apitest.Route(api.PracticesWithdrawPath), json.RawMessage(`{"Repository":"widgets","Finding":"codeowners"}`), nil)
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+}
+
+// A card goes void once its finding is acknowledged and withdrawn since, however the delegate spelled its body, and
+// confirming it then runs nothing.
+func TestACardPreparedWithAMixedCaseKeyGoesVoidWhenTheFindingMoves(t *testing.T) {
+	d := practicesDaemon(t, nil, "")
+	d.HoldClone(t, "repo-a", "widgets")
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	err := delegate.Do(t.Context(), http.MethodPost, apitest.Route(api.PracticesAcknowledgementsPath), json.RawMessage(`{"Repository":"widgets","finding":"codeowners","reason":"the delegate's reason"}`), nil)
+	card := preparedCard(t, err)
+	if _, err := d.Client.AcknowledgePractices(t.Context(), api.PracticesAcknowledge{Repository: "widgets", Finding: "codeowners", Reason: "the member's reason"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Client.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "widgets", Finding: "codeowners"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.Client.DecideApproval(t.Context(), card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true})
+	refusedWith(t, err, http.StatusConflict, api.CodeStaleDigest)
+	list, err := d.Client.Practices(t.Context(), "widgets")
+	if err != nil || len(list.Repositories[0].Acknowledgement) != 0 {
+		t.Errorf("the stale card acknowledged the finding: %+v (%v)", list.Repositories[0].Acknowledgement, err)
+	}
+}
