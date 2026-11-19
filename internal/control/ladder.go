@@ -309,8 +309,12 @@ func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, 
 }
 
 // Climb records one rung a question passed, with the candidates considered, and moves it to
-// the next. A one-way category cannot stand on rungs 3 and 4.
+// the next. A one-way category cannot stand on rungs 3 and 4, and a step cannot record an outcome
+// only the ledger records (questions.ReservedOutcome).
 func (q *Questions) Climb(ctx context.Context, scope ledger.WorkspaceID, id string, step questions.Step, actor ledger.Actor) (questions.Question, error) {
+	if questions.ReservedOutcome(step.Outcome) {
+		return questions.Question{}, fmt.Errorf("%w: a climb cannot record the outcome %q, which only the ledger records", questions.ErrInvalid, step.Outcome)
+	}
 	var record questions.Question
 	err := q.store.Write(ctx, scope, "question.climb", func(tx ports.WriteTx) error {
 		var err error

@@ -20,6 +20,14 @@ var WholeLadderChecks = []Check{
 	{"WL5", "a member's answer to a question an orchestrator holds, on any rung, closes it, ends the hold, and refuses the orchestrator's next act as resolved", checkTakeoverByAnswer},
 	{"WL6", "a member's assumption of a question an orchestrator holds, on any rung, closes it, ends the hold, and refuses the orchestrator's next act as resolved", checkTakeoverByAssumption},
 	{"WL7", "a member's merge of a question an orchestrator holds, on any rung, closes it, ends the hold, and refuses the orchestrator's next act as resolved", checkTakeoverByMerge},
+	{"WL8", "a climb cannot record an outcome only the ledger records, so no orchestrator fakes a merge, an answer, a decision, or a rung nobody worked", checkClimbRefusesReservedOutcomes},
+}
+
+// reservedOutcomes are the outcomes only the ledger writes on a step: a merge, an answer from the record, a ruling's
+// status, and the rungs the core ran with no orchestrator.
+var reservedOutcomes = []string{
+	questions.OutcomeMerged, questions.OutcomeAnswered, string(questions.DecisionDecided), string(questions.DecisionAssumed),
+	questions.OutcomeUnjudged, questions.OutcomeNoOrchestrator,
 }
 
 // heldRungs are the rungs an orchestrator holds a question on while it works it. Rung 5 is a person's.
@@ -270,4 +278,43 @@ func (r *Rig) nextActs(s ports.Store, id string, rung int64, holder ledger.Actor
 	}
 	acts["merge"] = ops.Merge(r.Ctx, r.Scope, id, other.QuestionID, holder)
 	return acts
+}
+
+func checkClimbRefusesReservedOutcomes(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	holder := r.orchestrator(RungHolder)
+	stays, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	for _, outcome := range reservedOutcomes {
+		id, err := r.heldOn(s, "How many retries may a call make, once "+outcome+"?", questions.RungLookup, holder)
+		if err != nil {
+			return err
+		}
+		forged := questions.Step{Rung: questions.RungLookup, Candidates: []string{stays.QuestionID}, Outcome: outcome}
+		if _, err := ops.Climb(r.Ctx, r.Scope, id, forged, holder); !errors.Is(err, questions.ErrInvalid) {
+			return Violatedf("a climb recording the outcome %q: %v, want it refused as invalid", outcome, err)
+		}
+		row, err := r.readQuestion(s, id)
+		if err != nil {
+			return err
+		}
+		if len(row.LadderTrace) != 0 || row.Rung != questions.RungLookup {
+			return Violatedf("a refused climb recording %q changed the question: %+v", outcome, row)
+		}
+		// The member's dismissal that follows reads as a dismissal, never as the merge a forged step would name.
+		if err := ops.Dismiss(r.Ctx, r.Scope, id, r.Actor); err != nil {
+			return err
+		}
+		dismissed, err := r.readQuestion(s, id)
+		if err != nil {
+			return err
+		}
+		if into, merged := dismissed.MergedInto(); merged {
+			return Violatedf("a dismissed question reads as merged into %s after a climb recording %q", into, outcome)
+		}
+	}
+	return nil
 }
