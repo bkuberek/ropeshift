@@ -2,7 +2,9 @@ package server_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -358,5 +360,98 @@ func TestTheAssistantsPracticesCheckIsAnEntryOfItsConversation(t *testing.T) {
 	}
 	if len(actions) != 1 || actions[0].Action.Operation != authority.OpPracticesCheck || actions[0].Action.Outcome != conversations.OutcomeRan || actions[0].Action.Rev == 0 {
 		t.Errorf("the conversation holds %+v, want the check as an action that ran", actions)
+	}
+}
+
+// A delegate's request for the check runs as the delegate at once, with no card: the request and its event name the
+// delegate, which is operational.
+func TestADelegateRequestsThePracticesCheckAsTheDelegate(t *testing.T) {
+	d := practicesDaemon(t, map[string][]string{"w": {"repo-a"}}, "w")
+	connectWorker(t, d, "w", ledger.ProtocolVersion)
+	d.HoldClone(t, "repo-a", "widgets")
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	checked, err := delegate.CheckPractices(t.Context(), []string{"widgets"})
+	if err != nil || len(checked.Checks) != 1 || checked.Checks[0].Request == nil {
+		t.Fatalf("the delegate's request answered %+v (%v), want the request, not a card", checked, err)
+	}
+	request := checked.Checks[0].Request
+	if request.RequestedBy != "member-1/"+created.ID || request.Cause != ledger.PracticesMember {
+		t.Errorf("the request was made by %q with cause %s", request.RequestedBy, request.Cause)
+	}
+	err = d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		events, err := control.ReadAllEvents(tx.Events)
+		for _, event := range events {
+			if event.Type == ledger.EventPracticesRequested && (event.Actor.Kind != ledger.ActorDelegate || event.Actor.ID != "member-1/"+created.ID) {
+				t.Errorf("the event is by %+v, want the delegate", event.Actor)
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A prefix of an identity that two repositories share names none of them, and a request or a read that names it is
+// refused as invalid, with nothing requested.
+func TestAnAmbiguousRepositoryPrefixIsRefusedByAPracticesRequestAndRead(t *testing.T) {
+	d := practicesDaemon(t, map[string][]string{"w": {"3f2a1b0c4d5e6f70aaaa", "3f2a1b0c4d5e6f70bbbb"}}, "w")
+	connectWorker(t, d, "w", ledger.ProtocolVersion)
+	d.HoldClone(t, "3f2a1b0c4d5e6f70aaaa", "widgets")
+	d.HoldClone(t, "3f2a1b0c4d5e6f70bbbb", "gadgets")
+	_, err := d.Client.CheckPractices(t.Context(), []string{"3f2a1b0c"})
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	_, err = d.Client.Practices(t.Context(), "3f2a1b0c")
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	for name, request := range openPractices(t, d) {
+		if request != nil {
+			t.Errorf("the refused request left %+v open for %s", request, name)
+		}
+	}
+}
+
+// A repository the project removed is not one to check: naming it answers 404, by name or by identity, and a request
+// that names it requests nothing for the others either.
+func TestNamingARemovedRepositoryToThePracticesRoutesAnswersNotFound(t *testing.T) {
+	d := practicesDaemon(t, map[string][]string{"w": {"repo-a", "repo-b"}}, "w")
+	connectWorker(t, d, "w", ledger.ProtocolVersion)
+	d.HoldClone(t, "repo-a", "widgets")
+	d.HoldClone(t, "repo-b", "gadgets")
+	if _, err := control.NewRepositories(d.Store).Remove(t.Context(), apitest.Scope, "repo-a", nil, ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, named := range []string{"widgets", "repo-a"} {
+		_, err := d.Client.Practices(t.Context(), named)
+		refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+		_, err = d.Client.CheckPractices(t.Context(), []string{"gadgets", named})
+		refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	}
+	if open := openPractices(t, d); open["gadgets"] != nil {
+		t.Errorf("the refused request left %+v open for gadgets", open["gadgets"])
+	}
+}
+
+// A planning session whose check cannot be requested is recorded all the same, and the server's log hears why.
+func TestAPlanningSessionIsRecordedWhenItsPracticesCheckCannotBeRequested(t *testing.T) {
+	var warned []string
+	d := apitest.StartWith(t, apitest.Options{
+		AssistantHosts: func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+			return nil, errors.New("the workers could not be read")
+		},
+		Warn: func(message string) { warned = append(warned, message) },
+	})
+	d.HoldClone(t, "repo-a", "widgets")
+	order, err := d.Client.CreateWorkOrder(t.Context(), api.CreateWorkOrder{
+		ID: "plan-1", Kind: workorders.KindPlan, Title: "Plan it", Statement: "Plan it.", Criteria: []planning.Criterion{{ID: "c1", Text: "A plan is committed"}},
+	})
+	if err != nil || order.ID != "plan-1" {
+		t.Fatalf("recording the session answered %+v (%v)", order, err)
+	}
+	if got, err := d.Client.WorkOrder(t.Context(), "plan-1"); err != nil || got.Kind != workorders.KindPlan {
+		t.Errorf("the work order reads %+v (%v)", got, err)
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], "was not requested") || !strings.Contains(warned[0], "the workers could not be read") {
+		t.Errorf("the log heard %q, want one line that says the check was not requested and why", warned)
 	}
 }
