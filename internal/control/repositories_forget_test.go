@@ -151,7 +151,7 @@ func (c keepsAnotherCloneAfterTheDrop) ForgetAt(ctx context.Context, project led
 	if err != nil {
 		return false, err
 	}
-	return true, c.Checkouts.Keep(ctx, project, repository, c.other)
+	return true, c.Keep(ctx, project, repository, c.other)
 }
 
 // A repository registered again from another clone, whose checkout is kept just after the sync drops the old one,
