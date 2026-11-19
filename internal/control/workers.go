@@ -784,6 +784,11 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 			texts[criterion.ID] = criterion.Text
 		}
 	}
+	if row.Kind == workorders.KindPlan {
+		if lease.Practices, err = planningPractices(tx); err != nil {
+			return lease, err
+		}
+	}
 	lease.Rework, err = desiredRework(tx.Evidence(), row, texts)
 	return lease, err
 }
