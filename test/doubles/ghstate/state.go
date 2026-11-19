@@ -129,7 +129,8 @@ type State struct {
 	RejectPush  bool   `json:"reject_push,omitempty"`
 	// Repositories are the repositories that exist, each with the visibility it was created with.
 	Repositories []Repository `json:"repositories,omitempty"`
-	// Visibility is what `repos/{owner}/{repo}` says of the repository, and empty says private. Protected is what
+	// Visibility is what `repos/{owner}/{repo}` says of a repository that Repositories does not hold, and empty says
+	// private; a repository in Repositories says its own. Protected is what
 	// the branch read says, Rules are what the rules read gives for every branch, and ReviewCount is what the
 	// protection's pull request reviews read gives while Protected is set. SettingsStatus answers a settings read
 	// with another status, by the endpoint as `gh api` is given it, such as `repos/acme/widgets/branches/main`, or
