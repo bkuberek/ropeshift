@@ -84,6 +84,9 @@ type CommitSpec struct {
 	// Paths are the files the commit adds, relative to the folder and slash separated: the files this worker wrote, and
 	// none that were in the folder before it.
 	Paths []string
+	// Branch is the branch `git init` starts the repository on, or empty for DefaultBranch. A name git refuses is an
+	// error, and git init does not run.
+	Branch string
 }
 
 // PushSpec is one push of a new repository's first commit.

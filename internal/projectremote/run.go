@@ -184,7 +184,7 @@ func (r *runner) commit(ctx context.Context, u unit) error {
 			return err
 		}
 	}
-	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id, ports.CommitSpec{Paths: projectfiles.RepositoryPaths(u.rel, r.written())})
+	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id, ports.CommitSpec{Paths: projectfiles.RepositoryPaths(u.rel, r.written()), Branch: r.job.Branch})
 	switch {
 	case errors.Is(err, ports.ErrFolderChanged):
 		r.changed = true
@@ -317,8 +317,8 @@ func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledg
 		return ledger.TemplateWriteReport{}, err
 	}
 	report.Clone = report.Commit != "" && after.CloneTop != "" && after.CloneTop == after.Real
-	// The branch a first commit made by hand starts on is the one the run chose, which the push that finishes a failed run falls back to too.
-	branch := r.rt.Folders.DefaultBranch(ctx, r.job.Request.Path)
+	// The branch a first commit made by hand starts on is the one the run chose: the job's, or the default branch.
+	branch := r.chosen(ctx, r.job.Request.Path)
 	var commits []string
 	for _, u := range units[1:] {
 		if r.prog.NeedsRepository && r.prog.unit(u.rel).Commit == "" {
@@ -391,7 +391,8 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 
 // branch is the branch a repository's HEAD names, which asks origin for it, within the limit one step has. A branch that
 // cleaning to plain text changes, or that holds whitespace or starts with a dash, is not a name git gives a branch, and a
-// read that fails or names no branch has none either: each reads as the branch the run chose for a first commit.
+// read that fails or names no branch has none either: each reads as the branch the run chose for a first commit, the
+// job's or else the default branch, and one of those git would refuse reads as none.
 func (r *runner) branch(ctx context.Context, u unit) string {
 	ctx, cancel := context.WithTimeout(ctx, stepLimit)
 	defer cancel()
@@ -400,7 +401,21 @@ func (r *runner) branch(ctx context.Context, u unit) string {
 			return branch
 		}
 	}
-	return ledger.PlainText(r.rt.Folders.DefaultBranch(ctx, u.abs))
+	return r.chosen(ctx, u.abs)
+}
+
+// chosen is the branch the run chose for a first commit in the folder at path: the job's, or else the default branch.
+// A name that cleaning to plain text changes, or that git refuses as a branch, such as one that starts with a dash, is
+// no name and is passed over, so it never reaches a git command or a command left for a person. None left reads as none.
+func (r *runner) chosen(ctx context.Context, path string) string {
+	if name := r.job.Branch; name != "" && ledger.PlainText(name) == name && ledger.CheckBranch(name) == nil {
+		return name
+	}
+	name := r.rt.Folders.DefaultBranch(ctx, path)
+	if ledger.PlainText(name) != name || ledger.CheckBranch(name) != nil {
+		return ""
+	}
+	return name
 }
 
 // optionLike says a branch name starts with a dash, which git reads as an option and never as a branch.

@@ -865,3 +865,97 @@ func TestTheReportNamesTheFilesLeft(t *testing.T) {
 		t.Errorf("a new folder left %v", empty.Left)
 	}
 }
+
+// A job that names a branch makes each first commit on it, pushes it, and keeps the account's login for the outcome.
+func TestAJobBranchIsWhatTheFirstCommitStartsOnAndThePushSets(t *testing.T) {
+	m := newMachine()
+	job := projectremote.Job{Request: monorepo(create("test")), NeedsRepository: true, Branch: "trunk"}
+	progress := &projectremote.Progress{}
+	if refusal, err := projectremote.Start(t.Context(), m.runtime, job, progress); err != nil || refusal != nil {
+		t.Fatalf("start refused %+v (%v)", refusal, err)
+	}
+	if progress.Account == nil || progress.Account.Login != "test" {
+		t.Errorf("the progress keeps the account %+v, want the login test", progress.Account)
+	}
+	report, err := projectremote.Finish(t.Context(), m.runtime, job, progress, nil)
+	if err != nil || report.Commit == "" {
+		t.Fatalf("report = %+v (%v)", report, err)
+	}
+	if state, err := m.folders.Remote(t.Context(), "/srv/acme"); err != nil || state.Branch != "trunk" {
+		t.Errorf("the repository is on %q (%v), want trunk", state.Branch, err)
+	}
+	if pushes := m.folders.Pushes(); len(pushes) != 1 || pushes[0].Branch != "trunk" {
+		t.Errorf("pushes = %+v, want one of trunk", pushes)
+	}
+}
+
+// The commands a person runs on a run that stopped name the job's branch: the repository starts on it, and the push that
+// finishes the run pushes it, though the repository has none yet.
+func TestTheCommandsLeftForAPersonNameTheJobBranch(t *testing.T) {
+	m := newMachine()
+	m.folders.CommitError = errors.New("Author identity unknown")
+	job := projectremote.Job{Request: monorepo(create("test")), NeedsRepository: true, Branch: "trunk"}
+	progress := &projectremote.Progress{}
+	if refusal, err := projectremote.Start(t.Context(), m.runtime, job, progress); err != nil || refusal != nil {
+		t.Fatalf("start refused %+v (%v)", refusal, err)
+	}
+	report, err := projectremote.Finish(t.Context(), m.runtime, job, progress, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(report.Commands, "git -C /srv/acme init --initial-branch=trunk") {
+		t.Errorf("the commands are %v", report.Commands)
+	}
+	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin -- trunk") {
+		t.Errorf("remaining is %v, want a push of trunk", report.Remaining)
+	}
+
+	own := newMachine()
+	own.folders.SetDefaultBranch("devel")
+	own.folders.CommitError = errors.New("Author identity unknown")
+	empty := projectremote.Job{Request: monorepo(create("test")), NeedsRepository: true}
+	progress = &projectremote.Progress{}
+	if _, err := projectremote.Start(t.Context(), own.runtime, empty, progress); err != nil {
+		t.Fatal(err)
+	}
+	if report, err = projectremote.Finish(t.Context(), own.runtime, empty, progress, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin -- devel") {
+		t.Errorf("remaining is %v, want a push of the default branch devel", report.Remaining)
+	}
+}
+
+// A job branch that starts with a dash is a git option, never a branch: it reaches no git command, no push, and no
+// command left for a person, which read the default branch instead.
+func TestAJobBranchThatReadsAsAnOptionNeverReachesGit(t *testing.T) {
+	for _, branch := range []string{"-x", "--upload-pack=evil"} {
+		for _, fails := range []bool{false, true} {
+			m := newMachine()
+			m.folders.SetDefaultBranch("devel")
+			if fails {
+				m.folders.CommitError = errors.New("Author identity unknown")
+			}
+			job := projectremote.Job{Request: monorepo(create("test")), NeedsRepository: true, Branch: branch}
+			progress := &projectremote.Progress{}
+			if _, err := projectremote.Start(t.Context(), m.runtime, job, progress); err != nil {
+				t.Fatalf("%q: %v", branch, err)
+			}
+			report, err := projectremote.Finish(t.Context(), m.runtime, job, progress, nil)
+			if err != nil {
+				t.Fatalf("%q: %v", branch, err)
+			}
+			if pushes := m.folders.Pushes(); len(pushes) != 0 && pushes[0].Branch != "devel" {
+				t.Errorf("%q: pushes = %+v", branch, pushes)
+			}
+			for _, line := range append(slices.Clone(report.Commands), append(report.Remaining, m.folders.Done()...)...) {
+				if strings.Contains(line, branch) {
+					t.Errorf("%q (commit fails: %v) reaches git in %q", branch, fails, line)
+				}
+			}
+			if fails && !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin -- devel") {
+				t.Errorf("%q: remaining is %v, want a push of the default branch devel", branch, report.Remaining)
+			}
+		}
+	}
+}
