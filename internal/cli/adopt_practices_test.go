@@ -21,7 +21,8 @@ func (a *adoption) aLibraryWithFindings() {
 }
 
 // The dry run prints, under each repository, the practices block of `ropeshift practices`: the findings by severity
-// with why and fix, and the practices that were met. It names no acknowledgement and no worker.
+// with why and fix, and the practices that were met. It names no acknowledgement, no worker, and no age: the check ran
+// as the plan was read.
 func TestAdoptDryRunPrintsThePracticesOfEachRepository(t *testing.T) {
 	a := newAdoption(t)
 	a.aLibraryWithFindings()
@@ -35,14 +36,14 @@ func TestAdoptDryRunPrintsThePracticesOfEachRepository(t *testing.T) {
 	}
 	block, _, _ := strings.Cut(api, "would register\tweb")
 	for _, want := range []string{
-		"Practices\n", "  api at 1111111 (base main), checked ", "  medium  ci\n", "  low  lockfile:go\n", "    Fix: Run the manager's lock command",
+		"Practices\n", "  api at 1111111 (base main)\n", "  medium  ci\n", "  low  lockfile:go\n", "    Fix: Run the manager's lock command",
 		"    Template: ropeshift template show pre-commit-config.yaml\n", "  met: ",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the api block printed no %q:\n%s", want, block)
 		}
 	}
-	if strings.Contains(block, "acknowledged") || strings.Contains(block, " on \n") {
+	if strings.Contains(block, "acknowledged") || strings.Contains(block, " on \n") || strings.Contains(block, "checked") || strings.Contains(block, " ago") {
 		t.Errorf("the block names an acknowledgement or a worker:\n%s", block)
 	}
 }

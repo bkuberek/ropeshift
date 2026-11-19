@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -171,7 +172,7 @@ func plannedPractices(repository planning.PlannedRepository) string {
 		view.Result = &result
 		var out strings.Builder
 		out.WriteString("Practices\n")
-		for _, line := range strings.SplitAfter(practicesText(view, "", repository.Practices.CheckedAt), "\n") {
+		for _, line := range strings.SplitAfter(practicesText(view, "", time.Time{}), "\n") {
 			if line != "" {
 				out.WriteString("  " + line)
 			}
