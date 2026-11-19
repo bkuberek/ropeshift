@@ -174,6 +174,21 @@ describe("a practices card", () => {
     expect(within(card).getByRole("button", { name: "Confirm" })).toBeTruthy();
   });
 
+  // A card prepared before arguments were sent as {field, to} holds them as {field, from: null, to}: nothing was there to
+  // move from, so the row names the value alone.
+  it("reads an argument a card holds with a null from as the value alone", () => {
+    const summary = "Acknowledge a practices finding: codeowners in widgets";
+    const view = cards();
+    const item = practicesCard("practices.acknowledge", "Acknowledge a practices finding", summary, [
+      { field: "finding", from: null, to: "codeowners" },
+      { field: "reason", from: null, to: "the whole team owns every path" },
+    ]);
+    view.items = [item, ...view.items];
+    show(view, item);
+    const rows = within(theCard(summary)).getByRole("region", { name: "What it changes" }).querySelectorAll("li");
+    expect(Array.from(rows, (row) => row.textContent)).toEqual(["finding: codeowners", "reason: the whole team owns every path"]);
+  });
+
   // The API sends a withdrawal's reason as the value that stops holding, "from" it "to" null.
   it("reads a field whose value goes away as removed, not as a move to null", () => {
     const summary = "Withdraw a finding's acknowledgement: codeowners in widgets";

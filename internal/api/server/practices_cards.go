@@ -111,7 +111,7 @@ func practicesAcknowledgeChanges(_ *handler, _ *http.Request, body []byte) (any,
 	if err != nil {
 		return nil, err
 	}
-	return []authority.FieldChange{
+	return []authority.ArgumentChange{
 		{Field: "finding", To: in.Finding}, {Field: "why", To: practicesWhy(in.Finding)}, {Field: "reason", To: reason},
 	}, nil
 }
@@ -135,8 +135,9 @@ func practicesWithdrawChanges(h *handler, r *http.Request, body []byte) (any, er
 	if err != nil {
 		return nil, err
 	}
-	return []authority.FieldChange{
-		{Field: "finding", To: in.Finding}, {Field: "why", To: practicesWhy(in.Finding)}, {Field: "reason", From: ack.Reason},
+	return []any{
+		authority.ArgumentChange{Field: "finding", To: in.Finding}, authority.ArgumentChange{Field: "why", To: practicesWhy(in.Finding)},
+		authority.FieldChange{Field: "reason", From: ack.Reason},
 	}, nil
 }
 
