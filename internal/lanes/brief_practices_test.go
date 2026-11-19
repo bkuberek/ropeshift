@@ -285,3 +285,31 @@ func TestAPracticesSectionSaysARepositoryCouldNotBeRead(t *testing.T) {
 		t.Errorf("the section says:\n%s", section)
 	}
 }
+
+// The acknowledged and the unsettled lists show at most 50 entries each, by ID, and each says how many it left out.
+func TestAPracticesSectionCapsTheAcknowledgedAndTheUnsettledLists(t *testing.T) {
+	summary := widgets()
+	summary.Acknowledged, summary.Unknown = nil, nil
+	for i := 59; i >= 0; i-- {
+		summary.Acknowledged = append(summary.Acknowledged, ledger.PracticesAcknowledgedFinding{ID: fmt.Sprintf("lockfile:npm:app%02d", i), Reason: "kept"})
+		summary.Unknown = append(summary.Unknown, ledger.PracticesUnknownPractice{Practice: practices.ID(fmt.Sprintf("p%02d", i)), Reason: "refused"})
+	}
+	summary.MoreAcknowledged = 2
+
+	section := practicesSection(t, lanes.Brief(planningSpec([]ledger.PracticesSummary{summary}, false)))
+
+	if shown := strings.Count(section, "\n- lockfile:npm:app"); shown != ledger.PracticesListLimit {
+		t.Errorf("the section shows %d acknowledged findings, want %d", shown, ledger.PracticesListLimit)
+	}
+	if shown := strings.Count(section, "\n- p"); shown != ledger.PracticesListLimit {
+		t.Errorf("the section shows %d unsettled practices, want %d", shown, ledger.PracticesListLimit)
+	}
+	for _, want := range []string{"12 more; run `ropeshift practices --repository widgets`", "10 more; run `ropeshift practices --repository widgets`"} {
+		if strings.Count(section, want) != 1 {
+			t.Errorf("the section does not say %q once:\n%s", want, section)
+		}
+	}
+	if !strings.Contains(section, "- lockfile:npm:app00:") || strings.Contains(section, "lockfile:npm:app50") || strings.Contains(section, "- p50:") {
+		t.Errorf("the lists are not the first 50 by ID:\n%s", section)
+	}
+}

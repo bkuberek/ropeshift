@@ -105,20 +105,27 @@ func writePracticesRepository(out *strings.Builder, summary ledger.PracticesSumm
 			out.WriteString("  Fix: " + fix + "\n")
 		}
 	}
-	if summary.More > 0 {
-		fmt.Fprintf(out, "%d more; run `ropeshift practices --repository %s`\n", summary.More, name)
-	}
+	writeMore(out, summary.More, name)
 	if len(summary.Acknowledged) != 0 {
 		out.WriteString("Acknowledged findings, which a member chose to leave open:\n")
 	}
 	for _, finding := range summary.Acknowledged {
 		fmt.Fprintf(out, "- %s: %s\n", practicesID(finding.ID), practicesProse(finding.Reason))
 	}
+	writeMore(out, summary.MoreAcknowledged, name)
 	if len(summary.Unknown) != 0 {
 		out.WriteString("Practices the check could not settle:\n")
 	}
 	for _, practice := range summary.Unknown {
 		fmt.Fprintf(out, "- %s: %s\n", practicesLine(string(practice.Practice), practicesNameLimit), practicesProse(practice.Reason))
+	}
+	writeMore(out, summary.MoreUnknown, name)
+}
+
+// writeMore says how many entries of a list a brief left out, and how to read them. It says nothing when it left none.
+func writeMore(out *strings.Builder, more int, name string) {
+	if more > 0 {
+		fmt.Fprintf(out, "%d more; run `ropeshift practices --repository %s`\n", more, name)
 	}
 }
 

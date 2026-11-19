@@ -310,3 +310,29 @@ func TestAPlanningLeaseCapsEachRepositorysOpenFindings(t *testing.T) {
 		}
 	}
 }
+
+// The acknowledged findings and the unsettled practices of a lease summary are capped at 50 each, by ID, and counted.
+func TestAPlanningLeaseCapsTheAcknowledgedFindings(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	widgets := r.register("repo-a", "widgets")
+	result := widgetsResult()
+	result.Findings = nil
+	for i := range 60 {
+		result.Findings = append(result.Findings, practices.Finding{
+			ID: fmt.Sprintf("lockfile:npm:app%02d", i), Practice: practices.Lockfile, Subject: "npm:app", Severity: practices.Low, Detail: "no lockfile",
+		})
+	}
+	r.checked(widgets.ID, time.Minute, result)
+	for i := 59; i >= 0; i-- {
+		r.acknowledge(widgets.ID, fmt.Sprintf("lockfile:npm:app%02d", i), "kept")
+	}
+
+	got := summaryOf(t, r.leased(workorders.WorkOrder{ID: "wo-plan", Kind: workorders.KindPlan}), "widgets")
+
+	if len(got.Open) != 0 || len(got.Acknowledged) != ledger.PracticesListLimit || got.MoreAcknowledged != 10 {
+		t.Fatalf("open %d, acknowledged %d with %d more, want none open and 50 with 10", len(got.Open), len(got.Acknowledged), got.MoreAcknowledged)
+	}
+	if got.Acknowledged[0].ID != "lockfile:npm:app00" || got.Acknowledged[49].ID != "lockfile:npm:app49" {
+		t.Errorf("the acknowledged findings are %s to %s, want the first 50 by ID", got.Acknowledged[0].ID, got.Acknowledged[49].ID)
+	}
+}

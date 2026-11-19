@@ -27,18 +27,27 @@ type PracticesSummary struct {
 	Open []PracticesOpenFinding `json:"open,omitempty"`
 	// More counts the open findings left out of Open.
 	More int `json:"more,omitempty"`
-	// Acknowledged are the findings a member acknowledged, each with the reason.
+	// Acknowledged are the findings a member acknowledged, each with the reason, at most PracticesListLimit of them.
 	Acknowledged []PracticesAcknowledgedFinding `json:"acknowledged,omitempty"`
-	// Unknown are the practices the check could not settle, each with the reason.
+	// MoreAcknowledged counts the acknowledged findings left out of Acknowledged.
+	MoreAcknowledged int `json:"more_acknowledged,omitempty"`
+	// Unknown are the practices the check could not settle, each with the reason, at most PracticesListLimit of them.
 	Unknown []PracticesUnknownPractice `json:"unknown,omitempty"`
+	// MoreUnknown counts the unsettled practices left out of Unknown.
+	MoreUnknown int `json:"more_unknown,omitempty"`
 }
 
 // PracticesOpenLimit is the most open findings of one repository that a lease or a brief carries.
 const PracticesOpenLimit = 50
 
-// Capped is the summary with at most PracticesOpenLimit open findings: the most serious first, then by ID, so the cut
-// is the same whatever order the result listed them in. More counts every finding left out, those an earlier cut left
-// out included. The summary it is called on is unchanged.
+// PracticesListLimit is the most acknowledged findings, and the most unsettled practices, of one repository that a
+// lease or a brief carries.
+const PracticesListLimit = 50
+
+// Capped is the summary with at most PracticesOpenLimit open findings, the most serious first and then by ID, and at most
+// PracticesListLimit acknowledged findings and unsettled practices, each by ID, so a cut is the same whatever order the
+// result listed them in. Each count of those left out includes what an earlier cut left out. The summary it is called
+// on is unchanged.
 func (s PracticesSummary) Capped() PracticesSummary {
 	open := slices.Clone(s.Open)
 	slices.SortStableFunc(open, func(a, b PracticesOpenFinding) int {
@@ -49,6 +58,22 @@ func (s PracticesSummary) Capped() PracticesSummary {
 		open = open[:PracticesOpenLimit]
 	}
 	s.Open = open
+	acknowledged := slices.Clone(s.Acknowledged)
+	slices.SortStableFunc(acknowledged, func(a, b PracticesAcknowledgedFinding) int { return strings.Compare(a.ID, b.ID) })
+	if len(acknowledged) > PracticesListLimit {
+		s.MoreAcknowledged += len(acknowledged) - PracticesListLimit
+		acknowledged = acknowledged[:PracticesListLimit]
+	}
+	s.Acknowledged = acknowledged
+	unknown := slices.Clone(s.Unknown)
+	slices.SortStableFunc(unknown, func(a, b PracticesUnknownPractice) int {
+		return strings.Compare(string(a.Practice), string(b.Practice))
+	})
+	if len(unknown) > PracticesListLimit {
+		s.MoreUnknown += len(unknown) - PracticesListLimit
+		unknown = unknown[:PracticesListLimit]
+	}
+	s.Unknown = unknown
 	return s
 }
 
