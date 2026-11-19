@@ -105,8 +105,9 @@ func Bound(r Result) Result {
 
 // Validate refuses a result no worker makes: a practice the table does not hold, one twice, a status or a severity no
 // practice has, and a finding of a practice the table does not hold. A result on the current table version holds a
-// status for every practice of the table. A result on an earlier version may lack the practices a later version
-// added, and nothing else: it always holds a status for secrets.
+// status for every practice of the table. A result one version behind may lack the practices the current version added,
+// and nothing else: it always holds a status for secrets. A result any older holds the whole table, and so does one on
+// a version no table has held.
 func (r Result) Validate() error { return validate(r, table, TableVersion) }
 
 // validate is Validate against a table at a version.
@@ -126,7 +127,7 @@ func validate(r Result, rows []Practice, current int) error {
 			return fmt.Errorf("the status of %s is %q, which is no status", p.ID, p.Status)
 		}
 	}
-	behind := r.TableVersion >= 1 && r.TableVersion < current
+	behind := current > 1 && r.TableVersion == current-1
 	for _, p := range rows {
 		if !seen[p.ID] && (p.ID == Secrets || !behind || p.Since <= r.TableVersion) {
 			return fmt.Errorf("the result holds no status for %s", p.ID)

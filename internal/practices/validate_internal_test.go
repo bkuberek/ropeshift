@@ -76,3 +76,20 @@ func TestEveryPracticeSaysTheTableVersionThatAddedIt(t *testing.T) {
 		}
 	}
 }
+
+// Only a report one version behind may lack what later versions added: one two or more behind carries the whole table.
+func TestAReportTwoTableVersionsBehindCarriesTheWholeTable(t *testing.T) {
+	rows := append(grown(), Practice{ID: "added-latest", Severity: Low, Since: 3})
+	if err := validate(statusesOf(rows, 2, "added-latest"), rows, 3); err != nil {
+		t.Errorf("a report one version behind that lacks only what version 3 added is refused: %v", err)
+	}
+	if err := validate(statusesOf(rows, 1, "added-latest"), rows, 3); err == nil {
+		t.Error("a report two versions behind that lacks a practice is accepted")
+	}
+	if err := validate(statusesOf(rows, 1, "added-later", "added-latest"), rows, 3); err == nil {
+		t.Error("a report two versions behind that lacks what versions 2 and 3 added is accepted")
+	}
+	if err := validate(statusesOf(rows, 1), rows, 3); err != nil {
+		t.Errorf("a whole report two versions behind is refused: %v", err)
+	}
+}
