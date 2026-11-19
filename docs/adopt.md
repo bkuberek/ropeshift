@@ -290,4 +290,4 @@ The layout the dry run reads has one of four shapes, which decides where the pla
 
 ## Next
 
-Approving the plan creates its work orders. [Watch work run](watch-work-run.md), the next guide, starts them, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+Approving the plan creates its work orders. [Watch work run](watch-work-run.md), the next guide, starts them, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides. [Best practices](best-practices.md) says what the practices check found in each repository you adopted, and how to fix or acknowledge it.
