@@ -42,8 +42,8 @@
       "id": "generated-3",
       "kind": "change",
       "state": "contract_review",
-      "title": "The docs work",
-      "unknown_repository": "docs",
+      "title": "The billing work",
+      "unknown_repository": "billing",
       "size": "unknown",
       "contract_id": "generated-2",
       "contract_version": 1
@@ -52,8 +52,8 @@
       "id": "generated-4",
       "kind": "change",
       "state": "contract_review",
-      "title": "The billing work",
-      "unknown_repository": "billing",
+      "title": "The docs work",
+      "unknown_repository": "docs",
       "size": "unknown",
       "contract_id": "generated-2",
       "contract_version": 1

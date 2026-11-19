@@ -4,14 +4,17 @@ import (
 	"context"
 	"path"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -183,6 +186,15 @@ func TestGoldenPlanWithACreatedRepository(t *testing.T) {
 	}
 	if checked := creator.Checked(); len(checked) != 2 || checked[0].Project != apitest.ProjectName {
 		t.Errorf("reading the plan asked the creator to check %+v, want web and docs for the project %s", checked, apitest.ProjectName)
+	}
+	// The ledger lists work orders, and the estimates of them, by the IDs it generated, which differ between runs.
+	slices.SortFunc(view.WorkOrders, func(a, b workorders.WorkOrder) int { return strings.Compare(a.Title, b.Title) })
+	titles := map[string]string{}
+	for _, order := range view.WorkOrders {
+		titles[order.ID] = order.Title
+	}
+	if set := view.Approval.Forecast.Set; set != nil {
+		slices.SortFunc(set.Estimates, func(a, b delivery.Estimate) int { return strings.Compare(titles[a.WorkOrder], titles[b.WorkOrder]) })
 	}
 	steadySet(&view)
 	holdsGolden(t, "plan-created", steady(pretty(t, view)))
