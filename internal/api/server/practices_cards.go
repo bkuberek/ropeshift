@@ -35,7 +35,8 @@ func practicesFindingSubject(_ *handler, _ *http.Request, body []byte) string {
 // practicesAcknowledgementAsID says an acknowledgement's body by the repository's identity, as the card binds to, shows,
 // and replays it, so a rename or a new prefix since the card was prepared cannot change which repository it names. The
 // body is read as the handler reads it, into the request's own fields, so a key spelled in another case cannot name
-// what the card does not.
+// what the card does not. The reason is the one the acknowledgement keeps, redacted and on one line, so the card holds no
+// credential a delegate wrote.
 func practicesAcknowledgementAsID(h *handler, r *http.Request, body []byte) ([]byte, error) {
 	var in api.PracticesAcknowledge
 	if err := json.Unmarshal(body, &in); err != nil || in.Repository == "" {
@@ -46,6 +47,9 @@ func practicesAcknowledgementAsID(h *handler, r *http.Request, body []byte) ([]b
 		return nil, err
 	}
 	in.Repository = id
+	if in.Reason, err = control.CheckPracticesReason(in.Reason); err != nil {
+		return nil, err
+	}
 	return json.Marshal(in)
 }
 

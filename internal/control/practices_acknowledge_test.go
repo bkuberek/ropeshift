@@ -175,3 +175,33 @@ func TestReadingAResultCarriesEachAcknowledgementOfItsRepository(t *testing.T) {
 		t.Errorf("the reads carry %v, want each repository's own acknowledgements by finding", counts)
 	}
 }
+
+// A reason is model text when the assistant writes it, so what is kept, shown, and recorded is one line with the shapes
+// of credentials taken out, whether the credential is on one line or spans two.
+func TestAnAcknowledgementsReasonIsKeptOnOneLineWithNoCredential(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolPracticesChecks)
+	repo := r.register("repo-a", "alpha", "worker-1")
+	token := "ghp_" + strings.Repeat("a", 30)
+	key := "-----BEGIN PRIVATE KEY-----\nbbbbbbbbbbbbbbbbbbbbbbbb\n-----END PRIVATE KEY-----"
+	got, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, "codeowners", "a fixture,\r\nnot real: "+token+"\n\tnor "+key+"\x00 end", projectMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{got.Reason, r.acknowledged(repo.ID)[0].Reason, string(r.events(ledger.EventPracticesAcknowledged)[0].Data)} {
+		if strings.ContainsAny(text, "\r\n\t") || strings.Contains(text, token) || strings.Contains(text, "bbbbbbbbbbbb") {
+			t.Errorf("the reason is kept as %q, want one line with no credential", text)
+		}
+	}
+	if !strings.HasPrefix(got.Reason, "a fixture, not real: ") || !strings.HasSuffix(got.Reason, " end") {
+		t.Errorf("the reason reads %q, want the text around the credentials kept", got.Reason)
+	}
+	long := strings.Repeat("ghp_"+strings.Repeat("c", 20)+" ", 200)[:ledger.MaxPracticesReason]
+	if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, "security-policy", long, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	for _, ack := range r.acknowledged(repo.ID) {
+		if len(ack.Reason) > ledger.MaxPracticesReason {
+			t.Errorf("a redacted reason is %d bytes, over the bound of %d", len(ack.Reason), ledger.MaxPracticesReason)
+		}
+	}
+}

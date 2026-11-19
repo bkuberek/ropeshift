@@ -351,3 +351,26 @@ func TestACardPreparedWithAMixedCaseKeyGoesVoidWhenTheFindingMoves(t *testing.T)
 		t.Errorf("the stale card acknowledged the finding: %+v (%v)", list.Repositories[0].Acknowledgement, err)
 	}
 }
+
+// A delegate's reason is redacted and put on one line before its card keeps it: the card's arguments, what it shows, and
+// the acknowledgement a member's confirmation makes hold no credential and no line break.
+func TestADelegatesReasonIsRedactedBeforeItsCardKeepsIt(t *testing.T) {
+	d := practicesDaemon(t, nil, "")
+	d.HoldClone(t, "repo-a", "widgets")
+	token := "ghp_" + strings.Repeat("a", 30)
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	_, err := delegate.AcknowledgePractices(t.Context(), api.PracticesAcknowledge{Repository: "widgets", Finding: "codeowners", Reason: "not real:\n" + token})
+	card := preparedCard(t, err)
+	detail := cardDetail(t, card)
+	for name, text := range map[string]string{"arguments": string(detail.Arguments), "changes": string(detail.Changes), "card": card.Detail} {
+		if strings.Contains(text, token) || strings.Contains(text, `\n`) {
+			t.Errorf("the card's %s hold the raw reason: %s", name, text)
+		}
+	}
+	confirmCard(t, d, err)
+	list, err := d.Client.Practices(t.Context(), "widgets")
+	if err != nil || len(list.Repositories[0].Acknowledgement) != 1 || strings.Contains(list.Repositories[0].Acknowledgement[0].Reason, token) {
+		t.Errorf("the acknowledgement reads %+v (%v)", list.Repositories[0].Acknowledgement, err)
+	}
+}

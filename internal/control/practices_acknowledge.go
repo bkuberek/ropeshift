@@ -32,8 +32,11 @@ func CheckPracticesFinding(finding string) error {
 	return nil
 }
 
-// CheckPracticesReason reads the reason for an acknowledgement without its padding, and refuses an empty one and one
-// over ledger.MaxPracticesReason bytes.
+// CheckPracticesReason reads the reason for an acknowledgement as it is kept: with the shapes of credentials taken out,
+// because the assistant's reason is model text, and on one line with no control character, because a card, a view, and
+// a terminal print it. It refuses an empty reason and one over ledger.MaxPracticesReason bytes as given, and holds the
+// result to that bound, because a marker can be longer than what it replaces. Redaction comes first, because a
+// credential can span lines.
 func CheckPracticesReason(reason string) (string, error) {
 	reason = strings.TrimSpace(reason)
 	switch {
@@ -42,7 +45,13 @@ func CheckPracticesReason(reason string) (string, error) {
 	case len(reason) > ledger.MaxPracticesReason:
 		return "", invalidPractices("an acknowledgement's reason is at most %d bytes", ledger.MaxPracticesReason)
 	}
-	return reason, nil
+	flat := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, ledger.RedactCredentials(reason))
+	return clipText(strings.Join(strings.Fields(flat), " "), ledger.MaxPracticesReason), nil
 }
 
 // Acknowledge records a member's reason for leaving a repository's finding open (FR-PRAC-10), by the repository's ID
