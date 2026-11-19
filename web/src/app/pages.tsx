@@ -290,7 +290,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "members":
       return <MembersPage live={live} onSignedOut={onSignedOut} dialog={param("dialog")} />;
     case "repositories":
-      return <RepositoriesPage live={live} project={project} label={label} selected={param("repo")} dialog={param("dialog")} folder={param("folder")} worker={param("worker")} archived={archived} />;
+      return <RepositoriesPage live={live} project={project} label={label} selected={param("repo")} tab={param("tab")} dialog={param("dialog")} folder={param("folder")} worker={param("worker")} archived={archived} />;
     case "settings":
       return <SettingsPage live={live} project={scoped ? project : ""} label={label} archived={archived} section={param("section")} worker={param("worker")} prefs={prefs} />;
     case "agents":

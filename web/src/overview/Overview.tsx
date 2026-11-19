@@ -2,6 +2,8 @@ import { lazy, Suspense, useState } from "react";
 import type { ReactNode } from "react";
 
 import { readAudit, readRepositories } from "../api/admin";
+import { listPractices } from "../api/practices";
+import type { PracticesList } from "../api/practices";
 import type { AuditPage, RepositoryList } from "../api/admin";
 import { readView } from "../api/client";
 import type { NeedsYou, Operations, Plans, Roadmap, ShopFloor } from "../api/types";
@@ -13,6 +15,8 @@ import { milestoneStates } from "../floor/states";
 import { fullHeadingOf, headingOf, keyOf, kindOf } from "../needs/kinds";
 import { Ago, Bar, Lasted, Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { StartSession } from "../planning/StartSession";
+import { PracticesPanel } from "../practices/PracticesPanel";
+import { useCheck } from "../practices/useCheck";
 import { agreementOf } from "../reviews/inReview";
 import { Button } from "../ui/controls";
 import { Absent, Actor, Banner, ConditionChip, EmptyState, Fact, Facts, Id, LaneBadge, Panel, SkeletonRows, StateBadge, TableRegion } from "../ui/display";
@@ -202,6 +206,8 @@ export function OverviewPage({ live, project, label, archived }: Props) {
   const plans = useView<Plans>(() => readView<Plans>("plans"), "overview:plans", live);
   const activity = useView<AuditPage>(() => readAudit("project", { limit: listed }), "overview:audit", live);
   const repositories = useRead<RepositoryList>(() => readRepositories(), "overview:repositories", live);
+  const practices = useRead<PracticesList>(() => listPractices(), "overview:practices", live);
+  const check = useCheck(practices.view?.repositories ?? [], practices.again);
   const [registering, setRegistering] = useState(false);
   const now = useClock();
   const held = repositories.view ? (repositories.view.repositories ?? []).filter((row) => row.state !== "removed") : undefined;
@@ -266,6 +272,7 @@ export function OverviewPage({ live, project, label, archived }: Props) {
                   <Read state={needs}>{(view) => <Waiting needs={view} project={project} />}</Read>
                 </ViewTime.Provider>
               </Panel>
+              <PracticesPanel list={practices.view} failure={practices.failure} readAt={practices.readAt} check={check} archived={archived} now={now} />
               <Panel title="Review agreement, 30 days" actions={<Link to={addressOf("/reviews", { tab: "agreement" })}>Reviews</Link>}>
                 <Read state={operations}>
                   {() =>

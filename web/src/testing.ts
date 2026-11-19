@@ -220,6 +220,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path === "/v1/repositories") {
       return { status: 200, body: golden("repositories") };
     }
+    // The practices check's latest result of each repository, as the Overview's panel and the Repositories view read it.
+    if (call.method === "GET" && /^\/v1\/practices(\?|$)/.test(call.path)) {
+      return { status: 200, body: golden("practices") };
+    }
     // The categories the questions view lists are the project's every category, built-in and added.
     if (call.method === "GET" && call.path === "/v1/categories") {
       return { status: 200, body: { categories: golden<{ categories: string[] }>("questions").categories } };
