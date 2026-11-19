@@ -185,6 +185,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders":                             resolved(workOrderCreateOperation, authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant, authority.OpAdoptionRestructure).about(subjectWorkOrder).named(bodyField("id")).checked(plainID(workorders.ErrInvalid)),
 	"POST /v1/adoption/plan":                           fixed(authority.OpAdoptionPlan),
 	"POST /v1/practices/checks":                        fixed(authority.OpPracticesCheck),
+	"POST /v1/practices/acknowledgements":              fixed(authority.OpPracticesAcknowledge).about(ledger.SubjectPracticesFinding).named(practicesFindingSubject).checked(practicesAcknowledgeCheck).rewriting(practicesRepositoryAsID).showing(practicesAcknowledgeChanges),
+	"POST /v1/practices/acknowledgements/withdraw":     fixed(authority.OpPracticesWithdraw).about(ledger.SubjectPracticesFinding).named(practicesFindingSubject).checked(practicesWithdrawCheck).rewriting(practicesRepositoryAsID).showing(practicesWithdrawChanges),
 	"POST /v1/work-orders/{id}/review":                 resolved(reviewOperation, authority.OpWorkOrderReviewPlan, authority.OpWorkOrderReview).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/claims":                 fixed(authority.OpWorkOrderClaim),
 	"POST /v1/work-orders/{id}/lanes":                  fixed(authority.OpLaneStart),
@@ -781,6 +783,9 @@ func (h *handler) subjectName(ctx context.Context, binding control.Binding) stri
 		if err == nil && name != "" {
 			return name
 		}
+	}
+	if binding.Kind == ledger.SubjectPracticesFinding {
+		return h.practicesFindingName(ctx, binding.ID)
 	}
 	if binding.Kind == "route" {
 		return strings.TrimPrefix(binding.ID, "/v1/")

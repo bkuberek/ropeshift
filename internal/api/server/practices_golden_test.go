@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/practices"
@@ -50,6 +51,11 @@ func TestGoldenPractices(t *testing.T) {
 			},
 		},
 	})
+	if _, err := d.Client.AcknowledgePractices(t.Context(), api.PracticesAcknowledge{
+		Repository: "widgets", Finding: "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f", Reason: "a token the parser tests read",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	list, err := d.Client.Practices(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)

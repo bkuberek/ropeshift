@@ -422,6 +422,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectArchived, Message: err.Error()})
 	case errors.Is(err, ledger.ErrRepositoryHeld):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryHeld, Message: err.Error()})
+	case errors.Is(err, ledger.ErrAcknowledged):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeAcknowledged, Message: err.Error()})
 	case errors.Is(err, ledger.ErrRepositoryState):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryState, Message: err.Error()})
 	case errors.Is(err, ledger.ErrStaleEpoch):

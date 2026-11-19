@@ -15,6 +15,8 @@ func (h *handler) practicesRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/practices", h.listPractices)
 	mux.HandleFunc("POST /v1/practices/checks", h.member(h.checkPractices))
 	mux.HandleFunc("GET /v1/practices/checks/{request}", h.showPracticesCheck)
+	mux.HandleFunc("POST /v1/practices/acknowledgements", h.member(h.acknowledgePractices))
+	mux.HandleFunc("POST /v1/practices/acknowledgements/withdraw", h.member(h.withdrawPractices))
 }
 
 // practicesNamed resolves the repositories a request or a read names, each by identity, name, or prefix of its
@@ -54,7 +56,7 @@ func (h *handler) listPractices(w http.ResponseWriter, r *http.Request) {
 	}
 	list := api.PracticesList{Repositories: make([]api.PracticesView, 0, len(reads))}
 	for _, read := range reads {
-		list.Repositories = append(list.Repositories, api.PracticesViewOf(read.Repository, read.Result, read.Open, read.Now, workers))
+		list.Repositories = append(list.Repositories, api.PracticesViewOf(read.Repository, read.Result, read.Open, read.Acknowledgements, read.Now, workers))
 	}
 	reply(w, http.StatusOK, list)
 }
@@ -111,6 +113,55 @@ func (h *handler) showPracticesCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, api.PracticesRequestViewOf(request, 0, workers))
+}
+
+// acknowledgedRepository resolves the repository an acknowledgement names, by name, identity, or prefix of it, to its
+// identity.
+func (h *handler) acknowledgedRepository(r *http.Request, name string) (string, error) {
+	ids, err := h.practicesNamed(r, []string{name})
+	if err != nil {
+		return "", err
+	}
+	return ids[0], nil
+}
+
+// acknowledgePractices records a member's reason for leaving a finding open. The finding stays in every view of the
+// result, marked, and nothing that decides anything reads it.
+func (h *handler) acknowledgePractices(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.PracticesAcknowledge
+	if !decode(w, r, &in) {
+		return
+	}
+	repository, err := h.acknowledgedRepository(r, in.Repository)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ack, err := h.practices.Acknowledge(r.Context(), h.Scope, repository, in.Finding, in.Reason, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, api.PracticesAcknowledgementOf(ack))
+}
+
+// withdrawPractices removes the acknowledgement of a finding, which reads as open again, and answers what it removed.
+func (h *handler) withdrawPractices(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.PracticesWithdraw
+	if !decode(w, r, &in) {
+		return
+	}
+	repository, err := h.acknowledgedRepository(r, in.Repository)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ack, err := h.practices.Withdraw(r.Context(), h.Scope, repository, in.Finding, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.PracticesAcknowledgementOf(ack))
 }
 
 // requestPlanningChecks asks for a check of every active repository when a planning session's work order is recorded,
