@@ -540,3 +540,57 @@ func TestAForgeAccountReadSaysWhoMayOwnARepository(t *testing.T) {
 		t.Errorf("no gh: %+v", report)
 	}
 }
+
+// The command that finishes a push names the branch as one shell word, whatever the branch is called.
+func TestTheCommandLeftToPushQuotesTheBranch(t *testing.T) {
+	m := newMachine()
+	m.folders.SetBranch("/srv/acme", "fix;touch pwned")
+	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
+	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	want := []string{"gh auth setup-git", "git -C /srv/acme push --set-upstream origin 'fix;touch pwned'"}
+	if !slices.Equal(report.Remaining, want) {
+		t.Errorf("remaining = %q, want %q", report.Remaining, want)
+	}
+}
+
+// Reading the branch for the commands left asks origin, so the read has a limit of its own and a hung origin cannot hold
+// the report.
+func TestTheReadOfTheBranchForTheCommandsLeftHasATimeLimit(t *testing.T) {
+	m := newMachine()
+	m.forge.CreateError = errors.New("GraphQL: you cannot create repositories under acme-co")
+	var limited, reads int
+	m.folders.OnRemote(func(ctx context.Context) {
+		reads++
+		if _, ok := ctx.Deadline(); ok {
+			limited++
+		}
+	})
+	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	if len(report.Remaining) == 0 {
+		t.Fatalf("report = %+v: the commands left are listed", report)
+	}
+	if reads == 0 || limited != reads {
+		t.Errorf("%d of %d reads of the remote had a time limit", limited, reads)
+	}
+}
+
+// What git and gh said reaches a report as plain text: a step's detail and a commit's error drop terminal escape sequences
+// and control characters, and a commit's error is bounded as a step's detail is.
+func TestAReportCarriesWhatGitAndGHSaidAsPlainText(t *testing.T) {
+	hostile := "\x1b[31mremote: denied\x1b[0m\x1b]0;title\x07\r\nfatal:\tno\x00 \u202eaccess"
+	m := newMachine()
+	m.folders.FailPush("/srv/acme", errors.New(hostile))
+	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	if got := report.Repositories[0].Steps[2].Detail; got != "remote: denied\nfatal:\tno access" {
+		t.Errorf("the push's detail = %q", got)
+	}
+
+	m = newMachine()
+	m.folders.CommitError = errors.New(hostile + strings.Repeat("x", 5000))
+	report = m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	for name, text := range map[string]string{"report": report.CommitError, "repository": report.Repositories[0].CommitError} {
+		if !strings.HasPrefix(text, "remote: denied\nfatal:\tno access") || strings.ContainsAny(text, "\x1b\x07\x00\r\u202e") || len(text) > 2100 {
+			t.Errorf("the %s's commit error = %.80q (%d bytes)", name, text, len(text))
+		}
+	}
+}
