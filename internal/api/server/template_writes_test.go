@@ -188,6 +188,7 @@ func TestARequestToWriteFilesIsRefusedBeforeItIsRecorded(t *testing.T) {
 		"an empty remote":         {Shape: "workspace", Path: "/srv/harbor", Repositories: []ledger.TemplateWriteRepository{{Name: "api"}}},
 		"a project on a monorepo": {Shape: "monorepo", Path: "/srv/harbor", Project: "harbor"},
 		"a project that is none":  {Shape: "repository", Path: "/srv/harbor", Project: "Not A Project"},
+		"a name that is none":     {Shape: "monorepo", Path: "/srv/harbor", Name: "Not A Name"},
 	}
 	for name, body := range cases {
 		_, err := d.Client.RequestTemplateWrite(t.Context(), aSubscriptionWorker, body)

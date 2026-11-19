@@ -17,7 +17,8 @@ import (
 // a new project's remotes: a template write's remote fields, which ask a worker to add a URL as origin or to create
 // the repository on GitHub and push, the report's repositories, and desired state's forge_account_reads with the
 // worker route that reports one (FR-TPL-6). Version 7 adds practices checks: desired state's practices_checks, which ask a
-// worker that holds a repository's checkout to run the practices check, and the worker route that reports one (FR-PRAC-1).
+// worker that holds a repository's checkout to run the practices check, and the worker route that reports one (FR-PRAC-1). Version 7 also adds a template write's name,
+// which a worker renders into the files in place of the folder's name (FR-TPL-1).
 const ProtocolVersion = 7
 
 // ProtocolAssistants is the oldest protocol a worker runs the assistant on.

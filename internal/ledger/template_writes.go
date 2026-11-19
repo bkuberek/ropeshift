@@ -138,6 +138,10 @@ func (r TemplateWriteRequest) CheckRemotes() error {
 	return nil
 }
 
+// ProtocolTemplateName is the oldest protocol a worker is offered a request that names the project. An older worker
+// drops the name and would write the files for the folder's name.
+const ProtocolTemplateName = 7
+
 // HasRemotes says the request holds a field only a worker on ProtocolProjectRemotes reads.
 func (r TemplateWriteRequest) HasRemotes() bool {
 	if r.Remote != nil {
@@ -175,6 +179,7 @@ type DesiredTemplateWrite struct {
 	ID           string                    `json:"id"`
 	Shape        string                    `json:"shape"`
 	Path         string                    `json:"path"`
+	Name         string                    `json:"name,omitempty"`
 	Project      string                    `json:"project,omitempty"`
 	Repositories []TemplateWriteRepository `json:"repositories,omitempty"`
 	FirstCommit  bool                      `json:"first_commit,omitempty"`
@@ -236,7 +241,7 @@ func (r TemplateWriteRecord) StateAt(now int64) TemplateWriteState {
 // Desired is the request as its worker reads it.
 func (r TemplateWriteRecord) Desired() DesiredTemplateWrite {
 	return DesiredTemplateWrite{
-		ID: r.ID, Shape: r.Request.Shape, Path: r.Request.Path, Project: r.Request.Project,
+		ID: r.ID, Shape: r.Request.Shape, Path: r.Request.Path, Name: r.Request.Name, Project: r.Request.Project,
 		Repositories: r.Request.Repositories, FirstCommit: r.Request.FirstCommit, Remote: r.Request.Remote, ExpiresAt: r.ExpiresAt,
 	}
 }
@@ -251,6 +256,7 @@ type TemplateWriteView struct {
 	ExpiresAt    int64                     `json:"expires_at"`
 	Shape        string                    `json:"shape"`
 	Path         string                    `json:"path"`
+	Name         string                    `json:"name,omitempty"`
 	Project      string                    `json:"project,omitempty"`
 	Repositories []TemplateWriteRepository `json:"repositories,omitempty"`
 	FirstCommit  bool                      `json:"first_commit,omitempty"`
@@ -268,7 +274,7 @@ type TemplateWriteView struct {
 func (r TemplateWriteRecord) ViewAt(now int64, registrable bool) TemplateWriteView {
 	return TemplateWriteView{
 		ID: r.ID, Worker: r.Worker, RequestedBy: r.RequestedBy, RequestedAt: r.RequestedAt, ExpiresAt: r.ExpiresAt,
-		Shape: r.Request.Shape, Path: r.Request.Path, Project: r.Request.Project, Repositories: r.Request.Repositories,
+		Shape: r.Request.Shape, Path: r.Request.Path, Name: r.Request.Name, Project: r.Request.Project, Repositories: r.Request.Repositories,
 		FirstCommit: r.Request.FirstCommit, Remote: r.Request.Remote, State: r.StateAt(now), Report: r.Report, ReportedAt: r.ReportedAt,
 		Registrable: registrable && r.Report != nil && r.Report.Clone,
 	}
