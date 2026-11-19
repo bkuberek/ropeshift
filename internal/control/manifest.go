@@ -44,6 +44,11 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		r.registering.Lock()
 		defer r.registering.Unlock()
 	}
+	return r.registerApproved(ctx, scope, approval, kept, creator, project, dryRun, actor)
+}
+
+// registerApproved is RegisterApproved for a caller that holds the registration lock, or runs a dry run.
+func (r *Repositories) registerApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	var entries []planning.ManifestRepository
 	var targets []string
 	var cause registrationCause

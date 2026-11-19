@@ -1,11 +1,13 @@
 package control
 
 import (
+	"errors"
 	"reflect"
 	"sync"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 func TestACreationIsRunningOnlyWhileItsKeyIsMarked(t *testing.T) {
@@ -57,5 +59,20 @@ func TestTheOutcomesOfARegistrationKeepEachCreationBothWays(t *testing.T) {
 	back, err := recordedAdded(nil, &ledger.ManifestRegistration{Repositories: record})
 	if err != nil || !reflect.DeepEqual(back, added) {
 		t.Errorf("a recorded registration reads back as %+v (%v), want %+v", back, err, added)
+	}
+}
+
+// A retry or a skip of a creation that runs now in this process is an illegal move that names the entry, and reads nothing
+// from the ledger, so it never waits for the run it would collide with.
+func TestARetryOrASkipOfARunningCreationIsAnIllegalMove(t *testing.T) {
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	r := NewRepositories(nil)
+	r.markCreating(ledger.CreationKey("approval-1", "api"))
+	_, err := r.RetryCreation(t.Context(), "scope", "approval-1", "api", nil, nil, "", member)
+	if !errors.Is(err, workorders.ErrIllegalMove) || err.Error() != "no such transition: api is being created now" {
+		t.Errorf("a retry of a running creation answered %v", err)
+	}
+	if _, err = r.SkipCreation(t.Context(), "scope", "approval-1", "api", "built by hand", member); !errors.Is(err, workorders.ErrIllegalMove) {
+		t.Errorf("a skip of a running creation answered %v", err)
 	}
 }
