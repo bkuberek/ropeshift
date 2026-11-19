@@ -336,11 +336,13 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 		return fmt.Errorf("%w: a publish that worked names no pull request", workorders.ErrInvalid)
 	}
 	pr := headOrNone(*report.PullRequest)
+	noHead := !ledger.CommitHash(report.PullRequest.HeadCommit)
 	readAt := tx.Now()
 	// A publish's view of the pull request was taken before its report arrived, and the worker's own reads may have
 	// told the ledger of the same head since. Those reads are newer, and the worker holds that the ledger has
-	// them, so it reports nothing more until the forge changes again: the stale view must not replace them.
-	if held, err := tx.Forge().PullRequest(request.WorkOrder); err == nil && held.Number == pr.Number && held.HeadCommit == pr.HeadCommit && held.State == pr.State {
+	// them, so it reports nothing more until the forge changes again: the stale view must not replace them. A view
+	// whose head is no commit takes back no head the ledger holds either.
+	if held, err := tx.Forge().PullRequest(request.WorkOrder); err == nil && held.Number == pr.Number && (noHead || held.HeadCommit == pr.HeadCommit && held.State == pr.State) {
 		pr, readAt = held.PullRequest, held.ReadAt
 	} else if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return err
@@ -661,6 +663,11 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 		return err
 	}
 	read := headOrNone(report.PullRequest)
+	if !ledger.CommitHash(report.PullRequest.HeadCommit) {
+		// A read of a head that is no commit says nothing of the head the ledger holds, nor of the checks on it, so
+		// neither is replaced: the head would otherwise be blanked, and the next read of it counted as a new push.
+		read.HeadCommit, read.Checks = held.HeadCommit, held.Checks
+	}
 	read.Checks = clampedBaseReads(read.Checks)
 	if held.Worker != worker || held.Number != read.Number {
 		return fmt.Errorf("%w: pull request %d of %s is not this worker's to read", workorders.ErrInvalid, read.Number, report.WorkOrder)

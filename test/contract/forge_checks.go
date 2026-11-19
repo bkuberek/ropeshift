@@ -442,7 +442,7 @@ var ForgeMergeChecks = []Check{
 	{"FG9", "at person_merges accepted work waits in integrating, a merge the person made ends it, and a closed pull request ends nothing", checkForgeMergeEndsWork},
 	{"FG10", "rework publishes the same branch again, the same pull request moves to the new head, its review waits for it, and a publish's older view does not replace what the worker read", checkForgeReworkUpdatesThePullRequest},
 	{"FG11", "a review's security notes follow its verdicts in the comment, redacted of credentials, in the same one request", checkForgeCommentCarriesNotes},
-	{"FG12", "a head a worker reports that is no commit hash is no head: it replaces no head on record, sends no work back to review, and reaches no request or event", checkForgeHeadMustBeACommit},
+	{"FG12", "a head a worker reports that is no commit hash keeps the head the ledger holds: a read or a publish of it takes none back, counts no CI result twice, and reaches no request or event", checkForgeHeadMustBeACommit},
 }
 
 // reviewed has the rig's worker report the pull request open at the commit under review, and runs the review
@@ -667,48 +667,58 @@ func checkForgeMergeEndsWork(r *Rig) error {
 	return r.CheckProjection(f.store)
 }
 
-func checkForgeReworkUpdatesThePullRequest(r *Rig) error {
+// reworked is a forge rig whose first review failed the work, whose comment on that was made, and whose next attempt
+// ended at a new commit on the same branch: the rig's worker is asked to publish that commit, which is returned.
+func reworked(r *Rig) (*forgeRig, string, error) {
 	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	failed := workorders.CriterionVerdict{Criterion: "c1", Verdict: workorders.VerdictFail, Reasons: "No retry.", Citations: []string{"pay/retry.go:3"}}
 	if _, err := f.reviewed(failed, passes("c2", "ok")); err != nil {
-		return err
+		return nil, "", err
 	}
 	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Ready); err != nil {
-		return err
+		return nil, "", err
 	}
 	comment, err := f.publish()
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	if !strings.Contains(comment.Body, "No retry.") || !strings.Contains(comment.Body, "goes back for rework") {
-		return Violatedf("the comment of a failed review reads:\n%s", comment.Body)
+		return nil, "", Violatedf("the comment of a failed review reads:\n%s", comment.Body)
 	}
 	if err := f.report(ledger.ForgeReport{Request: comment.ID, Attempt: 1}); err != nil {
-		return err
+		return nil, "", err
 	}
 	// The next attempt runs on this worker again and completes with a new commit on the same branch.
 	f.grant, err = f.plane.Claim(r.Ctx, f.auth, workorders.ClaimRequest{WorkOrder: f.grant.WorkOrder, ClaimID: r.ID("claim"), TTLMs: TTLMs})
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	f.lane = r.ID("lane")
 	ops := r.NewOps(f.store)
 	if _, err := ops.Dispatch(r.Ctx, r.Scope, f.grant.WorkOrder, f.lane, r.Actor); err != nil {
-		return err
+		return nil, "", err
 	}
 	if _, err := ops.StartLane(r.Ctx, r.Scope, f.grant.Lease, f.lane, r.Actor); err != nil {
-		return err
+		return nil, "", err
 	}
 	again := r.Commit()
 	raw, err := json.Marshal(LaneFinished(again))
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	if reply, err := f.upload(ledger.UploadLaneEnded, raw); err != nil || len(reply.Rejected) != 0 {
-		return Violatedf("the second lane's end was refused: %+v, %v", reply.Rejected, err)
+		return nil, "", Violatedf("the second lane's end was refused: %+v, %v", reply.Rejected, err)
+	}
+	return f, again, nil
+}
+
+func checkForgeReworkUpdatesThePullRequest(r *Rig) error {
+	f, again, err := reworked(r)
+	if err != nil {
+		return err
 	}
 	publish, err := f.publish()
 	if err != nil {
@@ -800,7 +810,8 @@ func (f *forgeRig) wantNoHostileHead(when string) error {
 }
 
 func checkForgeHeadMustBeACommit(r *Rig) error {
-	// A publish's report of a head that is no commit leaves the review waiting for the pull request at its commit.
+	// A publish's report of a head that is no commit, with no pull request on record yet, leaves the review waiting for the
+	// pull request at its commit.
 	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
 	if err != nil {
 		return err
@@ -817,8 +828,8 @@ func checkForgeHeadMustBeACommit(r *Rig) error {
 	if err := f.wantNoHostileHead("after a publish"); err != nil {
 		return err
 	}
-	// A read of a pull request whose head is no commit, with a check that ended in what a rerun mends, sends no work
-	// back to review at that head and asks for no rerun of it.
+	// A read of a head that is no commit keeps the head the ledger holds, and so counts the result of its checks once: the
+	// good read, the bad one, and the good one again leave one CI record.
 	g, err := newForgeRig(r, ledger.ReviewOnPullRequest)
 	if err != nil {
 		return err
@@ -829,15 +840,29 @@ func checkForgeHeadMustBeACommit(r *Rig) error {
 	if err := r.stateIs(g.store, g.grant.WorkOrder, workorders.Integrating); err != nil {
 		return err
 	}
-	infra, err := g.infraAfter(0, ciRunAddress)
-	if err != nil {
+	if err := g.ciRead(g.head, running(0)); err != nil {
 		return err
 	}
-	if err := g.ciRead(hostileHead, infra); err != nil {
+	read := func(head, when string) error {
+		if err := g.ciRead(head, finished("success", ledger.CheckPassed, 0, 4)); err != nil {
+			return err
+		}
+		if pr, err := g.onRecord(); err != nil || pr.HeadCommit != g.head {
+			return Violatedf("%s the head on record is %q, want %s: %v", when, pr.HeadCommit, g.head, err)
+		}
+		if records, err := g.ciRecords(); err != nil || len(records) != 1 || records[0].Head != g.head {
+			return Violatedf("%s the CI records are %+v, want the one of %s: %v", when, records, g.head, err)
+		}
+		return nil
+	}
+	if err := read(g.head, "after a read of the head,"); err != nil {
 		return err
 	}
-	if pr, err := g.onRecord(); err != nil || pr.HeadCommit != "" {
-		return Violatedf("a read that reported %q left the head %q: %v", hostileHead, pr.HeadCommit, err)
+	if err := read(hostileHead, "after a read of "+hostileHead+","); err != nil {
+		return err
+	}
+	if err := read(g.head, "after the head is read again,"); err != nil {
+		return err
 	}
 	if err := r.stateIs(g.store, g.grant.WorkOrder, workorders.Integrating); err != nil {
 		return err
@@ -845,21 +870,26 @@ func checkForgeHeadMustBeACommit(r *Rig) error {
 	if count, _, err := r.eventsAbout(g.store, g.grant.WorkOrder, workorders.EventType(workorders.TriggerHeadMoved)); err != nil || count != 0 {
 		return Violatedf("%d moves back to review at a head that is no commit: %v", count, err)
 	}
-	if err := g.wantReruns("after a read of a head that is no commit,", "rerun:", 0); err != nil {
-		return err
-	}
-	if records, err := g.ciRecords(); err != nil || len(records) != 0 {
-		return Violatedf("a read of a head that is no commit left the CI records %+v: %v", records, err)
-	}
 	if err := g.wantNoHostileHead("after a read"); err != nil {
 		return err
 	}
-	// The next read of the commit under review is the head again.
-	if err := g.read(g.pullRequestAt(g.head)); err != nil {
+	// A publish whose view names a head that is no commit does not take back the head a read left on record either.
+	h, again, err := reworked(r)
+	if err != nil {
 		return err
 	}
-	if pr, err := g.onRecord(); err != nil || pr.HeadCommit != g.head {
-		return Violatedf("a read of %s left the head %q: %v", g.head, pr.HeadCommit, err)
+	h.head = again
+	running := *h.opened(1, again).PullRequest
+	running.Checks = []ledger.PullRequestCheck{{Name: "unit", State: ledger.CheckPending, Required: true, Status: ledger.CIRunInProgress}}
+	if err := h.read(running); err != nil {
+		return err
 	}
-	return nil
+	if err := h.report(h.opened(1, hostileHead)); err != nil {
+		return err
+	}
+	pr, err := h.onRecord()
+	if err != nil || pr.HeadCommit != again || !slices.Equal(pr.Checks, running.Checks) {
+		return Violatedf("a publish that reported %q left the pull request %+v: %v", hostileHead, pr, err)
+	}
+	return h.wantNoHostileHead("after a publish over a read")
 }
