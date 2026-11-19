@@ -31,6 +31,7 @@ var ManifestCreateChecks = []Check{
 	{"RM49", "an error from the creator stops the run as an error of the store does: the creation stays started and is not running, nothing registers, and each entry after it is not attempted", checkCreatorErrorStopsTheRun},
 	{"RM50", "an entry that creates a repository where there is no creator, or no clone of the planning repository, is refused with why and nothing is checked or created", checkCreationWithNoCreatorOrNoPlanningCloneIsRefused},
 	{"RM51", "a creation left started is gone on from the creator and not registered from the folder it left: a run finds the clone it half made and resumes the creation", checkInterruptedCreationResumesFromTheCreator},
+	{"RM52", "a creation the creator refuses after it started, as a folder that changed under it, is recorded as finished and refused right after its start, so each start has its finish: nothing registers, and the entry reads as refused with the reason", checkRefusedCreationPairsItsFinish},
 }
 
 // The reasons the worker's checks of a creation refuse with, which a path that leads out of the bound and a forge that
@@ -711,4 +712,77 @@ func mustJSON(value any) json.RawMessage {
 		panic(err)
 	}
 	return raw
+}
+
+const refusedFolderChanged = "folder_changed"
+
+func checkRefusedCreationPairsItsFinish(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("site", "../site", ""), []string{"search", "site"}, nil)
+	if err != nil {
+		return err
+	}
+	w.creator.passes("search", "search", "main")
+	w.creator.passes("site", "site", "main")
+	// The creator's checks pass, and the creation then finds the folder is no longer the one it checked.
+	w.creator.SetReport(w.creator.key("search"), ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeRefused, Reason: refusedFolderChanged, Detail: "the folder was swapped for a link after it was checked",
+	})
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := r.runCreation(w, false)
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(added, map[string]entryOutcome{
+		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"search": {outcome: ledger.RegistrationRefused, path: "/work/search", reason: refusedFolderChanged + ": the folder was swapped for a link"},
+		"site":   {outcome: ledger.Created, path: "/work/site"},
+	}); err != nil {
+		return Violatedf("approving it: %v", err)
+	}
+	if found, err := w.repositories.Resolve(r.Ctx, r.Scope, "search"); err == nil {
+		return Violatedf("a creation the creator refused registered %+v", found)
+	}
+	events, err := r.creationEvents(s, w.request.ID)
+	if err != nil || len(events) != 4 {
+		return Violatedf("the creation events are %+v: %v", events, err)
+	}
+	var started ledger.CreationStartedEvent
+	var finished ledger.CreationFinishedEvent
+	if err := jsonInto(events[0].Data, &started); err != nil {
+		return err
+	}
+	if err := jsonInto(events[1].Data, &finished); err != nil {
+		return err
+	}
+	if events[0].Type != ledger.EventRepositoryCreationStarted || events[1].Type != ledger.EventRepositoryCreationFinished || events[0].Rev >= events[1].Rev ||
+		started.Name != "search" || finished.Name != "search" || finished.Key != started.Key {
+		return Violatedf("the refused creation did not pair its start and its finish: %+v then %+v", events[0].Type, events[1].Type)
+	}
+	if finished.Outcome != ledger.CreationRefused || !strings.Contains(finished.Reason, refusedFolderChanged) || len(finished.Steps) != 0 {
+		return Violatedf("the refused creation finished as %+v", finished)
+	}
+	if latest, err := r.latestCreation(s, w.request.ID, "search"); err != nil || latest.State != ledger.CreationRefused {
+		return Violatedf("the events leave the creation %+v: %v", latest, err)
+	}
+	if w.repositories.Creating(w.request.ID, "search") {
+		return Violatedf("a creation the creator refused reads as running")
+	}
+	return r.CheckProjection(s)
+}
+
+// latestCreation reads where the events about an approval leave the creation of an entry.
+func (r *Rig) latestCreation(s ports.Store, approval, name string) (ledger.CreationRecord, error) {
+	var latest ledger.CreationRecord
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: authority.SubjectApproval, ID: approval})
+		if err != nil {
+			return err
+		}
+		latest, err = ledger.LatestCreation(events, name)
+		return err
+	})
+	return latest, err
 }
