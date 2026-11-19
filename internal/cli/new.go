@@ -103,7 +103,7 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 	case projectfiles.Workspace:
 		set.Var(&repositories, "repository", "an existing code repository as name=remote, cloned into repos/<name>, repeatable")
 	case projectfiles.Repository:
-		set.StringVar(&project, "project", "", "the project the printed commands register the repository in; the folder's name when absent")
+		set.StringVar(&project, "project", "", "the project the printed commands register the repository in; the project's name when absent, which is --name or else the folder's name")
 	}
 	positional, ok := c.parse(set, args)
 	if !ok {
@@ -129,11 +129,11 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		return c.usageError("the folder %q makes no project name; rename it to a name with letters or digits, or give --name", filepath.Base(folder))
 	}
 	for _, entry := range repositories {
-		name, remote, found := strings.Cut(entry, "=")
+		repositoryName, repositoryRemote, found := strings.Cut(entry, "=")
 		if !found {
 			return c.usageError("--repository %q: give a code repository as name=remote", entry)
 		}
-		data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: name, Remote: remote})
+		data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: repositoryName, Remote: repositoryRemote})
 	}
 	if project == "" {
 		project = data.Project

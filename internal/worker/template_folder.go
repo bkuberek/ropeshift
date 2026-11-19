@@ -6,25 +6,78 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/projectfiles"
 )
 
-// holdsOnly says a folder holds files of the shape and nothing else, which is how a crash between the first file
-// and the report leaves it.
-func (w *Worker) holdsOnly(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File) (bool, error) {
-	have, err := rt.Folders.Files(ctx, folder)
-	if err != nil {
-		return false, err
-	}
-	for _, path := range have {
-		if !slices.ContainsFunc(files, func(file projectfiles.File) bool { return file.Path == path }) {
-			return false, nil
+// fileManagerFiles are the files a file manager leaves in any folder it shows, which a write accepts anywhere, leaves as
+// they are, and never adds to a commit.
+var fileManagerFiles = []string{".DS_Store", "Thumbs.db"}
+
+// listedNames and nameLength bound what a refusal repeats of the folder: the first few names, each cut to a length.
+const (
+	listedNames = 5
+	nameLength  = 80
+)
+
+// foreignEntries are the files the folder holds that the shape does not write, except the files a file manager leaves,
+// and, for a write that has not started, the first .git of a repository the folder holds at any depth, none of which this
+// worker made. It is the one rule of which folders a write may go into: a crash between the first file and the report
+// leaves a folder of the shape's files, and so does a person who started the project's files by hand. It stops reading the
+// folder at the first repository and at the sixth file of another kind, because a refusal names five and says there are
+// more, so a large folder costs no more than a small one.
+func (w *Worker) foreignEntries(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File, started bool) (foreign, repositories []string, err error) {
+	err = rt.Folders.Walk(ctx, folder, func(path string, git bool) bool {
+		switch {
+		case git:
+			if !started {
+				repositories = append(repositories, path)
+				return false
+			}
+		case slices.Contains(fileManagerFiles, path[strings.LastIndex(path, "/")+1:]):
+		case !slices.ContainsFunc(files, func(file projectfiles.File) bool { return file.Path == path }):
+			foreign = append(foreign, path)
+			return len(foreign) <= listedNames
 		}
+		return true
+	})
+	return foreign, repositories, err
+}
+
+// refusalDetail says what a folder holds that a write cannot go into. Each name is cleaned of escape sequences and
+// overrides, quoted, and cut to a length, and only the first few are named, so a refusal carries no more than a person
+// reads and a folder cannot choose how a refusal looks.
+func refusalDetail(foreign, repositories []string) string {
+	var parts []string
+	if len(foreign) > 0 {
+		parts = append(parts, "the folder holds "+listNames(foreign)+", which a write of this shape does not add to: it goes only into a folder whose files are its own")
 	}
-	return true, nil
+	if len(repositories) > 0 {
+		parts = append(parts, "the folder holds "+listNames(repositories)+", a repository that ropeshift did not make")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// listNames quotes the first listedNames of names, each cleaned and cut to nameLength characters, and says there are more
+// when there are, with no count, because the worker stopped looking.
+func listNames(names []string) string {
+	shown := make([]string, 0, listedNames)
+	for _, name := range names[:min(len(names), listedNames)] {
+		name = ledger.PlainText(name)
+		if runes := []rune(name); len(runes) > nameLength {
+			name = string(runes[:nameLength]) + "..."
+		}
+		shown = append(shown, strconv.Quote(name))
+	}
+	out := strings.Join(shown, ", ")
+	if len(names) > len(shown) {
+		out += " and more"
+	}
+	return out
 }
 
 // insideReserved says the folder is at or inside a folder ropeshift keeps for itself: the state, run, or worktree

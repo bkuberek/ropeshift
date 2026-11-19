@@ -306,6 +306,34 @@ describe("Start a project from a template", () => {
     expect(sent.filter((call) => call.method === "POST")).toEqual([]);
   });
 
+  it("moves focus to the name field when it holds a name that is no project name", async () => {
+    serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.type(within(dialog).getByLabelText("Project name"), "Tide Water");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await within(dialog).findByText(/lowercase letters and digits in words joined by single hyphens/);
+    expect(document.activeElement).toBe(within(dialog).getByLabelText("Project name"));
+  });
+
+  it("clears a name typed for one worker when the worker chosen cannot take one, so nothing asks the person to clear a field they cannot edit", async () => {
+    const six = { id: "worker-six", name: "six", epoch: 1, protocol: 6 };
+    const sent = serveStart({ posted: view(), reads: [view()], projects: one }, (call) =>
+      call.method === "GET" && call.path === "/v1/workers" ? { status: 200, body: { workers: [{ id: connected, name: "build-host-07", epoch: 1, protocol: 7 }, six] } } : undefined,
+    );
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    const field = within(dialog).getByLabelText("Project name") as HTMLInputElement;
+    await userEvent.type(field, "tidewater");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Worker"), "worker-six");
+    await waitFor(() => expect(field.disabled).toBe(true));
+    expect(field.value).toBe("");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await waitFor(() => expect(posts(sent, writesTo("worker-six"))).toHaveLength(1));
+    expect(within(dialog).queryByText(/cannot take a project name/)).toBeNull();
+    expect(posts(sent, writesTo("worker-six"))[0]?.body).not.toHaveProperty("name");
+  });
+
   it("goes back from a code repository of a project planned elsewhere to the first question", async () => {
     serveStart({ posted: view(), reads: [view()], projects: one });
     const dialog = await openDialog();
@@ -367,6 +395,37 @@ describe("Start a project from a template", () => {
     await userEvent.click(within(commands).getByRole("button", { name: "Copy ropeshift project create harbor" }));
     expect(copy).toHaveBeenCalledWith("ropeshift project create harbor");
     expect(reads().length).toBe(2);
+  });
+
+  it("lists the files it left as they were apart from the files it wrote", async () => {
+    const left = written({ files: ["AGENTS.md", "CLAUDE.md", "plan/goal.md"], left: ["AGENTS.md", "plan/goal.md"] });
+    serveStart({ posted: view({ state: "written", report: left }), reads: [view({ state: "written", report: left })], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    expect(await within(dialog).findByText(/build-host-07 wrote 1 file in \/srv\/code\/harbor/)).toBeTruthy();
+    expect(within(within(dialog).getByRole("list", { name: "Files written" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["CLAUDE.md"]);
+    expect(within(within(dialog).getByRole("list", { name: "Files left as they were" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["AGENTS.md", "plan/goal.md"]);
+  });
+
+  it("names no left files when the folder held none", async () => {
+    serveStart({ posted: view({ state: "written", report: written() }), reads: [view({ state: "written", report: written() })], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await within(dialog).findByText(/build-host-07 wrote 3 files/);
+    expect(within(dialog).queryByRole("list", { name: "Files left as they were" })).toBeNull();
+  });
+
+  it("says a folder may hold files of the shape, and brings back the refusal that names the file of another kind", async () => {
+    const refused = view({ state: "refused", report: { request: "request-1", outcome: "refused", reason: "path_not_empty", detail: "the folder holds notes.txt, which is not a file of this shape" } });
+    serveStart({ posted: view(), reads: [refused], projects: one });
+    const dialog = await openAnswered();
+    expect(within(dialog).getByText(/may hold files of the shape/)).toBeTruthy();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    const field = (await within(dialog).findByText(/the folder holds notes\.txt, which is not a file of this shape \(path_not_empty\)/)).closest(".field") as HTMLElement;
+    expect(within(field).getByLabelText("Folder")).toBeTruthy();
   });
 
   it("says the worker did not take the request when the daemon reads it as expired", async () => {

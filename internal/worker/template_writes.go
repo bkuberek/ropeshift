@@ -186,6 +186,10 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		Shape: request.Shape, Path: request.Path, Repositories: request.Repositories, Name: request.Name, Project: request.Project,
 		FirstCommit: request.FirstCommit, Remote: request.Remote,
 	}}
+	if request.Name != "" && ledger.ValidateProjectName(request.Name) != nil {
+		// The name is rendered into the files, so it is checked here as the control plane checked it, and the refusal repeats none of it.
+		return refused(ledger.TemplateRefusedInvalid, "the request's name is no project name: it is lowercase letters and digits in words joined by single hyphens, 63 characters at most")
+	}
 	remote := w.projectRuntime(rt)
 	files, err := projectremote.Files(remote, job, &journal.Progress)
 	if errors.Is(err, projectfiles.ErrInvalid) || (err == nil && job.Name() == "") {
@@ -220,12 +224,12 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		return refused(ledger.TemplateRefusedReserved, "the folder is at or inside a folder ropeshift keeps for itself")
 	}
 	if found.Exists && !found.Empty {
-		ours, err := w.holdsOnly(ctx, rt, request.Path, files)
+		foreign, repositories, err := w.foreignEntries(ctx, rt, request.Path, files, started)
 		if err != nil {
 			return ledger.TemplateWriteReport{}, journal, err
 		}
-		if !started || !ours {
-			return refused(ledger.TemplateRefusedNotEmpty, "the folder holds files")
+		if len(foreign) > 0 || len(repositories) > 0 {
+			return refused(ledger.TemplateRefusedNotEmpty, refusalDetail(foreign, repositories))
 		}
 	}
 	if detail, inside, err := w.insideKeptClone(ctx, rt, found.Real); err != nil {

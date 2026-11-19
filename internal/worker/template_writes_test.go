@@ -3,6 +3,7 @@ package worker_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -390,6 +391,9 @@ func TestAWorkerRefusesAFolderItCannotWrite(t *testing.T) {
 		report := captured.only(t)
 		if report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != c.reason || report.Detail == "" {
 			t.Errorf("%s: the report is %+v, want a refusal for %s", c.name, report, c.reason)
+		}
+		if c.reason == ledger.TemplateRefusedNotEmpty && !strings.Contains(report.Detail, "notes.txt") {
+			t.Errorf("%s: the refusal does not name the file: %q", c.name, report.Detail)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(full, "AGENTS.md")); err == nil {
@@ -819,5 +823,320 @@ func TestAWorkerWritesAFolderThatMakesNoNameWhenTheRequestNamesTheProject(t *tes
 	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, Name: "harbor"}))
 	if view.State != ledger.TemplateWriteWritten || view.Report.Project != "harbor" {
 		t.Errorf("the request is %+v", view)
+	}
+}
+
+// holding writes a folder that holds the named files before the request, and answers the folder.
+func (r *templateRig) holding(name string, files map[string]string) string {
+	r.t.Helper()
+	folder := r.folder(name)
+	for path, text := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(folder, path)), 0o755); err != nil {
+			r.t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, path), []byte(text), 0o600); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	return folder
+}
+
+// A folder that holds files of the shape and nothing else is written: the files it lacks are made, the ones it holds are
+// left as they are and reported as left, and the first commit adds only the files the write made.
+func TestAFolderHoldingOnlyFilesOfTheShapeIsWrittenAndTheFilesLeftAreReported(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.holding("harbor", map[string]string{"AGENTS.md": "mine\n", "plan/goal.md": "my goal\n"})
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Commit == "" {
+		t.Fatalf("the request is %+v", view)
+	}
+	if !slices.Equal(view.Report.Left, []string{"AGENTS.md", "plan/goal.md"}) {
+		t.Errorf("the report leaves %v", view.Report.Left)
+	}
+	for path, want := range map[string]string{"AGENTS.md": "mine\n", "plan/goal.md": "my goal\n"} {
+		if got, err := os.ReadFile(filepath.Join(folder, path)); err != nil || string(got) != want {
+			t.Errorf("%s reads %q (%v), want it as it was", path, got, err)
+		}
+	}
+	if want := shapeFiles(t, projectfiles.Monorepo, folder, nil); !slices.Equal(filesUnder(t, folder), want) {
+		t.Errorf("the folder holds %v, want every file of the shape %v", filesUnder(t, folder), want)
+	}
+	committed := strings.Fields(r.git(folder, "ls-tree", "-r", "--name-only", "HEAD"))
+	if slices.Contains(committed, "AGENTS.md") || slices.Contains(committed, "plan/goal.md") || !slices.Contains(committed, "CLAUDE.md") {
+		t.Errorf("the first commit holds %v", committed)
+	}
+}
+
+// A file the shape does not write is refused, whatever else the folder holds, and it is named: nothing is written, not even
+// a file of the shape.
+func TestAFolderHoldingAFileOfAnotherKindIsRefusedNamingIt(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	for name, other := range map[string]string{"top": "notes.txt", "below": "plan/notes.txt"} {
+		folder := r.holding("harbor-"+name, map[string]string{"AGENTS.md": "mine\n", other: "x"})
+		view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder}))
+		if view.State != ledger.TemplateWriteRefused || view.Report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(view.Report.Detail, other) {
+			t.Errorf("%s: the request is %+v", name, view)
+		}
+		if got := filesUnder(t, folder); !slices.Equal(got, []string{"AGENTS.md", other}) {
+			t.Errorf("%s: the folder holds %v after a refusal", name, got)
+		}
+	}
+}
+
+// A repository the worker did not make is refused, with the files of the shape or without them, because the write is not
+// the one that made it.
+func TestAFolderHoldingARepositoryTheWorkerDidNotMakeIsRefused(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.holding("harbor", map[string]string{"AGENTS.md": "mine\n"})
+	r.git(folder, "init", "--quiet")
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder}))
+	if view.State != ledger.TemplateWriteRefused || view.Report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(view.Report.Detail, ".git") {
+		t.Errorf("the request is %+v", view)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "CLAUDE.md")); err == nil {
+		t.Error("a folder with a repository of somebody else's was written into")
+	}
+}
+
+// refusedFor offers a request for a folder and answers the refusal it gets, failing the test when there is none.
+func (r *templateRig) refusedFor(t *testing.T, id, shape, folder string) ledger.TemplateWriteReport {
+	t.Helper()
+	captured := &capturedReports{WorkerLink: r.link}
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: id, Shape: shape, Path: folder, ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeRefused {
+		t.Fatalf("%s: the report is %+v, want a refusal", id, report)
+	}
+	return report
+}
+
+// The name of a file the worker refuses is repeated in the refusal, and it is a file anybody could have named: its escape
+// sequences and its bidirectional overrides are taken out, it is quoted, and it is cut to a length a refusal can carry.
+func TestTheRefusalOfAFileCarriesItsNameAsPlainBoundedText(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	hostile := "evil\x1b[31m\u202egpj.txt"
+	long := strings.Repeat("x", 200) + ".txt"
+	folder := r.holding("harbor", map[string]string{"AGENTS.md": "mine\n", hostile: "x", long: "x"})
+	report := r.refusedFor(t, "request-hostile", "monorepo", folder)
+	if report.Reason != ledger.TemplateRefusedNotEmpty {
+		t.Fatalf("the report is %+v", report)
+	}
+	if strings.ContainsRune(report.Detail, '\x1b') || strings.ContainsRune(report.Detail, '‮') {
+		t.Errorf("the refusal carries a control or override character: %q", report.Detail)
+	}
+	if !strings.Contains(report.Detail, `"evilgpj.txt"`) {
+		t.Errorf("the refusal does not quote the cleaned name: %q", report.Detail)
+	}
+	if len(report.Detail) > 600 {
+		t.Errorf("the refusal is %d bytes long: %q", len(report.Detail), report.Detail)
+	}
+}
+
+// The refusal names the first five files of another kind and says there are more, with no count of them, because the worker
+// stops looking at the sixth.
+func TestTheRefusalNamesTheFirstFilesAndCountsTheRest(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	files := map[string]string{}
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt", "g.txt", "h.txt"} {
+		files[name] = "x"
+	}
+	report := r.refusedFor(t, "request-many", "monorepo", r.holding("harbor", files))
+	if !strings.Contains(report.Detail, `"a.txt"`) || !strings.Contains(report.Detail, `"e.txt"`) || !strings.Contains(report.Detail, "and more") || strings.Contains(report.Detail, `"f.txt"`) || strings.Contains(report.Detail, "and 3 more") {
+		t.Errorf("the refusal is %q", report.Detail)
+	}
+}
+
+// A name that is not a project name is refused as invalid, whatever the control plane let through, because it would be
+// rendered into the files.
+func TestARequestNamedWithNoProjectNameIsRefusedAsInvalid(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	captured := &capturedReports{WorkerLink: r.link}
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: "request-bad-name", Shape: "monorepo", Path: folder, Name: "Not A Name", ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != ledger.TemplateRefusedInvalid || !strings.Contains(report.Detail, "name") {
+		t.Errorf("the report is %+v", report)
+	}
+	if _, err := os.Stat(folder); err == nil {
+		t.Error("a refused name made the folder")
+	}
+}
+
+// A file manager's files are accepted anywhere in the folder, left as they are, and never added to the first commit.
+func TestAFolderHoldingFileManagerFilesIsWrittenAndTheyAreNeverCommitted(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.holding("harbor", map[string]string{".DS_Store": "mac", "plan/.DS_Store": "mac", "plan/Thumbs.db": "windows", "Thumbs.db": "windows"})
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Commit == "" {
+		t.Fatalf("the request is %+v", view)
+	}
+	if len(view.Report.Left) != 0 {
+		t.Errorf("a file manager's file was reported as a file of the shape: %v", view.Report.Left)
+	}
+	for _, name := range []string{".DS_Store", "plan/.DS_Store", "plan/Thumbs.db", "Thumbs.db"} {
+		if text, err := os.ReadFile(filepath.Join(folder, name)); err != nil || len(text) == 0 {
+			t.Errorf("%s was changed (%v)", name, err)
+		}
+	}
+	for _, file := range strings.Fields(r.git(folder, "ls-tree", "-r", "--name-only", "HEAD")) {
+		if strings.HasSuffix(file, ".DS_Store") || strings.HasSuffix(file, "Thumbs.db") {
+			t.Errorf("the first commit holds %s", file)
+		}
+	}
+}
+
+// A repository the folder holds below its top is refused as the one at its top is, and the first one the worker finds is named.
+func TestAFolderHoldingARepositoryBelowItsTopIsRefused(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.holding("harbor", map[string]string{"AGENTS.md": "mine\n"})
+	for _, inner := range []string{"repos/x", "vendor/lib"} {
+		if err := os.MkdirAll(filepath.Join(folder, inner), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r.git(filepath.Join(folder, inner), "init", "--quiet")
+	}
+	report := r.refusedFor(t, "request-nested-git", "monorepo", folder)
+	if report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(report.Detail, "repos/x/.git") {
+		t.Errorf("the report is %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "CLAUDE.md")); err == nil {
+		t.Error("a folder that holds repositories was written into")
+	}
+}
+
+// A folder that holds nothing but a repository is not empty, and the repository is not the worker's.
+func TestAFolderHoldingOnlyARepositoryIsRefused(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.git(folder, "init", "--quiet")
+	report := r.refusedFor(t, "request-only-git", "monorepo", folder)
+	if report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(report.Detail, ".git") {
+		t.Errorf("the report is %+v", report)
+	}
+}
+
+// A folder with no file in it, whatever it is called, holds nothing of another kind, so it is accepted and left alone.
+func TestAFolderHoldingOnlyAnEmptyFolderOfAnotherKindIsWritten(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	if err := os.MkdirAll(filepath.Join(folder, "notes", "later"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder}))
+	if view.State != ledger.TemplateWriteWritten {
+		t.Fatalf("the request is %+v", view)
+	}
+	if info, err := os.Stat(filepath.Join(folder, "notes", "later")); err != nil || !info.IsDir() {
+		t.Errorf("the empty folder was not left alone (%v)", err)
+	}
+}
+
+// A link at a path of the shape is a file the folder holds: the write leaves it, writes nothing through it, and the first
+// commit does not add it.
+func TestAFolderHoldingALinkAtAShapePathIsWrittenAroundIt(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	outside := filepath.Join(t.TempDir(), "elsewhere.md")
+	folder := r.holding("harbor", map[string]string{"plan/goal.md": "mine\n"})
+	if err := os.Symlink(outside, filepath.Join(folder, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Commit == "" {
+		t.Fatalf("the request is %+v", view)
+	}
+	if _, err := os.Stat(outside); err == nil {
+		t.Error("the write went through the link")
+	}
+	if target, err := os.Readlink(filepath.Join(folder, "AGENTS.md")); err != nil || target != outside {
+		t.Errorf("the link reads %q (%v)", target, err)
+	}
+	if !slices.Contains(view.Report.Left, "AGENTS.md") {
+		t.Errorf("the report leaves %v, want the link among them", view.Report.Left)
+	}
+	if committed := strings.Fields(r.git(folder, "ls-tree", "-r", "--name-only", "HEAD")); slices.Contains(committed, "AGENTS.md") {
+		t.Errorf("the first commit holds the link: %v", committed)
+	}
+}
+
+// walkCount stands in front of the machine's folders and counts the entries a walk is told of.
+type walkCount struct {
+	ports.ProjectFolders
+	visited int
+}
+
+func (w *walkCount) Walk(ctx context.Context, folder string, visit func(path string, git bool) bool) error {
+	return w.ProjectFolders.Walk(ctx, folder, func(path string, git bool) bool {
+		w.visited++
+		return visit(path, git)
+	})
+}
+
+// The worker stops reading a folder at the sixth file of another kind: a folder of thousands of files costs the same as
+// one of six, and the refusal says there are more.
+func TestTheWorkerStopsLookingAtTheSixthFileOfAnotherKind(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	count := &walkCount{ProjectFolders: projectfolders.Folders{Env: r.env}}
+	r.folders = count
+	r.subject = r.workerOn(r.link, func(err error) { t.Errorf("the worker reported %v", err) })
+	if err := r.subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for i := range 300 {
+		files[fmt.Sprintf("other-%03d.txt", i)] = "x"
+	}
+	report := r.refusedFor(t, "request-stop-early", "monorepo", r.holding("harbor", files))
+	if count.visited != 6 {
+		t.Errorf("the walk was told of %d entries, want it stopped at the sixth", count.visited)
+	}
+	if !strings.Contains(report.Detail, "and more") {
+		t.Errorf("the refusal is %q", report.Detail)
+	}
+}
+
+// A repository below the top stops the walk as soon as it turns up, whatever else the folder holds after it.
+func TestTheWorkerStopsLookingAtTheFirstRepositoryItFinds(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	count := &walkCount{ProjectFolders: projectfolders.Folders{Env: r.env}}
+	r.folders = count
+	r.subject = r.workerOn(r.link, func(err error) { t.Errorf("the worker reported %v", err) })
+	if err := r.subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for i := range 300 {
+		files[fmt.Sprintf("z-%03d.txt", i)] = "x"
+	}
+	folder := r.holding("harbor", files)
+	if err := os.MkdirAll(filepath.Join(folder, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.git(filepath.Join(folder, "a"), "init", "--quiet")
+	report := r.refusedFor(t, "request-stop-at-git", "monorepo", folder)
+	if count.visited != 1 || !strings.Contains(report.Detail, "a/.git") {
+		t.Errorf("the walk was told of %d entries, and the refusal is %q", count.visited, report.Detail)
 	}
 }

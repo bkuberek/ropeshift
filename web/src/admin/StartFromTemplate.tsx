@@ -151,6 +151,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
   const [readFailure, setReadFailure] = useState("");
   const folderField = useRef<HTMLInputElement>(null);
   const firstAnswer = useRef<HTMLInputElement>(null);
+  const nameField = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -176,6 +177,13 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
   const chosen = found.choices.find((choice) => choice.id === worker);
   const draft: Draft = { question, name: projectName, named: Boolean(chosen && chosen.protocol >= protocolTemplateName), project, firstCommit, mode, url: remoteUrl, owner, visibility, rows, remotes: Boolean(chosen && chosen.protocol >= protocolProjectRemotes) };
   const effective = remoteMode(draft);
+  // A worker that cannot take a name leaves the field disabled, so a name typed before the worker changed goes with it.
+  const unnamed = Boolean(chosen) && !draft.named;
+  useEffect(() => {
+    if (unnamed) {
+      setProjectName("");
+    }
+  }, [unnamed]);
   const { account, check } = useGitHubAccount(open && phase.kind === "form" && effective === "create", worker);
   const blocked = !firstCommit
     ? "A remote needs the first commit, which ropeshift pushes. Check Make the first commit to add one."
@@ -248,6 +256,9 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
     const built = buildRequest(draft, folder.trim());
     if (built.problem) {
       setIssue(built.problem);
+      if (built.problem.field === "name") {
+        nameField.current?.focus();
+      }
       return;
     }
     if (effective === "create") {
@@ -393,7 +404,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               ))}
             </Select>
           </Field>
-          <Field label="Folder" help="An absolute path on that worker's machine. The folder is made when it is absent, and must be empty when it exists." error={problem || undefined}>
+          <Field label="Folder" help="An absolute path on that worker's machine. The folder is made when it is absent. When it exists it may hold files of the shape, which are left as they are; any other file refuses it." error={problem || undefined}>
             <input
               ref={folderField}
               className="input mono"
@@ -418,10 +429,11 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               error={issue?.field === "name" ? issue.message : undefined}
             >
               <input
+                ref={nameField}
                 className="input mono"
                 autoComplete="off"
                 spellCheck={false}
-                disabled={Boolean(chosen) && !draft.named}
+                disabled={unnamed}
                 placeholder={projectNameOf(folder)}
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
@@ -484,7 +496,8 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
   if (!report) {
     return null;
   }
-  const files = report.files ?? [];
+  const left = report.left ?? [];
+  const files = (report.files ?? []).filter((file) => !left.includes(file));
   const commands = report.commands ?? [];
   const folder = view.path;
   const target = view.project || report.project;
@@ -496,6 +509,16 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
           <li key={file}>{file}</li>
         ))}
       </ul>
+      {left.length > 0 ? (
+        <>
+          <p className="small">The folder held these already, and the write left them as they were:</p>
+          <ul className="plain-list mono small" aria-label="Files left as they were">
+            {left.map((file) => (
+              <li key={file}>{file}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {(report.repositories ?? []).length > 0 ? (
         <RepositoriesWritten report={report} copy={copy} />
       ) : (

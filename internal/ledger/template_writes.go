@@ -199,6 +199,9 @@ type TemplateWriteReport struct {
 	Project string `json:"project,omitempty"`
 	// Files are the paths written, relative to the folder, sorted.
 	Files []string `json:"files,omitempty"`
+	// Left are the files of the shape that the folder held before the write, which the write left as they were, in the order of
+	// Files.
+	Left []string `json:"left,omitempty"`
 	// Commit is the first commit's ID when one was made, and CommitError what git said when it failed. The
 	// files stay either way.
 	Commit      string `json:"commit,omitempty"`
