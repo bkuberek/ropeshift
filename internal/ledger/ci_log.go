@@ -47,7 +47,7 @@ func SanitizeCIText(raw string) string {
 			clean.WriteRune(r)
 		case r == 0x2028 || r == 0x2029:
 			clean.WriteByte('\n')
-		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+		case HiddenRune(r):
 			// A control character, or a format character such as a bidirectional override, which hides what a line says.
 		default:
 			clean.WriteRune(r)
@@ -178,3 +178,7 @@ func CIReworkBrief(lead string, lines int, checks []CIFailedCheck) string {
 	}
 	return out.String()
 }
+
+// HiddenRune says a character hides or reorders what text says: a control character, or a format character
+// (Unicode category Cf) such as a bidirectional override, isolate, or mark, or a zero-width character.
+func HiddenRune(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { golden } from "../testing";
 import { buildRequest, creating, newRow, rowRemote, urlProblem } from "./projectRemoteRequest";
 import type { Draft, Row } from "./projectRemoteRequest";
 import { plainText } from "./untrustedText";
@@ -78,4 +79,28 @@ describe("plainText", () => {
   it("leaves markup and links as the text they are", () => {
     expect(plainText("<b>x</b> [a](https://e.example/)")).toBe("<b>x</b> [a](https://e.example/)");
   });
+
+  it("drops bidirectional overrides, isolates, marks, and zero-width characters", () => {
+    expect(plainText("a\u202eb\u202cc\u2066d\u2069e\u200ef\u200fg\u061ch\u200bi\u200cj\u200dk\u2060l\ufeffm")).toBe("abcdefghijklm");
+    expect(plainText("Réessayer — 日本語 😀 \u00a0x")).toBe("Réessayer — 日本語 😀 \u00a0x");
+  });
+
+  // internal/ledger writes the characters HiddenRune names, which the command line drops, and every one of them is
+  // dropped here, newline and tab apart, and no other.
+  it("drops the characters the command line drops and no others", () => {
+    const { ranges } = golden<{ ranges: [number, number][] }>("hidden-runes");
+    const hidden = (code: number) => ranges.some(([first, last]) => code >= first && code <= last);
+    const mismatches: string[] = [];
+    for (let code = 0; code <= 0x10ffff; code++) {
+      if (code >= 0xd800 && code <= 0xdfff) {
+        continue;
+      }
+      const text = String.fromCodePoint(code);
+      const kept = code === 0x0a || code === 0x09 || !hidden(code);
+      if ((plainText(text) === text) !== kept) {
+        mismatches.push(`U+${code.toString(16).toUpperCase().padStart(4, "0")}`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  }, 60_000);
 });

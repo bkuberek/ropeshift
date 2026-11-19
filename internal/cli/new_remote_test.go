@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -375,5 +376,84 @@ func TestNewPrintsWhatGitAndGHSaidWithNoControlCharacters(t *testing.T) {
 	_, _, stderr = runNew(refused.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
 	if strings.ContainsAny(stderr, "\x1b\x07") || !strings.Contains(stderr, "gh_signed_out: not signed in") {
 		t.Errorf("a refusal's detail: %q", stderr)
+	}
+}
+
+// hiddenText is gh stderr with what hides or reorders text: an escape, a bidirectional override, an isolate, a
+// directional mark, and zero-width characters.
+const hiddenText = "gh: HTTP 403\x1b[31m: \u202eevil\u202c \u2066x\u2069\u200e\u200f\u061c\u200b\u200c\u200d\u2060\ufeff text\x07"
+
+// plainHidden is hiddenText with all of it dropped.
+const plainHidden = "gh: HTTP 403: evil x text"
+
+func hidesNothing(t *testing.T, name, text string) {
+	t.Helper()
+	for _, r := range text {
+		if r != '\n' && r != '\t' && ledger.HiddenRune(r) {
+			t.Errorf("%s holds the hidden character %U:\n%q", name, r, text)
+			return
+		}
+	}
+}
+
+// An error of the account read or of the request, which carries what `gh` printed, reaches the person with no
+// control, bidirectional, or zero-width character.
+func TestNewPrintsAnErrorOfGHWithNoHiddenText(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "orchid")
+	for name, run := range map[string]func() (int, string, string){
+		"the account read": func() (int, string, string) {
+			opts := (&project{}).options("one\ny\n3\n")
+			opts.ReadForgeAccount = func(context.Context) (ledger.ForgeAccountReport, error) {
+				return ledger.ForgeAccountReport{}, errors.New(hiddenText)
+			}
+			return runNew(opts, "new", folder)
+		},
+		"the request": func() (int, string, string) {
+			opts := (&project{}).options("")
+			opts.NewProject = func(context.Context, ledger.TemplateWriteRequest, bool) (ledger.TemplateWriteReport, error) {
+				return ledger.TemplateWriteReport{}, errors.New(hiddenText)
+			}
+			return runNew(opts, "new", "monorepo", folder, "--create-remote", "github:acme")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, stdout, stderr := run()
+			if code == cli.ExitOK {
+				t.Errorf("exit %d", code)
+			}
+			hidesNothing(t, "stdout", stdout)
+			hidesNothing(t, "stderr", stderr)
+			if !strings.Contains(stderr, plainHidden) {
+				t.Errorf("the plain text of the error is gone:\n%q", stderr)
+			}
+		})
+	}
+}
+
+// The free text of a report is held to the same rule.
+func TestNewPrintsAReportWithNoBidirectionalOrZeroWidthCharacter(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "orchid")
+	p := &project{report: ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeWritten, Files: []string{"AGENTS.md"}, Commit: "abc123",
+		Repositories: []ledger.RepositoryReport{{Name: "orchid", Path: ".", Commit: "abc123", CommitError: hiddenText,
+			Steps: []ledger.RemoteStep{{Step: "push", Outcome: "failed", Detail: hiddenText}}}},
+	}}
+	_, stdout, stderr := runNew(p.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
+	hidesNothing(t, "stdout", stdout)
+	hidesNothing(t, "stderr", stderr)
+	if !strings.Contains(stdout, "push\tfailed\t"+plainHidden) {
+		t.Errorf("the plain text of the detail is gone:\n%q", stdout)
+	}
+	refused := &project{report: ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut, Detail: hiddenText}}
+	_, _, stderr = runNew(refused.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
+	hidesNothing(t, "stderr", stderr)
+	if !strings.Contains(stderr, "gh_signed_out: "+plainHidden) {
+		t.Errorf("a refusal's detail: %q", stderr)
+	}
+	signedOut := &project{account: ledger.ForgeAccountReport{State: ledger.ForgeAccountSignedOut, Detail: hiddenText}}
+	_, _, stderr = runNew(signedOut.options("one\ny\n3\n"), "new", folder)
+	hidesNothing(t, "stderr", stderr)
+	if !strings.Contains(stderr, "gh_signed_out: "+plainHidden) {
+		t.Errorf("a failed check's detail: %q", stderr)
 	}
 }
