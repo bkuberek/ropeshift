@@ -4,6 +4,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -43,7 +45,7 @@ func (r *Rig) retryWorld(s ports.Store) (*retryWorld, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &retryWorld{creationWorld: &creationWorld{store: s, machine: machine, creator: newMachineCreator(machine), repositories: r.repositories(s), request: request}, files: files}, nil
+	return &retryWorld{creationWorld: &creationWorld{store: s, machine: machine, creator: newMachineCreator(machine, request.ID), repositories: r.repositories(s), request: request}, files: files}, nil
 }
 
 // decide approves the request and registers what its version lists, as a member's word on a card does.
@@ -54,6 +56,33 @@ func (r *Rig) decide(w *retryWorld) ([]control.Added, error) {
 	}
 	w.request = approved
 	return r.runCreation(w.creationWorld, false)
+}
+
+// retried is what a retry answered.
+type retried struct {
+	added []control.Added
+	err   error
+}
+
+// retryAsync runs a retry of search in the background.
+func (r *Rig) retryAsync(w *retryWorld) chan retried {
+	done := make(chan retried, 1)
+	go func() {
+		added, err := r.retry(w, "search")
+		done <- retried{added, err}
+	}()
+	return done
+}
+
+// awaiting waits for a creator to hear a job, and frees it when none comes.
+func awaiting(heard, release chan struct{}) error {
+	select {
+	case <-heard:
+		return nil
+	case <-time.After(10 * time.Second):
+		close(release)
+		return Violatedf("the creator was never asked")
+	}
 }
 
 // retry runs the creation of search again as a member.
@@ -161,14 +190,75 @@ func checkRetryAfterAFailedPushResumesAndRegisters(r *Rig) error {
 	if err := r.retryRefusesWhatTheApprovalDoesNotCreate(w); err != nil {
 		return err
 	}
-	// The forge takes the push now. The retry goes on from the creation's own journal: the creator is asked to check and to
-	// create under the key of the first run, once more, and the clone the first run left is registered.
-	w.creator.passes("search", "search", "main")
-	checked, created := len(w.creator.Checked()), len(w.creator.Created())
-	added, err := r.retry(w, "search")
-	if err != nil {
-		return Violatedf("a retry after a failed push: %v", err)
+	// A retry whose creation fails its push again is blocked inside the creation. A creation that runs is answered at once, as
+	// an illegal move, and not waited for, and the creator is asked nothing for it.
+	w.creator.failsPush("search", "search", "main")
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	w.creator.during = func(ledger.RepositoryCreation) {
+		once.Do(func() { close(entered) })
+		<-release
 	}
+	running := r.retryAsync(w)
+	if err := awaiting(entered, release); err != nil {
+		return err
+	}
+	checked, created := len(w.creator.Checked()), len(w.creator.Created())
+	answered := make(chan error, 1)
+	go func() { _, err := r.retry(w, "search"); answered <- err }()
+	select {
+	case err := <-answered:
+		if !errors.Is(err, workorders.ErrIllegalMove) || !strings.Contains(err.Error(), "being created now") {
+			close(release)
+			return Violatedf("a retry of a creation that runs answered %v, want an illegal move that says it is being created now", err)
+		}
+	case <-time.After(5 * time.Second):
+		close(release)
+		return Violatedf("a retry of a creation that runs waited for it")
+	}
+	if len(w.creator.Checked()) != checked || len(w.creator.Created()) != created {
+		close(release)
+		return Violatedf("a retry of a creation that runs had the creator check %d times and create %d more", len(w.creator.Checked())-checked, len(w.creator.Created())-created)
+	}
+	close(release)
+	if again := <-running; again.err != nil {
+		return Violatedf("a retry that failed its push again: %v", again.err)
+	} else if search, _ := outcomeNamed(again.added, "search"); search.Outcome != ledger.CreateFailed {
+		return Violatedf("a retry that failed its push again reads %+v, want create failed", search)
+	}
+	w.creator.during = nil
+	// The forge takes the push now. The retry goes on from the creation's own journal: the creator is asked to check and to
+	// create under the key of the first run, once more, and the clone the first run left is registered. A second retry that
+	// comes while the first is between its start and its creation waits for it, and finds the repository registered.
+	w.creator.passes("search", "search", "main")
+	checked, created = len(w.creator.Checked()), len(w.creator.Created())
+	checkedIn, release2 := make(chan struct{}), make(chan struct{})
+	var onceCheck sync.Once
+	w.creator.checking = func(ledger.RepositoryCreation) {
+		onceCheck.Do(func() { close(checkedIn) })
+		<-release2
+	}
+	first := r.retryAsync(w)
+	if err := awaiting(checkedIn, release2); err != nil {
+		return err
+	}
+	second := r.retryAsync(w)
+	select {
+	case got := <-second:
+		close(release2)
+		return Violatedf("a retry that came while another was checking did not wait for it: %v", got.err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release2)
+	one, two := <-first, <-second
+	w.creator.checking = nil
+	if one.err != nil {
+		return Violatedf("a retry after a failed push: %v", one.err)
+	}
+	if !errors.Is(two.err, workorders.ErrIllegalMove) || !strings.Contains(two.err.Error(), "holds a repository named search") {
+		return Violatedf("a retry that waited for one that registered search answered %v, want an illegal move because the project holds it", two.err)
+	}
+	added := one.added
 	if err := outcomesAre(added, map[string]entryOutcome{
 		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"search": {outcome: ledger.Created, path: "/work/search"},
@@ -191,7 +281,7 @@ func checkRetryAfterAFailedPushResumesAndRegisters(r *Rig) error {
 	if len(jobs)-created != 1 || !sameKeys(jobs, key) {
 		return Violatedf("the retry asked the creator to create %d more times under the keys %v, want once more under %s", len(jobs)-created, jobs, key)
 	}
-	if types, err := r.creationTypes(s, approval); err != nil || !slices.Equal(types, []string{"started search", "finished search", "started search", "finished search"}) {
+	if types, err := r.creationTypes(s, approval); err != nil || !slices.Equal(types, []string{"started search", "finished search", "started search", "finished search", "started search", "finished search"}) {
 		return Violatedf("the creation events are %v: %v", types, err)
 	}
 	if found, err := w.repositories.Resolve(r.Ctx, r.Scope, "search"); err != nil || found.Name != "search" {
@@ -205,7 +295,7 @@ func checkRetryAfterAFailedPushResumesAndRegisters(r *Rig) error {
 	if _, err := r.retry(w, "search"); !errors.Is(err, workorders.ErrIllegalMove) {
 		return Violatedf("a retry of a registered repository answered %v, want an illegal move", err)
 	}
-	if after, err := r.creationEvents(s, approval); err != nil || len(after) != 4 || len(w.creator.Checked()) != checked || len(w.creator.Created()) != created {
+	if after, err := r.creationEvents(s, approval); err != nil || len(after) != 6 || len(w.creator.Checked()) != checked || len(w.creator.Created()) != created {
 		return Violatedf("a refused retry recorded %d events and asked the creator: %v", len(after), err)
 	}
 	return r.CheckProjection(s)
@@ -242,9 +332,7 @@ func checkAnInterruptedCreationIsAnItemAndRetryFinishesIt(r *Rig) error {
 	}
 	// A create that timed out after the forge made the repository finds it there on every retry, which refuses with the repository
 	// it found: the item says so, and says what a member does about it, which is to clone it and name it as the remote, or skip it.
-	w.creator.SetCheck("search", ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
-		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists, Detail: "acme/search already exists on GitHub",
-	}})
+	w.creator.refuses("search", ledger.TemplateRefusedRemoteExists, "acme/search already exists on GitHub", "")
 	if refused, err := r.retry(w, "search"); err != nil {
 		return Violatedf("a retry that finds the repository on the forge: %v", err)
 	} else if search, _ := outcomeNamed(refused, "search"); search.Outcome != ledger.RegistrationRefused {
@@ -253,7 +341,7 @@ func checkAnInterruptedCreationIsAnItemAndRetryFinishesIt(r *Rig) error {
 	if items, err = r.uncreated(s, noCreationRuns); err != nil || len(items) != 1 {
 		return Violatedf("a creation refused for an existing repository reads as %+v: %v", items, err)
 	}
-	const remedy = "clone acme/search at /work/search and write `remote` in place of `create` in the manifest entry for search, or skip it"
+	const remedy = "clone acme/search to ../search, and write `remote` in place of `create` in the manifest's entry for search, or skip it"
 	if items[0].State != control.CreationRefused || !strings.Contains(items[0].Reason, "acme/search already exists on GitHub") || items[0].Remedy != remedy || items[0].Path != "/work/search" {
 		return Violatedf("a creation refused for an existing repository reads as %+v, want it refused with the remedy %q", items[0], remedy)
 	}
@@ -364,8 +452,9 @@ func checkSkipRecordsTheReasonAndALaterVersionCreates(r *Rig) error {
 	if later.ID == approval {
 		return Violatedf("a changed contract raised no later version")
 	}
-	w.creator.passes("search", "search", "main")
 	w.request = later
+	w.creator = newMachineCreator(w.machine, later.ID)
+	w.creator.passes("search", "search", "main")
 	added, err = r.decide(w)
 	if err != nil {
 		return err

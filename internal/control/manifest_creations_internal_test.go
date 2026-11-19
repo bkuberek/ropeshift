@@ -1,12 +1,15 @@
 package control
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"sync"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -74,5 +77,96 @@ func TestARetryOrASkipOfARunningCreationIsAnIllegalMove(t *testing.T) {
 	}
 	if _, err = r.SkipCreation(t.Context(), "scope", "approval-1", "api", "built by hand", member); !errors.Is(err, workorders.ErrIllegalMove) {
 		t.Errorf("a skip of a running creation answered %v", err)
+	}
+}
+
+func eventOf(t *testing.T, rev int64, kind string, data any) ledger.Event {
+	t.Helper()
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ledger.Event{Rev: rev, Type: kind, Data: raw}
+}
+
+// What a member does about a creation that waits comes from the code the creator refused with, and from no word of the
+// reason, of whichever of the approval's registration and the creation's finish is newer: the record's own remedy first,
+// the repository to clone and name as the entry's remote when it exists on the forge and the record has none, and else the
+// command the creator's check gave.
+func TestWhatAMemberDoesAboutACreationComesFromTheRefusalCode(t *testing.T) {
+	row := authority.Approval{ID: "ap-1", Plan: "tt", PlanVersion: 1}
+	entry := planning.ManifestRepository{Name: "api", Path: "repos/api"}
+	creation := func(remedy string) *ledger.CreationOutcome {
+		return &ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "api", Visibility: ledger.VisibilityPrivate, Remedy: remedy}
+	}
+	recorded := func(outcome ledger.ManifestOutcome) *ledger.ManifestRegistration {
+		outcome.Name, outcome.Path, outcome.Resolved, outcome.Outcome = "api", "repos/api", "/work/repos/api", ledger.RegistrationRefused
+		return &ledger.ManifestRegistration{Repositories: []ledger.ManifestOutcome{outcome}}
+	}
+	finished := func(rev int64, code, reason string, remedy string) ledger.Event {
+		return eventOf(t, rev, ledger.EventRepositoryCreationFinished, ledger.CreationFinishedEvent{
+			Name: "api", Key: "k", Outcome: ledger.CreationRefused, Reason: reason, RefusalCode: code, CreationOutcome: *creation(remedy),
+		})
+	}
+	registered := func(rev int64) ledger.Event {
+		return eventOf(t, rev, ledger.EventManifestRegistered, ledger.ManifestRegistration{})
+	}
+	const clone = "clone acme/api at /work/repos/api and write `remote` in place of `create` in the manifest entry for api, or skip it"
+	for name, tt := range map[string]struct {
+		events  []ledger.Event
+		record  *ledger.ManifestRegistration
+		running bool
+		want    string
+	}{
+		"the record's own remedy, with skip named": {
+			events: []ledger.Event{registered(5)},
+			record: recorded(ledger.ManifestOutcome{RefusalCode: ledger.TemplateRefusedRemoteExists, Reason: "exists", Creation: creation("clone it where the path leads")}),
+			want:   "clone it where the path leads, or skip it",
+		},
+		"an existing repository whose record has no remedy": {
+			events: []ledger.Event{registered(5)},
+			record: recorded(ledger.ManifestOutcome{RefusalCode: ledger.TemplateRefusedRemoteExists, Reason: "acme/api exists", Creation: creation("")}),
+			want:   clone,
+		},
+		"a reason that holds the word and a record with no code": {
+			events: []ledger.Event{registered(5)},
+			record: recorded(ledger.ManifestOutcome{Reason: "remote_exists: it holds the word", Creation: creation("gh auth login --hostname github.com")}),
+			want:   "run `gh auth login --hostname github.com`",
+		},
+		"a reason that holds the word, no code, and no command": {
+			events: []ledger.Event{registered(5)},
+			record: recorded(ledger.ManifestOutcome{Reason: "remote_exists: it holds the word", Creation: creation("")}),
+			want:   "",
+		},
+		"another refusal's command": {
+			events: []ledger.Event{registered(5)},
+			record: recorded(ledger.ManifestOutcome{RefusalCode: "gh_signed_out", Reason: "gh is signed out", Creation: creation("gh auth login --hostname github.com")}),
+			want:   "run `gh auth login --hostname github.com`",
+		},
+		"the finish, when it is newer than the record": {
+			events: []ledger.Event{registered(3), finished(7, ledger.TemplateRefusedRemoteExists, "acme/api exists", "")},
+			record: recorded(ledger.ManifestOutcome{RefusalCode: "gh_timeout", Reason: "slow", Creation: creation("")}),
+			want:   clone,
+		},
+		"the record, when it is newer than the finish": {
+			events: []ledger.Event{finished(3, ledger.TemplateRefusedRemoteExists, "acme/api exists", ""), registered(9)},
+			record: recorded(ledger.ManifestOutcome{RefusalCode: "gh_timeout", Reason: "slow", Creation: creation("wait, then retry")}),
+			want:   "run `wait, then retry`",
+		},
+		"a creation that runs": {
+			events:  []ledger.Event{registered(5)},
+			record:  recorded(ledger.ManifestOutcome{RefusalCode: ledger.TemplateRefusedRemoteExists, Reason: "exists", Creation: creation("")}),
+			running: true,
+			want:    "",
+		},
+	} {
+		item, listed, err := uncreated(row, entry, tt.events, tt.record, tt.running)
+		if err != nil || !listed {
+			t.Errorf("%s: listed %v: %v", name, listed, err)
+			continue
+		}
+		if item.Remedy != tt.want {
+			t.Errorf("%s: the remedy is %q, want %q", name, item.Remedy, tt.want)
+		}
 	}
 }

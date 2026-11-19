@@ -483,8 +483,18 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 		item.Creation = &creation
 	}
 	item.Path = creationPath(events, recorded, entry.Name)
-	refused, refusedLater := recordedOutcome(recorded, entry.Name)
-	refusedLater = refusedLater && refused.Outcome == ledger.RegistrationRefused && registrationRev(events) > creationRev(events, entry.Name)
+	// The approval's registration and the creation's own records each say how a refusal ended, and the newer is the one that
+	// stands: a retry the creator's check refused records nothing about the creation, only in the registration.
+	refused, hasRecord := recordedOutcome(recorded, entry.Name)
+	recordNewer := hasRecord && registrationRev(events) > creationRev(events, entry.Name)
+	refusedLater := recordNewer && refused.Outcome == ledger.RegistrationRefused
+	var code string
+	switch {
+	case recordNewer:
+		code = refused.RefusalCode
+	case latest.Finished != nil:
+		code = latest.Finished.RefusalCode
+	}
 	switch {
 	case running:
 		item.State = CreationRunning
@@ -512,28 +522,37 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 		default:
 			return UncreatedRepository{}, false, nil
 		}
-		item.Reason, item.Creation = outcome.Reason, outcome.Creation
+		item.Reason, item.Creation, code = outcome.Reason, outcome.Creation, outcome.RefusalCode
 	}
 	if item.Since == 0 && len(events) != 0 {
 		item.Since = events[len(events)-1].RecordedAt
 	}
-	item.Remedy = creationRemedy(item)
+	item.Remedy = creationRemedy(item, code)
 	return item, true, nil
 }
 
-// creationRemedy says what a member does about a creation that waits for them. A forge repository that exists is not the
-// creation's own, which a retry never takes over, so the member clones it where the entry's path leads and names it as the
-// entry's remote, or skips the creation. Any other refusal names the command its check gave.
-func creationRemedy(item UncreatedRepository) string {
+// creationRemedy says what a member does about a creation that waits for them, from the code the creator refused it
+// with, and not from the words of its reason. A forge repository that exists is not the creation's own, which a retry never
+// takes over, so the member clones it where the entry's path leads and names it as the entry's remote, or skips the
+// creation: the record's own remedy for it says how, and a record with none gets the words here. Any other refusal names the
+// command its check gave.
+func creationRemedy(item UncreatedRepository, code string) string {
 	switch {
 	case item.State == CreationRunning:
 		return ""
-	case strings.Contains(item.Reason, ledger.TemplateRefusedRemoteExists):
-		repository := "the repository"
-		if creation := item.Creation; creation != nil && creation.Owner != "" && creation.ForgeName != "" {
-			repository = creation.Owner + "/" + creation.ForgeName
+	case code == ledger.TemplateRefusedRemoteExists:
+		remedy := ""
+		if item.Creation != nil {
+			remedy = item.Creation.Remedy
 		}
-		return fmt.Sprintf("clone %s at %s and write `remote` in place of `create` in the manifest entry for %s, or skip it", repository, cmp.Or(item.Path, item.ManifestPath), item.Name)
+		if remedy == "" {
+			repository := "the repository"
+			if creation := item.Creation; creation != nil && creation.Owner != "" && creation.ForgeName != "" {
+				repository = creation.Owner + "/" + creation.ForgeName
+			}
+			remedy = fmt.Sprintf("clone %s at %s and write `remote` in place of `create` in the manifest entry for %s", repository, cmp.Or(item.Path, item.ManifestPath), item.Name)
+		}
+		return remedy + ", or skip it"
 	case item.Creation != nil && item.Creation.Remedy != "":
 		return "run `" + item.Creation.Remedy + "`"
 	}

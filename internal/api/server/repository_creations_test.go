@@ -29,7 +29,6 @@ func approvedCreation(t *testing.T) creationPlan {
 	machine := fake.NewCheckouts()
 	machine.Place(ports.Clone{Path: "/work/plan", ID: "id-plan", DefaultBranch: "main"})
 	creator := newPlacingCreator(machine)
-	creator.failsPush("ghost")
 	d := startTalkWith(t, apitest.Options{Checkouts: machine, Creator: creator})
 	ctx := t.Context()
 	if err := machine.Keep(ctx, apitest.Scope, d.repo, "/work/plan"); err != nil {
@@ -51,6 +50,8 @@ func approvedCreation(t *testing.T) creationPlan {
 		t.Fatalf("the plan reads %+v: %v", view.Approval, err)
 	}
 	asked := view.Approval.Approval
+	creator.approval = asked.ID
+	creator.failsPush("ghost")
 	decided, err := d.client.DecideApproval(ctx, asked.ID, api.DecideApproval{Digest: asked.SubjectDigest, Allow: true})
 	if err != nil || len(decided.Repositories) != 1 || decided.Repositories[0].Outcome != ledger.CreateFailed {
 		t.Fatalf("approving reads %+v: %v", decided, err)
@@ -186,7 +187,7 @@ func TestOnlyAMemberRetriesOrSkipsARepositoryCreation(t *testing.T) {
 func TestACreationRefusedForAnExistingRepositoryCarriesItsRemedy(t *testing.T) {
 	t.Parallel()
 	p := approvedCreation(t)
-	p.creator.SetCheck("ghost", ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
+	p.creator.SetCheck(p.creator.key("ghost"), ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists, Detail: "acme/ghost already exists on GitHub",
 	}})
 	decided, err := p.client.RetryRepository(t.Context(), p.approval.ID, "ghost")
@@ -198,7 +199,7 @@ func TestACreationRefusedForAnExistingRepositoryCarriesItsRemedy(t *testing.T) {
 		t.Fatalf("Needs you holds %+v", items)
 	}
 	need := items[0].RepositoryCreation
-	const remedy = "clone acme/ghost at /work/ghost and write `remote` in place of `create` in the manifest entry for ghost, or skip it"
+	const remedy = "clone acme/ghost to ../ghost, and write `remote` in place of `create` in the manifest's entry for ghost, or skip it"
 	if need.State != api.RepositoryCreationRefused || !strings.Contains(need.Reason, "acme/ghost already exists on GitHub") || need.Remedy != remedy {
 		t.Errorf("the need reads %+v, want it refused with the remedy %q", need, remedy)
 	}

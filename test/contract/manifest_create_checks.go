@@ -58,8 +58,8 @@ type machineCreator struct {
 	// busy are the entries whose path another creation holds until a run waits for it: a check that does not wait is refused
 	// at once as busy, and one that waits is answered as the check set, once the other creation is over.
 	busy map[string]bool
-	// during hears each job before its creation runs.
-	during func(ledger.RepositoryCreation)
+	// during hears each job before its creation runs, and checking hears each before its check does.
+	during, checking func(ledger.RepositoryCreation)
 }
 
 func newMachineCreator(machine *fake.Checkouts, approval string) *machineCreator {
@@ -119,6 +119,9 @@ func (c *machineCreator) refuses(name, reason, detail, remedy string) {
 }
 
 func (c *machineCreator) Check(ctx context.Context, job ledger.RepositoryCreation) (ledger.CreationCheck, error) {
+	if c.checking != nil {
+		c.checking(job)
+	}
 	check, err := c.RepositoryCreator.Check(ctx, job)
 	if c.unread[job.Name] {
 		check.Leads = ""
