@@ -822,7 +822,7 @@ func checkForgeHeadMustBeACommit(r *Rig) error {
 	if pr, err := f.onRecord(); err != nil || pr.HeadCommit != "" {
 		return Violatedf("a publish that reported %q left the head %q: %v", hostileHead, pr.HeadCommit, err)
 	}
-	if err := f.heldAs(workorders.HoldPullRequestPending, "not yet the commit under review"); err != nil {
+	if err := f.heldAs(workorders.HoldPullRequestPending, "has no head commit yet"); err != nil {
 		return err
 	}
 	if err := f.wantNoHostileHead("after a publish"); err != nil {

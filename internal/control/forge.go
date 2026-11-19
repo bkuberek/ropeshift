@@ -159,6 +159,8 @@ func pullRequestHold(forge ports.ForgeReader, workers ports.WorkerReader, workOr
 	switch {
 	case opened && pr.State != ledger.PullRequestOpen:
 		hold.Detail = fmt.Sprintf("pull request #%d is %s", pr.Number, pr.State)
+	case opened && request.State == ledger.ForgeDone && pr.HeadCommit == "":
+		hold.Detail = fmt.Sprintf("pull request #%d has no head commit yet, so it is not yet at the commit under review, %s", pr.Number, short(commit))
 	case opened && request.State == ledger.ForgeDone:
 		hold.Detail = fmt.Sprintf("pull request #%d's head is %s, not yet the commit under review, %s", pr.Number, short(pr.HeadCommit), short(commit))
 	case request.Detail != "":
