@@ -74,3 +74,47 @@ func TestHoldsReadsACommitThatReadsAsAnOptionAsARevision(t *testing.T) {
 	}
 	absent(t, file)
 }
+
+// The blob lookup puts `--end-of-options` before `<commit>:<path>`, so a commit that reads as an option is a
+// revision to git and never an option: `--abbrev-ref=bogus` is an option rev-parse acts on and refuses.
+func TestBlobAtReadsACommitThatReadsAsAnOptionAsARevision(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("README.txt", "one\n")
+
+	_, err := New(Config{Repository: repo.Dir, Env: repo.Env()}).blobAt(t.Context(), "--abbrev-ref=bogus", "README.txt")
+
+	if err != nil && strings.Contains(err.Error(), "unknown mode for --abbrev-ref") {
+		t.Errorf("rev-parse read the commit as an option: %v", err)
+	}
+}
+
+// The history check reads a path literally, as the documents source does, so a path that holds a wildcard names
+// that file and no other: the blob of plan/a.md is not held at the path plan/*.md.
+func TestHoldsReadsAPathWithAWildcardLiterally(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("plan/a.md", "one\n")
+	blob := repo.Git("rev-parse", "HEAD:plan/a.md")
+	commit := repo.Git("rev-parse", "HEAD")
+
+	held, err := New(Config{Repository: repo.Dir, Env: repo.Env()}).holds(t.Context(), commit, "plan/*.md", blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if held {
+		t.Error("the path plan/*.md matched plan/a.md as a pattern, want a literal path that no file has")
+	}
+}
+
+// Listing a commit puts `--end-of-options` before it, so a commit that reads as an option is a revision to git
+// that it does not have, and ls-tree does not read it as its own option.
+func TestTreeReadsACommitThatReadsAsAnOptionAsARevision(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("README.md", "one\n")
+
+	_, err := New(Config{Repository: repo.Dir, Env: repo.Env()}).Tree(t.Context(), "--name-only")
+
+	if err == nil || !strings.Contains(err.Error(), "Not a valid object name --name-only") {
+		t.Errorf("listing a commit named like an option gave %v, want git to name it as an object it does not have", err)
+	}
+}

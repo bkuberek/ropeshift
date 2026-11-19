@@ -467,13 +467,14 @@ func splitSource(source string) (path, commit string, ok bool) {
 }
 
 func (s *Source) blobAt(ctx context.Context, commit, path string) (string, error) {
-	return s.git.Text(ctx, "rev-parse", "--verify", "--quiet", commit+":"+path)
+	return s.git.Text(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", commit+":"+path)
 }
 
 // holds says a commit's history had this blob at this path. It walks every side of every merge,
-// because a merge that took one side's file still knew the other's.
+// because a merge that took one side's file still knew the other's. The path is literal, so a name that means
+// something to git as a pathspec means nothing here.
 func (s *Source) holds(ctx context.Context, commit, path, blob string) (bool, error) {
-	found, err := s.git.Text(ctx, "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, "--end-of-options", commit, "--", path)
+	found, err := s.git.Text(ctx, "--literal-pathspecs", "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, "--end-of-options", commit, "--", path)
 	return found != "", err
 }
 
@@ -577,7 +578,7 @@ func (s *Source) Head(ctx context.Context) (string, error) {
 // Tree lists the Markdown blobs of a commit. The hash in the listing is the digest
 // of the file as written.
 func (s *Source) Tree(ctx context.Context, commit string) ([]Blob, error) {
-	args := []string{"ls-tree", "-r", "-z", "--full-tree", commit}
+	args := []string{"ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit}
 	if dir := strings.Trim(s.config.Directory, "/"); dir != "" && dir != "." {
 		args = append(args, "--", dir)
 	}
