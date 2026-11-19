@@ -25,6 +25,8 @@ const autonomy: PaletteAction = { title: "Settings: Autonomy and run windows", a
 export const paletteActions: Record<string, PaletteAction> = {
   "PUT /v1/passphrase": { title: "Settings: Change passphrase", at: home },
   "PUT /v1/workers/{id}/orchestrator": { title: "Start orchestrator", at: home },
+  "POST /v1/workers/{id}/orchestrator/schedule": { title: "Start at reset on ", at: "/workers", elsewhere: "floor/OrchestratorStart.test.tsx" },
+  "DELETE /v1/workers/{id}/orchestrator/schedule": { title: "Cancel the scheduled start on ", at: "/workers", elsewhere: "floor/OrchestratorStart.test.tsx" },
   "POST /v1/projects": { title: "Create project", at: home },
   "POST /v1/workers/{id}/template-writes": { title: "Start a project from a template", at: home },
   "POST /v1/workers/{id}/forge-account-reads": { title: "Start a project from a template", at: home },

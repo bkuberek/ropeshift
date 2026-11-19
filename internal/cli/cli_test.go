@@ -1187,6 +1187,21 @@ func TestQuestionMerge(t *testing.T) {
 	}
 }
 
+// TestOrchestratorSchedule holds that a start is scheduled only for a worker the installation holds, and that a
+// cancel of a start nobody scheduled finds nothing.
+func TestOrchestratorSchedule(t *testing.T) {
+	s := newSession(t)
+	if code, _, _ := s.run("orchestrator", "schedule"); code != cli.ExitUsage {
+		t.Errorf("a schedule with no worker: exit %d", code)
+	}
+	if code, _, _ := s.run("orchestrator", "schedule", "nobody"); code != cli.ExitNotFound {
+		t.Errorf("a schedule for a worker nobody registered: exit %d", code)
+	}
+	if code, _, _ := s.run("orchestrator", "unschedule", "nobody"); code != cli.ExitNotFound {
+		t.Errorf("a cancel of a start nobody scheduled: exit %d", code)
+	}
+}
+
 // TestQuestionAnswerAssumed holds that --assumed records the answer as an assumption.
 func TestQuestionAnswerAssumed(t *testing.T) {
 	s := newSession(t)

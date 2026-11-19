@@ -1186,6 +1186,12 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			_, err := control.NewQuestions(store, batches).Matching(lexical.Matcher{Store: store}).DeliverBatches(ctx, p.ID, tickActor("batch-tick"))
 			return err
 		}),
+		// A start scheduled for a sign-in's usage reset is the installation's, so every project's tick reads the same
+		// records, and each write reads its start again.
+		tick("orchestrator-starts", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewWorkers(store, p.ID, control.WorkerOptions{}).StartScheduled(ctx, tickActor("start-tick"))
+			return err
+		}),
 		tick("lease", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewLeases(store).Starting(soloStarts(opts, kept)).Sweep(ctx, p.ID, tickActor("lease-tick"))
 			return err

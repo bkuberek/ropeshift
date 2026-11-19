@@ -754,6 +754,46 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the orchestrator's start at a usage limit, with its countdown, a start scheduled for the reset, and one that waits for the next reset meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const resets = Date.now() + 2 * 60 * 60 * 1000;
+        const floorWith = (scheduled?: object) => {
+          const floor = JSON.parse(goldens["shop-floor"] ?? "{}") as { workers: { worker: { id: string }; orchestrator?: object; orchestrator_hold?: object; scheduled_start?: object }[] };
+          for (const line of floor.workers) {
+            if (line.worker.id === "worker-a") {
+              line.orchestrator = undefined;
+              line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets };
+              line.scheduled_start = scheduled;
+            }
+          }
+          return floor;
+        };
+        const states: [string, object | undefined, RegExp][] = [
+          ["at a usage limit", undefined, /The usage limit of the five-hour session window is reached/],
+          ["with a start scheduled for the reset", { worker_id: "worker-a", starts_at: resets, scheduled_by: "member-1", scheduled_at: Date.now() }, /^Starts at /],
+          ["with a start that waits for the next reset", { worker_id: "worker-a", scheduled_by: "member-1", scheduled_at: Date.now(), missed: 1 }, /starts at the next reset its worker reports/],
+        ];
+        for (const [name, scheduled, shows] of states) {
+          await page.unroute(/\/views\/shop-floor/);
+          await page.route(/\/views\/shop-floor/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(floorWith(scheduled)) }));
+          await page.goto(`${base}/workers`);
+          await ready(page);
+          await page.getByText(shows).first().waitFor();
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+          found.push(...(await audit(page)).map((violation) => `orchestrator start ${name} ${violation}`));
+        }
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the merge dialog, with a refusal, the assumption form, its refusal of a one-way question, and the notice that no orchestrator is judging meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

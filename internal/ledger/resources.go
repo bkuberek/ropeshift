@@ -47,6 +47,8 @@ type ResourceReport struct {
 	RunningLanes *int64             `json:"running_lanes,omitempty"`
 	Sessions     []SessionResources `json:"sessions"`
 	Warnings     []ResourceWarning  `json:"warnings,omitempty"`
+	// SignIn is what the worker knows of its sign-in's usage limit, absent from a worker that does not say.
+	SignIn *SignInUsage `json:"sign_in,omitempty"`
 }
 
 // The lane caps a capacity interval names (FR-OBS-14), by the setting that sets each.
@@ -228,6 +230,13 @@ func BoundReport(report ResourceReport) (ResourceReport, error) {
 	if len(raw) > MaxReportBytes {
 		return ResourceReport{}, errReportTooLarge
 	}
+	if report.SignIn != nil {
+		sign, err := boundSignIn(*report.SignIn)
+		if err != nil {
+			return ResourceReport{}, err
+		}
+		out.SignIn = &sign
+	}
 	return out, nil
 }
 
@@ -241,4 +250,22 @@ func clip(text string) string {
 		cut--
 	}
 	return text[:cut]
+}
+
+// errNegativeReset refuses a report whose sign-in resets before the epoch, which no vendor names.
+var errNegativeReset = errors.New("a sign-in's reset is before the epoch")
+
+// boundSignIn holds a worker's word on its sign-in to what it can mean: a reset is never before the epoch, how long
+// ago the worker heard runs from none to the longest window, the share used from 0 to 100, and a window it does not
+// name as five_hour or seven_day is no window.
+func boundSignIn(sign SignInUsage) (SignInUsage, error) {
+	if sign.ResetsAtMs < 0 {
+		return SignInUsage{}, errNegativeReset
+	}
+	sign.ReadAgeMs = min(max(sign.ReadAgeMs, 0), maxUsageReadAgeMs)
+	sign.Used = min(max(sign.Used, 0), 100)
+	if sign.Window != UsageWindowSession && sign.Window != UsageWindowWeekly {
+		sign.Window = ""
+	}
+	return sign, nil
 }

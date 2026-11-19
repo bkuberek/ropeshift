@@ -599,6 +599,10 @@ type WorkerLine struct {
 	ReportFreshness string                `json:"report_freshness,omitempty"`
 	Drivers         []ledger.DriverResult `json:"drivers"`
 	Orchestrator    *Orchestrator         `json:"orchestrator,omitempty"`
+	// OrchestratorHold is what keeps the worker's orchestrator from starting or running now, and ScheduledStart the
+	// start a member scheduled for its sign-in's usage reset, whether or not it ever ran one.
+	OrchestratorHold *ledger.OrchestratorHold `json:"orchestrator_hold,omitempty"`
+	ScheduledStart   *ledger.ScheduledStart   `json:"scheduled_start,omitempty"`
 }
 
 // FloorLane is a lane and the title of the work it runs, because a lane's ID says nothing to a person.

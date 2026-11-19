@@ -214,6 +214,8 @@ func registry() []section {
 			command("orchestrator show", "<worker>", "show a worker's orchestrator", (*invocation).orchestratorShow),
 			command("orchestrator start", "<worker>", "run a worker's orchestrator, or reset a breaker that stopped it", setsOrchestrator(ledger.OrchestratorRunning)),
 			command("orchestrator stop", "<worker>", "stop a worker's orchestrator, which stops no lane", setsOrchestrator(ledger.OrchestratorStopped)),
+			command("orchestrator schedule", "<worker>", "start a worker's orchestrator at its sign-in's usage reset", (*invocation).orchestratorSchedule),
+			command("orchestrator unschedule", "<worker>", "cancel a start scheduled for a usage reset", (*invocation).orchestratorUnschedule),
 		)},
 		{"Sessions", installation(
 			command("login", "", "print a session for this shell, for eval", (*invocation).login),

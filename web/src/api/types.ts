@@ -579,6 +579,22 @@ export type ContractHistory = { id: string; key?: string; versions: Contract[] }
 
 export type LadderStep = { rung: number; candidates?: string[]; outcome?: string };
 
+// OrchestratorHold is what keeps a worker's orchestrator from starting or running now. At a usage limit, window names it,
+// resets_at is its reset, absent when nobody reported one, read_at when the worker heard
+// it, and stale says the reset is too old to trust: it passed with the limit holding, or was read longer ago than the
+// window lasts.
+export type OrchestratorHold = {
+  reason: "offline" | "tripped" | "usage_limit";
+  window?: string;
+  resets_at?: number;
+  read_at?: number;
+  stale?: boolean;
+};
+
+// ScheduledStart is a start of a worker's orchestrator a member scheduled for its sign-in's usage reset. starts_at is
+// absent while it waits for the next reported reset, and missed counts the resets that passed with the limit holding.
+export type ScheduledStart = { worker_id: string; starts_at?: number; scheduled_by: string; scheduled_at: number; missed?: number };
+
 export type Question = {
   id: string;
   text: string;
@@ -1004,6 +1020,10 @@ export type Orchestrator = {
   // run_window is an attended worker's orchestrator with no run window open, and work any other that waits for
   // something to judge.
   waiting_for?: string;
+  // hold and scheduled are what `orchestrator show` reads of what keeps it from running and of a start scheduled for
+  // its sign-in's usage reset.
+  hold?: OrchestratorHold;
+  scheduled?: ScheduledStart;
 };
 
 export type WorkerLine = {
@@ -1012,6 +1032,10 @@ export type WorkerLine = {
   report_freshness?: "observed" | "last_reported";
   drivers: DriverResult[];
   orchestrator?: Orchestrator;
+  // orchestrator_hold is what keeps the worker's orchestrator from starting or running now, and scheduled_start the
+  // start a member scheduled for its sign-in's usage reset, whether or not it ever ran one.
+  orchestrator_hold?: OrchestratorHold;
+  scheduled_start?: ScheduledStart;
 };
 
 // A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.

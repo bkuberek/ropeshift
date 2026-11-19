@@ -126,6 +126,20 @@ func (w *World) Credential() string { return w.auth.Credential }
 // Epoch is this world's worker's session, for a test that speaks as it.
 func (w *World) Epoch() int64 { return w.epoch }
 
+// ReportSignIn is a heartbeat of this world's worker whose resource report says this of its sign-in's usage limit.
+func (w *World) ReportSignIn(usage ledger.SignInUsage) {
+	w.t.Helper()
+	w.seq++
+	report := ledger.ResourceReport{IntervalMs: ledger.MinReportIntervalMs, Sessions: []ledger.SessionResources{}, SignIn: &usage}
+	reply, err := w.plane.Heartbeat(w.ctx, ledger.Heartbeat{Auth: w.auth, Epoch: w.epoch, Protocol: ledger.ProtocolVersion, Nonce: "sign-in-" + strconv.FormatInt(w.seq, 10), Report: &report})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if reply.ReportError != "" {
+		w.t.Fatal(reply.ReportError)
+	}
+}
+
 // Lane is a lane a world runs, and the claim it runs under.
 type Lane struct {
 	w     *World

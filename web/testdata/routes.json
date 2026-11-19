@@ -36,6 +36,16 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/workers/{id}/orchestrator/schedule",
+    "command": "orchestrator schedule"
+  },
+  {
+    "method": "DELETE",
+    "pattern": "/v1/workers/{id}/orchestrator/schedule",
+    "command": "orchestrator unschedule"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects",
     "command": "project create"
   },

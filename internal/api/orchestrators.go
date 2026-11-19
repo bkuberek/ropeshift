@@ -28,6 +28,10 @@ const (
 type Orchestrator struct {
 	ledger.Orchestrator
 	WaitingFor string `json:"waiting_for,omitempty"`
+	// Hold is what keeps it from starting or running now, and Scheduled the start a member scheduled for its
+	// sign-in's usage reset; each is absent when there is none.
+	Hold      *ledger.OrchestratorHold `json:"hold,omitempty"`
+	Scheduled *ledger.ScheduledStart   `json:"scheduled,omitempty"`
 }
 
 // OrchestratorState says how an orchestrator reads, in the words every client prints: what holds a run
@@ -54,6 +58,19 @@ func (c *Client) SetOrchestrator(ctx context.Context, worker string, in SetOrche
 	var out Orchestrator
 	err := c.Do(ctx, http.MethodPut, workerPath(worker, "orchestrator"), in, &out)
 	return out, err
+}
+
+// ScheduleOrchestrator starts a worker's orchestrator at its sign-in's usage reset, which a member asks for while the
+// limit holds.
+func (c *Client) ScheduleOrchestrator(ctx context.Context, worker string) (ledger.ScheduledStart, error) {
+	var out ledger.ScheduledStart
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "orchestrator", "schedule"), struct{}{}, &out)
+	return out, err
+}
+
+// CancelScheduledStart cancels the start scheduled for a worker's orchestrator.
+func (c *Client) CancelScheduledStart(ctx context.Context, worker string) error {
+	return c.Do(ctx, http.MethodDelete, workerPath(worker, "orchestrator", "schedule"), nil, nil)
 }
 
 // Orchestrate carries one act of a worker's orchestrator.

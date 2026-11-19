@@ -169,6 +169,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/workers/{id}/template-writes":            resolved(templateWriteOperation, authority.OpTemplateWrite, authority.OpRepositoryCreateRemote),
 	"POST /v1/workers/{id}/forge-account-reads":        fixed(authority.OpRepositoryCreateRemote),
 	"PUT /v1/workers/{id}/orchestrator":                fixed(authority.OpOrchestratorRun),
+	"POST /v1/workers/{id}/orchestrator/schedule":      fixed(authority.OpOrchestratorSchedule),
+	"DELETE /v1/workers/{id}/orchestrator/schedule":    fixed(authority.OpOrchestratorUnschedule),
 	"POST /v1/roster/changes":                          fixed(authority.OpRosterChange).about("roster").named(rosterScope).showing(rosterChanges),
 	"POST /v1/roster/revert":                           fixed(authority.OpRosterChange).about("roster").named(rosterScope).showing(rosterChanges),
 	"POST /v1/sessions/end":                            fixed(authority.OpSessionEnd),

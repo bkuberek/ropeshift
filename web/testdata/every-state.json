@@ -5868,6 +5868,9 @@
             "waiting_for": "run_window",
             "worker_id": "worker-a"
           },
+          "orchestrator_hold": {
+            "reason": "offline"
+          },
           "worker": {
             "epoch": 1,
             "id": "worker-a",

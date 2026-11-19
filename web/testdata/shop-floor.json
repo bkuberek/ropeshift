@@ -484,6 +484,9 @@
         "run": 1,
         "worker_id": "worker-a"
       },
+      "orchestrator_hold": {
+        "reason": "offline"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-a",

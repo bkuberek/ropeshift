@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { JoinTokenMade } from "../api/admin";
 import { createJoinToken, readOrchestrator, revokeJoinToken, stopOrchestrator } from "../api/admin";
-import { inProjectOf, readView, startOrchestrator } from "../api/client";
+import { inProjectOf, readView } from "../api/client";
 import type { Operations, Orchestrator, Project, ResourceReport, SessionResources, ShopFloor, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
 import { useHealth } from "../api/useHealth";
@@ -18,6 +18,7 @@ import { Icon } from "../ui/Icon";
 import { DriversPanel } from "./Drivers";
 import { LaneCosts } from "./LaneCosts";
 import { bytes, sessionOf } from "./resources";
+import { OrchestratorStart } from "./OrchestratorStart";
 import { OpenRunWindow } from "./RunWindow";
 import { conditionWords, orchestratorLabel, workerStates } from "./states";
 
@@ -114,31 +115,6 @@ export function SessionUse({ report, session }: { report?: ResourceReport; sessi
 }
 
 export const running = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
-
-function StartOrchestrator({ line, after }: { line: WorkerLine; after: () => Promise<void> }) {
-  const { act, busy, failure } = useAct(after);
-  const toast = useToast();
-  const name = line.worker.name || line.worker.id;
-  return (
-    <>
-      <Button
-        small
-        loading={busy}
-        disabled={busy}
-        onClick={() =>
-          void act(() => startOrchestrator(line.worker.id)).then((done) => {
-            if (done) {
-              toast("success", `Asked ${name} to run its orchestrator.`);
-            }
-          })
-        }
-      >
-        Start orchestrator
-      </Button>
-      {failure ? <Refusal>{failure}</Refusal> : null}
-    </>
-  );
-}
 
 function StopOrchestrator({ line, after }: { line: WorkerLine; after: () => Promise<void> }) {
   const { act, busy, failure } = useAct(after);
@@ -512,7 +488,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                               ))
                             )}
                           </td>
-                          <td data-label="Orchestrator">
+                          <td data-label="Orchestrator" className="wrap">
                             <span className="row-tight">
                               {orchestrator ? (
                                 <TargetChip kind="orchestrator" small>
@@ -522,7 +498,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                                 <Absent>none</Absent>
                               )}
                               {orchestrator?.waiting_for === "run_window" ? <OpenRunWindow worker={line.worker.id} name={line.worker.name || line.worker.id} /> : null}
-                              {stopped ? <StartOrchestrator line={line} after={after} /> : <StopOrchestrator line={line} after={after} />}
+                              {stopped ? <OrchestratorStart line={line} after={after} /> : <StopOrchestrator line={line} after={after} />}
                               {orchestrator ? <OrchestratorDetails line={line} /> : null}
                             </span>
                           </td>

@@ -40,6 +40,21 @@ const reply =
     return row ? json(route, row[1]) : false;
   };
 
+// limitedFloor is the floor with worker-a's sign-in at its usage limit, resetting in two hours, and with a start
+// scheduled for that reset when scheduled says.
+function limitedFloor(scheduled = false): unknown {
+  const floor = JSON.parse(goldens["shop-floor"] ?? "{}") as { workers: { worker: { id: string }; orchestrator?: unknown; orchestrator_hold?: unknown; scheduled_start?: unknown }[] };
+  const resets = Date.now() + 2 * 60 * 60 * 1000;
+  for (const line of floor.workers) {
+    if (line.worker.id === "worker-a") {
+      line.orchestrator = undefined;
+      line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets };
+      line.scheduled_start = scheduled ? { worker_id: "worker-a", starts_at: resets, scheduled_by: "member-1", scheduled_at: Date.now() } : undefined;
+    }
+  }
+  return floor;
+}
+
 const signing = new Set(["POST /v1/sessions", "POST /v1/sessions/end"]);
 const key = (route: { method: string; pattern: string }) => `${route.method} ${route.pattern}`;
 const changing = (routes as { method: string; pattern: string }[]).filter((route) => route.method !== "GET" && !signing.has(key(route))).map(key);
@@ -690,6 +705,23 @@ const paths: Record<string, KeyPath> = {
     run: async (k, page) => {
       await k.palette("Start orchestrator");
       await k.activate(page.getByRole("button", { name: "Start orchestrator" }).first());
+    },
+  },
+  // A worker whose sign-in is at its usage limit: Start schedules the start for the reset, and a scheduled one cancels.
+  "POST /v1/workers/{id}/orchestrator/schedule": {
+    sent: post(/^\/v1\/workers\/worker-a\/orchestrator\/schedule$/),
+    answers: reply([/\/views\/shop-floor/, limitedFloor()]),
+    run: async (k, page) => {
+      await k.palette("Workers and resources", "Workers");
+      await k.activate(page.getByRole("button", { name: "Start at reset on solo" }));
+    },
+  },
+  "DELETE /v1/workers/{id}/orchestrator/schedule": {
+    sent: { method: "DELETE", path: /^\/v1\/workers\/worker-a\/orchestrator\/schedule$/ },
+    answers: reply([/\/views\/shop-floor/, limitedFloor(true)]),
+    run: async (k, page) => {
+      await k.palette("Workers and resources", "Workers");
+      await k.activate(page.getByRole("button", { name: "Cancel the scheduled start on solo" }));
     },
   },
   "POST /v1/delegates/{id}/revoke": {
