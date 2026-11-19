@@ -220,9 +220,14 @@ type rerunAsked struct {
 
 // requestRerun counts a rerun of a head, as automatic or as a member's, and asks the worker that opened the pull
 // request to make it. Each rerun is an event with its class and its number among its kind, and the forge call is the
-// worker's, through the forge's port.
+// worker's, through the forge's port. A pull request whose head is no commit hash is refused: a rerun is for the
+// runs of one commit, and a member's rerun would otherwise count and ask for a head that names none. It is refused
+// and not skipped so the member who asked is told it did not happen, and the transaction keeps nothing of it.
 func requestRerun(tx ports.WriteTx, asked rerunAsked, actor ledger.Actor) (ledger.CIWaiting, error) {
 	pr := asked.pr
+	if !ledger.CommitHash(pr.HeadCommit) {
+		return ledger.CIWaiting{}, fmt.Errorf("%w: pull request #%d of %s has no head commit to rerun", workorders.ErrInvalid, pr.Number, pr.WorkOrder)
+	}
 	waiting, err := tx.CI().CountCIRerun(pr.WorkOrder, pr.HeadCommit, tx.Now(), asked.auto)
 	if err != nil {
 		return ledger.CIWaiting{}, err
