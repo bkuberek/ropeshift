@@ -100,6 +100,9 @@ type RepositoryAdded struct {
 	Checkout string `json:"checkout,omitempty"`
 	// Reason says why it was refused, or that a clone is a second one of a repository.
 	Reason string `json:"reason,omitempty"`
+	// Creation is what creating the repository came to, for an entry of a plan version that creates one: what a
+	// preview says approving would create, what a creation did, or the remedy for a refusal before any write.
+	Creation *ledger.CreationOutcome `json:"creation,omitempty"`
 }
 
 // RepositoryAddReport is the outcome of every clone and path, in the order they were found.

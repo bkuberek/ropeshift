@@ -30,7 +30,7 @@ import (
 // approving would register. Approving records the outcome on the approval, which RegistrationOf reads, and
 // registers once: an approval that recorded its outcome answers with that record, and a later approval of a
 // new version is what registers a repository whose clone came after.
-func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
+func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
 	}
@@ -86,7 +86,7 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 	for _, name := range targets {
 		targeted[name] = true
 	}
-	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted}, actor)
+	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted, creator: creator, project: project}, actor)
 	if dryRun {
 		return added, err
 	}
@@ -106,7 +106,7 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 func recordedAdded(repositories ports.RepositoryReader, record *ledger.ManifestRegistration) ([]Added, error) {
 	out := make([]Added, 0, len(record.Repositories))
 	for _, one := range record.Repositories {
-		added := Added{Name: one.Name, Manifest: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason}
+		added := Added{Name: one.Name, Manifest: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason, Creation: one.Creation}
 		if one.Repository != "" {
 			held, err := repositories.Repository(one.Repository)
 			switch {
@@ -127,7 +127,7 @@ func outcomesOf(added []Added) []ledger.ManifestOutcome {
 	for _, one := range added {
 		out = append(out, ledger.ManifestOutcome{
 			Name: one.Name, Path: one.Manifest, Resolved: one.Path, Remote: one.Remote, Outcome: one.Outcome,
-			Repository: one.Repository.ID, Checkout: one.Checkout, Reason: one.Reason,
+			Repository: one.Repository.ID, Checkout: one.Checkout, Reason: one.Reason, Creation: one.Creation,
 		})
 	}
 	return out
@@ -530,6 +530,10 @@ type manifestRun struct {
 	// targets are the repository names the work orders of the plan version give in `repo`, for a run of a plan
 	// approval, and nil for a manifest a member registers by hand.
 	targets map[string]bool
+	// creator creates the repositories a plan approval names, on the machine of the worker whose clones kept reads, and
+	// project is the name of the project they are created for. A run of a manifest a member registers by hand has neither.
+	creator ports.RepositoryCreator
+	project string
 }
 
 // planned says an entry with `create` is one no work order of the run's plan version names, so the version's

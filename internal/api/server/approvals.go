@@ -87,7 +87,8 @@ func (h *handler) decideApproval(w http.ResponseWriter, r *http.Request, actor l
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, h.registerApproved(r.Context(), record, actor))
+	// A member who closes the page or interrupts the command does not stop a creation, which the approval started.
+	reply(w, http.StatusOK, h.registerApproved(context.WithoutCancel(r.Context()), record, actor))
 }
 
 // registerApproved registers, as the member who approved a plan version, the repositories its manifest adds,
@@ -99,7 +100,7 @@ func (h *handler) registerApproved(ctx context.Context, record authority.Approva
 	if record.Kind != authority.KindPlan || record.State != authority.ApprovalApproved || h.Checkouts == nil {
 		return decided
 	}
-	added, err := h.repositories.RegisterApproved(ctx, h.Scope, record.ID, h.Checkouts, false, actor)
+	added, err := h.repositories.RegisterApproved(ctx, h.Scope, record.ID, h.Checkouts, h.Creator, h.projectName(ctx), false, actor)
 	if err != nil {
 		decided.RepositoriesProblem = "registering the repositories the manifest adds failed: " + err.Error()
 	}
@@ -107,6 +108,24 @@ func (h *handler) registerApproved(ctx context.Context, record authority.Approva
 		decided.Repositories = addedViews(added)
 	}
 	return decided
+}
+
+// projectName is the name of the project a call is for, as its path names it, or else as the installation's registry
+// names the project this handler serves.
+func (h *handler) projectName(ctx context.Context) string {
+	if project, ok := projectOf(ctx); ok {
+		return project.Name
+	}
+	projects, err := h.Projects.List(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, project := range projects {
+		if project.ID == h.Scope {
+			return project.Name
+		}
+	}
+	return ""
 }
 
 // workerUseApproval is what a lane's hook polls, through its worker.

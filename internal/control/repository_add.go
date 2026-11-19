@@ -43,6 +43,9 @@ type Added struct {
 	Checkout string
 	// Reason says why a clone or a path was refused, or that a clone is a second one of a repository.
 	Reason string
+	// Creation is what creating the repository came to, for an entry of a plan version that creates one: the check's
+	// answer for a dry run or a refusal, and the steps for a creation that ran.
+	Creation *ledger.CreationOutcome
 }
 
 // errDryRun undoes a dry run's transaction, which wrote what the registration would have.

@@ -296,26 +296,26 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); !errors.Is(err, workorders.ErrForbidden) {
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a tick registering what a manifest adds: %v", err)
 	}
 	// A delegate holds the consent to register a repository by hand, and still registers nothing from a
 	// manifest, approved or given whole.
 	delegate := ledger.Actor{Kind: ledger.ActorDelegate, ID: "member-1/assistant"}
-	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, delegate); !errors.Is(err, workorders.ErrForbidden) {
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", true, delegate); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate registering what an approved manifest adds: %v", err)
 	}
 	if _, err := repositories.RegisterManifest(r.Ctx, r.Scope, planning.RepositoriesFile{ID: "platform"}, kept, true, delegate); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate registering from a manifest: %v", err)
 	}
 	// Until a member approves the plan, its manifest registers nothing.
-	if added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member()); err != nil || len(added) != 0 {
+	if added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member()); err != nil || len(added) != 0 {
 		return Violatedf("an unapproved manifest registered %+v: %v", added, err)
 	}
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -372,7 +372,7 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	if _, err := r.approve(s, later, true, r.member()); err != nil {
 		return err
 	}
-	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, false, r.member())
+	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -645,7 +645,7 @@ func (r *Rig) removedBilling() (removedBilling, error) {
 		if _, err := r.approve(s, request, true, r.member()); err != nil {
 			return nil, err
 		}
-		return repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+		return repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	}
 	if added, err := approved("The platform"); err != nil {
 		return removedBilling{}, err
@@ -896,7 +896,7 @@ func checkApprovalRecordsWhatItRegistered(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, r.member())
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", true, r.member())
 	if err != nil {
 		return err
 	}
@@ -909,7 +909,7 @@ func checkApprovalRecordsWhatItRegistered(r *Rig) error {
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member()); err != nil {
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member()); err != nil {
 		return err
 	}
 	record, err := r.registrationOf(s, request.ID)
@@ -995,7 +995,7 @@ func checkRepeatedDecisionKeepsTheRegistration(r *Rig) error {
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	first, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	first, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -1012,7 +1012,7 @@ func checkRepeatedDecisionKeepsTheRegistration(r *Rig) error {
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	second, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	second, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -1074,7 +1074,7 @@ func checkStoppedRegistrationRecordsWhatItNeverAttempted(r *Rig) error {
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err == nil || !strings.Contains(err.Error(), "cannot be written") {
 		return Violatedf("a run whose checkout could not be kept ended with %v", err)
 	}
@@ -1986,7 +1986,7 @@ func checkBranchVersionRegistersItsManifest(r *Rig) error {
 		"docs": {outcome: ledger.Planned, reason: plannedReason("docs")},
 	}
 	repositories := r.repositories(s)
-	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, true, r.member())
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, nil, "", true, r.member())
 	if err != nil {
 		return err
 	}
@@ -2002,7 +2002,7 @@ func checkBranchVersionRegistersItsManifest(r *Rig) error {
 	if _, err := r.approve(s, pending, true, r.member()); err != nil {
 		return err
 	}
-	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, false, r.member())
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -2025,7 +2025,7 @@ func checkBranchVersionRegistersItsManifest(r *Rig) error {
 	if _, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked)); err != nil {
 		return err
 	}
-	again, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, false, r.member())
+	again, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -2068,7 +2068,7 @@ func checkUntargetedCreationIsPlanned(r *Rig) error {
 		"search":  {outcome: ledger.Planned, reason: plannedReason("search")},
 		"docs":    {outcome: ledger.Planned, reason: plannedReason("docs")},
 	}
-	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, r.member())
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", true, r.member())
 	if err != nil {
 		return err
 	}
@@ -2078,7 +2078,7 @@ func checkUntargetedCreationIsPlanned(r *Rig) error {
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -2117,7 +2117,7 @@ func checkUntargetedCreationIsPlanned(r *Rig) error {
 		"search":  {outcome: ledger.RegistrationRefused, path: "/work/search", reason: "no git clone is at /work/search"},
 		"docs":    {outcome: ledger.Planned, reason: plannedReason("docs")},
 	}
-	if preview, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, true, r.member()); err != nil {
+	if preview, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, nil, "", true, r.member()); err != nil {
 		return err
 	}
 	if err := outcomesAre(preview, want); err != nil {
@@ -2126,7 +2126,7 @@ func checkUntargetedCreationIsPlanned(r *Rig) error {
 	if _, err := r.approve(s, later, true, r.member()); err != nil {
 		return err
 	}
-	if added, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, false, r.member()); err != nil {
+	if added, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, nil, "", false, r.member()); err != nil {
 		return err
 	}
 	if err := outcomesAre(added, want); err != nil {
