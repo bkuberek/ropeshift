@@ -238,17 +238,17 @@ A request goes to a connected worker that keeps a checkout of the repository, th
 
 ### In the web UI
 
-The Overview's side column has a Practices panel after Needs you. It has one row for each repository: its name, its open findings counted by severity as `high`, `medium`, and `low`, the count of acknowledged findings and of `unknown` practices, and the commit and age of its result. A repository no check has reported reads Not checked yet. Run check asks for a check of every repository, and a row opens the repository's Practices tab.
+The Overview's side column has a Practices panel after Needs you. It has one row for each repository: its name, which opens the repository's Practices tab; its open findings as `high`, `medium`, and `low` badges, each with its count, or No open findings; the count of findings acknowledged and of practices the check could not read; the short commit the result read; and its age. A repository no check has reported reads Not checked yet. Run check, in the panel's heading, asks every repository's worker to run the check, and a repository that cannot be asked says why on its row, such as that no connected worker keeps a checkout of it.
 
-[Screenshot placeholder best-practices-01]: assets/screenshots/best-practices-01-light.png "The Overview of Harbor, with the Practices panel listing harbor-api and harbor-web with their open findings by severity"
+[Screenshot placeholder best-practices-01]: assets/screenshots/best-practices-01-light.png "The Practices panel of Harbor's Overview, with harbor-api, harbor-web, and harbor-plan and their open findings by severity"
 
-On Repositories, the Findings column counts each repository's open findings by severity. A repository's record has a Practices tab, at `/projects/<project>/repositories?repo=<id>&tab=practices`. It shows the result's commit, base branch, worker, and age, Run check, and every practice in table order, with its status: Met, the finding's severity, Acknowledged with the severity muted, Unknown, or Not applicable. Each row gives why the practice matters and its fix. A template links to its page in [Templates](web-ui.md#templates), and its command has Copy. A finding row shows its ID and its detail, and a `secrets` row shows the rule, the file, the line, and the commit, never more.
+On Repositories, the Findings column shows each repository's open findings with the same badges. The record below the table has two tabs, Settings and Practices, and the Practices tab's address is `/projects/<project>/repositories?repo=<id>&tab=practices`. The tab gives the result's Commit, Base branch, Worker, and when it was Checked, with Run check for this repository. Its Practices table lists every practice in table order with its Status, Why it matters, and Fix. The status is Met, the severity of the most serious open finding, Acknowledged with the severity beside it in a muted word, Unknown with the reason, or Not applicable with the reason. A fix that names a template links to the template in [Templates](web-ui.md#templates) and shows the command that prints it, with Copy. Its Findings table lists each finding with its ID and detail, its State, and its Acknowledgement. A `secrets` finding shows its rule, file, line, and commit, and never the text the rule matched.
 
-[Screenshot placeholder best-practices-02]: assets/screenshots/best-practices-02-light.png "The Practices tab of harbor-api, with a dependency-updates finding, its fix, and the dependabot.yml template"
+[Screenshot placeholder best-practices-02]: assets/screenshots/best-practices-02-light.png "The Practices tab of harbor-api, with its result, the Practices table, and the Findings table"
 
-While a request is open, Run check reads "Checking on" and the worker, and the tab reads the request once a second until it is reported or expired. An expired request reads "The check did not finish within 30 minutes. A later result still appears here."
+While a request is open, Run check shows Checking on and the worker that carries it out, and the page reads the request once a second until it is reported or expired. An expired request reads "The check did not finish within 30 minutes. A later result still appears here."
 
-The command palette lists Run the practices check among its actions.
+The command palette lists Run the practices check, which moves to Run check on the Overview.
 
 ## Acknowledge a finding
 
@@ -261,9 +261,9 @@ ropeshift practices withdraw harbor-api secrets:jwt:test/fixtures/session.json:1
 
 The repository is named by its name, identity, or a prefix of it, and the finding by its ID, as `ropeshift practices` prints it. The reason is required, at most 2 KiB, and kept on one line with the shapes of credentials taken out. A finding that already has an acknowledgement is refused with exit 4; withdraw it first to give a new reason. A finding no result holds may be acknowledged, because a check may not have run since it appeared. Withdrawing lists the finding among the open ones again.
 
-In the web UI, Acknowledge on a finding row of the Practices tab opens a dialog with the finding's ID and why its practice matters, and a required Reason. An acknowledged row shows the reason, the member, and the time, with Withdraw. The palette lists Acknowledge a practices finding and Withdraw an acknowledgement, each with pickers for the repository and the finding.
+In the web UI, Acknowledge on an open finding of the Practices tab's Findings table opens Acknowledge finding: the finding's ID, its detail, why its practice matters, and a required Reason of at most 2 KiB, with Cancel and Acknowledge. An acknowledged finding stays in the table and in the count of what was acknowledged, with its reason, the member who gave it, and when, and its Withdraw opens Withdraw acknowledgement, whose Withdraw acknowledgement button restores the plain finding. The palette lists Acknowledge a practices finding and Withdraw an acknowledgement, which open the same dialogs with a Repository picker and a Finding picker over the open findings or the acknowledged ones.
 
-[Screenshot placeholder best-practices-03]: assets/screenshots/best-practices-03-light.png "The Acknowledge finding dialog, with a secrets finding's ID, why it matters, and the Reason field"
+[Screenshot placeholder best-practices-03]: assets/screenshots/best-practices-03-light.png "Acknowledge finding, with harbor-api's env-ignored finding, why it matters, and a reason filled in"
 
 Acknowledging and withdrawing are consent operations that no delegate policy exempts. A delegate's call, the assistant's included, prepares a confirmation card that names the finding, why its practice matters, and the reason, and a member confirms it, in Needs you or with `ropeshift confirm` ([delegates](authorization.md#delegates)). Running the check is an operational operation, so a delegate runs it as itself.
 
@@ -271,7 +271,7 @@ Acknowledging and withdrawing are consent operations that no delegate policy exe
 
 `ropeshift adopt --dry-run` lists, under each repository it would register, a Practices block in the format of `ropeshift practices`, with no acknowledgements. The web adoption's Dry run step has Practices found, with one closed row for each repository registering would add, which opens to its open findings by severity, each with its fix ([adopt an existing project](adopt.md#2-read-the-dry-run)).
 
-[Screenshot placeholder best-practices-04]: assets/screenshots/best-practices-04-light.png "The adoption dry run of Moorings, with Practices found open on moorings-api"
+[Screenshot placeholder best-practices-04]: assets/screenshots/best-practices-04-light.png "Practices found in the dry run of importing lighthouse-api, with its eight findings counted by severity"
 
 The dry run runs the check on the daemon's machine, at the base branch registration would record, with a scan of the whole history and no forge binding, so `branch-protection`, `required-review`, and `license` are `not_applicable`. It records nothing. A finding is no part of the plan's digest and never blocks the adoption. Adopting registers the repositories, and registration asks for the check that records a result.
 
