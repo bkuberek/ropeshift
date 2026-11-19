@@ -291,7 +291,7 @@ func newConsolidationMergeRig(r *Rig, target ledger.ReviewTarget, level ledger.M
 
 // importMerge is the merge commit a consolidation rig's worker reports having made to import the design repository's
 // history.
-const importMerge = "import-merge"
+const importMerge = "1111111111111111111111111111111111111111"
 
 // newImportingForgeRig is newForgeRigWith for a lane whose end reports importMerge.
 func newImportingForgeRig(r *Rig, target ledger.ReviewTarget, ready func(store ports.Store, repository string) (string, error), checks ...workorders.CheckResult) (*forgeRig, error) {
@@ -1049,6 +1049,67 @@ func checkALanesEndKeepsTheImportItReports(r *Rig) error {
 	}
 	if imports != 1 || branches != 1 {
 		return Violatedf("a lane's end that reports the import %s keeps the artifacts %+v", merge, artifacts)
+	}
+	return nil
+}
+
+func checkAnImportThatDidNotGrowFromTheClaimsBaseIsUnread(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	// The recorded merge has the import's subject and the design repository's history, but its first parent is a
+	// commit of the lane's, not the commit the claim began the branch at.
+	path := w.path(startRepository)
+	base := w.git.Touch(path, "main", "README.md")
+	w.git.Hold(base, ".gitignore", "README.md")
+	w.git.At(designRoot)
+	tip := w.git.Add(designRoot)
+	w.git.Hold(tip, "README.md")
+	own := w.git.Add(base)
+	w.git.Hold(own, "README.md")
+	merge := w.git.Add(own, tip)
+	w.git.Name(merge, planning.ImportCommitSubject("design"))
+	w.git.Point(path, "lane/adopt", merge)
+	head := w.git.Touch(path, "lane/adopt", "plan.md")
+	consolidation, err := w.consolidationAsked(head, merge, fake.NewCheckouts())
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || consolidation.Merge != "" || consolidation.DesignTip != "" || !strings.Contains(consolidation.Unread, "began") {
+		return Violatedf("an import that did not grow from the claim's base reads %+v", consolidation)
+	}
+	return nil
+}
+
+func checkALanesEndKeepsNoImportThatIsNotACommitID(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	_, _, head := w.consolidatedBranch()
+	id, err := w.adoptOrder(startRepository, consolidating())
+	if err != nil {
+		return err
+	}
+	if err := w.adoptLaneEndsImporting(id, head, "import-merge"); err != nil {
+		return err
+	}
+	var artifacts []ledger.Artifact
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		artifacts, err = tx.Evidence().Artifacts(id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind == ledger.ArtifactImport {
+			return Violatedf("a lane's end that reports an import that is not a commit ID keeps %+v", artifact)
+		}
 	}
 	return nil
 }

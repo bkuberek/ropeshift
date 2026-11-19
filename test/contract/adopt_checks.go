@@ -47,6 +47,8 @@ var AdoptChecks = []Check{
 	{"AS28", "a branch that lacks the merge the worker recorded as its import is unread, though it holds a merge with the import's subject", checkAnImportTheWorkerDidNotRecordIsNotConfirmed},
 	{"AS29", "an adoption whose worker recorded no import is unread", checkAnAdoptionWhoseWorkerRecordedNoImportIsUnread},
 	{"AS30", "a lane's end keeps the merge its worker reported as the import, as an artifact of the branch's lane", checkALanesEndKeepsTheImportItReports},
+	{"AS31", "an import that did not grow from the commit the claim began the branch at is unread", checkAnImportThatDidNotGrowFromTheClaimsBaseIsUnread},
+	{"AS32", "a lane's end keeps no import that is not a commit ID", checkALanesEndKeepsNoImportThatIsNotACommitID},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a

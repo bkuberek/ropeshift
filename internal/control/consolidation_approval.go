@@ -48,8 +48,9 @@ func (i *Intake) consolidationRead(ctx context.Context, scope ledger.WorkspaceID
 
 // readImport fills in the merge, the design tip, and the collisions of a consolidation from the adoption branch,
 // and says why it could not when it could not. The import is the merge commit the worker recorded when it made the
-// import, before the lane began, and it must be on the branch. Its second parent must begin at the design
-// repository's first commit, so a merge the lane made with the import's subject imports nothing here.
+// import, before the lane began: it must be on the branch, be a merge with the import's subject that grew from the
+// commit the claim began the branch at, and have a second parent whose history begins at the design repository's
+// first commit. A merge the lane made with the import's subject is not the one the worker recorded.
 func (i *Intake) readImport(ctx context.Context, scope ledger.WorkspaceID, plan acceptedPlan, view *planning.Consolidation) string {
 	if i.starts == nil {
 		return "this control plane reads no repository's history"
@@ -85,6 +86,9 @@ func (i *Intake) readImport(ctx context.Context, scope ledger.WorkspaceID, plan 
 	design, imported := planning.ImportedDesign(merge.Subject)
 	if !imported || len(merge.Parents) != 2 {
 		return fmt.Sprintf("the commit %s that the worker recorded as the import of the history of %s is not a merge commit with the import's subject", recorded, view.Design)
+	}
+	if base != "" && merge.Parents[0] != base {
+		return fmt.Sprintf("the merge commit %s that the worker recorded as the import of the history of %s did not grow from %s, the commit the adoption branch began at", recorded, view.Design, base)
 	}
 	root, err := imports.FirstParentRoot(ctx, path, merge.Parents[1])
 	if err != nil {

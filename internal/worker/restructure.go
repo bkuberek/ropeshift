@@ -309,6 +309,10 @@ func (r *laneRun) instructionsText() string {
 // shows the effect happened, and one that does not shows it did not, and a branch that cannot be read shows
 // nothing.
 func (w *Worker) findRestructure(ctx context.Context, effect lanes.Effect) lanes.Finding {
+	if isImportRecord(effect) {
+		// The record's target is the commit it records, and nothing else is read to find it.
+		return lanes.Found
+	}
 	trees, offered := w.config.Lanes.Provisioner.Worktrees.(ports.FileCommits)
 	if !offered {
 		return lanes.FoundUnknown
@@ -333,7 +337,7 @@ func (w *Worker) findRestructure(ctx context.Context, effect lanes.Effect) lanes
 	}
 	found := false
 	if consolidating {
-		_, found = importCommit(commits)
+		_, found = importCommit(commits, base)
 	} else {
 		_, found = workspaceCommit(commits)
 	}

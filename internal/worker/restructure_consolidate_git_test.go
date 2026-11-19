@@ -192,8 +192,6 @@ func TestAGitWorkspaceWithADesignRepositoryInItsCodeFolderEndsInOneMergeCommit(t
 	}
 }
 
-// A retry finds the merge on the lane's branch and makes no second one, whether the design repository has moved on
-// or the clones have been moved, and tells the brief what it told before.
 // The lane's end reports the merge commit the worker made, so the control plane can tell it from a merge the lane
 // makes later with the same subject.
 func TestAConsolidationsMergeCommitIsTheOneTheLaneReports(t *testing.T) {
@@ -214,6 +212,8 @@ func TestAConsolidationsMergeCommitIsTheOneTheLaneReports(t *testing.T) {
 	}
 }
 
+// A retry finds the merge on the lane's branch and makes no second one, whether the design repository has moved on
+// or the clones have been moved, and tells the brief what it told before.
 func TestAGitConsolidationRepeatedMakesNoSecondMerge(t *testing.T) {
 	t.Parallel()
 	w := newGitConsolidation(t)
@@ -389,5 +389,77 @@ func TestAGitConsolidationThatWritesTheInstructionsTellsTheBriefTheWorkerWroteTh
 				t.Errorf("the lane keeps the starting instructions %q", run.instructionsText())
 			}
 		})
+	}
+}
+
+// forgeImport makes, on the lane's branch, the merge a lane makes of its own with the import's subject: a commit of
+// its own, then a merge of it with a side commit.
+func (w *gitWorkspace) forgeImport() string {
+	w.t.Helper()
+	w.git(w.lane, "commit", "--quiet", "--allow-empty", "-m", "the lane's own work")
+	own := w.git(w.lane, "rev-parse", "HEAD")
+	side := w.git(w.lane, "commit-tree", own+"^{tree}", "-p", own, "-m", "a side commit")
+	forged := w.git(w.lane, "commit-tree", own+"^{tree}", "-p", own, "-p", side, "-m", planning.ImportCommitSubject("forged"))
+	w.git(w.lane, "reset", "--quiet", "--hard", forged)
+	return forged
+}
+
+// A lane that makes a merge of its own with the import's subject is not taken for the import by a later generation:
+// the worker reports the merge it made, which it kept when it made it.
+func TestALaterGenerationReportsTheMergeTheWorkerMadeAndNotALanesOwn(t *testing.T) {
+	t.Parallel()
+	w := newGitConsolidation(t)
+	ws := w.path("ws")
+	first := w.consolidate("tools")
+	if report, failed := first.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	made := w.git(w.lane, "rev-parse", "HEAD")
+	if forged := w.forgeImport(); forged == made {
+		t.Fatal("the lane made no merge of its own")
+	}
+	second := &laneRun{w: first.w, rt: first.rt, lease: first.lease, generation: 2}
+	if report, failed := second.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the second generation's restructuring failed: %+v", report)
+	}
+	if got := second.importMerge(); got != made {
+		t.Errorf("the second generation reports the merge %s, want the one the worker made, %s", got, made)
+	}
+}
+
+// A crash between the merge and the record of it leaves the merge on the branch with no record, and a lane's own
+// merge with the import's subject after it is not the one found: it is the oldest merge that grew from the commit
+// the branch began at.
+func TestAMergeFoundWithNoRecordIsTheOldestThatGrewFromTheBase(t *testing.T) {
+	t.Parallel()
+	w := newGitConsolidation(t)
+	ws := w.path("ws")
+	crashed := w.consolidate("tools")
+	if report, failed := crashed.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	made := w.git(w.lane, "rev-parse", "HEAD")
+	w.forgeImport()
+	restarted := w.consolidate("tools")
+	if report, failed := restarted.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the restructuring after the crash failed: %+v", report)
+	}
+	if got := restarted.importMerge(); got != made {
+		t.Errorf("a restart that found no record reports the merge %s, want %s", got, made)
+	}
+}
+
+// A crash between beginning the record of the import and finishing it leaves a started effect whose target is the
+// merge's commit: it names what it records, so a restart finds it as done.
+func TestARestartFindsTheRecordOfTheImportItBegan(t *testing.T) {
+	t.Parallel()
+	w := newGitConsolidation(t)
+	run := w.consolidate("tools")
+	if report, failed := run.restructure(t.Context(), w.path("ws"), w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	effect := lanes.NewEffect(lanes.EffectRestructure, "lane-1", 2, w.git(w.lane, "rev-parse", "HEAD"), importRecord)
+	if got := run.w.findRestructure(t.Context(), effect); got != lanes.Found {
+		t.Errorf("a restart finds the record of the import as %v", got)
 	}
 }

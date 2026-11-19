@@ -714,7 +714,7 @@ func recordEvidence(tx ports.WriteTx, holder workorders.Holder, fence int64, res
 			return err
 		}
 	}
-	if result.ImportMerge != "" {
+	if ledger.CommitHash(result.ImportMerge) {
 		if _, err := addArtifact(ledger.ArtifactImport, result.ImportMerge, result.ImportMerge, nil); err != nil {
 			return err
 		}
