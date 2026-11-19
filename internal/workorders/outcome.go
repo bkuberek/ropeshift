@@ -136,6 +136,9 @@ type LaneResult struct {
 	// Change is what the branch changed since the lane's base commit, which the worker measured. It is
 	// absent when the lane had no base commit or made no commit.
 	Change *ledger.ChangeSize `json:"change,omitempty"`
+	// ImportMerge is the merge commit the worker made on the branch to import a design repository's history before
+	// the lane began (FR-ADOPT-13). It is empty for a lane whose worker imported nothing.
+	ImportMerge string `json:"import_merge,omitempty"`
 	// MaxReviewRounds is the bound on review rounds the profile of the lane that ended named, which a
 	// review's verdicts are settled against. Zero names none, and the default holds.
 	MaxReviewRounds int64   `json:"max_review_rounds,omitempty"`

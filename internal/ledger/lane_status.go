@@ -44,6 +44,9 @@ const (
 	ArtifactSalvage = "salvage"
 	// ArtifactBranch is the final artifact: a member merges it, and ropeshift does not (D17).
 	ArtifactBranch = "branch"
+	// ArtifactImport is the merge commit the worker made on an adopt lane's branch to import a design repository's
+	// history. Its digest is the commit.
+	ArtifactImport = "import"
 	// ArtifactReport is what a lane's report named.
 	ArtifactReport = "report"
 	// ArtifactHandoff is a handoff document, and its body lives in the ledger.

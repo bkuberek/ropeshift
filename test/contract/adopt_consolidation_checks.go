@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -47,14 +48,14 @@ func (w *startWorld) consolidatedBranch() (merge, tip, head string) {
 	return merge, tip, head
 }
 
-// consolidationAsked runs a consolidating adoption's lane to the end of its branch and reads what its request says
-// of the consolidation.
-func (w *startWorld) consolidationAsked(head string, kept ports.Checkouts) (*planning.Consolidation, error) {
+// consolidationAsked runs a consolidating adoption's lane to the end of its branch, with the merge its worker
+// reported importing the design repository's history, and reads what its request says of the consolidation.
+func (w *startWorld) consolidationAsked(head, imported string, kept ports.Checkouts) (*planning.Consolidation, error) {
 	id, err := w.adoptOrder(startRepository, consolidating())
 	if err != nil {
 		return nil, err
 	}
-	if err := w.adoptLaneEnds(id, head); err != nil {
+	if err := w.adoptLaneEndsImporting(id, head, imported); err != nil {
 		return nil, err
 	}
 	_, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts).Placing(kept))
@@ -90,7 +91,7 @@ func checkAConsolidationListsWhatItImported(r *Rig) error {
 		return err
 	}
 	merge, tip, head := w.consolidatedBranch()
-	consolidation, err := w.consolidationAsked(head, kept)
+	consolidation, err := w.consolidationAsked(head, merge, kept)
 	if err != nil {
 		return err
 	}
@@ -117,8 +118,8 @@ func checkAConsolidationTheProjectDoesNotHoldRemovesNothing(r *Rig) error {
 	if _, err := r.change(s, startRepository, control.RepositoryChange{MergeAuthority: &level}, r.Actor); err != nil {
 		return err
 	}
-	_, _, head := w.consolidatedBranch()
-	consolidation, err := w.consolidationAsked(head, fake.NewCheckouts())
+	merge, _, head := w.consolidatedBranch()
+	consolidation, err := w.consolidationAsked(head, merge, fake.NewCheckouts())
 	if err != nil {
 		return err
 	}
@@ -143,7 +144,7 @@ func checkAConsolidationWhoseMergeIsUnreadSaysWhy(r *Rig) error {
 	base := w.git.Touch(path, "main", "README.md")
 	w.git.Point(path, "lane/adopt", base)
 	head := w.git.Touch(path, "lane/adopt", "plan.md")
-	consolidation, err := w.consolidationAsked(head, kept)
+	consolidation, err := w.consolidationAsked(head, "", kept)
 	if err != nil {
 		return err
 	}
@@ -165,12 +166,12 @@ func (w *startWorld) consolidationPending() (authority.Approval, ledger.Reposito
 	if err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
-	_, _, head := w.consolidatedBranch()
+	merge, _, head := w.consolidatedBranch()
 	id, err := w.adoptOrder(startRepository, consolidating())
 	if err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
-	if err := w.adoptLaneEnds(id, head); err != nil {
+	if err := w.adoptLaneEndsImporting(id, head, merge); err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
 	pending, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts).Placing(kept))
@@ -261,8 +262,9 @@ func (r *Rig) approvalRow(s ports.Store, id string) (authority.Approval, error) 
 
 // newConsolidationMergeRig is a plan merge rig whose planning work adopts the project, with the restructuring
 // given, in a repository with a review target, a merge authority, and a merge method set before its lane ends.
+// The lane's worker reports importMerge as the merge commit that imported the design repository's history.
 func newConsolidationMergeRig(r *Rig, target ledger.ReviewTarget, level ledger.MergeAuthority, method ledger.MergeMethod, restructure *planning.Restructure) (*planMergeRig, error) {
-	f, err := newForgeRigWith(r, target, func(store ports.Store, repository string) (string, error) {
+	f, err := newImportingForgeRig(r, target, func(store ports.Store, repository string) (string, error) {
 		if _, err := r.change(store, repository, control.RepositoryChange{MergeAuthority: &level, MergeMethod: &method}, r.Actor); err != nil {
 			return "", err
 		}
@@ -285,6 +287,38 @@ func newConsolidationMergeRig(r *Rig, target ledger.ReviewTarget, level ledger.M
 		return nil, err
 	}
 	return &planMergeRig{forgeRig: f, files: laneFiles("The first draft.")}, nil
+}
+
+// importMerge is the merge commit a consolidation rig's worker reports having made to import the design repository's
+// history.
+const importMerge = "import-merge"
+
+// newImportingForgeRig is newForgeRigWith for a lane whose end reports importMerge.
+func newImportingForgeRig(r *Rig, target ledger.ReviewTarget, ready func(store ports.Store, repository string) (string, error), checks ...workorders.CheckResult) (*forgeRig, error) {
+	s := r.Store()
+	repository := r.ID("repo")
+	if _, err := r.detect(s, repository, forgeRemote, "main"); err != nil {
+		return nil, err
+	}
+	if _, err := r.change(s, repository, control.RepositoryChange{ReviewTarget: &target}, r.Actor); err != nil {
+		return nil, err
+	}
+	st, err := newStatusRigOn(r, s, func(store ports.Store) (string, error) { return ready(store, repository) })
+	if err != nil {
+		return nil, err
+	}
+	f := &forgeRig{statusRig: st, repository: repository, head: r.ID("commit")}
+	result := LaneFinished(f.head, checks...)
+	result.ImportMerge = importMerge
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := f.upload(ledger.UploadLaneEnded, raw)
+	if err != nil || len(reply.Rejected) != 0 {
+		return nil, Violatedf("the lane's end was refused: %+v, %v", reply.Rejected, err)
+	}
+	return f, nil
 }
 
 // mergedWith runs an adoption's plan, in a repository at review_approves that merges with method, through its
@@ -397,9 +431,9 @@ func checkASquashMergeOutsideRopeshiftRaisesTheNotice(r *Rig) error {
 	git.At(designRoot)
 	tip := git.Add(designRoot)
 	git.Hold(tip, "README.md", "docs/vision.md")
-	merge := git.Add(base, tip)
-	git.Name(merge, planning.ImportCommitSubject("design"))
-	git.At(p.head, merge)
+	git.At(importMerge, base, tip)
+	git.Name(importMerge, planning.ImportCommitSubject("design"))
+	git.At(p.head, importMerge)
 	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return path, nil }}
 	intake := control.NewIntake(p.store).Checking(starts)
 	var asked []string
@@ -551,12 +585,12 @@ func checkARepositoryThatSharesTheDesignFirstCommitIsNotRemoved(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	_, _, head := w.consolidatedBranch()
+	merge, _, head := w.consolidatedBranch()
 	id, err := w.adoptOrder(startRepository, consolidating())
 	if err != nil {
 		return err
 	}
-	if err := w.adoptLaneEnds(id, head); err != nil {
+	if err := w.adoptLaneEndsImporting(id, head, merge); err != nil {
 		return err
 	}
 	pending, adoption, err := w.pendingAdoption(control.NewIntake(s).Checking(w.starts).Placing(kept))
@@ -589,8 +623,8 @@ func checkTheDesignRepositoryKeptElsewhereWithItsRemoteIsRemoved(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	_, _, head := w.consolidatedBranch()
-	consolidation, err := w.consolidationAsked(head, kept)
+	merge, _, head := w.consolidatedBranch()
+	consolidation, err := w.consolidationAsked(head, merge, kept)
 	if err != nil {
 		return err
 	}
@@ -615,7 +649,7 @@ func checkALaneCannotForgeTheImport(r *Rig) error {
 	w.git.Name(forged, planning.ImportCommitSubject("forged"))
 	w.git.Point(path, "lane/adopt", forged)
 	after := w.git.Touch(path, "lane/adopt", "plan.md")
-	consolidation, err := w.consolidationAsked(after, fake.NewCheckouts())
+	consolidation, err := w.consolidationAsked(after, merge, fake.NewCheckouts())
 	if err != nil {
 		return err
 	}
@@ -639,7 +673,7 @@ func checkAnImportOfAnotherHistoryIsUnread(r *Rig) error {
 	w.git.Name(merge, planning.ImportCommitSubject("design"))
 	w.git.Point(path, "lane/adopt", merge)
 	head := w.git.Touch(path, "lane/adopt", "plan.md")
-	consolidation, err := w.consolidationAsked(head, fake.NewCheckouts())
+	consolidation, err := w.consolidationAsked(head, merge, fake.NewCheckouts())
 	if err != nil {
 		return err
 	}
@@ -801,7 +835,7 @@ func checkTheCollisionsAreCutShort(r *Rig) error {
 	w.git.Name(merge, planning.ImportCommitSubject("design"))
 	w.git.Point(path, "lane/adopt", merge)
 	head := w.git.Touch(path, "lane/adopt", "plan.md")
-	consolidation, err := w.consolidationAsked(head, fake.NewCheckouts())
+	consolidation, err := w.consolidationAsked(head, merge, fake.NewCheckouts())
 	if err != nil {
 		return err
 	}
@@ -835,12 +869,12 @@ func checkARelativeRemoteConfirmsNoDesignRepository(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	_, _, head := w.consolidatedBranch()
+	merge, _, head := w.consolidatedBranch()
 	id, err := w.adoptOrder(startRepository, consolidating())
 	if err != nil {
 		return err
 	}
-	if err := w.adoptLaneEnds(id, head); err != nil {
+	if err := w.adoptLaneEndsImporting(id, head, merge); err != nil {
 		return err
 	}
 	pending, adoption, err := w.pendingAdoption(control.NewIntake(s).Checking(w.starts).Placing(kept))
@@ -877,9 +911,9 @@ func checkAnUnreadBaseIsRaisedAfterTwoFailedChecksInARow(r *Rig) error {
 	git.At(designRoot)
 	tip := git.Add(designRoot)
 	git.Hold(tip, "README.md", "docs/vision.md")
-	merge := git.Add(base, tip)
-	git.Name(merge, planning.ImportCommitSubject("design"))
-	git.At(p.head, merge)
+	git.At(importMerge, base, tip)
+	git.Name(importMerge, planning.ImportCommitSubject("design"))
+	git.At(p.head, importMerge)
 	down := false
 	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) {
 		if down {
@@ -940,6 +974,81 @@ func checkAnUnreadBaseIsRaisedAfterTwoFailedChecksInARow(r *Rig) error {
 	}
 	if gap, raised, err := check(true); err != nil || !raised || !gap.Unread() {
 		return Violatedf("a second failed check in a row raises %+v, %v, %v", gap, raised, err)
+	}
+	return nil
+}
+
+func checkAnImportTheWorkerDidNotRecordIsNotConfirmed(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	// The branch holds a merge with the import's subject over the design repository's history, and the worker
+	// reported another commit as its import.
+	_, _, head := w.consolidatedBranch()
+	recorded := w.git.Add(designRoot)
+	consolidation, err := w.consolidationAsked(head, recorded, fake.NewCheckouts())
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || consolidation.Merge != "" || consolidation.DesignTip != "" || !strings.Contains(consolidation.Unread, recorded) {
+		return Violatedf("a branch that lacks the merge the worker recorded reads %+v", consolidation)
+	}
+	return nil
+}
+
+func checkAnAdoptionWhoseWorkerRecordedNoImportIsUnread(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	_, _, head := w.consolidatedBranch()
+	consolidation, err := w.consolidationAsked(head, "", fake.NewCheckouts())
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || consolidation.Merge != "" || consolidation.DesignTip != "" || !strings.Contains(consolidation.Unread, "recorded no") {
+		return Violatedf("an adoption whose worker recorded no import reads %+v", consolidation)
+	}
+	return nil
+}
+
+func checkALanesEndKeepsTheImportItReports(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	merge, _, head := w.consolidatedBranch()
+	id, err := w.adoptOrder(startRepository, consolidating())
+	if err != nil {
+		return err
+	}
+	if err := w.adoptLaneEndsImporting(id, head, merge); err != nil {
+		return err
+	}
+	var artifacts []ledger.Artifact
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		artifacts, err = tx.Evidence().Artifacts(id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	var imports, branches int
+	for _, artifact := range artifacts {
+		switch {
+		case artifact.Kind == ledger.ArtifactImport && artifact.Digest == merge:
+			imports++
+		case artifact.Kind == ledger.ArtifactBranch && artifact.Digest == head:
+			branches++
+		}
+	}
+	if imports != 1 || branches != 1 {
+		return Violatedf("a lane's end that reports the import %s keeps the artifacts %+v", merge, artifacts)
 	}
 	return nil
 }

@@ -100,6 +100,15 @@ func importCommit(commits []ports.Commit) (ports.Commit, bool) {
 	return commits[at], true
 }
 
+// importMerge is the merge commit the worker made on this lane's branch to import a design repository's history, which
+// the lane's end reports, and nothing when the lane imported none.
+func (r *laneRun) importMerge() string {
+	if done := r.restructuredOf(); done != nil && done.Consolidated != nil {
+		return done.Commit
+	}
+	return ""
+}
+
 // instructionFiles are the files a repository's agent instructions are written in, at its top.
 var instructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 

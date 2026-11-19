@@ -194,6 +194,26 @@ func TestAGitWorkspaceWithADesignRepositoryInItsCodeFolderEndsInOneMergeCommit(t
 
 // A retry finds the merge on the lane's branch and makes no second one, whether the design repository has moved on
 // or the clones have been moved, and tells the brief what it told before.
+// The lane's end reports the merge commit the worker made, so the control plane can tell it from a merge the lane
+// makes later with the same subject.
+func TestAConsolidationsMergeCommitIsTheOneTheLaneReports(t *testing.T) {
+	t.Parallel()
+	w := newGitConsolidation(t)
+	run := w.consolidate("tools")
+	if got := run.importMerge(); got != "" {
+		t.Errorf("before the import the lane reports the merge %q", got)
+	}
+	if report, failed := run.restructure(t.Context(), w.path("ws"), w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	if got, want := run.importMerge(), w.git(w.lane, "rev-parse", "HEAD"); got != want || got == "" {
+		t.Errorf("the lane reports the merge %q, want %q", got, want)
+	}
+	if got, want := run.endResult(workorders.Report{Outcome: workorders.OutcomeCompleted}).ImportMerge, w.git(w.lane, "rev-parse", "HEAD"); got != want {
+		t.Errorf("the lane's end reports the merge %q, want %q", got, want)
+	}
+}
+
 func TestAGitConsolidationRepeatedMakesNoSecondMerge(t *testing.T) {
 	t.Parallel()
 	w := newGitConsolidation(t)
