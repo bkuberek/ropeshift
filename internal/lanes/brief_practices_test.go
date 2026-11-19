@@ -313,3 +313,17 @@ func TestAPracticesSectionCapsTheAcknowledgedAndTheUnsettledLists(t *testing.T) 
 		t.Errorf("the lists are not the first 50 by ID:\n%s", section)
 	}
 }
+
+// The command a brief gives for the entries it left out is safe to paste into a shell, whatever the repository is named.
+func TestAPracticesSectionQuotesTheRepositoryInTheCommandItGives(t *testing.T) {
+	summary := widgets()
+	summary.Name = "my repo `x` $(id) it's"
+	summary.More = 3
+
+	section := practicesSection(t, lanes.Brief(planningSpec([]ledger.PracticesSummary{summary}, false)))
+
+	want := "3 more; run `ropeshift practices --repository " + lanes.ShellQuote(summary.Name) + "`"
+	if !strings.Contains(section, want) {
+		t.Errorf("the section does not say %q:\n%s", want, section)
+	}
+}

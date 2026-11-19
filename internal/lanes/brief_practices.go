@@ -2,6 +2,7 @@ package lanes
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -125,8 +126,20 @@ func writePracticesRepository(out *strings.Builder, summary ledger.PracticesSumm
 // writeMore says how many entries of a list a brief left out, and how to read them. It says nothing when it left none.
 func writeMore(out *strings.Builder, more int, name string) {
 	if more > 0 {
-		fmt.Fprintf(out, "%d more; run `ropeshift practices --repository %s`\n", more, name)
+		fmt.Fprintf(out, "%d more; run `ropeshift practices --repository %s`\n", more, commandWord(name))
 	}
+}
+
+// plainWord matches a value a shell reads as one literal word.
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9._/@+:-]+$`)
+
+// commandWord is a value as one word of a shell command: as it is when it holds only characters a shell reads literally,
+// and quoted otherwise.
+func commandWord(value string) string {
+	if plainWord.MatchString(value) {
+		return value
+	}
+	return ShellQuote(value)
 }
 
 // practicesCommit is the seven characters of a commit that git abbreviates it to.
