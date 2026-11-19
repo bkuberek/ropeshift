@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/projectfiles"
@@ -15,9 +16,6 @@ import (
 
 // plannedStep is the outcome a dry run gives each step it lists: one it would run and did not.
 const plannedStep = "planned"
-
-// commitStep names the first commit among the steps a plan lists for a repository.
-const commitStep = "commit"
 
 // newDryRunDetail is what the help of every `new` command says of --dry-run.
 const newDryRunDetail = " With --dry-run it prints what it would write, leave, commit, create, and push, and writes " +
@@ -73,9 +71,9 @@ func plannedRepositories(request ledger.TemplateWriteRequest, name string) []led
 	return out
 }
 
-// plannedRepository is one repository's plan: its first commit, then the steps that give it its remote.
+// plannedRepository is one repository's plan: the steps that give it its remote.
 func plannedRepository(name, rel, forgeName string, remote *ledger.ProjectRemote) ledger.RepositoryReport {
-	report := ledger.RepositoryReport{Name: name, Path: rel, Steps: []ledger.RemoteStep{{Step: commitStep, Outcome: plannedStep}}}
+	report := ledger.RepositoryReport{Name: name, Path: rel}
 	switch {
 	case remote == nil:
 		return report
@@ -105,6 +103,7 @@ func (c *invocation) askGitHubDry(in *answers, request *ledger.TemplateWriteRequ
 	if err != nil {
 		return 0, err
 	}
+	visibility = strings.ToLower(visibility)
 	create := func(owner string) *ledger.RemoteCreate {
 		return &ledger.RemoteCreate{Forge: ledger.ForgeGitHub, Owner: owner, Visibility: visibility}
 	}
