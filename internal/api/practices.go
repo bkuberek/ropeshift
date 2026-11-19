@@ -101,6 +101,8 @@ type PracticesResultView struct {
 	ScannedFrom string `json:"scanned_from,omitempty"`
 	// Skipped counts the files the secret scan skipped for their size or binary content.
 	Skipped int `json:"skipped,omitempty"`
+	// Partial says why the secret scan read less history than the repository has, absent for a scan of all of it.
+	Partial string `json:"partial,omitempty"`
 	// Truncated says secret findings beyond the bound were left out.
 	Truncated bool `json:"truncated,omitempty"`
 	// Practices holds one status per practice, in table order, and Findings are sorted by severity.
@@ -183,7 +185,7 @@ func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecor
 	result := record.Result
 	read := PracticesResultView{
 		Request: record.Request, Commit: result.Commit, BaseBranch: result.BaseBranch, Worker: result.Worker, CheckedAt: result.CheckedAt,
-		TableVersion: result.TableVersion, RulesVersion: result.RulesVersion, ScannedFrom: result.ScannedFrom, Skipped: result.Skipped, Truncated: result.Truncated,
+		TableVersion: result.TableVersion, RulesVersion: result.RulesVersion, ScannedFrom: result.ScannedFrom, Skipped: result.Skipped, Partial: result.Partial, Truncated: result.Truncated,
 		Practices: make([]PracticeView, 0, len(result.Practices)), Findings: make([]PracticeFindingView, 0, len(result.Findings)),
 	}
 	for _, status := range result.Practices {

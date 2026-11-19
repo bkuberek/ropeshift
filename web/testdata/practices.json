@@ -16,6 +16,7 @@
         "table_version": 1,
         "rules_version": 1,
         "skipped": 1,
+        "partial": "the repository is a shallow clone, so the history before its shallow boundary was not scanned",
         "practices": [
           {
             "id": "env-ignored",
