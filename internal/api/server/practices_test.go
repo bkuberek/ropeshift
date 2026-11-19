@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -297,5 +299,25 @@ func TestStartingAPlanRevisionSessionRequestsACheckOfEveryActiveRepository(t *te
 	}
 	if open := openPractices(t, d)["widgets"]; open == nil || open.Cause != ledger.PracticesPlanningSession {
 		t.Errorf("widgets has %+v open, want a request with cause planning_session", open)
+	}
+}
+
+// What the assistant ran by asking for the check is an entry of its conversation, as any call that ran is: the answer
+// is 202 with no card, and a 202 with none is a call that ran.
+func TestTheAssistantsPracticesCheckIsAnEntryOfItsConversation(t *testing.T) {
+	d := startTalk(t)
+	record, assistant, _ := d.assistant(t)
+	checked, err := assistant.CheckPractices(t.Context(), nil)
+	if err != nil || len(checked.Checks) != 1 || checked.Checks[0].Request == nil {
+		t.Fatalf("the assistant's request answered %+v (%v)", checked, err)
+	}
+	var actions []api.TalkEntry
+	for _, entry := range d.entries(t, record.ID) {
+		if entry.Kind == api.TalkKindAction {
+			actions = append(actions, entry)
+		}
+	}
+	if len(actions) != 1 || actions[0].Action.Operation != authority.OpPracticesCheck || actions[0].Action.Outcome != conversations.OutcomeRan || actions[0].Action.Rev == 0 {
+		t.Errorf("the conversation holds %+v, want the check as an action that ran", actions)
 	}
 }

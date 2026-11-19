@@ -436,11 +436,11 @@ func (h *handler) assisted(w http.ResponseWriter, r *http.Request, credential au
 	}
 	action := conversations.ActionData{Operation: call.op.ID, Label: call.op.Label, Subject: call.subject, Outcome: conversations.OutcomeRan}
 	if recorder.status == http.StatusAccepted {
+		// A 202 is a card when its body holds one, and otherwise a call that ran and was accepted for a worker to carry out.
 		var prepared api.Prepared
-		if json.Unmarshal(recorder.body.Bytes(), &prepared) != nil || prepared.Card.ID == "" {
-			return
+		if json.Unmarshal(recorder.body.Bytes(), &prepared) == nil && prepared.Card.ID != "" {
+			action.Outcome, action.Approval = conversations.OutcomeCard, prepared.Card.ID
 		}
-		action.Outcome, action.Approval = conversations.OutcomeCard, prepared.Card.ID
 	}
 	if action.Outcome == conversations.OutcomeRan && call.op.ID == authority.OpLaneStart {
 		action.PlanningLane = h.planningLane(r, recorder.body.Bytes())
