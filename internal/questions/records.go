@@ -233,20 +233,23 @@ func offers(options []string, choice string) bool {
 	return slices.ContainsFunc(options, func(option string) bool { return strings.TrimSpace(option) == choice })
 }
 
-// checkRecommendation trims a draft's options, its recommendation, and its rationale, drops an empty option, and
-// refuses a rationale with no recommendation, and a recommendation that is not one of the options the draft names.
+// checkRecommendation trims a draft's options, its recommendation, and its rationale, drops an empty option, refuses
+// a field over its bound, and refuses a rationale with no recommendation, and a recommendation that is not one of the
+// options the draft names.
 func checkRecommendation(draft *Question) error {
-	if draft.Options != nil {
-		var options []string
-		for _, option := range draft.Options {
-			if option = strings.TrimSpace(option); option != "" {
-				options = append(options, option)
-			}
-		}
-		draft.Options = options
+	options, err := tidyOptions(draft.Options)
+	if err != nil {
+		return err
 	}
+	draft.Options = options
 	draft.Recommendation = strings.TrimSpace(draft.Recommendation)
 	draft.RecommendationRationale = strings.TrimSpace(draft.RecommendationRationale)
+	if err := checkField("recommendation", draft.Recommendation); err != nil {
+		return err
+	}
+	if err := checkField("recommendation_rationale", draft.RecommendationRationale); err != nil {
+		return err
+	}
 	switch {
 	case draft.Recommendation == "" && draft.RecommendationRationale != "":
 		return fmt.Errorf("%w: a rationale needs the recommendation it explains", ErrInvalid)
@@ -267,6 +270,9 @@ func New(draft Question) (Question, error) {
 	}
 	if Normalize(draft.Text) == "" {
 		return Question{}, fmt.Errorf("%w: a question has no text", ErrInvalid)
+	}
+	if err := checkField("text", draft.Text); err != nil {
+		return Question{}, err
 	}
 	if err := checkRecommendation(&draft); err != nil {
 		return Question{}, err
