@@ -31,6 +31,8 @@ type creationAPI struct {
 	// decided is the answer to a retry or a skip, and refusal replaces it with an error when set.
 	decided api.ApprovalDecided
 	refusal *api.ErrorDetail
+	// needs is the combined Needs you.
+	needs api.NeedsYou
 	// shown is the request that waits, which a read of the plan with no version names answers with.
 	shown *api.PlanApprovalView
 
@@ -66,6 +68,8 @@ func (a *creationAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == api.NeedsYouPath:
+		_ = json.NewEncoder(w).Encode(a.needs)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/tt/plans/p1":
 		view := api.PlanView{Plan: planning.Plan{ID: "p1", Title: "Plan"}, Versions: a.versions}
 		if r.URL.Query().Get("version") == "" && a.shown != nil {
@@ -412,5 +416,115 @@ func TestPlanRetryPrintsWhatTheCreationDid(t *testing.T) {
 	want := "created\tweb\trepos/web\t/work/tt/repos/web\tgit@github.com:acme/web.git\n  created github.com/acme/web, private, on branch main: first commit 5d6e7f8, push done\n"
 	if code != cli.ExitOK || stdout != want {
 		t.Errorf("exit %d, printed %q, want %q", code, stdout, want)
+	}
+}
+
+// hostile is text a refusal can hold when it embeds what a disk or a forge said: an escape sequence, a title-setting
+// sequence, a bell, and a line break.
+const (
+	hostileReason = "bad\x1b[31m red\nsecond line\x07 end"
+	hostileRemedy = "run\x1b]0;title\x07 this\nnow"
+)
+
+// hostileEntries are repositories whose every word is hostile: a refusal with a remedy, and a creation that failed.
+func hostileEntries() []api.RepositoryAdded {
+	return []api.RepositoryAdded{
+		{
+			Name: "api", ManifestPath: "repos/api", Path: "/work/\x1b[31mtt\n/repos/api\x07", Remote: "git@host:\x1b[1macme/api.git", Outcome: ledger.RegistrationRefused, Reason: hostileReason,
+			Creation: &ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "ac\x1b[0mme", ForgeName: "api", Visibility: ledger.VisibilityPrivate, Remedy: hostileRemedy},
+		},
+		{
+			Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Outcome: ledger.CreateFailed, Reason: hostileReason,
+			Creation: &ledger.CreationOutcome{
+				Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "web", Visibility: ledger.VisibilityPrivate, DefaultBranch: "ma\x07in", Commit: "5d6e7f8\x1b[0m", CommitError: hostileReason,
+				Steps:     []ledger.RemoteStep{{Step: "push", Outcome: "failed", Detail: hostileReason}},
+				Remaining: []string{"git push \x1b[31m\norigin"}, Remedy: hostileRemedy,
+			},
+		},
+		{Name: "docs", ManifestPath: "repos/docs", Outcome: ledger.Skipped, Reason: hostileReason},
+	}
+}
+
+// assertPlain says no escape sequence, bell, or other control character reached the output, and no line of it is one a
+// refusal wrote: a line break in a reason ends no line.
+func assertPlain(t *testing.T, what, out string) {
+	t.Helper()
+	for _, r := range out {
+		if r != '\n' && r != '\t' && (r < ' ' || r == 0x7f || (r >= 0x80 && r < 0xa0)) {
+			t.Errorf("%s printed the control character %q:\n%q", what, r, out)
+			return
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "second line") || strings.HasPrefix(line, "now") || strings.HasPrefix(line, "origin") || strings.HasPrefix(line, "/repos/api") {
+			t.Errorf("%s printed a line a refusal wrote: %q", what, line)
+		}
+	}
+}
+
+// Every place the command line prints what a refusal said, or the path it read from a disk, drops what a terminal obeys and
+// keeps the text on its line: plan show, plan approve, and plan retry and skip, which print the entry's line.
+func TestAHostileRefusalReachesNoTerminalThroughPlan(t *testing.T) {
+	a := planWithAFailedCreation(t)
+	a.shown = &api.PlanApprovalView{
+		Approval:     authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalApproved, PlanVersion: 2, Plan: "tt-v2"},
+		Registration: &api.ManifestRegistration{Repositories: hostileEntries(), Problem: hostileReason},
+	}
+	a.decided = api.ApprovalDecided{
+		Approval:            authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalApproved, PlanVersion: 2, Plan: "tt-v2"},
+		Repositories:        hostileEntries(),
+		RepositoriesProblem: hostileReason,
+	}
+	for name, args := range map[string][]string{
+		"plan show":           {"plan", "show", "p1"},
+		"plan retry (api)":    {"plan", "retry", "p1", "api", "--version", "2"},
+		"plan retry (web)":    {"plan", "retry", "p1", "web", "--version", "2"},
+		"plan skip":           {"plan", "skip", "p1", "docs", "--reason", "r", "--version", "2"},
+		"plan approve":        {"plan", "approve", "p1"},
+		"plan approve --json": {"plan", "approve", "p1", "--json"},
+		"plan retry --json":   {"plan", "retry", "p1", "api", "--version", "2", "--json"},
+		"plan show --json":    {"plan", "show", "p1", "--json"},
+	} {
+		if strings.Contains(name, "approve") {
+			a.shown.Approval.State = authority.ApprovalPending
+			a.shown.Approval.SubjectDigest = "sha256:v2"
+		} else {
+			a.shown.Approval.State = authority.ApprovalApproved
+		}
+		code, stdout, stderr := a.run(args...)
+		if code != cli.ExitOK {
+			t.Errorf("%s: exit %d: %s", name, code, stderr)
+			continue
+		}
+		if strings.Contains(name, "--json") {
+			continue
+		}
+		assertPlain(t, name, stdout)
+		if !strings.Contains(stdout, "bad red second line end") && !strings.Contains(name, "skip") {
+			t.Errorf("%s lost the words of the reason:\n%s", name, stdout)
+		}
+	}
+	// The remedy a refusal names prints on its own line, with its words and no more.
+	a.shown.Approval.State = authority.ApprovalApproved
+	_, stdout, _ := a.run("plan", "show", "p1")
+	if !strings.Contains(stdout, "      remedy: run this now\n") {
+		t.Errorf("plan show lost the remedy:\n%s", stdout)
+	}
+}
+
+// ropeshift needs prints the project, kind, and ID of each item, and an ID of a repository creation holds the name the
+// manifest gave the entry.
+func TestAHostileNeedsItemReachesNoTerminal(t *testing.T) {
+	a := newCreationAPI(t)
+	a.needs = api.NeedsYou{Items: []api.NeedItem{{
+		Project: &api.ProjectLabel{Name: "p\x1b[31mt"}, Kind: api.NeedRepositoryCreation, ID: "ap1/a\x1b]0;x\x07\npi",
+	}}}
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"needs", "--socket", a.socket}, &stdout, &stderr, cli.Options{}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	assertPlain(t, "needs", stdout.String())
+	if !strings.Contains(stdout.String(), "pt\trepository_creation\tap1/a pi\twaiting") {
+		t.Errorf("needs printed %q", stdout.String())
 	}
 }

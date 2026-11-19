@@ -130,7 +130,7 @@ func creationText(decided api.ApprovalDecided, name string) string {
 		}
 	}
 	if decided.RepositoriesProblem != "" {
-		fmt.Fprintf(&out, "%s\n", decided.RepositoriesProblem)
+		fmt.Fprintf(&out, "%s\n", plainLine(decided.RepositoriesProblem))
 	}
 	return out.String()
 }
