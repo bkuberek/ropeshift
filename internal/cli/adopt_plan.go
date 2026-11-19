@@ -60,7 +60,7 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 			fmt.Fprintf(&out, "%s\t%s\t%s\n", word, plainPath(repository.Path), plainLine(repository.Reason))
 			continue
 		}
-		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, plainLine(repository.Name), shortRepository(repository.ID), plainPath(repository.Path))
+		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, plainLine(repository.Name), shortRepository(plainLine(repository.ID)), plainPath(repository.Path))
 		if repository.Reason != "" {
 			fmt.Fprintf(&out, "\t(%s)", plainLine(repository.Reason))
 		}
