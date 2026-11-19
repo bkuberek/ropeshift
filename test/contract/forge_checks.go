@@ -24,6 +24,7 @@ var ForgeChecks = []Check{
 	{"FG4", "a worker whose gh cannot run holds the review as forge_unavailable until its sign-in mends", checkForgeUnavailableHolds},
 	{"FG5", "a repository that reviews branches asks for nothing and holds no review", checkForgeBranchTarget},
 	{"FG6", "review target pull_request needs a forge binding, which a remote on a forge gives or a member names", checkForgeNeedsBinding},
+	{"FG7", "a worker's health report keeps the workspace that does not ignore its folder for worktrees, and a change in it is news", checkForgeHealthKeepsUnignoredWorkspace},
 }
 
 const forgeRemote = "git@github.com:acme/widgets.git"
@@ -119,7 +120,13 @@ func (f *forgeRig) report(report ledger.ForgeReport) error {
 }
 
 func (f *forgeRig) health(state ledger.ForgeHealthState, detail string) error {
-	reply, err := f.forgeUpload(f.auth, f.epoch, ledger.UploadForgeHealth, ledger.ForgeHealthReport{Repository: f.repository, State: state, Detail: detail})
+	return f.healthWith(ledger.ForgeHealthReport{State: state, Detail: detail})
+}
+
+// healthWith uploads a health report for the rig's repository.
+func (f *forgeRig) healthWith(report ledger.ForgeHealthReport) error {
+	report.Repository = f.repository
+	reply, err := f.forgeUpload(f.auth, f.epoch, ledger.UploadForgeHealth, report)
 	if err == nil && len(reply.Rejected) != 0 {
 		return Violatedf("a health report was refused: %+v", reply.Rejected)
 	}
@@ -324,6 +331,50 @@ func checkForgeUnavailableHolds(r *Rig) error {
 		return err
 	}
 	return f.heldAs(workorders.HoldPullRequestPending, branchName)
+}
+
+func checkForgeHealthKeepsUnignoredWorkspace(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	unignored := func(want string) error {
+		var health []ledger.ForgeHealth
+		err := f.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+			var err error
+			health, err = tx.Forge().Health()
+			return err
+		})
+		if err != nil || len(health) != 1 || health[0].UnignoredWorkspace != want {
+			return Violatedf("the health on record is %+v, want the unignored workspace %q: %v", health, want, err)
+		}
+		return nil
+	}
+	named := ledger.ForgeHealthReport{State: ledger.ForgeHealthy, UnignoredWorkspace: "/work/ws"}
+	if err := f.healthWith(named); err != nil {
+		return err
+	}
+	if err := unignored("/work/ws"); err != nil {
+		return err
+	}
+	// The same report again appends nothing.
+	if err := f.healthWith(named); err != nil {
+		return err
+	}
+	if count, _, err := r.eventsAbout(f.store, f.repository, ledger.EventForgeHealth); err != nil || count != 1 {
+		return Violatedf("%d health changes on record: %v", count, err)
+	}
+	// A workspace that now ignores the folder is a change though the state is the same.
+	if err := f.health(ledger.ForgeHealthy, ""); err != nil {
+		return err
+	}
+	if err := unignored(""); err != nil {
+		return err
+	}
+	if count, _, err := r.eventsAbout(f.store, f.repository, ledger.EventForgeHealth); err != nil || count != 2 {
+		return Violatedf("%d health changes on record: %v", count, err)
+	}
+	return nil
 }
 
 func checkForgeBranchTarget(r *Rig) error {

@@ -275,6 +275,10 @@ const (
 	ForgeMissing ForgeHealthState = "missing"
 )
 
+// UnignoredWorkspaceNote is what a client says beside a repository whose checkout is a workspace that does not ignore
+// its folder for lane worktrees.
+const UnignoredWorkspaceNote = "This workspace does not ignore .ropeshift/worktrees/; add this line to its .gitignore: /.ropeshift/worktrees/"
+
 // ForgeHealth is what a worker said of its forge sign-in for one repository, and when the ledger heard it.
 type ForgeHealth struct {
 	Worker     string           `json:"worker"`
@@ -282,7 +286,10 @@ type ForgeHealth struct {
 	Repository string           `json:"repository"`
 	State      ForgeHealthState `json:"state"`
 	Detail     string           `json:"detail,omitempty"`
-	CheckedAt  int64            `json:"checked_at"`
+	// UnignoredWorkspace is the path of the workspace on that worker when this repository's checkout is it, the
+	// workspace is a git clone, and it does not ignore .ropeshift/worktrees/. Empty otherwise.
+	UnignoredWorkspace string `json:"unignored_workspace,omitempty"`
+	CheckedAt          int64  `json:"checked_at"`
 }
 
 // Healthy reports a sign-in the worker can run forge operations with.
@@ -361,6 +368,10 @@ type ForgeHealthReport struct {
 	Repository string           `json:"repository"`
 	State      ForgeHealthState `json:"state"`
 	Detail     string           `json:"detail,omitempty"`
+	// UnignoredWorkspace is the path of the workspace when this repository's checkout is it, the workspace is a
+	// git clone, and it does not ignore .ropeshift/worktrees/, so lanes of the project's other clones run outside
+	// it. Empty otherwise.
+	UnignoredWorkspace string `json:"unignored_workspace,omitempty"`
 }
 
 // The events of the forge.

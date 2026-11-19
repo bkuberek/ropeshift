@@ -68,7 +68,8 @@ func repositoryText(view api.RepositoryView) string {
 }
 
 // forgeText says what each worker that keeps a checkout of the repository last found of its `gh` sign-in for
-// it, one line each, and that none has spoken yet where the review target needs the forge.
+// it, one line each, with a line after it for a worker whose checkout is a workspace that does not ignore its folder
+// for lane worktrees, and that none has spoken yet where the review target needs the forge.
 func forgeText(view api.RepositoryView) string {
 	var out strings.Builder
 	for _, health := range view.Forge {
@@ -77,6 +78,9 @@ func forgeText(view api.RepositoryView) string {
 			line += "\t" + strings.Join(strings.Fields(health.Detail), " ")
 		}
 		out.WriteString(line + "\n")
+		if health.UnignoredWorkspace != "" {
+			fmt.Fprintf(&out, "workspace\t%s\t%s\t%s\n", cmp.Or(health.WorkerName, health.Worker), health.UnignoredWorkspace, ledger.UnignoredWorkspaceNote)
+		}
 	}
 	if len(view.Forge) == 0 && view.Target() == ledger.ReviewOnPullRequest {
 		out.WriteString("forge\t-\tno worker has reported gh for this repository yet\n")

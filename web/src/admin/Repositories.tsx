@@ -131,6 +131,20 @@ function shownValue(value: string | boolean): string {
 const label = (view: RepositoryView) => view.name || view.id;
 
 function Forge({ view }: { view: RepositoryView }) {
+  const unignored = (view.forge ?? []).filter((report) => report.unignored_workspace);
+  return (
+    <>
+      <SignIn view={view} />
+      {unignored.map((report) => (
+        <span className="cell-note" key={report.worker} title={report.unignored_workspace}>
+          {report.worker_name || report.worker}: This workspace does not ignore <code>.ropeshift/worktrees/</code>; add this line to its .gitignore: <code>/.ropeshift/worktrees/</code>
+        </span>
+      ))}
+    </>
+  );
+}
+
+function SignIn({ view }: { view: RepositoryView }) {
   const reports = view.forge ?? [];
   if (reports.some((report) => report.state === "ok")) {
     return (

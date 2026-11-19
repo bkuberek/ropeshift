@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import axe from "axe-core";
 import { describe, expect, it } from "vitest";
 
 import type { PolicyList, PolicyVersion } from "../api/admin";
@@ -317,6 +318,49 @@ describe("Repositories", () => {
     await userEvent.click(within(record).getByRole("radio", { name: /review_approves/ }));
     expect(within(record).getByText("No forge runs checks in branch mode, so the verdicts are the only gate.")).toBeTruthy();
     expect((within(record).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  describe("the workspace that does not ignore its folder for lane worktrees", () => {
+    type Listed = { repositories: { id: string; forge?: unknown[] }[] };
+    const reported = (...forge: unknown[]) => (call: Sent) => {
+      if (call.method !== "GET" || call.path !== "/v1/repositories") {
+        return undefined;
+      }
+      const listed = golden<Listed>("repositories");
+      return { status: 200, body: { ...listed, repositories: listed.repositories.map((view) => (view.id === "id-api" ? { ...view, forge } : view)) } };
+    };
+    const signedIn = { worker: "worker-1", worker_name: "atlas", repository: "id-api", state: "ok", checked_at: 1 };
+
+    it("says on the repository a worker reported it for that the workspace does not ignore the folder, with the line to add", async () => {
+      serveAdmin(reported({ ...signedIn, unignored_workspace: "/work/ws" }));
+      openPage(here("/repositories"));
+      const table = await screen.findByRole("table");
+      const row = within(table).getByRole("row", { name: /api/ });
+      expect(within(row).getByText("gh signed in")).toBeTruthy();
+      const note = within(row).getByText(/does not ignore/);
+      expect(note.textContent).toBe("atlas: This workspace does not ignore .ropeshift/worktrees/; add this line to its .gitignore: /.ropeshift/worktrees/");
+      expect(note.getAttribute("title")).toBe("/work/ws");
+      expect(within(note).getByText("/.ropeshift/worktrees/").tagName).toBe("CODE");
+    });
+
+    it("says nothing of it for a repository no worker reported it for", async () => {
+      serveAdmin(reported(signedIn));
+      openPage(here("/repositories"));
+      const table = await screen.findByRole("table");
+      expect(within(within(table).getByRole("row", { name: /api/ })).getByText("gh signed in")).toBeTruthy();
+      expect(screen.queryByText(/does not ignore/)).toBeNull();
+    });
+
+    it("names it beside a sign-in that is out, and has no accessibility violation", async () => {
+      serveAdmin(reported({ ...signedIn, state: "signed_out", detail: "the token is invalid", unignored_workspace: "/work/ws" }));
+      openPage(here("/repositories"));
+      const table = await screen.findByRole("table");
+      const row = within(table).getByRole("row", { name: /api/ });
+      expect(within(row).getByText("gh signed out on atlas")).toBeTruthy();
+      expect(within(row).getByText(/does not ignore/)).toBeTruthy();
+      const result = await axe.run(table, { rules: { "color-contrast": { enabled: false } } });
+      expect(result.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+    });
   });
 
   describe("the forge binding", () => {

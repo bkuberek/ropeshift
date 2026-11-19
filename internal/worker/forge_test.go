@@ -28,6 +28,12 @@ type forgeRig struct {
 
 func newForgeRig(t *testing.T, before func(*fake.Forge, *fake.Worktrees)) *forgeRig {
 	t.Helper()
+	return newForgeRigOn(t, before, func(*laneRig) {})
+}
+
+// newForgeRigOn is a forge rig whose worker a test sets up before it first converges.
+func newForgeRigOn(t *testing.T, before func(*fake.Forge, *fake.Worktrees), setup func(*laneRig)) *forgeRig {
+	t.Helper()
 	base := newRig(t)
 	repositories := control.NewRepositories(base.store)
 	if _, err := repositories.Detect(t.Context(), scope, control.DetectedRepository{ID: "repo-1", Remote: "git@github.com:acme/widgets.git", DefaultBranch: "main"}, member); err != nil {
@@ -43,6 +49,7 @@ func newForgeRig(t *testing.T, before func(*fake.Forge, *fake.Worktrees)) *forge
 	r := newLaneRigFor(t, base)
 	forge := &fake.Forge{}
 	r.config.Forge = forge
+	setup(r)
 	before(forge, worktrees)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
 	if err := r.subject.Converge(t.Context()); err != nil {

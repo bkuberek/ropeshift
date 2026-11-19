@@ -121,16 +121,17 @@ ON CONFLICT DO NOTHING`)
 		`SELECT `+pullRequestColumns+` FROM pull_requests WHERE workspace_id = :workspace_id ORDER BY work_order_id`)
 
 	stmtForgeHealthOf = define("forge.health_of",
-		`SELECT state, detail FROM forge_health
+		`SELECT state, detail, unignored_workspace FROM forge_health
  WHERE workspace_id = :workspace_id AND worker_id = :worker_id AND repository_id = :repository_id`)
 
 	stmtSaveForgeHealth = define("forge.health_save",
-		`INSERT INTO forge_health (workspace_id, worker_id, repository_id, state, detail, checked_at)
-VALUES (:workspace_id, :worker_id, :repository_id, :state, :detail, :checked_at)
-ON CONFLICT (workspace_id, worker_id, repository_id) DO UPDATE SET state = :state, detail = :detail, checked_at = :checked_at`)
+		`INSERT INTO forge_health (workspace_id, worker_id, repository_id, state, detail, unignored_workspace, checked_at)
+VALUES (:workspace_id, :worker_id, :repository_id, :state, :detail, :unignored_workspace, :checked_at)
+ON CONFLICT (workspace_id, worker_id, repository_id) DO UPDATE SET
+  state = :state, detail = :detail, unignored_workspace = :unignored_workspace, checked_at = :checked_at`)
 
 	stmtForgeHealth = define("forge.health",
-		`SELECT worker_id, repository_id, state, detail, checked_at FROM forge_health
+		`SELECT worker_id, repository_id, state, detail, unignored_workspace, checked_at FROM forge_health
  WHERE workspace_id = :workspace_id ORDER BY repository_id, worker_id`)
 )
 
@@ -378,18 +379,18 @@ func (t forgeTx) SaveHealth(h ledger.ForgeHealth) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var state, detail string
-	err = row.Scan(&state, &detail)
+	var state, detail, unignored string
+	err = row.Scan(&state, &detail, &unignored)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
 		return false, err
 	}
-	if !errors.Is(err, sql.ErrNoRows) && state == string(h.State) && detail == h.Detail {
+	if !errors.Is(err, sql.ErrNoRows) && state == string(h.State) && detail == h.Detail && unignored == h.UnignoredWorkspace {
 		return false, nil
 	}
 	_, err = t.exec(stmtSaveForgeHealth, t.scoped(params{
-		"worker_id": h.Worker, "repository_id": h.Repository, "state": string(h.State), "detail": h.Detail, "checked_at": h.CheckedAt,
+		"worker_id": h.Worker, "repository_id": h.Repository, "state": string(h.State), "detail": h.Detail, "unignored_workspace": h.UnignoredWorkspace, "checked_at": h.CheckedAt,
 	}))
 	return err == nil, err
 }
@@ -404,7 +405,7 @@ func (t forgeTx) Health() ([]ledger.ForgeHealth, error) {
 	for rows.Next() {
 		var h ledger.ForgeHealth
 		var state string
-		if err := rows.Scan(&h.Worker, &h.Repository, &state, &h.Detail, &h.CheckedAt); err != nil {
+		if err := rows.Scan(&h.Worker, &h.Repository, &state, &h.Detail, &h.UnignoredWorkspace, &h.CheckedAt); err != nil {
 			return nil, err
 		}
 		h.State = ledger.ForgeHealthState(state)
