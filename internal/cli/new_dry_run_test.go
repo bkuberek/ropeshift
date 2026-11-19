@@ -133,7 +133,7 @@ func TestNewDryRunPlansTheCommitsAndRemotesWithoutRunningThem(t *testing.T) {
 			}
 			steps = append(steps, step.Step)
 		}
-		if want := []string{"commit", "create", "origin", "push"}; !slices.Equal(steps, want) {
+		if want := []string{"create", "origin", "push"}; !slices.Equal(steps, want) {
 			t.Errorf("%s plans %v, want %v", repository.Path, steps, want)
 		}
 		if repository.Commit != "" || !strings.HasPrefix(repository.Remote, "github.com/acme/") {
@@ -174,4 +174,18 @@ func TestNewDryRunAsksItsQuestionsAndPrintsThePlan(t *testing.T) {
 		}
 	}
 	requireAbsent(t, folder)
+}
+
+// The visibility a person types is read as a real run reads it, whatever its case, and the plan names the lowercase word.
+func TestNewDryRunReadsTheVisibilityAsARunDoes(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "orchid")
+	opts := dryOptions(t)
+	opts.Terminal = strings.NewReader("one\ny\n3\nacme\nPublic\n")
+	code, stdout, stderr := runNew(opts, "new", folder, "--dry-run")
+	if code != cli.ExitOK || stderr != "" {
+		t.Fatalf("exit %d, stderr %q\n%s", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "  create\tplanned\tpublic") {
+		t.Errorf("the plan does not name the repository public:\n%s", stdout)
+	}
 }
