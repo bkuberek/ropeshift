@@ -106,3 +106,64 @@ func TestAdoptRestructureListsPrintPlainText(t *testing.T) {
 	}
 	sameShape(t, printed(hostile), printed("x"))
 }
+
+// A path prints as it is, with its spaces, and a command a person copies and runs prints exactly: the plan, the moves,
+// and the steps all show a path with two spaces in it, quoted as the shell needs, unchanged.
+func TestAdoptionPrintsSpacesInPathsAndCommandsAsTheyAre(t *testing.T) {
+	const path = "/w/My  Repo"
+	const command = "mv '/w/My  Repo' '/w/Plans  Dir/My  Repo'"
+	plan := planning.AdoptionPlan{
+		Layout:       planning.DetectedLayout{Root: path, Clones: []planning.LayoutClone{{Name: "a", Path: path}}},
+		Shape:        planning.ShapeWorkspaceFiles,
+		Planning:     planning.PlanningRepository{Name: "a", Why: "w"},
+		Repositories: []planning.PlannedRepository{{Name: "a", Path: path, Outcome: string(ledger.Registered)}},
+		Moves:        []planning.Move{{Name: "a", From: path, To: path, Commands: []string{command}}},
+		Steps:        []planning.Step{{Name: "a", Path: path, Commands: []string{command}}},
+	}
+	text := adoptionPlanText(plan)
+	for _, want := range []string{"Layout\t" + path + "\n", "\t" + path + "\n", "run\t" + command + "\n"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the plan prints no %q:\n%s", want, text)
+		}
+	}
+	var stdout bytes.Buffer
+	c := &invocation{stdout: &stdout}
+	c.sayMoves(plan.Moves)
+	c.saySteps(plan.Steps)
+	c.sayLeftOut([]planning.Omission{{Name: "a", Path: path, Reason: "r"}})
+	if got := strings.Count(stdout.String(), "  "+command+"\n"); got != 2 {
+		t.Errorf("the moves and steps print the command %d times exactly, want 2:\n%s", got, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "a ("+path+"): r") {
+		t.Errorf("the repositories left out print no %q:\n%s", path, stdout.String())
+	}
+	added := addedText(api.RepositoryAddReport{Repositories: []api.RepositoryAdded{{Path: path, Outcome: ledger.RegistrationRefused, Reason: "r"}}})
+	if !strings.Contains(added, "refused\t"+path+"\t") {
+		t.Errorf("the registration prints no %q:\n%s", path, added)
+	}
+}
+
+// A command with a control or format character, a tab or a line break among them, is not printed: a line says it holds
+// characters that cannot be shown, and where the command is exact.
+func TestAdoptionPrintsNoCommandThatHoldsACharacterThatCannotBeShown(t *testing.T) {
+	for _, hidden := range []string{"\x1b[31m", "\t", "\n", "\r", "\u2028", "\u202e", "\u200b", "\x07"} {
+		command := "mv 'a" + hidden + "b' c"
+		plan := planning.AdoptionPlan{
+			Shape: planning.ShapeWorkspaceFiles,
+			Moves: []planning.Move{{Name: "a", Commands: []string{command}}},
+			Steps: []planning.Step{{Name: "a", Commands: []string{command}}},
+		}
+		var stdout bytes.Buffer
+		c := &invocation{stdout: &stdout}
+		c.sayMoves(plan.Moves)
+		c.saySteps(plan.Steps)
+		for name, text := range map[string]string{"the plan": adoptionPlanText(plan), "the lists": stdout.String()} {
+			if strings.Contains(text, "mv ") {
+				t.Errorf("%s print the command that holds %q:\n%s", name, hidden, text)
+			}
+			if !strings.Contains(text, "cannot be shown") || !strings.Contains(text, "adopt --dry-run --json") {
+				t.Errorf("%s print no notice for the command that holds %q:\n%s", name, hidden, text)
+			}
+		}
+	}
+}

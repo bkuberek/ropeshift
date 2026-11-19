@@ -146,7 +146,7 @@ func (c *invocation) sayMoves(moves []planning.Move) {
 	c.say("The plan lists %d clones to move into its folder of clones. %s never runs these commands; run them yourself when you are ready:\n", len(moves), program)
 	for _, move := range moves {
 		for _, command := range move.Commands {
-			c.say("  %s\n", plainLine(command))
+			c.say("  %s\n", commandText(command))
 		}
 	}
 }
@@ -162,7 +162,7 @@ func (c *invocation) sayLeftOut(left []planning.Omission) {
 	}
 	c.say("The Makefile leaves out %d %s, which the manifest still lists:\n", len(left), noun)
 	for _, one := range left {
-		c.say("  %s (%s): %s\n", plainLine(one.Name), plainLine(one.Path), plainLine(one.Reason))
+		c.say("  %s (%s): %s\n", plainLine(one.Name), plainPath(one.Path), plainLine(one.Reason))
 	}
 }
 
@@ -175,7 +175,7 @@ func (c *invocation) saySteps(steps []planning.Step) {
 	c.say("The plan lists %d code repositories that hold no instruction file. %s writes to no clone but the planning repository's; run these commands yourself:\n", len(steps), program)
 	for _, step := range steps {
 		for _, command := range step.Commands {
-			c.say("  %s\n", plainLine(command))
+			c.say("  %s\n", commandText(command))
 		}
 	}
 }
