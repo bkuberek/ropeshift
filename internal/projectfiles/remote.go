@@ -68,16 +68,15 @@ func checkRemote(remote string) error {
 	return nil
 }
 
-// passwordInScpRemote says an scp-like remote is written user:password@host:path: the text after its first colon, up to
-// its first slash, holds an at sign that a colon follows. An at sign in the path, as in team/repo@v2.git, is a path.
+// passwordInScpRemote says an scp-like remote is written user:password@host, with its path after a colon or a slash: the
+// part of the remote up to its first slash holds an at sign, and a colon comes before the first one. git reads such a
+// remote's text before the first colon as the host and sends the rest, password included, as the path. An at sign after
+// a user that has no colon, as in git@host:team/repo@v2.git, is a path. A remote with no user and an at sign in a path with
+// no slash, host:repo@v2.git, cannot be told from host:password@host and is refused too.
 func passwordInScpRemote(remote string) bool {
-	_, afterColon, found := strings.Cut(remote, ":")
-	if !found {
-		return false
-	}
-	head, _, _ := strings.Cut(afterColon, "/")
-	at := strings.Index(head, "@")
-	return at >= 0 && strings.Contains(head[at:], ":")
+	head, _, _ := strings.Cut(remote, "/")
+	user, _, found := strings.Cut(head, "@")
+	return found && strings.Contains(user, ":")
 }
 
 // redacted is a remote as a message may repeat it: the user part before the last at sign of its authority, which for a
