@@ -132,6 +132,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 
 - [Get started with the web UI](docs/getting-started.md): install ropeshift, set up the machine, start the service, sign in to the web UI, and find your way around it.
 - [Set up your projects](docs/set-up-projects.md): create a project for each product in the web UI, register its repositories, name its planning repository, and keep a manifest of them.
+- [Start a multi-repository project](docs/start-a-multi-repository-project.md): write a planning workspace from an empty folder, let a planning session name its code repositories, create each one with its remote, and register them when you approve the plan.
 - [Plan your first change](docs/plan-your-first-change.md): start a planning session in the web UI, answer its questions, follow the plan it writes, and approve it.
 - [Adopt an existing project](docs/adopt.md): import a project that already has code, documents, and branches in the web UI, and review it as one plan.
 - [Watch work run](docs/watch-work-run.md): start an approved plan's work in the web UI, watch its lanes, and answer what they ask of you.
