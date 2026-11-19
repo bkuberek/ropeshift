@@ -42,6 +42,26 @@ afterAll(async () => {
   await server?.close();
 }, 60_000);
 
+// wholeLadder is the questions golden with a question at each point the full golden does not reach: one an orchestrator
+// holds, with a rung it judged, one an assumption answered, and one merged into another.
+function wholeLadder(): string {
+  const view = JSON.parse(goldens["questions"] ?? "{}") as { questions: Record<string, unknown>[] };
+  const [held, answered, merged] = view.questions;
+  Object.assign(held ?? {}, {
+    holder: { id: "worker-a", orchestrator: "orchestrator-worker-a", machine: "solo", until: 1790000999001 },
+    ladder_trace: [
+      { rung: 1, outcome: "no match", candidates: ["decision:decision-1"], by: "worker-a" },
+      { rung: 3, outcome: "decided", candidates: ["PAY-12"], by: "worker-a", decision: "decision-7", rationale: "The budget is already approved." },
+    ],
+  });
+  Object.assign(answered ?? {}, {
+    status: "answered",
+    closed_by: { id: "decision-9", status: "assumed", statement: "Keep the budget", rationale: "The budget is already approved.", decided_by: "worker-a" },
+  });
+  Object.assign(merged ?? {}, { status: "dismissed", merged_into: "question-1" });
+  return JSON.stringify(view);
+}
+
 // Each kind of target, as the switcher names it, and what its surface holds that the audit should see.
 const targetKinds = [
   { name: /Assistant/, ready: { role: "log", name: "Messages with the assistant" } },
@@ -1726,6 +1746,34 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await check("drivers of every doctor result", "/workers");
         await serve(/\/v1\/templates$/, refused, 500);
         await check("templates refused", "/templates");
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    // The whole ladder (FR-QD-13), in the states the full goldens do not reach: a question an orchestrator holds with a
+    // judged rung, one answered by an assumption, and one merged, each with its trace open.
+    it(
+      "the questions, held, judged, answered, and merged, with their traces open, meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        await page.route(/\/views\/questions(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: wholeLadder() }));
+        const found: string[] = [];
+        for (const address of ["/projects/default/questions?status=all", "/projects/default/questions?status=answered"]) {
+          await page.goto(`${base}${address}`);
+          await ready(page);
+          await page.getByRole("article").first().waitFor();
+          await page.evaluate(() => {
+            for (const trace of document.querySelectorAll("details")) {
+              trace.open = true;
+            }
+          });
+          await page.waitForTimeout(300);
+          found.push(...(await audit(page)).map((violation) => `${address} ${violation}`));
+        }
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },

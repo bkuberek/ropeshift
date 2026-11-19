@@ -34,7 +34,7 @@ describe("the open questions", () => {
     expect(within(card).getByText("Blocking")).toBeTruthy();
     expect(within(card).getByText("Product")).toBeTruthy();
     expect(within(card).getByText("Keep the budget")).toBeTruthy();
-    expect(within(card).getByText("lane-asking")).toBeTruthy();
+    expect(within(card).getByText("Asked by").closest("div")?.querySelector("dd")?.textContent).toBe("lane-asking");
   });
 
   it("says a question nobody has brought to a person is open", async () => {

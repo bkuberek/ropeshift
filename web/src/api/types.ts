@@ -33,8 +33,11 @@ export type QuestionItem = {
   ladder_trace?: LadderStep[];
 };
 
+// BatchRecord is a batch as the ledger holds it: when it opened, when it closes, and when it reached a person.
+export type BatchRecord = { id: string; status: string; opened_at: number; closes_at: number; delivered_at?: number };
+
 export type Batch = {
-  batch: { id: string; status: string; opened_at: number; closes_at: number; delivered_at?: number };
+  batch: BatchRecord;
   items: QuestionItem[];
 };
 
@@ -599,7 +602,19 @@ export type Contract = {
 // `key` is the ID the contract's file gave it, which another contract's `uses` names.
 export type ContractHistory = { id: string; key?: string; versions: Contract[] };
 
-export type LadderStep = { rung: number; candidates?: string[]; outcome?: string };
+// A ladder step is one rung a question passed. by is who worked it: an orchestrator by its worker's ID, or a member,
+// and nobody for a rung the core ran. A rung that decided, assumed, or answered from the record names its decision,
+// and one that decided or assumed keeps the decision's rationale, with its citations as the candidates.
+export type LadderStep = { rung: number; candidates?: string[]; outcome?: string; by?: string; decision?: string; rationale?: string };
+
+// A question's holder is who holds it until when: an orchestrator, named with the machine it runs on, or a member.
+export type QuestionHolder = { id: string; orchestrator?: string; machine?: string; until: number };
+
+// An attachment is one lane that asked a question or waits on it.
+export type Attachment = { question_id: string; lane: string; generation: number; blocking?: boolean; attached_at: number };
+
+// ClosingDecision is the decision or assumption that answered a question, as the ledger holds it.
+export type ClosingDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name" | "scope_title">;
 
 // OrchestratorHold is what keeps a worker's orchestrator from starting or running now. At a usage limit, window names it,
 // resets_at is its reset, absent when nobody reported one, read_at when the worker heard
@@ -635,6 +650,18 @@ export type Question = {
   escalation_reason?: string;
   ladder_trace?: LadderStep[];
   claimed_by?: string;
+  batch_id?: string;
+  decision_id?: string;
+  // holder is who holds the question while the hold lasts, and absent when nobody does. machines names the machine of
+  // each orchestrator the trace, the hold, or closed_by names, by its worker's ID. attached is every lane that asked it
+  // or waits on it, batch the batch that gathered it, closed_by what answered it, and merged_into the question that
+  // took its place.
+  holder?: QuestionHolder;
+  machines?: Record<string, string>;
+  attached?: Attachment[];
+  batch?: BatchRecord;
+  closed_by?: ClosingDecision;
+  merged_into?: string;
   // overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID.
   overlaps?: string[];
   // reversibility is what an answer to the question will be, as a batch's item states it.

@@ -42,6 +42,8 @@ type Spec<T> = {
   name: string;
   live: Live;
   category?: string;
+  // filter is what else narrows the view, such as the questions view's status.
+  filter?: Record<string, string>;
   gapMs?: number;
   title: string | ((view: T | null) => string);
   note?: (view: T) => string;
@@ -55,8 +57,8 @@ type Spec<T> = {
 // ViewPage follows one read model. The title stands from the first moment, so a person who moved here
 // has somewhere for focus to land, and skeleton rows stand where the body will be. A failed read shows
 // in place of the body, and a view that has data keeps it under a banner that says it is not current.
-function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, note, crumbs, actions, above, body }: Spec<T>) {
-  const read = useView<T>(() => readView<T>(name, category), `${name}?${category}`, live, gapMs);
+function ViewPage<T extends Stamp>({ name, live, category = "", filter = {}, gapMs, title, note, crumbs, actions, above, body }: Spec<T>) {
+  const read = useView<T>(() => readView<T>(name, category, filter), `${name}?${category}&${new URLSearchParams(filter)}`, live, gapMs);
   const now = useClock();
   const view = read.view;
   return (
@@ -83,6 +85,22 @@ function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, no
 }
 
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? "" : "s"}`;
+
+// The questions, open at every rung by default, and with a status those closed each way or every one (FR-QD-13).
+function questionsPage(live: Live, category: string, status: string, id: string) {
+  return (
+    <ViewPage<Questions>
+      name="questions"
+      live={live}
+      category={category}
+      filter={{ status }}
+      title={status ? "Questions" : "Open questions"}
+      note={(read) => (status === "all" ? count(read.questions.length, "question") : `${read.questions.length} ${status || "open"}`)}
+      actions={<RecordQuestion />}
+      body={(read) => <OpenQuestions view={read} category={category} selected={id} status={status} />}
+    />
+  );
+}
 
 // The documents view and the traceability matrix are one view with two tabs, each with an address of its own.
 function documentsPage(live: Live, params: URLSearchParams, project: string, tab: "reader" | "traceability") {
@@ -230,17 +248,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "decisions":
       return <DecisionsPage live={live} id={param("id")} category={param("category")} />;
     case "questions":
-      return (
-        <ViewPage<Questions>
-          name="questions"
-          live={live}
-          category={param("category")}
-          title="Open questions"
-          note={(read) => `${read.questions.length} open`}
-          actions={<RecordQuestion />}
-          body={(read) => <OpenQuestions view={read} category={param("category")} selected={param("id")} />}
-        />
-      );
+      return questionsPage(live, param("category"), param("status"), param("id"));
     case "work":
       return <WorkOrdersPage live={live} group={param("group")} />;
     case "work-order":
