@@ -302,6 +302,45 @@ func TestStartingAPlanRevisionSessionRequestsACheckOfEveryActiveRepository(t *te
 	}
 }
 
+// A worker's name, which the request names beside the worker's ID so a client says which worker is asked.
+func connectNamedWorker(t *testing.T, d *apitest.Daemon, id, name string) {
+	t.Helper()
+	token, err := d.Client.CreateJoinToken(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := d.Client.Register(t.Context(), ledger.Registration{JoinToken: token, WorkerID: id, Name: name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workerOf(t, d, credential.Credential).OpenSession(t.Context(), id, ledger.SessionRequest{Protocol: ledger.ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Every view of a request names the worker it was asked of by its name as well as its ID.
+func TestAPracticesRequestNamesItsWorkerByName(t *testing.T) {
+	d := practicesDaemon(t, map[string][]string{"worker-7c41": {"repo-a"}}, "worker-7c41")
+	connectNamedWorker(t, d, "worker-7c41", "atlas")
+	d.HoldClone(t, "repo-a", "widgets")
+	checked, err := d.Client.CheckPractices(t.Context(), nil)
+	if err != nil || len(checked.Checks) != 1 || checked.Checks[0].Request == nil {
+		t.Fatalf("the request answered %+v (%v)", checked, err)
+	}
+	request := checked.Checks[0].Request
+	if request.Worker != "worker-7c41" || request.WorkerName != "atlas" {
+		t.Errorf("the request names %q as %q", request.Worker, request.WorkerName)
+	}
+	read, err := d.Client.PracticesRequest(t.Context(), request.ID)
+	if err != nil || read.WorkerName != "atlas" {
+		t.Errorf("the request read by its ID names %q (%v)", read.WorkerName, err)
+	}
+	list, err := d.Client.Practices(t.Context(), "widgets")
+	if err != nil || list.Repositories[0].Request == nil || list.Repositories[0].Request.WorkerName != "atlas" {
+		t.Errorf("the open request reads %+v (%v)", list, err)
+	}
+}
+
 // What the assistant ran by asking for the check is an entry of its conversation, as any call that ran is: the answer
 // is 202 with no card, and a 202 with none is a call that ran.
 func TestTheAssistantsPracticesCheckIsAnEntryOfItsConversation(t *testing.T) {

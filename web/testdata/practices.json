@@ -103,7 +103,8 @@
         "requested_by": "member-1",
         "requested_at": 1790000000000,
         "expires_at": 1790001800000,
-        "state": "offered"
+        "state": "offered",
+        "worker_name": "plan"
       }
     }
   ]

@@ -300,7 +300,7 @@ func TestPracticesStripsControlCharactersFromWhatItPrints(t *testing.T) {
 func TestPracticesTextListsAcknowledgedFindingsApartAndOmitsThemWhenThereAreNone(t *testing.T) {
 	checked := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
 	record := ledger.PracticesRecord{Repository: widgetsID, Request: "r", Commit: aTip, Result: aCheckResult(widgetsID, checked)}
-	view := api.PracticesViewOf(ledger.Repository{ID: widgetsID, Name: "widgets"}, &record, nil, 0)
+	view := api.PracticesViewOf(ledger.Repository{ID: widgetsID, Name: "widgets"}, &record, nil, 0, nil)
 	plain := cli.PracticesText(view, "", checked.Add(time.Hour))
 	if strings.Contains(plain, "acknowledged") {
 		t.Errorf("a view with none acknowledged prints:\n%s", plain)

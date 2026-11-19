@@ -18,8 +18,12 @@ const (
 )
 
 // PracticesRequestView is a request that a worker run the practices check, with the state it stands in at the time of
-// the read: offered until its expiry passes, then expired, and reported once its worker reported it.
-type PracticesRequestView = ledger.PracticesRequest
+// the read: offered until its expiry passes, then expired, and reported once its worker reported it. WorkerName is
+// the name of the worker it was asked of, beside the worker's ID.
+type PracticesRequestView struct {
+	ledger.PracticesRequest
+	WorkerName string `json:"worker_name,omitempty"`
+}
 
 // PracticeGuide is what the practice table says of a practice: why it matters, how to meet it, and the template that
 // supplies the file it asks for. Command prints the template, and is empty for a practice with none.
@@ -117,10 +121,11 @@ type PracticesChecked struct {
 	Checks []PracticesCheckEntry `json:"checks"`
 }
 
-// PracticesRequestViewOf reads a request as it stands at a time: offered past its expiry reads as expired.
-func PracticesRequestViewOf(request ledger.PracticesRequest, now int64) PracticesRequestView {
+// PracticesRequestViewOf reads a request as it stands at a time: offered past its expiry reads as expired. workers
+// names each worker by its ID, and a worker it does not name reads with no name.
+func PracticesRequestViewOf(request ledger.PracticesRequest, now int64, workers map[string]string) PracticesRequestView {
 	request.State = request.StateAt(now)
-	return request
+	return PracticesRequestView{PracticesRequest: request, WorkerName: workers[request.Worker]}
 }
 
 func guideOf(id practices.ID) PracticeGuide {
@@ -129,11 +134,11 @@ func guideOf(id practices.ID) PracticeGuide {
 }
 
 // PracticesViewOf reads a repository's latest result and open request, either of which may be nil, as a client
-// reads them at a time.
-func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecord, open *ledger.PracticesRequest, now int64) PracticesView {
+// reads them at a time, with the workers named as PracticesRequestViewOf names them.
+func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecord, open *ledger.PracticesRequest, now int64, workers map[string]string) PracticesView {
 	view := PracticesView{Repository: repository.ID, Name: repository.Name}
 	if open != nil {
-		request := PracticesRequestViewOf(*open, now)
+		request := PracticesRequestViewOf(*open, now, workers)
 		view.Request = &request
 	}
 	if record == nil {

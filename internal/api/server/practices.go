@@ -47,9 +47,14 @@ func (h *handler) listPractices(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	workers, err := h.practices.WorkerNames(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
 	list := api.PracticesList{Repositories: make([]api.PracticesView, 0, len(reads))}
 	for _, read := range reads {
-		list.Repositories = append(list.Repositories, api.PracticesViewOf(read.Repository, read.Result, read.Open, read.Now))
+		list.Repositories = append(list.Repositories, api.PracticesViewOf(read.Repository, read.Result, read.Open, read.Now, workers))
 	}
 	reply(w, http.StatusOK, list)
 }
@@ -71,16 +76,21 @@ func (h *handler) checkPractices(w http.ResponseWriter, r *http.Request, actor l
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusAccepted, practicesChecked(asked))
+	workers, err := h.practices.WorkerNames(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusAccepted, practicesChecked(asked, workers))
 }
 
 // practicesChecked is what a client reads of each repository a request asked of.
-func practicesChecked(asked []control.PracticesAsked) api.PracticesChecked {
+func practicesChecked(asked []control.PracticesAsked, workers map[string]string) api.PracticesChecked {
 	out := api.PracticesChecked{Checks: make([]api.PracticesCheckEntry, 0, len(asked))}
 	for _, one := range asked {
 		entry := api.PracticesCheckEntry{Repository: one.Repository.ID, Name: one.Repository.Name, Existing: one.Existing, Reason: one.Reason}
 		if one.Request != nil {
-			request := *one.Request
+			request := api.PracticesRequestViewOf(*one.Request, 0, workers)
 			entry.Request = &request
 		}
 		out.Checks = append(out.Checks, entry)
@@ -95,7 +105,12 @@ func (h *handler) showPracticesCheck(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, request)
+	workers, err := h.practices.WorkerNames(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.PracticesRequestViewOf(request, 0, workers))
 }
 
 // requestPlanningChecks asks for a check of every active repository when a planning session's work order is recorded,

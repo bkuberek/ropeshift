@@ -60,6 +60,19 @@ func (p *Practices) Read(ctx context.Context, scope ledger.WorkspaceID, named ..
 	return out, err
 }
 
+// WorkerNames names each worker by its ID, so a view of a request says which worker it was asked of.
+func (p *Practices) WorkerNames(ctx context.Context, scope ledger.WorkspaceID) (map[string]string, error) {
+	names := map[string]string{}
+	err := p.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		workers, err := tx.Workers().List()
+		for _, worker := range workers {
+			names[worker.ID] = worker.Name
+		}
+		return err
+	})
+	return names, err
+}
+
 // Check reads one request, with the state it stands in now: a request offered past its expiry reads as expired,
 // whether or not the tick has stored it so.
 func (p *Practices) Check(ctx context.Context, scope ledger.WorkspaceID, id string) (ledger.PracticesRequest, error) {

@@ -11,7 +11,7 @@ import (
 
 // A repository no check has reported reads with its name and ID and nothing else.
 func TestAPracticesViewOfARepositoryNoCheckReportedHoldsNoResult(t *testing.T) {
-	view := api.PracticesViewOf(ledger.Repository{ID: "repo-a", Name: "widgets"}, nil, nil, 0)
+	view := api.PracticesViewOf(ledger.Repository{ID: "repo-a", Name: "widgets"}, nil, nil, 0, nil)
 	if view.Repository != "repo-a" || view.Name != "widgets" || view.Result != nil || view.Request != nil || len(view.Acknowledgement) != 0 {
 		t.Errorf("the view is %+v", view)
 	}
@@ -32,7 +32,7 @@ func TestAPracticesViewCarriesTheTablesWordsForEachPracticeAndFinding(t *testing
 			Findings: []practices.Finding{{ID: "env-ignored:ignore:.", Practice: practices.EnvIgnored, Subject: "ignore:.", Severity: practices.High, Detail: "`.env` is not ignored"}},
 		},
 	}
-	view := api.PracticesViewOf(ledger.Repository{ID: "repo-a", Name: "widgets"}, &record, nil, 0)
+	view := api.PracticesViewOf(ledger.Repository{ID: "repo-a", Name: "widgets"}, &record, nil, 0, nil)
 	if view.Result == nil || view.Result.Request != "req-1" || view.Result.Commit != "abc" || view.Result.Skipped != 2 || !view.Result.CheckedAt.Equal(checked) {
 		t.Fatalf("the result reads %+v", view.Result)
 	}
@@ -52,10 +52,10 @@ func TestAPracticesViewCarriesTheTablesWordsForEachPracticeAndFinding(t *testing
 // The open request reads with the state it stands in at the time of the read.
 func TestAPracticesViewSaysTheStateOfTheOpenRequest(t *testing.T) {
 	request := ledger.PracticesRequest{ID: "req-1", Repository: "repo-a", Worker: "w", Cause: ledger.PracticesMember, RequestedAt: 1000, ExpiresAt: 2000, State: ledger.PracticesOffered}
-	if got := api.PracticesViewOf(ledger.Repository{ID: "repo-a"}, nil, &request, 1500).Request; got == nil || got.State != ledger.PracticesOffered {
+	if got := api.PracticesViewOf(ledger.Repository{ID: "repo-a"}, nil, &request, 1500, nil).Request; got == nil || got.State != ledger.PracticesOffered {
 		t.Errorf("before its expiry the request reads %+v", got)
 	}
-	if got := api.PracticesRequestViewOf(request, 2000); got.State != ledger.PracticesExpired {
+	if got := api.PracticesRequestViewOf(request, 2000, nil); got.State != ledger.PracticesExpired {
 		t.Errorf("at its expiry the request reads %+v", got)
 	}
 }
