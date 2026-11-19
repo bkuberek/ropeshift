@@ -136,20 +136,18 @@ func Finish(ctx context.Context, rt Runtime, job Job, prog *Progress, save func(
 }
 
 // noteLeft journals which of the shape's files the folder held before the first write, once and before that write, so
-// a run that restarts after it still tells the files it wrote from the files that were there.
+// a run that restarts after it still tells the files it wrote from the files that were there. It looks at each path of
+// the shape and at nothing else. A journal that was started before runs listed the folder names no listing, and the
+// files it finds there were written by that run, so it lists none.
 func (r *runner) noteLeft(ctx context.Context) error {
-	if r.prog.Listed || r.prog.Folder() != "" {
+	if !r.prog.Lists || r.prog.Listed || r.prog.Folder() != "" {
 		return nil
 	}
-	held, err := r.rt.Folders.Files(ctx, r.job.Request.Path)
+	held, err := r.rt.Folders.Held(ctx, r.job.Request.Path, r.paths)
 	if err != nil {
 		return fmt.Errorf("reading the folder: %w", err)
 	}
-	for _, file := range r.paths {
-		if slices.Contains(held, file) {
-			r.prog.Left = append(r.prog.Left, file)
-		}
-	}
+	r.prog.Left = held
 	r.prog.Listed = true
 	return r.persist()
 }

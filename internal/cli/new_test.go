@@ -445,7 +445,8 @@ func TestNewPrintsAnAddThatLeavesOutTheFilesThatWereThere(t *testing.T) {
 	}
 	result := newJSON(t, cli.Options{}, "new", "monorepo", folder)
 	paths := slices.DeleteFunc(slices.Sorted(maps.Keys(startingFiles(t, projectfiles.Monorepo, "orchid"))), func(p string) bool { return p == "AGENTS.md" })
-	want := "git -C " + folder + " add -- " + strings.Join(paths, " ")
+	git := "git -C " + folder + " --literal-pathspecs"
+	want := git + " ls-files -z --others --exclude-standard -- " + strings.Join(paths, " ") + " | xargs -0 " + git + " add --"
 	if !slices.Contains(result.Commands, want) {
 		t.Errorf("the commands lack %q:\n%s", want, strings.Join(result.Commands, "\n"))
 	}

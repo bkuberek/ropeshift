@@ -202,6 +202,22 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 	return out, err
 }
 
+// Held says which of the paths the folder holds, looking at each with lstat.
+func (f Folders) Held(_ context.Context, path string, files []string) ([]string, error) {
+	var held []string
+	for _, file := range files {
+		local := filepath.FromSlash(file)
+		if !filepath.IsLocal(local) {
+			return nil, fmt.Errorf("%s names a path outside the folder", file)
+		}
+		// Anything but a path that is absent counts as held, so a file in a folder that cannot be read is not added.
+		if _, err := os.Lstat(filepath.Join(path, local)); !errors.Is(err, fs.ErrNotExist) {
+			held = append(held, file)
+		}
+	}
+	return held, nil
+}
+
 // FirstCommit makes the folder a repository on the default branch, adds the files the commit names, and commits them. It runs under no hook and no signing,
 // whatever the user's git configuration names, and `git init` copies no template, because the folder's hooks are code
 // the commit would run. A .git is the worker's own only when the caller says its journal records the git init: then a
@@ -228,13 +244,36 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 			return id, nil
 		}
 	}
-	// The paths are files, so a path that starts with a dash or holds a glob adds only the file it names.
+	if len(commit.Paths) == 0 {
+		return "", errNothingToCommit
+	}
+	// The paths are files, so a path that starts with a dash or holds a glob names only the file it names.
 	git.Extra = append(git.Extra, "GIT_LITERAL_PATHSPECS=1")
-	for _, args := range [][]string{
-		{"init", "--quiet", "--template=", "--initial-branch=" + f.defaultBranch(ctx, path)},
-		append([]string{"add", "--"}, commit.Paths...),
-		{"commit", "--quiet", "-m", message},
-	} {
+	if err := same(); err != nil {
+		return "", err
+	}
+	if _, err := git.Output(ctx, "init", "--quiet", "--template=", "--initial-branch="+f.defaultBranch(ctx, path)); err != nil {
+		return "", describe(err)
+	}
+	// Git adds a file it ignores only when told to, and refuses a path it ignores, so the commit adds the paths git
+	// would add, as `git add -A` did.
+	if err := same(); err != nil {
+		return "", err
+	}
+	listed, err := git.Output(ctx, append([]string{"ls-files", "-z", "--others", "--exclude-standard", "--"}, commit.Paths...)...)
+	if err != nil {
+		return "", describe(err)
+	}
+	var add []string
+	for name := range strings.SplitSeq(string(listed), "\x00") {
+		if name != "" {
+			add = append(add, name)
+		}
+	}
+	if len(add) == 0 {
+		return "", errNothingToCommit
+	}
+	for _, args := range [][]string{append([]string{"add", "--"}, add...), {"commit", "--quiet", "-m", message}} {
 		if err := same(); err != nil {
 			return "", err
 		}
@@ -245,14 +284,26 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 	return git.Text(ctx, "rev-parse", "--verify", "HEAD")
 }
 
-// defaultBranch is the branch a new repository at path starts on: the one git's configuration names as
-// init.defaultBranch, and main when it names none.
+// errNothingToCommit is what a first commit says when no file is left to add: every file the shape writes was in the
+// folder before, or git ignores each.
+var errNothingToCommit = errors.New("no file to commit: every file the shape writes was in the folder already or is ignored by git")
+
+// defaultBranch is the branch a new repository at path starts on: the one the global and then the system git
+// configuration name as init.defaultBranch, as `git init` reads them and never the configuration of a clone around the
+// folder, and main when they name none or name a branch git would refuse.
 func (f Folders) defaultBranch(ctx context.Context, path string) string {
-	name, err := (gitcli.Git{Dir: path, Env: f.Env}).Text(ctx, "config", "--get", "init.defaultBranch")
-	if err != nil || name == "" {
-		return "main"
+	git := gitcli.Git{Dir: path, Env: f.Env}
+	for _, scope := range []string{"--global", "--system"} {
+		name, err := git.Text(ctx, "config", scope, "--get", "init.defaultBranch")
+		if err != nil || name == "" {
+			continue
+		}
+		if _, err := git.Output(ctx, "check-ref-format", "--branch", name); err != nil {
+			return "main"
+		}
+		return name
 	}
-	return name
+	return "main"
 }
 
 // AddRemote adds the remote named origin. The URL was checked to be one line git reads as an address and not as an

@@ -286,17 +286,24 @@ func RepositoryPaths(rel string, paths []string) []string {
 	return out
 }
 
-// FirstCommitCommands are the three git commands that make a folder a repository and commit the files at paths as
-// the start of the project named name. The add names each path after --, so a path is a file and never an option.
+// FirstCommitCommands are the git commands that make a folder a repository and commit the files at paths as the start
+// of the project named name. The add lists the paths git does not ignore, which `git add` would refuse, and adds them,
+// and reads each path as a file and never as a pathspec. With no path it only makes the repository, because a
+// listing of no path lists every file of the folder.
 func FirstCommitCommands(path, name string, paths []string) []string {
 	folder := quote(path)
-	add := "git -C " + folder + " add --"
+	init := "git -C " + folder + " init"
+	if len(paths) == 0 {
+		return []string{init}
+	}
+	git := "git -C " + folder + " --literal-pathspecs"
+	list := git + " ls-files -z --others --exclude-standard --"
 	for _, file := range paths {
-		add += " " + quote(file)
+		list += " " + quote(file)
 	}
 	return []string{
-		"git -C " + folder + " init",
-		add,
+		init,
+		list + " | xargs -0 " + git + " add --",
 		"git -C " + folder + ` commit -m "chore: start ` + name + `"`,
 	}
 }

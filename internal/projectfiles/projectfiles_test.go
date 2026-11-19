@@ -272,7 +272,7 @@ func TestTheCommandsRegisterWhatEachShapeWrote(t *testing.T) {
 	git := func(shape projectfiles.Shape, repositories []projectfiles.CodeRepository) []string {
 		return []string{
 			"git -C /work/orchid init",
-			"git -C /work/orchid add -- " + strings.Join(shapePaths(shape, repositories), " "),
+			addOf("/work/orchid", shapePaths(shape, repositories)...),
 			`git -C /work/orchid commit -m "chore: start orchid"`,
 		}
 	}
@@ -311,7 +311,7 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 	got := projectfiles.Commands(projectfiles.Monorepo, "/work/it's mine", "it-s-mine", nil, true)
 	want := []string{
 		`git -C '/work/it'\''s mine' init`,
-		`git -C '/work/it'\''s mine' add -- ` + strings.Join(shapePaths(projectfiles.Monorepo, nil), " "),
+		addOf(`'/work/it'\''s mine'`, shapePaths(projectfiles.Monorepo, nil)...),
 		`git -C '/work/it'\''s mine' commit -m "chore: start it-s-mine"`,
 		"ropeshift project create it-s-mine",
 		`ropeshift repository add '/work/it'\''s mine' --project it-s-mine`,
@@ -322,6 +322,13 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 	if got := projectfiles.Commands(projectfiles.Repository, "/work/$HOME", "home", nil, false); got[0] != "ropeshift repository add '/work/$HOME' --project home" {
 		t.Errorf("a path a shell would expand: %v", got)
 	}
+}
+
+// addOf is the command that adds the files at paths in the folder: the paths git would add, which are those it does not
+// ignore, read as files and never as pathspecs.
+func addOf(folder string, paths ...string) string {
+	git := "git -C " + folder + " --literal-pathspecs"
+	return git + " ls-files -z --others --exclude-standard -- " + strings.Join(paths, " ") + " | xargs -0 " + git + " add --"
 }
 
 // shapePaths are the paths a shape writes, sorted, from the table of FR-TPL-1, with the workspace's manifest when it
@@ -342,7 +349,7 @@ func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 	got := projectfiles.CommandsStaging(projectfiles.Monorepo, "/work/orchid", "orchid", nil, written)
 	want := []string{
 		"git -C /work/orchid init",
-		"git -C /work/orchid add -- AGENTS.md plan/goal.md",
+		addOf("/work/orchid", "AGENTS.md", "plan/goal.md"),
 		`git -C /work/orchid commit -m "chore: start orchid"`,
 		"ropeshift project create orchid",
 		"ropeshift repository add /work/orchid --project orchid",
@@ -354,8 +361,8 @@ func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 	got = projectfiles.CommandsStaging(projectfiles.Workspace, "/work/orchid", "orchid", fresh,
 		[]string{"AGENTS.md", "repos/api/AGENTS.md", "repos/api/.gitignore"})
 	for _, line := range []string{
-		"git -C /work/orchid/repos/api add -- AGENTS.md .gitignore",
-		"git -C /work/orchid add -- AGENTS.md",
+		addOf("/work/orchid/repos/api", "AGENTS.md", ".gitignore"),
+		addOf("/work/orchid", "AGENTS.md"),
 	} {
 		if !slices.Contains(got, line) {
 			t.Errorf("commands lack %q:\n%s", line, strings.Join(got, "\n"))
@@ -367,7 +374,7 @@ func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 // terminal whole and reads each path as a file.
 func TestTheAddCommandQuotesEachPath(t *testing.T) {
 	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", []string{"-n.md", "a b.md", "plan/goal.md"})
-	if want := "git -C /work/orchid add -- -n.md 'a b.md' plan/goal.md"; got[1] != want {
+	if want := addOf("/work/orchid", "-n.md", "'a b.md'", "plan/goal.md"); got[1] != want {
 		t.Errorf("the add is %q, want %q", got[1], want)
 	}
 }
@@ -381,5 +388,13 @@ func TestRepositoryPathsDivideTheFilesAmongTheRepositories(t *testing.T) {
 	}
 	if got, want := projectfiles.RepositoryPaths("repos/api", files), []string{"AGENTS.md"}; !slices.Equal(got, want) {
 		t.Errorf("repos/api holds %v, want %v", got, want)
+	}
+}
+
+// With no file to add the commands add nothing: a pathspec of none would list every file of the folder.
+func TestTheFirstCommitCommandsOfNoFileMakeTheRepositoryAndAddNothing(t *testing.T) {
+	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", nil)
+	if want := []string{"git -C /work/orchid init"}; !slices.Equal(got, want) {
+		t.Errorf("commands %v, want %v", got, want)
 	}
 }

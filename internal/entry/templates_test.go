@@ -218,7 +218,8 @@ func TestANewWorkspaceRegistersAndPassesIntake(t *testing.T) {
 		words := wordsOf(t, command)
 		switch words[0] {
 		case "git":
-			run := exec.Command("git", words[1:]...)
+			// The add is a pipeline, so each git command runs in a shell, as a person runs it.
+			run := exec.Command("sh", "-c", command)
 			run.Env = identity.Env()
 			if out, err := run.CombinedOutput(); err != nil {
 				t.Fatalf("%s: %v\n%s", command, err, out)

@@ -61,17 +61,17 @@ func TestProjectFoldersWriteAndCommit(t *testing.T) {
 	if _, err := machine.Write(t.Context(), "/srv/none/harbor", files, ""); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a write made the parents of a folder: %v", err)
 	}
-	first, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id, ports.CommitSpec{})
+	first, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err != nil || first == "" {
 		t.Fatalf("the first commit is %q (%v)", first, err)
 	}
-	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id, ports.CommitSpec{}); err == nil {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err == nil {
 		t.Error("a repository the worker did not journal was taken as its own")
 	}
-	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true, "another", ports.CommitSpec{}); !errors.Is(err, ports.ErrFolderChanged) {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true, "another", ports.CommitSpec{Paths: []string{"AGENTS.md"}}); !errors.Is(err, ports.ErrFolderChanged) {
 		t.Errorf("a first commit in a folder that is not the one written: %v", err)
 	}
-	if again, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true, id, ports.CommitSpec{}); err != nil || again != first {
+	if again, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err != nil || again != first {
 		t.Errorf("a second first commit is %q (%v), want %q", again, err, first)
 	}
 	if got := machine.Inspected("/srv/code/harbor"); got.CloneTop != "/srv/code/harbor" {
@@ -91,7 +91,7 @@ func TestProjectFoldersFailACommitAsGitDoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id, ports.CommitSpec{}); err == nil {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}}); err == nil {
 		t.Fatal("a commit with no identity was made")
 	}
 	if machine.Commit("/srv/code/harbor") != "" {
