@@ -150,14 +150,14 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 		refs  []string
 	}{{"added", view.Detail.Difference.Added}, {"changed", view.Detail.Difference.Changed}, {"removed", view.Detail.Difference.Removed}} {
 		if len(line.refs) != 0 {
-			fmt.Fprintf(out, "  %s: %s\n", line.label, strings.Join(line.refs, ", "))
+			fmt.Fprintf(out, "  %s: %s\n", line.label, plainLine(strings.Join(line.refs, ", ")))
 		}
 	}
 	for _, contract := range view.Detail.Difference.Contracts {
-		fmt.Fprintf(out, "  %s: criteria %s; work orders %s\n", contract.Ref, partsWords(contract.Criteria), partsWords(contract.WorkOrders))
+		fmt.Fprintf(out, "  %s: criteria %s; work orders %s\n", plainLine(contract.Ref), partsWords(contract.Criteria), partsWords(contract.WorkOrders))
 	}
 	for _, draft := range view.Drafts {
-		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", draft.ID, plainLine(draft.Question), plainLine(draft.Answer))
+		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", plainLine(draft.ID), plainLine(draft.Question), plainLine(draft.Answer))
 	}
 	if view.Revision != nil && view.Revision.Revision != nil {
 		fmt.Fprintf(out, "  decisions since version %d, which this version is read beside:\n", view.Revision.Revision.ApprovedVersion)
@@ -206,7 +206,7 @@ func partsWords(d planning.PartDifference) string {
 	if len(said) == 0 {
 		return "unchanged"
 	}
-	return strings.Join(said, " ")
+	return plainLine(strings.Join(said, " "))
 }
 
 // planApprove approves the version of a plan that waits, as a member who read what it holds. It names
