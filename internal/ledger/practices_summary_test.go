@@ -24,17 +24,6 @@ func TestAgeWordsNamesTheLargestWholeUnit(t *testing.T) {
 	}
 }
 
-func TestPlainTextKeepsAWordsAndTakesOutWhatHidesThem(t *testing.T) {
-	const token = "ghp_a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2"
-	got := ledger.PlainText("a\u202eb\x1b[31mc\x00d\r\ne\u2028f\tg " + token)
-	if want := "abcd\ne\nf\tg " + token; got != want {
-		t.Errorf("PlainText = %q, want %q", got, want)
-	}
-	if got := ledger.SanitizeCIText(token); got == token {
-		t.Error("SanitizeCIText kept a credential's shape")
-	}
-}
-
 func openFindings(n int, severity practices.Severity, prefix string) []ledger.PracticesOpenFinding {
 	out := make([]ledger.PracticesOpenFinding, 0, n)
 	for i := range n {

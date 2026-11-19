@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -25,36 +24,6 @@ const (
 	ciNameLimit = 120
 	ciLeadLimit = 1000
 )
-
-var (
-	// ansiEscape matches the sequences a terminal obeys: control sequences, operating system commands, and every other
-	// escape, which is an escape character, any intermediate characters, and a final one.
-	ansiEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]`)
-)
-
-// PlainText makes text a stranger wrote plain: it is valid UTF-8, and it holds no escape sequence and no control
-// character but newline and tab, and no format character such as a bidirectional override that hides or reorders what a
-// line says. A paragraph separator becomes a newline.
-func PlainText(raw string) string {
-	text := strings.ToValidUTF8(raw, string(utf8.RuneError))
-	text = ansiEscape.ReplaceAllString(text, "")
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	var clean strings.Builder
-	clean.Grow(len(text))
-	for _, r := range text {
-		switch {
-		case r == '\n' || r == '\t':
-			clean.WriteRune(r)
-		case r == 0x2028 || r == 0x2029:
-			clean.WriteByte('\n')
-		case HiddenRune(r):
-			// A control character, or a format character such as a bidirectional override, which hides what a line says.
-		default:
-			clean.WriteRune(r)
-		}
-	}
-	return clean.String()
-}
 
 // SanitizeCIText makes text a stranger wrote safe to put before an agent: it is PlainText, and each match of a
 // credential's shape is replaced with the rule's name.
