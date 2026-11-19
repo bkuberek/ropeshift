@@ -15,6 +15,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -186,10 +187,16 @@ func (r *practicesRig) mustReport(request, outcome string, result *practices.Res
 
 // aResult is what a check of a repository at a commit came to: an env finding, and the secret findings given.
 func aResult(repository, commit, from string, leaks ...string) *practices.Result {
+	// Every practice of the table once, in its order: `env-ignored` and `secrets` are the first two.
+	statuses := make([]practices.PracticeStatus, 0, len(practices.Table()))
+	for _, p := range practices.Table() {
+		statuses = append(statuses, practices.PracticeStatus{ID: p.ID, Status: practices.StatusMet})
+	}
+	statuses[0].Status = practices.StatusFinding
 	result := practices.Result{
 		Repository: repository, Commit: commit, BaseBranch: "main", Worker: "w", TableVersion: practices.TableVersion, RulesVersion: ledger.CredentialRulesVersion,
 		ScannedFrom: from, CheckedAt: time.Now().UTC().Truncate(time.Millisecond),
-		Practices: []practices.PracticeStatus{{ID: practices.EnvIgnored, Status: practices.StatusFinding}, {ID: practices.Secrets, Status: practices.StatusMet}},
+		Practices: statuses,
 		Findings: []practices.Finding{{
 			ID: "env-ignored:ignore:.", Practice: practices.EnvIgnored, Subject: "ignore:.", Severity: practices.High, Detail: "`.env` is not ignored",
 		}},
@@ -202,6 +209,27 @@ func aResult(repository, commit, from string, leaks ...string) *practices.Result
 		})
 	}
 	return &result
+}
+
+// failedScanResult is what a worker's run of the check reports when the secret scan of a checkout at a commit fails.
+func failedScanResult(t *testing.T, repository, commit, scannedFrom string) *practices.Result {
+	t.Helper()
+	reads := &fake.Practices{}
+	reads.SetSnapshot("/work/widgets", practices.Snapshot{Commit: commit, Paths: []string{"SECURITY.md"}})
+	result, err := practicerun.Run(t.Context(), practicerun.Sources{
+		Snapshots: reads, Secrets: failingSecretScan{}, Forge: reads, Clock: fake.NewClock(time.Now().UTC()),
+	}, practicerun.Request{Repository: repository, Worker: "w", Dir: "/work/widgets", BaseBranch: "main", ScannedFrom: scannedFrom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &result
+}
+
+// failingSecretScan is a secret scan that cannot run.
+type failingSecretScan struct{}
+
+func (failingSecretScan) Scan(context.Context, string, string, string) (ports.SecretScan, error) {
+	return ports.SecretScan{}, errors.New("git log: exit status 128")
 }
 
 func secretsFindings(result practices.Result) []string {
@@ -586,9 +614,20 @@ func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *test
 		t.Errorf("the second event does not hold the result as it was kept")
 	}
 	third := r.requested(r.request(ledger.PracticesMember, "repo-a"))
-	unknown := aResult("repo-a", "3333333333333333333333333333333333333333", tipTwo)
-	unknown.Practices[1] = practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusUnknown, Reason: "the secret scan failed"}
+	// The result a worker sends when the scan fails: the run's own, which leaves where the scan started empty.
+	unknown := failedScanResult(t, "repo-a", "3333333333333333333333333333333333333333", tipTwo)
+	if unknown.ScannedFrom != "" || secretsStatus(t, *unknown).Status != practices.StatusUnknown {
+		t.Fatalf("the run of a failed scan gave %+v", unknown)
+	}
 	r.mustReport(third.ID, ledger.PracticesOutcomeChecked, unknown)
+	record, err = r.record("repo-a")
+	if err != nil || record.Commit != unknown.Commit || secretsStatus(t, record.Result).Status != practices.StatusFinding ||
+		!slices.Equal(secretsFindings(record.Result), []string{"secrets:github_token:config/dev.yaml:1a2b3c4d5e6f"}) {
+		t.Errorf("the result is %+v (%v), want the earlier secret kept as a finding though the scan could not run", record, err)
+	}
+	if reason := secretsStatus(t, record.Result).Reason; !strings.HasPrefix(reason, "the secret scan failed") {
+		t.Errorf("the finding's reason is %q, want it to say the scan failed", reason)
+	}
 	if tip := r.tip("repo-a"); tip != "" {
 		t.Errorf("a scan that could not run left the tip %q, want it cleared", tip)
 	}
@@ -684,11 +723,11 @@ func secretsStatus(t *testing.T, result practices.Result) practices.PracticeStat
 	return practices.PracticeStatus{}
 }
 
-// A result of a scan that continued from a commit other than the one the kept result read cannot carry the kept result's
-// secrets, and must not read as met: the history between the two was read by no scan. A late report of an expired
-// request that was kept in between is how it happens. The secrets of the history read unknown, the scan tip is cleared,
-// and the next check reads the whole history.
-func TestAnIncrementalScanThatCannotContinueFromTheKeptResultReadsSecretsUnknown(t *testing.T) {
+// A result of a scan that continued from a commit other than the one the kept result read cannot say its history holds
+// no secret, and must not read as met: the history between the two was read by no scan. A late report of an expired
+// request that was kept in between is how it happens. The result keeps the secrets of the kept result, which read as a
+// finding, the scan tip is cleared, and the next check reads the whole history.
+func TestAnIncrementalScanThatCannotContinueFromTheKeptResultKeepsTheKeptSecrets(t *testing.T) {
 	r := newPracticesRig(t, ledger.ProtocolVersion)
 	r.register("repo-a", "widgets", "worker-1")
 	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
@@ -714,8 +753,11 @@ func TestAnIncrementalScanThatCannotContinueFromTheKeptResultReadsSecretsUnknown
 	if err != nil || record.Commit != tipThree || record.Request != b.ID {
 		t.Fatalf("the result is %+v (%v), want B's", record, err)
 	}
-	if status := secretsStatus(t, record.Result); status.Status != practices.StatusUnknown || status.Reason == "" {
-		t.Errorf("secrets are %+v, want unknown with a reason: the history between the two scans was read by none", status)
+	if status := secretsStatus(t, record.Result); status.Status != practices.StatusFinding {
+		t.Errorf("secrets are %+v, want a finding: the secret the kept result found stays found", status)
+	}
+	if got := secretsFindings(record.Result); !slices.Equal(got, []string{"secrets:github_token:config/dev.yaml:1a2b3c4d5e6f"}) {
+		t.Errorf("the secrets findings are %v, want the kept result's", got)
 	}
 	if tip := r.tip("repo-a"); tip != "" {
 		t.Errorf("the scan tip is %q, want it cleared", tip)
@@ -726,10 +768,30 @@ func TestAnIncrementalScanThatCannotContinueFromTheKeptResultReadsSecretsUnknown
 	}
 }
 
+// A scan that cannot continue from a kept result that holds no secret reads its secrets unknown, with the reason.
+func TestAnIncrementalScanThatCannotContinueFromACleanKeptResultReadsSecretsUnknown(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, ""))
+	second := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	r.mustReport(second.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipThree, tipTwo))
+	record, err := r.record("repo-a")
+	if err != nil || record.Commit != tipThree {
+		t.Fatalf("the result is %+v (%v)", record, err)
+	}
+	if status := secretsStatus(t, record.Result); status.Status != practices.StatusUnknown || status.Reason == "" {
+		t.Errorf("secrets are %+v, want unknown with a reason", status)
+	}
+	if got := secretsFindings(record.Result); len(got) != 0 {
+		t.Errorf("the secrets findings are %v, want none", got)
+	}
+}
+
 // The same holds when the scan the kept result ended with matched with another version of the credential rules than
-// this build's: the secrets are not carried, read unknown, and the next check reads the whole history. A secret the
-// new scan found stays a finding.
-func TestAnIncrementalScanOverAnotherRuleSetReadsSecretsUnknown(t *testing.T) {
+// this build's: the kept secrets stay found, the next check reads the whole history, and a secret the new scan finds is
+// found beside them.
+func TestAnIncrementalScanOverAnotherRuleSetKeepsTheKeptSecrets(t *testing.T) {
 	r := newPracticesRig(t, ledger.ProtocolVersion)
 	r.register("repo-a", "widgets", "worker-1")
 	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
@@ -745,8 +807,8 @@ func TestAnIncrementalScanOverAnotherRuleSetReadsSecretsUnknown(t *testing.T) {
 	if err != nil || record.Commit != tipTwo {
 		t.Fatalf("the result is %+v (%v)", record, err)
 	}
-	if status := secretsStatus(t, record.Result); status.Status != practices.StatusUnknown || status.Reason == "" {
-		t.Errorf("secrets are %+v, want unknown with a reason", status)
+	if status := secretsStatus(t, record.Result); status.Status != practices.StatusFinding || len(secretsFindings(record.Result)) != 1 {
+		t.Errorf("secrets are %+v with %v, want the kept secret as a finding", status, secretsFindings(record.Result))
 	}
 	if tip := r.tip("repo-a"); tip != "" {
 		t.Errorf("the scan tip is %q, want it cleared", tip)
@@ -755,8 +817,8 @@ func TestAnIncrementalScanOverAnotherRuleSetReadsSecretsUnknown(t *testing.T) {
 	found := aResult("repo-a", tipThree, tipTwo, "ffeeddccbbaa")
 	found.RulesVersion = older.RulesVersion
 	r.mustReport(third.ID, ledger.PracticesOutcomeChecked, found)
-	if record, err := r.record("repo-a"); err != nil || secretsStatus(t, record.Result).Status != practices.StatusFinding || len(secretsFindings(record.Result)) != 1 {
-		t.Errorf("a secret the new scan found reads %+v (%v), want it kept as a finding", record, err)
+	if record, err := r.record("repo-a"); err != nil || secretsStatus(t, record.Result).Status != practices.StatusFinding || len(secretsFindings(record.Result)) != 2 {
+		t.Errorf("a secret the new scan found reads %+v (%v), want it found beside the kept one", record, err)
 	}
 }
 
@@ -810,6 +872,37 @@ func TestAResultWithAPracticeNoTableHoldsIsRefused(t *testing.T) {
 	}
 	if stored := r.stored(request.ID); stored.State != ledger.PracticesOffered {
 		t.Errorf("a refused report settled the request: %s", stored.State)
+	}
+}
+
+// A result that holds no status for `secrets`, or two, is refused as invalid, so it cannot move the scan tip.
+func TestAResultWithoutExactlyOneSecretsStatusIsRefusedAndLeavesTheTip(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, ""))
+	for name, change := range map[string]func(*practices.Result){
+		"no secrets": func(r *practices.Result) {
+			r.Practices = slices.DeleteFunc(r.Practices, func(p practices.PracticeStatus) bool { return p.ID == practices.Secrets })
+		},
+		"secrets twice": func(r *practices.Result) {
+			r.Practices = append(r.Practices, practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusMet})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+			result := aResult("repo-a", tipTwo, tipOne)
+			change(result)
+			if err := r.report(request.ID, ledger.PracticesOutcomeChecked, result); !errors.Is(err, workorders.ErrInvalid) {
+				t.Errorf("the report answered %v, want invalid", err)
+			}
+			if stored := r.stored(request.ID); stored.State != ledger.PracticesOffered {
+				t.Errorf("a refused report settled the request: %s", stored.State)
+			}
+			if tip := r.tip("repo-a"); tip != tipOne {
+				t.Errorf("the scan tip is %q, want %s left as it was", tip, tipOne)
+			}
+		})
 	}
 }
 

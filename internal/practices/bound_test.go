@@ -107,8 +107,47 @@ func TestBoundClipsTheTextAndCapsTheFindings(t *testing.T) {
 	}
 }
 
+// Two finding IDs that differ only past MaxText bytes stay two IDs when they are clipped, a clipped ID stays within the
+// bound and is the same each time it is clipped, and an ID that fits is left as it is.
+func TestBoundKeepsClippedFindingIDsDistinctAndStable(t *testing.T) {
+	shared := strings.Repeat("a", practices.MaxText)
+	short := "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f"
+	multibyte := strings.Repeat("€", 1000) + "x"
+	result := practices.Result{Findings: []practices.Finding{
+		{ID: shared + "-one", Practice: practices.EnvIgnored, Severity: practices.High},
+		{ID: shared + "-two", Practice: practices.EnvIgnored, Severity: practices.High},
+		{ID: short, Practice: practices.Secrets, Severity: practices.High},
+		{ID: multibyte, Practice: practices.EnvIgnored, Severity: practices.High},
+		{ID: strings.Repeat("a", practices.MaxText), Practice: practices.EnvIgnored, Severity: practices.High},
+	}}
+	got := practices.Bound(result)
+	if got.Findings[0].ID == got.Findings[1].ID {
+		t.Fatalf("two IDs that share their first %d bytes collide: %.40q", practices.MaxText, got.Findings[0].ID)
+	}
+	for i, f := range got.Findings {
+		if len(f.ID) > practices.MaxText || !utf8.ValidString(f.ID) {
+			t.Errorf("the ID of finding %d is %d bytes, valid UTF-8 %v", i, len(f.ID), utf8.ValidString(f.ID))
+		}
+	}
+	if got.Findings[2].ID != short || got.Findings[4].ID != result.Findings[4].ID {
+		t.Errorf("an ID that fits was changed: %q, %.20q", got.Findings[2].ID, got.Findings[4].ID)
+	}
+	if got.Findings[3].ID == multibyte || len(got.Findings[3].ID) > practices.MaxText {
+		t.Errorf("the multibyte ID was not clipped within the bound: %d bytes", len(got.Findings[3].ID))
+	}
+	again := practices.Bound(result)
+	for i := range got.Findings {
+		if got.Findings[i].ID != again.Findings[i].ID {
+			t.Errorf("clipping the ID of finding %d twice gives %.40q and %.40q", i, got.Findings[i].ID, again.Findings[i].ID)
+		}
+	}
+	if once := practices.Bound(got); once.Findings[0].ID != got.Findings[0].ID || once.Findings[1].ID != got.Findings[1].ID {
+		t.Error("bounding a bounded result changed a clipped ID")
+	}
+}
+
 // Validate refuses a result no worker makes: a practice or a status or a severity the tables do not hold, a practice
-// twice, and a finding of no practice.
+// twice or none, and a finding of no practice.
 func TestValidateRefusesAResultNoWorkerMakes(t *testing.T) {
 	good := checked(secondCommit, "", "")
 	if err := good.Validate(); err != nil {
@@ -118,6 +157,13 @@ func TestValidateRefusesAResultNoWorkerMakes(t *testing.T) {
 		"an unknown practice": func(r *practices.Result) { r.Practices[0].ID = "tabs" },
 		"an unknown status":   func(r *practices.Result) { r.Practices[0].Status = "mostly" },
 		"a practice twice":    func(r *practices.Result) { r.Practices = append(r.Practices, r.Practices[0]) },
+		"a practice missing":  func(r *practices.Result) { r.Practices = r.Practices[1:] },
+		"no secrets": func(r *practices.Result) {
+			r.Practices = slices.DeleteFunc(r.Practices, func(p practices.PracticeStatus) bool { return p.ID == practices.Secrets })
+		},
+		"secrets twice": func(r *practices.Result) {
+			r.Practices = append(r.Practices, practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusMet})
+		},
 		"a finding of no practice": func(r *practices.Result) {
 			r.Findings = append(r.Findings, practices.Finding{ID: "x", Practice: "tabs", Severity: practices.Low})
 		},

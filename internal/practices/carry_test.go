@@ -90,7 +90,7 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 	}{
 		"a full scan":                     {checked(secondCommit, "", ""), 0},
 		"a scan from another commit":      {checked(secondCommit, "3333333333333333333333333333333333333333", ""), 0},
-		"a scan that could not run":       {checked(secondCommit, firstCommit, "the secret scan failed"), 0},
+		"a scan that could not run":       {checked(secondCommit, firstCommit, "the secret scan failed"), 1},
 		"an incremental scan that is met": {checked(secondCommit, firstCommit, ""), 1},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -103,9 +103,24 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 			}
 		})
 	}
+	// A scan that could not run still holds the secrets the earlier result found, so the practice reads a finding, and
+	// reads unknown with its reason when the earlier result held none.
 	unknown := checked(secondCommit, firstCommit, "the secret scan failed")
-	if got := secretsOf(t, practices.CarryForward(previous, unknown)); got.Status != practices.StatusUnknown || got.Reason == "" {
-		t.Errorf("secrets are %+v, want unknown with its reason", got)
+	got := practices.CarryForward(previous, unknown)
+	if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != "the secret scan failed" {
+		t.Errorf("secrets are %+v, want a finding that keeps the reason the scan failed", status)
+	}
+	if want := findingsOf(previous, practices.Secrets); !slices.Equal(findingsOf(got, practices.Secrets), want) {
+		t.Errorf("the secrets findings are %v, want %v", findingsOf(got, practices.Secrets), want)
+	}
+	for _, f := range got.Findings {
+		if f.Practice == practices.Secrets && f.Commit != leaked.Commit {
+			t.Errorf("the finding %s is of the commit %s, want it kept as %s", f.ID, f.Commit, leaked.Commit)
+		}
+	}
+	clean := checked(firstCommit, "", "")
+	if status := secretsOf(t, practices.CarryForward(clean, unknown)); status.Status != practices.StatusUnknown || status.Reason != "the secret scan failed" {
+		t.Errorf("secrets are %+v, want unknown with its reason", status)
 	}
 }
 
@@ -113,7 +128,7 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 // with the reason, a finding stays a finding, and nothing else changes.
 func TestSecretsUnverifiedReadsAMetPracticeUnknownAndKeepsAFinding(t *testing.T) {
 	met := checked(secondCommit, firstCommit, "")
-	got := practices.SecretsUnverified(met, "the commits between were read by no scan")
+	got := practices.SecretsUnverified(practices.Result{}, met, "the commits between were read by no scan")
 	if status := secretsOf(t, got); status.Status != practices.StatusUnknown || status.Reason != "the commits between were read by no scan" {
 		t.Errorf("secrets are %+v, want unknown with the reason", status)
 	}
@@ -121,11 +136,64 @@ func TestSecretsUnverifiedReadsAMetPracticeUnknownAndKeepsAFinding(t *testing.T)
 		t.Errorf("the result it was given reads %+v", status)
 	}
 	found := checked(secondCommit, firstCommit, "", leaked)
-	if status := secretsOf(t, practices.SecretsUnverified(found, "why")); status.Status != practices.StatusFinding || status.Reason != "" {
+	if status := secretsOf(t, practices.SecretsUnverified(practices.Result{}, found, "why")); status.Status != practices.StatusFinding || status.Reason != "" {
 		t.Errorf("a finding reads %+v, want it kept", status)
 	}
 	unknown := checked(secondCommit, firstCommit, "the scan failed")
-	if status := secretsOf(t, practices.SecretsUnverified(unknown, "why")); status.Status != practices.StatusUnknown || status.Reason != "the scan failed" {
+	if status := secretsOf(t, practices.SecretsUnverified(practices.Result{}, unknown, "why")); status.Status != practices.StatusUnknown || status.Reason != "the scan failed" {
 		t.Errorf("an unknown practice reads %+v, want it as it was", status)
+	}
+}
+
+// A result that cannot say its history holds no secret still holds the secrets the result it would have continued from
+// found, with the IDs and commits they had: a secret that was found stays found. The practice reads a finding when any
+// secret is held, and unknown with the reason when none is.
+func TestSecretsUnverifiedKeepsTheSecretsOfTheKeptResult(t *testing.T) {
+	previous := checked(firstCommit, "", "", leaked)
+	want := findingsOf(previous, practices.Secrets)
+	if len(want) != 1 {
+		t.Fatalf("the kept result holds %v", want)
+	}
+	for name, tt := range map[string]struct {
+		next   practices.Result
+		reason string
+	}{
+		"a met practice":      {checked(secondCommit, "3333333333333333333333333333333333333333", ""), ""},
+		"an unknown practice": {checked(secondCommit, "3333333333333333333333333333333333333333", "the scan failed"), "the scan failed"},
+	} {
+		next := tt.next
+		t.Run(name, func(t *testing.T) {
+			got := practices.SecretsUnverified(previous, next, "the commits between were read by no scan")
+			if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != tt.reason {
+				t.Errorf("secrets are %+v, want a finding with the reason %q", status, tt.reason)
+			}
+			if ids := findingsOf(got, practices.Secrets); !slices.Equal(ids, want) {
+				t.Errorf("the secrets findings are %v, want %v", ids, want)
+			}
+			for _, f := range got.Findings {
+				if f.Practice == practices.Secrets && f.Commit != leaked.Commit {
+					t.Errorf("the finding %s is of the commit %s, want it kept as %s", f.ID, f.Commit, leaked.Commit)
+				}
+			}
+			if got.Commit != secondCommit {
+				t.Errorf("the result reads %s, want the new scan's", got.Commit)
+			}
+			if ids := findingsOf(next, practices.Secrets); len(ids) != 0 {
+				t.Errorf("the result it was given gained %v", ids)
+			}
+		})
+	}
+	other := practices.SecretMatch{Rule: "npm_token", Path: ".npmrc", Line: 1, Commit: "bbbbbbbbbbbb", Digest: "ffeeddccbbaa99887766"}
+	found := checked(secondCommit, "3333333333333333333333333333333333333333", "", leaked, other)
+	if ids := findingsOf(practices.SecretsUnverified(previous, found, "why"), practices.Secrets); len(ids) != 2 {
+		t.Errorf("the secrets findings are %v, want each once", ids)
+	}
+	clean := checked(secondCommit, "3333333333333333333333333333333333333333", "")
+	if status := secretsOf(t, practices.SecretsUnverified(checked(firstCommit, "", ""), clean, "why")); status.Status != practices.StatusUnknown || status.Reason != "why" {
+		t.Errorf("with no secret held the practice reads %+v, want unknown with the reason", status)
+	}
+	previous.Truncated = true
+	if got := practices.SecretsUnverified(previous, clean, "why"); !got.Truncated {
+		t.Errorf("the result does not say the kept result left findings out")
 	}
 }

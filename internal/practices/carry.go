@@ -4,17 +4,24 @@ import "slices"
 
 // CarryForward adds to the result of an incremental secret scan the `secrets` findings of the result the scan
 // continued from. An incremental scan reads the commits after the one the earlier scan ended at, and a secret a
-// commit added stays in the history, so the findings of the earlier result still hold. A result that scanned the whole
-// history, one whose scan could not run, and one that continued from another commit than the earlier result read
-// carry nothing. It returns a copy and changes neither result.
+// commit added stays in the history, so the findings of the earlier result still hold, whether the new scan found
+// nothing, found secrets, or could not run. A result that scanned the whole history and one that continued from
+// another commit than the earlier result read carry nothing. It returns a copy and changes neither result.
 func CarryForward(previous, next Result) Result {
 	if next.ScannedFrom == "" || next.ScannedFrom != previous.Commit {
 		return next
 	}
 	at := slices.IndexFunc(next.Practices, func(p PracticeStatus) bool { return p.ID == Secrets })
-	if at < 0 || (next.Practices[at].Status != StatusMet && next.Practices[at].Status != StatusFinding) {
+	if at < 0 || next.Practices[at].Status == StatusNotApplicable {
 		return next
 	}
+	return carrySecrets(previous, next, at)
+}
+
+// carrySecrets adds to next the `secrets` findings of previous that it does not hold, and reads its `secrets` practice,
+// at the given index, as a finding when it holds any, with the reason the scan could not run when it has one. It returns
+// a copy.
+func carrySecrets(previous, next Result, at int) Result {
 	// A result that left findings out leaves them out of every result that continues from it.
 	next.Truncated = next.Truncated || previous.Truncated
 	known := map[string]bool{}
@@ -30,8 +37,13 @@ func CarryForward(previous, next Result) Result {
 	if len(carried) == 0 {
 		return next
 	}
+	// A scan that could not run keeps its reason beside the finding, so the status and the reason say both.
+	reason := ""
+	if next.Practices[at].Status == StatusUnknown {
+		reason = next.Practices[at].Reason
+	}
 	next.Practices = slices.Clone(next.Practices)
-	next.Practices[at] = PracticeStatus{ID: Secrets, Status: StatusFinding}
+	next.Practices[at] = PracticeStatus{ID: Secrets, Status: StatusFinding, Reason: reason}
 	next.Findings = append(slices.Clone(next.Findings), carried...)
 	sortFindings(next.Findings)
 	var cut bool
@@ -42,12 +54,18 @@ func CarryForward(previous, next Result) Result {
 }
 
 // SecretsUnverified says why the secrets of a result's history cannot be read from it: the scan did not read every
-// commit it should have, so a result that found nothing cannot say there is nothing. A `secrets` practice that is met
-// becomes unknown with the reason. One with findings stays a finding, because a secret that was found is no less found,
-// and one that is unknown or not applicable stays as it is. It returns a copy and changes nothing it was given.
-func SecretsUnverified(result Result, reason string) Result {
+// commit it should have, so a result that found nothing cannot say there is nothing. The result keeps the `secrets`
+// findings of previous, the result the scan would have continued from, as they were found, because a secret that was
+// found is no less found. A `secrets` practice then reads a finding when the result holds any secret. Without one, a
+// practice that is met becomes unknown with the reason, and one that is unknown or not applicable stays as it is. It
+// returns a copy and changes neither result.
+func SecretsUnverified(previous, result Result, reason string) Result {
 	at := slices.IndexFunc(result.Practices, func(p PracticeStatus) bool { return p.ID == Secrets })
-	if at < 0 || result.Practices[at].Status != StatusMet {
+	if at < 0 || result.Practices[at].Status == StatusNotApplicable {
+		return result
+	}
+	result = carrySecrets(previous, result, at)
+	if result.Practices[at].Status != StatusMet {
 		return result
 	}
 	result.Practices = slices.Clone(result.Practices)

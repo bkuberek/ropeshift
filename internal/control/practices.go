@@ -356,7 +356,8 @@ func (w *Workers) ReportPracticesCheck(ctx context.Context, report ledger.Practi
 // result it continued from held carry into it. That holds only when the scan continued from where the last completed
 // scan ended, with the credential rules in force: otherwise the commits between were read by no scan, and the result
 // cannot say its history holds no secret. Its secrets then read unknown, unless it found one, and the scan tip is
-// cleared, so the next check reads the whole history.
+// cleared, so the next check reads the whole history. A result whose scan could not run, which names no commit it
+// continued from, carries the secrets of the kept result all the same, and clears the tip the same way.
 func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practices.Result) (practices.Result, error) {
 	previous, err := tx.Practices().Result(request.Repository)
 	have := err == nil
@@ -373,7 +374,12 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		}
 	}
 	unverified := ""
-	if result.ScannedFrom != "" {
+	scanFailed := secretsUnknown(result)
+	switch {
+	case result.ScannedFrom == "" && scanFailed && have:
+		// A run whose scan failed names no commit it continued from, and its history was read by no scan.
+		result = practices.SecretsUnverified(previous.Result, result, "the secret scan failed")
+	case result.ScannedFrom != "":
 		scan, err := tx.Practices().Scan(request.Repository)
 		if err != nil {
 			return result, err
@@ -388,7 +394,7 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		}
 	}
 	if unverified != "" {
-		result = practices.SecretsUnverified(result, unverified)
+		result = practices.SecretsUnverified(previous.Result, result, unverified)
 	}
 	if err := tx.Practices().SaveResult(ledger.PracticesRecord{
 		Repository: request.Repository, Request: request.ID, Commit: result.Commit, Result: result, CheckedAt: result.CheckedAt.UnixMilli(),
@@ -396,7 +402,7 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		return result, err
 	}
 	scan := ledger.PracticesScan{Tip: result.Commit, RulesVersion: result.RulesVersion}
-	if unverified != "" || secretsUnknown(result) {
+	if unverified != "" || scanFailed {
 		scan = ledger.PracticesScan{}
 	}
 	return result, tx.Practices().SaveScan(request.Repository, scan)

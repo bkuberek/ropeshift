@@ -857,6 +857,7 @@ func TestAReportThatFailsToArriveIsSentAgainOnTheNextPass(t *testing.T) {
 	captured.mu.Lock()
 	captured.answer = nil
 	captured.mu.Unlock()
+	r.clock.Advance(time.Hour)
 	r.offer(subject, check)
 	if got := len(captured.all()); got != 2 {
 		t.Errorf("%d reports were sent, want the lost one and its resend", got)
@@ -951,5 +952,268 @@ func TestTheJournalKeepsTheReportItWillSend(t *testing.T) {
 	if journal.State != "ran" || journal.Report == nil || journal.Report.Outcome != ledger.PracticesOutcomeChecked ||
 		journal.Report.Result == nil || journal.Report.Result.Commit != practicesTip || journal.Report.Request != request.ID {
 		t.Errorf("the journal holds %+v", journal)
+	}
+}
+
+// A journal the worker cannot parse is reported once and set aside, so it is not read and reported again on every pass,
+// and the request it belonged to is run afresh.
+func TestAnUnreadableJournalIsReportedOnceAndSetAside(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	request := r.ask("repo-widgets")[0]
+	dir := filepath.Join(r.state, "practices")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(dir, request.ID+".json")
+	if err := os.WriteFile(journal, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captured := &capturedPractices{WorkerLink: r.link, forward: true}
+	subject := r.workerOn(captured, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	check := ledger.DesiredPracticesCheck{ID: request.ID, Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60}
+	for range 4 {
+		r.offer(subject, check)
+	}
+	if errs := r.reported.all(); len(errs) != 1 || !strings.Contains(errs[0].Error(), request.ID+".json.unreadable") {
+		t.Errorf("the worker reported %v, want the journal once, with where it was set aside", errs)
+	}
+	if info, err := os.Stat(journal + ".unreadable"); err != nil {
+		t.Errorf("the unreadable journal was not set aside: %v", err)
+	} else if !info.ModTime().Equal(r.clock.Now()) {
+		t.Errorf("the journal set aside is dated %v, want when the worker set it aside, %v", info.ModTime(), r.clock.Now())
+	}
+	if raw, err := os.ReadFile(journal); err != nil || !strings.Contains(string(raw), `"reported"`) {
+		t.Errorf("the request's journal is %q (%v), want the fresh run's", raw, err)
+	}
+	if got := len(r.fakes.SnapshotCalls); got != 1 {
+		t.Errorf("the check ran %d times, want once", got)
+	}
+}
+
+// A report whose send keeps failing is sent again after a delay that doubles and is capped, and a send that arrives ends
+// the delay, so the next report that fails starts from the first one again.
+func TestAReportThatKeepsFailingIsSentAgainAfterAGrowingCappedDelay(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	first, second := r.ask("repo-widgets")[0], r.ask("repo-gadgets")[0]
+	captured := &capturedPractices{WorkerLink: r.link, forward: true, refuse: func(ledger.PracticesReport) error { return errors.New("the control plane is away") }}
+	subject := r.workerOn(captured, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	asked := func(request ledger.PracticesRequest, repository string) ledger.DesiredPracticesCheck {
+		return ledger.DesiredPracticesCheck{ID: request.ID, Repository: repository, BaseBranch: "main", ExpiresAt: 1 << 60}
+	}
+	check := asked(first, "repo-widgets")
+	// pass offers the check and says how many reports each pass sent.
+	pass := func(check ledger.DesiredPracticesCheck) int {
+		before := len(captured.all())
+		r.offer(subject, check)
+		return len(captured.all()) - before
+	}
+	if got := pass(check); got != 1 {
+		t.Fatalf("the first pass sent %d reports, want one", got)
+	}
+	if got := pass(check); got != 0 {
+		t.Fatalf("a pass at once after a failed send sent %d reports, want none", got)
+	}
+	// Each failed send doubles the wait, from the first one.
+	waits := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 300 * time.Second, 300 * time.Second, 300 * time.Second}
+	for i, wait := range waits {
+		r.clock.Advance(wait - time.Second)
+		if got := pass(check); got != 0 {
+			t.Fatalf("retry %d was sent %v after the failure that asked for %v", i+1, wait-time.Second, wait)
+		}
+		r.clock.Advance(time.Second)
+		if got := pass(check); got != 1 {
+			t.Fatalf("retry %d was not sent after %v", i+1, wait)
+		}
+	}
+	// The journal is sent as soon as the control plane is back and the wait ends.
+	captured.mu.Lock()
+	captured.refuse = nil
+	captured.mu.Unlock()
+	r.clock.Advance(300 * time.Second)
+	if got := pass(check); got != 1 {
+		t.Fatalf("the journal was sent %d times once the control plane was back", got)
+	}
+	if got := r.request(first.ID); got.State != ledger.PracticesReported {
+		t.Fatalf("the request is %s, want reported", got.State)
+	}
+	// The wait ended with that send: the next report that fails is sent again after the first wait.
+	captured.mu.Lock()
+	captured.refuse = func(ledger.PracticesReport) error { return errors.New("the control plane is away") }
+	captured.mu.Unlock()
+	other := asked(second, "repo-gadgets")
+	if got := pass(other); got != 1 {
+		t.Fatalf("the next request's first pass sent %d reports, want one", got)
+	}
+	r.clock.Advance(5 * time.Second)
+	if got := pass(other); got != 1 {
+		t.Errorf("the next request waited longer than the first wait after a send had arrived")
+	}
+}
+
+// A report names neither spelling of the temporary directory, the home folder, or the configuration folder, as the
+// worker's machine lays them out: through a symbolic link or resolved, and where one holds another the longest path is
+// the one replaced.
+func TestAFailureNamesNoTemporaryHomeOrConfigurationFolder(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realTemp := filepath.Join(base, "real-temp")
+	realHome := filepath.Join(realTemp, "home", "person")
+	config := filepath.Join(realHome, ".config")
+	for _, dir := range []string{realTemp, realHome, config} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linkedTemp, linkedHome := filepath.Join(base, "linked-temp"), filepath.Join(base, "linked-home")
+	if err := os.Symlink(realTemp, linkedTemp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realHome, linkedHome); err != nil {
+		t.Fatal(err)
+	}
+	r := newPracticesRig(t)
+	t.Setenv("TMPDIR", linkedTemp)
+	t.Setenv("HOME", linkedHome)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: fmt.Errorf("scratch %s/scratch and %s/scratch\nconfig %s/.gitconfig and %s/.gitconfig\nxdg %s/git/config\nhome only %s/.profile",
+		realTemp, linkedTemp, realHome, linkedHome, config, realHome)}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	for _, path := range []string{realTemp, linkedTemp, realHome, linkedHome, config} {
+		if strings.Contains(report.Detail, path) {
+			t.Errorf("the detail names %s: %s", path, report.Detail)
+		}
+	}
+	want := "scratch <temp>/scratch and <temp>/scratch config ~/.gitconfig and ~/.gitconfig xdg <config>/git/config home only ~/.profile"
+	if !strings.Contains(report.Detail, want) {
+		t.Errorf("the detail is %q, want it to hold %q", report.Detail, want)
+	}
+}
+
+// aside writes a journal set aside, dated the age before the worker's clock.
+func (r *practicesRig) aside(name string, age time.Duration) {
+	r.t.Helper()
+	dir := filepath.Join(r.state, "practices")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		r.t.Fatal(err)
+	}
+	path := filepath.Join(dir, name+".json.unreadable")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	when := r.clock.Now().Add(-age)
+	if err := os.Chtimes(path, when, when); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// asideNames lists the journals set aside that the worker still keeps.
+func (r *practicesRig) asideNames() []string {
+	r.t.Helper()
+	matches, err := filepath.Glob(filepath.Join(r.state, "practices", "*.unreadable"))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	var names []string
+	for _, match := range matches {
+		names = append(names, strings.TrimSuffix(filepath.Base(match), ".json.unreadable"))
+	}
+	slices.Sort(names)
+	return names
+}
+
+// A worker keeps the newest ten journals it set aside, and none older than seven days.
+func TestJournalsSetAsideAreKeptBoundedByCountAndAge(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	subject := r.workerOn(&capturedPractices{WorkerLink: r.link}, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(30 * 24 * time.Hour)
+	// Twelve journals set aside within the week: the two oldest go.
+	for i := range 12 {
+		r.aside(fmt.Sprintf("new-%02d", i), time.Duration(i+1)*time.Minute)
+	}
+	// Journals older than seven days go whatever their number.
+	r.aside("old-8d", 8*24*time.Hour)
+	r.aside("old-20d", 20*24*time.Hour)
+	r.offer(subject)
+	var want []string
+	for i := range 10 {
+		want = append(want, fmt.Sprintf("new-%02d", i))
+	}
+	if got := r.asideNames(); !slices.Equal(got, want) {
+		t.Errorf("the worker keeps %v, want the newest ten of the week: %v", got, want)
+	}
+	// The bound by age alone: the clock moves on until the journals older than the fifth are past the week.
+	r.clock.Advance(7*24*time.Hour - 5*time.Minute - 30*time.Second)
+	r.offer(subject)
+	if got := r.asideNames(); !slices.Equal(got, want[:5]) {
+		t.Errorf("after the week the worker keeps %v, want %v", got, want[:5])
+	}
+}
+
+// A relative XDG_CONFIG_HOME is no configuration folder, as the XDG Base Directory specification says, so what it
+// spells in a report is left as it is.
+func TestARelativeConfigurationFolderIsNotStrippedFromAReport(t *testing.T) {
+	r := newPracticesRig(t)
+	t.Setenv("XDG_CONFIG_HOME", "relative/config")
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: errors.New("open relative/config/git/config: no such file")}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	if detail := captured.only(t).Detail; !strings.Contains(detail, "open relative/config/git/config: no such file") {
+		t.Errorf("the detail is %q, want the relative path as it was", detail)
+	}
+}
+
+// The temporary directory is replaced whole when TMPDIR ends in a separator, as it does on macOS, so what follows it
+// keeps its own.
+func TestATemporaryDirectoryWithATrailingSeparatorIsStrippedFromAReport(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realTemp := filepath.Join(base, "real-temp")
+	if err := os.MkdirAll(realTemp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkedTemp := filepath.Join(base, "linked-temp")
+	if err := os.Symlink(realTemp, linkedTemp); err != nil {
+		t.Fatal(err)
+	}
+	r := newPracticesRig(t)
+	t.Setenv("TMPDIR", linkedTemp+"/")
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: fmt.Errorf("scratch %s/scratch and %s/scratch", realTemp, linkedTemp)}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	if detail := captured.only(t).Detail; !strings.Contains(detail, "scratch <temp>/scratch and <temp>/scratch") {
+		t.Errorf("the detail is %q, want the temporary directory replaced with its separator kept", detail)
 	}
 }

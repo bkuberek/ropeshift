@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -43,6 +44,47 @@ type practicesJournal struct {
 	Report *ledger.PracticesReport `json:"report,omitempty"`
 }
 
+const (
+	// practicesSendFirst is the wait after a first failed send of a report, and it doubles with each failure after.
+	practicesSendFirst = 5 * time.Second
+	// practicesSendMost bounds the wait, so a report is sent again within minutes whatever the control plane did.
+	practicesSendMost = 5 * time.Minute
+)
+
+// practicesSendSeen is where one report's sends stand: the failures in a row, and when the next send is due.
+type practicesSendSeen struct {
+	failures int
+	retryAt  time.Time
+}
+
+// sendHeld says a send of this request's report failed lately enough that the next one waits.
+func (w *Worker) sendHeld(id string) bool {
+	w.practicesLock.Lock()
+	defer w.practicesLock.Unlock()
+	seen, ok := w.practicesSends[id]
+	return ok && w.clock.Now().Before(seen.retryAt)
+}
+
+// sendFailed holds the next send of this request's report for longer than the last wait.
+func (w *Worker) sendFailed(id string) {
+	w.practicesLock.Lock()
+	defer w.practicesLock.Unlock()
+	if w.practicesSends == nil {
+		w.practicesSends = map[string]practicesSendSeen{}
+	}
+	seen := w.practicesSends[id]
+	seen.failures++
+	seen.retryAt = w.clock.Now().Add(doublingBackoff(seen.failures, practicesSendFirst, practicesSendMost))
+	w.practicesSends[id] = seen
+}
+
+// sendAnswered ends the wait on this request's report: the control plane answered the send.
+func (w *Worker) sendAnswered(id string) {
+	w.practicesLock.Lock()
+	defer w.practicesLock.Unlock()
+	delete(w.practicesSends, id)
+}
+
 // checkoutPlaceholder stands for the directory of a checkout in what a worker reports, which says nothing of the
 // layout of the worker's machine.
 const checkoutPlaceholder = "<checkout>"
@@ -73,6 +115,66 @@ func (rt *PracticesRuntime) read(path string) (practicesJournal, bool, error) {
 		return practicesJournal{}, false, fmt.Errorf("%s: %w", path, err)
 	}
 	return journal, true, nil
+}
+
+const (
+	// unreadableSuffix names a journal the worker could not read, which is kept beside where it was.
+	unreadableSuffix = ".unreadable"
+	// unreadableKeep is how many journals set aside a worker keeps, the newest.
+	unreadableKeep = 10
+	// unreadableMaxAge is how long a worker keeps a journal it set aside.
+	unreadableMaxAge = 7 * 24 * time.Hour
+)
+
+// load returns a request's journal as read does, and sets one that cannot be read or parsed aside, under the same name
+// with the suffix `.unreadable` and dated now, so the next pass finds no journal and the failure is reported once. The
+// error says where the journal went.
+func (rt *PracticesRuntime) load(path string, now time.Time) (practicesJournal, bool, error) {
+	journal, found, err := rt.read(path)
+	if err == nil {
+		return journal, found, nil
+	}
+	aside := path + unreadableSuffix
+	if moved := os.Rename(path, aside); moved != nil {
+		return practicesJournal{}, false, fmt.Errorf("%w (and it could not be set aside: %v)", err, moved)
+	}
+	_ = os.Chtimes(aside, now, now)
+	rt.pruneAside(now)
+	return practicesJournal{}, false, fmt.Errorf("%w (set aside as %s)", err, aside)
+}
+
+// pruneAside deletes the journals set aside that are older than unreadableMaxAge, and all but the newest
+// unreadableKeep of the others. It is best effort: one it cannot delete is left.
+func (rt *PracticesRuntime) pruneAside(now time.Time) {
+	matches, err := filepath.Glob(filepath.Join(rt.StateDir, "practices", "*"+unreadableSuffix))
+	if err != nil {
+		return
+	}
+	type kept struct {
+		path string
+		when time.Time
+	}
+	var fresh []kept
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if now.Sub(info.ModTime()) > unreadableMaxAge {
+			_ = os.Remove(path)
+			continue
+		}
+		fresh = append(fresh, kept{path, info.ModTime()})
+	}
+	slices.SortFunc(fresh, func(a, b kept) int {
+		if c := b.when.Compare(a.when); c != 0 {
+			return c
+		}
+		return strings.Compare(a.path, b.path)
+	})
+	for _, old := range fresh[min(len(fresh), unreadableKeep):] {
+		_ = os.Remove(old.path)
+	}
 }
 
 // save replaces a request's journal through a rename, so a crash leaves the old one or the new one.
@@ -142,6 +244,7 @@ func (w *Worker) tendPracticesChecks(ctx context.Context) {
 		w.config.Report(fmt.Errorf("reading the journals of the practices checks: %w", err))
 		return
 	}
+	rt.pruneAside(w.clock.Now())
 	if len(state.PracticesChecks) == 0 && len(held) == 0 {
 		return
 	}
@@ -198,7 +301,7 @@ func (w *Worker) sendJournaledPractices(ctx context.Context, rt *PracticesRuntim
 	if err != nil {
 		return err
 	}
-	journal, found, err := rt.read(path)
+	journal, found, err := rt.load(path, w.clock.Now())
 	if err != nil || !found || journal.State != practicesRan || journal.Report == nil {
 		return err
 	}
@@ -214,7 +317,7 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 	if err != nil {
 		return err
 	}
-	journal, found, err := rt.read(path)
+	journal, found, err := rt.load(path, w.clock.Now())
 	if err != nil {
 		return err
 	}
@@ -239,19 +342,30 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 
 // sendPracticesReport tells the control plane what the journal says the run decided, and journals that it did.
 //
+// A send that fails for a transport or plane error holds the next send of that report for a wait that doubles with each
+// failure in a row, from practicesSendFirst to practicesSendMost, and a send the control plane answers ends the wait. A
+// pass that finds the report held leaves it journaled and sends nothing.
+//
 // A result the control plane refuses, as it does one too large for its route, is replaced in the journal by a failed
 // check that says so, with the reason the control plane gave, and that is sent: the failure is recorded where a member
 // reads it, and the request is not left offered with its result lost. A report the control plane refuses for good
 // otherwise, because it knows no such request or refuses the failed check too, is journaled as sent and said once, so
 // it is not sent again every pass.
 func (w *Worker) sendPracticesReport(ctx context.Context, rt *PracticesRuntime, path, id string, journal practicesJournal) error {
+	if w.sendHeld(id) {
+		return nil
+	}
 	report := *journal.Report
 	report.Request, report.Auth = id, w.Auth()
 	err := w.link.ReportPracticesCheck(ctx, report)
 	refused := errors.Is(err, workorders.ErrInvalid) || errors.Is(err, ports.ErrNotFound)
 	if err != nil && !refused {
+		if ctx.Err() == nil {
+			w.sendFailed(id)
+		}
 		return fmt.Errorf("reporting it: %w", err)
 	}
+	w.sendAnswered(id)
 	if refused && report.Outcome == ledger.PracticesOutcomeChecked && errors.Is(err, workorders.ErrInvalid) {
 		failure := ledger.PracticesReport{
 			Project: report.Project, Request: id, Outcome: ledger.PracticesOutcomeFailed,
@@ -320,25 +434,45 @@ func (w *Worker) performPracticesCheck(ctx context.Context, rt *PracticesRuntime
 
 // withoutCheckout writes text for a report: on one line and bounded, with every spelling of the checkout's directory
 // replaced by a placeholder, the directory as it was given, as it reads cleaned, and as symbolic links resolve it,
-// which is the one git names, and then the person's home folder by `~`. What a run reports names nothing of the layout of
-// the worker's machine.
+// which is the one git names, and the temporary directory by `<temp>`, the person's home folder by `~`, and the
+// configuration folder by `<config>`, each as given and as symbolic links resolve it. A relative XDG_CONFIG_HOME is
+// no configuration folder and is left. The longest path is replaced first, so a path inside another is replaced whole.
+// What a run reports names nothing of the layout of the worker's machine.
 func withoutCheckout(text, dir string) string {
 	if text == "" {
 		return text
 	}
-	spellings := []string{dir, filepath.Clean(dir)}
-	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-		spellings = append(spellings, resolved)
+	var paths []pathPlaceholder
+	paths = appendSpellings(paths, checkoutPlaceholder, dir, filepath.Clean(dir))
+	paths = appendSpellings(paths, "<temp>", filepath.Clean(os.TempDir()))
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = appendSpellings(paths, "~", home)
 	}
-	// The longest first, so a spelling that holds another is replaced whole.
-	slices.SortFunc(spellings, func(a, b string) int { return len(b) - len(a) })
-	for _, spelled := range spellings {
-		if len(spelled) > 1 && spelled != string(filepath.Separator) {
-			text = strings.ReplaceAll(text, spelled, checkoutPlaceholder)
-		}
+	if config := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(config) {
+		paths = appendSpellings(paths, "<config>", config)
 	}
-	if home, err := os.UserHomeDir(); err == nil && len(home) > 1 && home != string(filepath.Separator) {
-		text = strings.ReplaceAll(text, home, "~")
+	slices.SortStableFunc(paths, func(a, b pathPlaceholder) int { return len(b.path) - len(a.path) })
+	for _, one := range paths {
+		text = strings.ReplaceAll(text, one.path, one.placeholder)
 	}
 	return practicerun.Clip(text)
+}
+
+// pathPlaceholder is a path a report does not name, and what stands for it.
+type pathPlaceholder struct{ path, placeholder string }
+
+// appendSpellings adds each of the paths, and each as symbolic links resolve it, as spellings of what the placeholder
+// stands for. A path that is empty or is the root is left out, because replacing it would leave nothing of the text.
+func appendSpellings(paths []pathPlaceholder, placeholder string, spellings ...string) []pathPlaceholder {
+	for _, spelled := range slices.Clone(spellings) {
+		if resolved, err := filepath.EvalSymlinks(spelled); err == nil {
+			spellings = append(spellings, resolved)
+		}
+	}
+	for _, spelled := range spellings {
+		if len(spelled) > 1 && spelled != string(filepath.Separator) && !slices.Contains(paths, pathPlaceholder{spelled, placeholder}) {
+			paths = append(paths, pathPlaceholder{spelled, placeholder})
+		}
+	}
+	return paths
 }

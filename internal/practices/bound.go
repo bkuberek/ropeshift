@@ -1,6 +1,8 @@
 package practices
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,14 +20,34 @@ const (
 
 // Cut cuts text at MaxText bytes on a rune boundary, and leaves a shorter text as it is.
 func Cut(text string) string {
-	if len(text) <= MaxText {
+	return cutAt(text, MaxText)
+}
+
+// cutAt cuts text at limit bytes on a rune boundary, and leaves a shorter text as it is.
+func cutAt(text string, limit int) string {
+	if len(text) <= limit {
 		return text
 	}
-	cut := MaxText
+	cut := limit
 	for cut > 0 && !utf8.RuneStart(text[cut]) {
 		cut--
 	}
 	return text[:cut]
+}
+
+// idDigestBytes is how many bytes of the SHA-256 of an ID a clipped ID ends with, written in hex.
+const idDigestBytes = 8
+
+// clipID bounds a finding's ID to MaxText bytes. An ID that fits stays as it is, because acknowledgements name it. A
+// longer one is cut on a rune boundary and ends with `~` and a short digest of the whole ID, so two IDs that differ only
+// past the cut stay two IDs, and the same ID is clipped to the same text each time.
+func clipID(id string) string {
+	if len(id) <= MaxText {
+		return id
+	}
+	sum := sha256.Sum256([]byte(id))
+	tail := "~" + hex.EncodeToString(sum[:idDigestBytes])
+	return cutAt(id, MaxText-len(tail)) + tail
 }
 
 // Clip writes text on one line, cut at MaxText bytes on a rune boundary.
@@ -59,8 +81,8 @@ func capSecrets(findings []Finding) ([]Finding, bool) {
 }
 
 // Bound returns the result with each text bounded and the secret findings capped, whatever made it. A reason and a
-// detail are written on one line and cut at MaxText bytes, every other text is cut there, and the secret findings past
-// MaxSecretFindings are dropped with Truncated set. A control plane bounds what a worker reports, and does not trust
+// detail are written on one line and cut at MaxText bytes, every other text is cut there except a finding's ID, which
+// a digest of the whole ID keeps unique, and the secret findings past MaxSecretFindings are dropped with Truncated set. A control plane bounds what a worker reports, and does not trust
 // the worker to have. It changes nothing it was given.
 func Bound(r Result) Result {
 	r.Repository, r.Commit, r.BaseBranch, r.Worker, r.ScannedFrom = Cut(r.Repository), Cut(r.Commit), Cut(r.BaseBranch), Cut(r.Worker), Cut(r.ScannedFrom)
@@ -72,7 +94,7 @@ func Bound(r Result) Result {
 	for i := range r.Findings {
 		f := &r.Findings[i]
 		f.Detail = Clip(f.Detail)
-		f.ID, f.Subject, f.Rule, f.Path, f.Commit, f.Digest = Cut(f.ID), Cut(f.Subject), Cut(f.Rule), Cut(f.Path), Cut(f.Commit), Cut(f.Digest)
+		f.ID, f.Subject, f.Rule, f.Path, f.Commit, f.Digest = clipID(f.ID), Cut(f.Subject), Cut(f.Rule), Cut(f.Path), Cut(f.Commit), Cut(f.Digest)
 	}
 	var cut bool
 	if r.Findings, cut = capSecrets(r.Findings); cut {
@@ -81,8 +103,8 @@ func Bound(r Result) Result {
 	return r
 }
 
-// Validate refuses a result no worker makes: a practice the table does not hold, or one twice, a status or a severity
-// no practice has, and a finding of a practice the table does not hold.
+// Validate refuses a result no worker makes: a practice the table does not hold, one twice, or a practice of the table
+// it holds no status for, a status or a severity no practice has, and a finding of a practice the table does not hold.
 func (r Result) Validate() error {
 	seen := map[ID]bool{}
 	for _, p := range r.Practices {
@@ -97,6 +119,11 @@ func (r Result) Validate() error {
 		case StatusMet, StatusFinding, StatusUnknown, StatusNotApplicable:
 		default:
 			return fmt.Errorf("the status of %s is %q, which is no status", p.ID, p.Status)
+		}
+	}
+	for _, p := range table {
+		if !seen[p.ID] {
+			return fmt.Errorf("the result holds no status for %s", p.ID)
 		}
 	}
 	for _, f := range r.Findings {

@@ -50,9 +50,13 @@ func TestAWorkerReportsAPracticesCheckOnItsOwnRoute(t *testing.T) {
 	credential, _ := joinWorker(t, d)
 	worker := workerOf(t, d, credential)
 	offeredPracticesRequest(t, d, "req-1")
+	var statuses []practices.PracticeStatus
+	for _, p := range practices.Table() {
+		statuses = append(statuses, practices.PracticeStatus{ID: p.ID, Status: practices.StatusMet})
+	}
 	result := practices.Result{
 		Repository: "repo-a", Commit: "1111111111111111111111111111111111111111", BaseBranch: "main", Worker: "plan", CheckedAt: time.Now().UTC().Truncate(time.Millisecond),
-		TableVersion: practices.TableVersion, RulesVersion: 1, Practices: []practices.PracticeStatus{{ID: practices.Secrets, Status: practices.StatusMet}},
+		TableVersion: practices.TableVersion, RulesVersion: 1, Practices: statuses,
 	}
 	report := ledger.PracticesReport{Request: "req-1", Outcome: ledger.PracticesOutcomeChecked, Result: &result}
 	if err := worker.ReportPracticesCheck(t.Context(), aSubscriptionWorker, report); err != nil {
