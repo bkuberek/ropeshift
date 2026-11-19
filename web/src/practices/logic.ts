@@ -1,5 +1,5 @@
 import type { StateLook } from "../floor/states";
-import type { PracticeFinding, PracticeRow, PracticesRequest, PracticesView, Severity } from "../api/practices";
+import type { PracticeFinding, PracticeRow, PracticesAcknowledgement, PracticesRequest, PracticesView, Severity } from "../api/practices";
 
 // What a practices result reads as, in the words every view of it shares.
 
@@ -15,10 +15,17 @@ export const expiredWords = "The check did not finish within 30 minutes. A later
 
 export type Counts = { high: number; medium: number; low: number; open: number; acknowledged: number; unknown: number };
 
+// orphansOf are a repository's acknowledgements of findings the latest result does not list: a check may not have run since
+// the finding appeared, or the finding has since been met. They stay held until a member withdraws them.
+export function orphansOf(view: PracticesView): PracticesAcknowledgement[] {
+  const listed = new Set((view.result?.findings ?? []).map((finding) => finding.id));
+  return (view.acknowledgement ?? []).filter((held) => !listed.has(held.finding));
+}
+
 // countsOf counts a repository's open findings by severity, its acknowledged findings, and its practices the check could
 // not read. An acknowledged finding is no longer open, and stays in the list.
 export function countsOf(view: PracticesView): Counts {
-  const counts: Counts = { high: 0, medium: 0, low: 0, open: 0, acknowledged: 0, unknown: 0 };
+  const counts: Counts = { high: 0, medium: 0, low: 0, open: 0, acknowledged: orphansOf(view).length, unknown: 0 };
   for (const finding of view.result?.findings ?? []) {
     if (finding.acknowledged) {
       counts.acknowledged += 1;
@@ -32,7 +39,13 @@ export function countsOf(view: PracticesView): Counts {
 }
 
 export const openFindings = (view: PracticesView): PracticeFinding[] => (view.result?.findings ?? []).filter((finding) => !finding.acknowledged);
-export const acknowledgedFindings = (view: PracticesView): PracticeFinding[] => (view.result?.findings ?? []).filter((finding) => finding.acknowledged);
+
+// acknowledgedFindings are the findings of the result a member acknowledged, and an acknowledgement of a finding the result
+// does not list, which has only its ID and the acknowledgement to show.
+export const acknowledgedFindings = (view: PracticesView): PracticeFinding[] => [
+  ...(view.result?.findings ?? []).filter((finding) => finding.acknowledged),
+  ...orphansOf(view).map((held): PracticeFinding => ({ id: held.finding, practice: held.finding.split(":")[0] ?? held.finding, severity: "low", detail: "", why: "", fix: "", acknowledged: true, acknowledgement: held })),
+];
 
 export const severityLook: Record<Severity, StateLook> = {
   high: { label: "high", tone: "danger", glyph: "cross" },

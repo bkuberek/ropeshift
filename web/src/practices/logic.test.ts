@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PracticeFinding, PracticeRow, PracticesView } from "../api/practices";
-import { checking, countsOf, reasonProblem, standingOf } from "./logic";
+import { acknowledgedFindings, checking, countsOf, orphansOf, reasonProblem, standingOf } from "./logic";
 
 const finding = (over: Partial<PracticeFinding>): PracticeFinding => ({ id: "ci", practice: "ci", severity: "medium", detail: "", why: "", fix: "", ...over });
 const row = (over: Partial<PracticeRow>): PracticeRow => ({ id: "ci", severity: "medium", status: "finding", why: "", fix: "", ...over });
@@ -63,5 +63,20 @@ describe("checking", () => {
     expect(checking(request, {})).toBe(true);
     expect(checking(request, { r: "reported" })).toBe(false);
     expect(checking(undefined, {})).toBe(false);
+  });
+});
+
+describe("orphansOf", () => {
+  const held = (id: string) => ({ finding: id, reason: "r", member: "m", acknowledged_at: "2026-11-19T00:00:00Z" });
+
+  it("names the acknowledgements whose finding the latest result does not list, and counts and offers them as acknowledged", () => {
+    const view = { ...viewOf([finding({ id: "codeowners", acknowledged: true })]), acknowledgement: [held("codeowners"), held("lockfile:npm")] };
+    expect(orphansOf(view).map((one) => one.finding)).toEqual(["lockfile:npm"]);
+    expect(countsOf(view).acknowledged).toBe(2);
+    expect(acknowledgedFindings(view).map((one) => one.id)).toEqual(["codeowners", "lockfile:npm"]);
+  });
+
+  it("names every acknowledgement of a repository with no result", () => {
+    expect(orphansOf({ repository: "r", name: "n", acknowledgement: [held("codeowners")] })).toHaveLength(1);
   });
 });

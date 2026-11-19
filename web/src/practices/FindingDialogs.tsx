@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useChange } from "../admin/parts";
 import { plainText } from "../admin/untrustedText";
@@ -7,6 +7,7 @@ import type { PracticeFinding, PracticesView } from "../api/practices";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
+import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
 import { acknowledgedFindings, openFindings, reasonProblem } from "./logic";
 
@@ -16,35 +17,65 @@ type Which = "open" | "acknowledged";
 const withFindings = (views: PracticesView[], which: Which) =>
   views.map((view) => ({ view, findings: which === "open" ? openFindings(view) : acknowledgedFindings(view) })).filter((row) => row.findings.length > 0);
 
+type Chosen = { repository: string; name: string; finding: string };
+
 // useChoice is the repository and the finding a dialog stands on. It starts at the pair a row named, or at the first
-// finding there is, and a change of repository moves to that repository's first finding.
+// finding there is, and keeps that pair: the list it ranges over is read again on every ledger event, and a pair that
+// leaves it is reported as gone, never swapped for another, so a reason is never recorded against a finding the member did
+// not choose. Picking another repository moves to that repository's first finding.
 function useChoice(views: PracticesView[], which: Which, repository?: string, finding?: string) {
   const rows = withFindings(views, which);
-  const start = rows.find((row) => row.view.repository === repository && row.findings.some((one) => one.id === finding)) ?? rows[0];
-  const [chosen, setChosen] = useState({ repository: start?.view.repository ?? "", finding: start ? (finding && start.findings.some((one) => one.id === finding) ? finding : (start.findings[0]?.id ?? "")) : "" });
-  const row = rows.find((one) => one.view.repository === chosen.repository) ?? rows[0];
-  const current = row?.findings.find((one) => one.id === chosen.finding) ?? row?.findings[0];
+  const first = rows[0];
+  const named = repository === undefined ? undefined : { repository, name: views.find((view) => view.repository === repository)?.name ?? "", finding: finding ?? "" };
+  const start: Chosen | null = named ?? (first ? { repository: first.view.repository, name: first.view.name, finding: first.findings[0]?.id ?? "" } : null);
+  const [chosen, setChosen] = useState<Chosen | null>(start);
+  // A dialog opened with nothing to choose from takes the first finding that arrives, and keeps it.
+  useEffect(() => {
+    if (chosen === null && start !== null) {
+      setChosen(start);
+    }
+  }, [chosen, start?.repository, start?.finding]);
+  const row = rows.find((one) => one.view.repository === chosen?.repository);
+  const current = row?.findings.find((one) => one.id === chosen?.finding);
   return {
     rows,
-    view: row?.view,
+    chosen,
     finding: current,
-    pickRepository: (next: string) => setChosen({ repository: next, finding: rows.find((one) => one.view.repository === next)?.findings[0]?.id ?? "" }),
-    pickFinding: (next: string) => setChosen((was) => ({ ...was, finding: next })),
+    gone: chosen !== null && current === undefined,
+    pickRepository: (next: string) => {
+      const picked = rows.find((one) => one.view.repository === next);
+      setChosen({ repository: next, name: picked?.view.name ?? "", finding: picked?.findings[0]?.id ?? "" });
+    },
+    pickFinding: (next: string) => setChosen((was) => (was ? { ...was, finding: next } : was)),
   };
 }
 
-function Pickers({ choice, locked }: { choice: ReturnType<typeof useChoice>; locked: boolean }) {
+type Choice = ReturnType<typeof useChoice>;
+
+function Pickers({ choice, locked }: { choice: Choice; locked: boolean }) {
+  const chosen = choice.chosen;
+  if (!chosen) {
+    return null;
+  }
   if (locked) {
     return (
-      <p className="small">
-        <strong>{plainText(choice.view?.name ?? "")}</strong>
-      </p>
+      <div className="stack-8">
+        <p className="small">
+          <strong>{plainText(chosen.name)}</strong>
+        </p>
+        <p>
+          <code className="mono">{plainText(chosen.finding)}</code>
+        </p>
+      </div>
     );
   }
+  const held = choice.rows.find((row) => row.view.repository === chosen.repository);
+  const findings = held?.findings.map((one) => one.id) ?? [];
   return (
     <>
       <Field label="Repository">
-        <Select value={choice.view?.repository ?? ""} onChange={(event) => choice.pickRepository(event.target.value)}>
+        <Select value={chosen.repository} onChange={(event) => choice.pickRepository(event.target.value)}>
+          {held ? null : <option value={chosen.repository}>{plainText(chosen.name || chosen.repository)}</option>}
           {choice.rows.map((row) => (
             <option key={row.view.repository} value={row.view.repository}>
               {plainText(row.view.name)}
@@ -53,10 +84,11 @@ function Pickers({ choice, locked }: { choice: ReturnType<typeof useChoice>; loc
         </Select>
       </Field>
       <Field label="Finding">
-        <Select className="mono" value={choice.finding?.id ?? ""} onChange={(event) => choice.pickFinding(event.target.value)}>
-          {(choice.rows.find((row) => row.view === choice.view)?.findings ?? []).map((finding) => (
-            <option key={finding.id} value={finding.id}>
-              {plainText(finding.id)}
+        <Select className="mono" value={chosen.finding} onChange={(event) => choice.pickFinding(event.target.value)}>
+          {findings.includes(chosen.finding) ? null : <option value={chosen.finding}>{plainText(chosen.finding)}</option>}
+          {findings.map((id) => (
+            <option key={id} value={id}>
+              {plainText(id)}
             </option>
           ))}
         </Select>
@@ -65,15 +97,28 @@ function Pickers({ choice, locked }: { choice: ReturnType<typeof useChoice>; loc
   );
 }
 
-function FindingWords({ finding }: { finding: PracticeFinding }) {
+function FindingWords({ finding, withId }: { finding: PracticeFinding; withId: boolean }) {
   return (
     <div className="stack-8">
-      <p>
-        <code className="mono">{plainText(finding.id)}</code>
-      </p>
-      <p className="small">{plainText(finding.detail)}</p>
-      <p className="small muted">{finding.why}</p>
+      {withId ? (
+        <p>
+          <code className="mono">{plainText(finding.id)}</code>
+        </p>
+      ) : null}
+      {finding.detail ? <p className="small">{plainText(finding.detail)}</p> : null}
+      {finding.why ? <p className="small muted">{finding.why}</p> : null}
     </div>
+  );
+}
+
+// Gone says the pair the member chose left the list while the dialog was open, and what it was: the finding stays chosen,
+// the dialog cannot send it, and the pickers, if there are any, choose another.
+function Gone({ children }: { children: string }) {
+  return (
+    <p className="msg msg-warning" role="alert">
+      <Icon name="warning" size="sm" />
+      <span>{children}</span>
+    </p>
   );
 }
 
@@ -95,17 +140,16 @@ export function AcknowledgeDialog({ views, repository, finding, onClose, after }
   const [tried, setTried] = useState(false);
   const change = useChange();
   const toast = useToast();
-  const field = useRef<HTMLTextAreaElement>(null);
   const problem = tried ? reasonProblem(reason) : "";
   const send = async () => {
     setTried(true);
-    if (!choice.view || !choice.finding || reasonProblem(reason) !== "") {
+    if (!choice.chosen || choice.gone || reasonProblem(reason) !== "") {
       return;
     }
-    const target = choice.finding.id;
-    const done = await change.run(() => acknowledgeFinding(choice.view?.repository ?? "", target, reason));
+    const { repository: target, finding: id } = choice.chosen;
+    const done = await change.run(() => acknowledgeFinding(target, id, reason));
     if (done) {
-      toast("success", `Acknowledged ${target}.`);
+      toast("success", `Acknowledged ${id}.`);
       onClose();
       after();
     }
@@ -115,20 +159,19 @@ export function AcknowledgeDialog({ views, repository, finding, onClose, after }
       open
       title="Acknowledge finding"
       onClose={onClose}
-      initialFocus={choice.finding ? field : undefined}
       footer={
         <>
           <span className="spacer" />
           <Button onClick={onClose}>Cancel</Button>
-          {choice.finding ? (
-            <Button variant="primary" loading={change.busy} onClick={() => void send()}>
+          {choice.chosen ? (
+            <Button variant="primary" loading={change.busy} disabled={choice.gone} onClick={() => void send()}>
               Acknowledge
             </Button>
           ) : null}
         </>
       }
     >
-      {choice.finding ? (
+      {choice.chosen ? (
         <form
           className="field-stack"
           noValidate
@@ -138,9 +181,9 @@ export function AcknowledgeDialog({ views, repository, finding, onClose, after }
           }}
         >
           <Pickers choice={choice} locked={repository !== undefined} />
-          <FindingWords finding={choice.finding} />
+          {choice.finding ? <FindingWords finding={choice.finding} withId={repository === undefined} /> : <Gone>This finding is no longer open.</Gone>}
           <Field label="Reason" help="Why this finding stays open. It stays beside the finding, with your name and the time, and the finding stays in the list." error={problem || undefined}>
-            <textarea ref={field} className="textarea" rows={3} autoComplete="off" value={reason} onChange={(event) => setReason(event.target.value)} />
+            <textarea className="textarea" rows={3} autoComplete="off" value={reason} onChange={(event) => setReason(event.target.value)} />
           </Field>
           {change.failure ? <Refusal>{change.failure}</Refusal> : null}
         </form>
@@ -157,13 +200,13 @@ export function WithdrawDialog({ views, repository, finding, onClose, after }: P
   const change = useChange();
   const toast = useToast();
   const send = async () => {
-    if (!choice.view || !choice.finding) {
+    if (!choice.chosen || choice.gone) {
       return;
     }
-    const target = choice.finding.id;
-    const done = await change.run(() => withdrawAcknowledgement(choice.view?.repository ?? "", target));
+    const { repository: target, finding: id } = choice.chosen;
+    const done = await change.run(() => withdrawAcknowledgement(target, id));
     if (done) {
-      toast("success", `Withdrew the acknowledgement of ${target}.`);
+      toast("success", `Withdrew the acknowledgement of ${id}.`);
       onClose();
       after();
     }
@@ -178,24 +221,24 @@ export function WithdrawDialog({ views, repository, finding, onClose, after }: P
         <>
           <span className="spacer" />
           <Button onClick={onClose}>Cancel</Button>
-          {choice.finding ? (
-            <Button variant="primary" loading={change.busy} onClick={() => void send()}>
+          {choice.chosen ? (
+            <Button variant="primary" loading={change.busy} disabled={choice.gone} onClick={() => void send()}>
               Withdraw acknowledgement
             </Button>
           ) : null}
         </>
       }
     >
-      {choice.finding ? (
+      {choice.chosen ? (
         <div className="field-stack">
           <Pickers choice={choice} locked={repository !== undefined} />
-          <FindingWords finding={choice.finding} />
+          {choice.finding ? <FindingWords finding={choice.finding} withId={repository === undefined} /> : <Gone>This acknowledgement was already withdrawn.</Gone>}
           {held ? (
             <p className="small">
               Acknowledged by {plainText(held.member)}: {plainText(held.reason)}
             </p>
           ) : null}
-          <p className="small muted">The finding reads as an open finding again.</p>
+          {choice.finding ? <p className="small muted">The finding reads as an open finding again.</p> : null}
           {change.failure ? <Refusal>{change.failure}</Refusal> : null}
         </div>
       ) : (
