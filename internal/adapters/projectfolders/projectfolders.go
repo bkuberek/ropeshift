@@ -252,15 +252,15 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 	if err := same(); err != nil {
 		return "", err
 	}
-	if _, err := git.Output(ctx, "init", "--quiet", "--template=", "--initial-branch="+f.defaultBranch(ctx, path)); err != nil {
+	if _, err := git.Output(ctx, "init", "--quiet", "--template=", "--initial-branch="+f.DefaultBranch(ctx, path)); err != nil {
 		return "", describe(err)
 	}
-	// Git adds a file it ignores only when told to, and refuses a path it ignores, so the commit adds the paths git
-	// would add, as `git add -A` did.
+	// Git refuses a path it ignores, so the commit adds the paths git would add, as `git add -A` did: those it tracks, which
+	// a run that died after its add already holds in the index, and those it does not ignore.
 	if err := same(); err != nil {
 		return "", err
 	}
-	listed, err := git.Output(ctx, append([]string{"ls-files", "-z", "--others", "--exclude-standard", "--"}, commit.Paths...)...)
+	listed, err := git.Output(ctx, append([]string{"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--"}, commit.Paths...)...)
 	if err != nil {
 		return "", describe(err)
 	}
@@ -288,13 +288,13 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 // folder before, or git ignores each.
 var errNothingToCommit = errors.New("no file to commit: every file the shape writes was in the folder already or is ignored by git")
 
-// defaultBranch is the branch a new repository at path starts on: the one the global and then the system git
+// DefaultBranch is the branch a new repository at path starts on: the one the global and then the system git
 // configuration name as init.defaultBranch, as `git init` reads them and never the configuration of a clone around the
 // folder, and main when they name none or name a branch git would refuse.
-func (f Folders) defaultBranch(ctx context.Context, path string) string {
+func (f Folders) DefaultBranch(ctx context.Context, path string) string {
 	git := gitcli.Git{Dir: path, Env: f.Env}
 	for _, scope := range []string{"--global", "--system"} {
-		name, err := git.Text(ctx, "config", scope, "--get", "init.defaultBranch")
+		name, err := git.Text(ctx, "config", scope, "--includes", "--get", "init.defaultBranch")
 		if err != nil || name == "" {
 			continue
 		}

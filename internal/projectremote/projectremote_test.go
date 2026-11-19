@@ -509,7 +509,7 @@ func TestTheFirstCommitIsMadeOnlyWhenAsked(t *testing.T) {
 	if report.Commit != "" || len(report.Repositories) != 0 {
 		t.Errorf("report = %+v", report)
 	}
-	if len(report.Commands) < 3 || report.Commands[0] != "git -C /srv/acme init" {
+	if len(report.Commands) < 3 || report.Commands[0] != "git -C /srv/acme init --initial-branch=main" {
 		t.Errorf("commands = %v: the git commands are the person's", report.Commands)
 	}
 }
@@ -668,7 +668,7 @@ func TestTheFirstCommitAddsOnlyTheFilesTheRunWrote(t *testing.T) {
 	request.FirstCommit = false
 	report := other.run(t, request, &projectremote.Progress{})
 	git := "git -C /srv/acme --literal-pathspecs"
-	add := git + " ls-files -z --others --exclude-standard -- " + strings.Join(withoutFile(projectfiles.Monorepo, "AGENTS.md"), " ") + " | xargs -0 " + git + " add --"
+	add := git + " ls-files -z --cached --others --exclude-standard -- " + strings.Join(withoutFile(projectfiles.Monorepo, "AGENTS.md"), " ") + " | xargs -0 " + git + " add --"
 	if !slices.Contains(report.Commands, add) {
 		t.Errorf("the commands lack %q:\n%s", add, strings.Join(report.Commands, "\n"))
 	}
@@ -765,5 +765,26 @@ func TestAJournalFromBeforeTheListingAddsEveryFileOfTheShape(t *testing.T) {
 	}
 	if got, want := m.folders.Staged("/srv/acme"), projectfiles.Paths(projectfiles.Monorepo, nil); !slices.Equal(got, want) {
 		t.Errorf("the first commit added %v, want %v", got, want)
+	}
+}
+
+// The commands a person copies make the repository on the branch the run chose, and the push that finishes what failed
+// pushes that branch when the repository has none yet, never a branch the run did not choose.
+func TestThePrintedCommandsNameTheBranchTheRunChose(t *testing.T) {
+	m := newMachine()
+	m.folders.SetDefaultBranch("trunk")
+	request := monorepo(nil)
+	request.FirstCommit = false
+	report := m.run(t, request, &projectremote.Progress{})
+	if !slices.Contains(report.Commands, "git -C /srv/acme init --initial-branch=trunk") {
+		t.Errorf("the commands are %v", report.Commands)
+	}
+
+	failed := newMachine()
+	failed.folders.SetDefaultBranch("trunk")
+	failed.folders.CommitError = errors.New("Author identity unknown")
+	report = failed.run(t, monorepo(&ledger.ProjectRemote{URL: "https://example.com/acme.git"}), &projectremote.Progress{})
+	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin trunk") {
+		t.Errorf("remaining is %v, want a push of trunk", report.Remaining)
 	}
 }

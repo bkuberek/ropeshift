@@ -54,7 +54,7 @@ func (c *invocation) dryRunNew(shape projectfiles.Shape, folder, project string,
 		result.Commands = projectfiles.Commands(shape, folder, project, data.Repositories, false)
 		result.Repositories = plannedRepositories(*request, data.Project)
 	} else {
-		result.Commands = projectfiles.CommandsStaging(shape, folder, project, data.Repositories, result.Written)
+		result.Commands = projectfiles.CommandsStaging(shape, folder, project, data.Repositories, result.Written, "")
 	}
 	return c.finish(nil, result, result.text)
 }

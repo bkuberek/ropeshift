@@ -172,7 +172,7 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		return c.finish(err, nil, nil)
 	}
 	if firstCommit {
-		result.Commands = projectfiles.CommandsStaging(shape, folder, project, data.Repositories, result.Written)
+		result.Commands = projectfiles.CommandsStaging(shape, folder, project, data.Repositories, result.Written, "")
 	} else {
 		result.Commands = projectfiles.Commands(shape, folder, project, data.Repositories, false)
 	}
