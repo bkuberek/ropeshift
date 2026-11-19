@@ -804,10 +804,15 @@ func TestAnIncrementalScanThatCannotContinueFromTheKeptResultKeepsTheKeptSecrets
 	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
 	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, "", "1a2b3c4d5e6f"))
 	// Request A was made after the first, offered a scan from tipOne, and expired with no report.
-	r.inserted(ledger.PracticesRequest{
+	a := ledger.PracticesRequest{
 		ID: "req-a", Repository: "repo-a", Worker: "worker-1", Cause: ledger.PracticesMember, RequestedBy: "m",
-		RequestedAt: first.RequestedAt + 1, ExpiresAt: first.RequestedAt + 2, State: ledger.PracticesOffered,
-	})
+		RequestedAt: first.RequestedAt + 1, ExpiresAt: first.RequestedAt + 1 + ledger.PracticesRequestTTLMs, State: ledger.PracticesOffered,
+	}
+	r.inserted(a)
+	tick := r.practicesOver(pinnedClock{Store: r.store, now: a.ExpiresAt})
+	if ids, err := tick.Expire(t.Context(), "pa", projectMember); err != nil || !slices.Equal(ids, []string{a.ID}) {
+		t.Fatalf("expiring stored %v as expired (%v), want %s", ids, err, a.ID)
+	}
 	// B is offered a scan from tipOne too, while A's report is still to come.
 	b := r.requested(r.request(ledger.PracticesMember, "repo-a"))
 	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != b.ID || offered[0].ScannedFrom != tipOne {
