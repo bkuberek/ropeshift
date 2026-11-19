@@ -3,6 +3,7 @@ package server_test
 import (
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -176,4 +178,75 @@ func asDelegateOn(t *testing.T, socket, token string) *api.Client {
 	client.UseDelegate(token)
 	client.UseWhy(aWhy)
 	return client
+}
+
+// The route reads each repository's practices only when the request asks, in process on the worker's machine and with
+// no forge binding, and the plan's digest is the one the plan has without them.
+func TestTheAdoptionPlanRouteListsPracticesOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	aWorkspaceOfClones(in)
+	in.Practices.SetSnapshot("/work/ws/repos/api", practices.Snapshot{Commit: "1111111111111111111111111111111111111111", Paths: []string{"go.mod", "main.go"}})
+	_, _, client := in.In(t, apitest.ProjectName)
+
+	plain, err := client.AdoptionPlan(t.Context(), api.AdoptionPlanRequest{Root: "/work/ws"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, repository := range plain.Repositories {
+		if repository.Practices != nil {
+			t.Errorf("%s holds practices in a plan that asked for none", repository.Path)
+		}
+	}
+	if len(in.Practices.SnapshotCalls) != 0 {
+		t.Fatalf("a plan that asked for none read %v", in.Practices.SnapshotCalls)
+	}
+	asked, err := client.AdoptionPlan(t.Context(), api.AdoptionPlanRequest{Root: "/work/ws", Practices: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *practices.Result
+	for _, repository := range asked.Repositories {
+		if repository.Path == "/work/ws/repos/api" {
+			found = repository.Practices
+		}
+	}
+	if found == nil || found.BaseBranch != "main" || len(found.Findings) == 0 {
+		t.Fatalf("the api repository holds %+v", found)
+	}
+	if asked.Digest != plain.Digest {
+		t.Errorf("the plan with practices has the digest %s, want %s", asked.Digest, plain.Digest)
+	}
+	if len(in.Practices.SettingsCalls) != 0 {
+		t.Errorf("the forge was read: %v", in.Practices.SettingsCalls)
+	}
+}
+
+// The route answers the table's words for each practice a finding of the plan names, once, beside the plan, so the
+// web UI prints the same why and fix as the command line without carrying the table.
+func TestTheAdoptionPlanRouteAnswersTheGuideOfEachPracticeFound(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	aWorkspaceOfClones(in)
+	in.Practices.SetSnapshot("/work/ws/repos/api", practices.Snapshot{Commit: "1111111111111111111111111111111111111111", Paths: []string{"go.mod"}})
+	var reply api.AdoptionPlanReply
+	if err := in.Client.Do(t.Context(), http.MethodPost, api.AdoptionPlanPath, api.AdoptionPlanRequest{Root: "/work/ws", NewProject: true, Practices: true}, &reply); err != nil {
+		t.Fatal(err)
+	}
+	guide, ok := reply.Guides[string(practices.Codeowners)]
+	want, _ := practices.Lookup(practices.Codeowners)
+	if !ok || guide.Fix != want.Fix || guide.Why != want.Why || guide.Template != "codeowners" || guide.Command != want.Command() {
+		t.Errorf("the guide of codeowners reads %+v, want the table's words", guide)
+	}
+	for id := range reply.Guides {
+		if !slices.ContainsFunc(reply.Repositories, func(r planning.PlannedRepository) bool {
+			return r.Practices != nil && slices.ContainsFunc(r.Practices.Findings, func(f practices.Finding) bool { return string(f.Practice) == id })
+		}) {
+			t.Errorf("the reply holds the guide of %s, which no finding names", id)
+		}
+	}
+	plain := api.AdoptionPlanReply{}
+	if err := in.Client.Do(t.Context(), http.MethodPost, api.AdoptionPlanPath, api.AdoptionPlanRequest{Root: "/work/ws", NewProject: true}, &plain); err != nil || len(plain.Guides) != 0 {
+		t.Errorf("a plan that asked for no practices answers the guides %v: %v", plain.Guides, err)
+	}
 }

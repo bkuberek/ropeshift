@@ -7,15 +7,18 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/practicegit"
 	"ropeshift.com/ropeshift/internal/adoption"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -185,4 +188,20 @@ func fakeRopeshift(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	return dir + string(os.PathListSeparator) + os.Getenv("PATH"), record
+}
+
+// The practices a dry run lists are read with the machine's own git, through the reads the entry package wires: a
+// clone of a real repository gives findings, and the settings of a forge are never read for it.
+func TestTheAdoptionPlanReadsPracticesWithTheMachinesGit(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("go.mod", "module acme.test/api\n\ngo 1.24\n\nrequire example.test/dep v1.0.0\n")
+	sources := practiceSources()
+	sources.Snapshots, sources.Secrets = practicegit.Snapshots{Env: repo.Env()}, practicegit.SecretScanner{Env: repo.Env()}
+	got, err := adoption.CheckPractices(t.Context(), sources, planning.PlannedRepository{Name: "api", Path: repo.Dir, ID: "api", Outcome: string(ledger.Registered)}, repo.Dir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Practices == nil || !slices.ContainsFunc(got.Practices.Findings, func(f practices.Finding) bool { return f.ID == "lockfile:go" }) {
+		t.Errorf("the repository holds %+v and the note %q", got.Practices, got.PracticesNote)
+	}
 }

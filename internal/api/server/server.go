@@ -21,6 +21,7 @@ import (
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/version"
@@ -102,6 +103,9 @@ type Config struct {
 	// Layouts reads how the clones on that machine are laid out, for the plan of an adoption (FR-ADOPT-12). Nil
 	// reads none, and the plan refuses.
 	Layouts ports.Layouts
+	// PracticeSources are the reads the plan of an adoption makes of each clone's practices, on the machine of the
+	// worker this daemon runs (FR-PRAC-6). The zero value reads none.
+	PracticeSources practicerun.Sources
 	// ParseManifest reads the text of a repository manifest (ADR-0022). Nil reads none, and a registration
 	// from a manifest refuses.
 	ParseManifest func([]byte) (planning.RepositoriesFile, error)
@@ -317,7 +321,7 @@ func newHandler(config Config) *handler {
 	repositories := control.NewRepositories(config.Store).Rooted(config.Profiles).Practicing(practices).Warning(config.Warn)
 	return &handler{
 		Config:        config,
-		adoptions:     control.NewAdoptions(repositories),
+		adoptions:     control.NewAdoptions(repositories).Checking(config.PracticeSources),
 		workOrders:    control.NewWorkOrders(config.Store),
 		leases:        control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:       control.NewReviews(config.Store),

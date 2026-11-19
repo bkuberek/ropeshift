@@ -27,6 +27,7 @@ import (
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -346,6 +347,8 @@ type Installation struct {
 	Checkouts *fake.Checkouts
 	// Layouts is how the clones on that machine are laid out, which a test places beside each clone.
 	Layouts *fake.Layouts
+	// Practices is what the practices check reads on that machine, which a test sets beside each clone.
+	Practices *fake.Practices
 }
 
 // StartInstallation serves an installation with the projects named after its first one, until the test
@@ -376,17 +379,18 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 		}
 	}
 	identity := fake.NewIdentityProvider().Within(store)
-	machine, layouts := fake.NewCheckouts(), fake.NewLayouts()
+	machine, layouts, practiceReads := fake.NewCheckouts(), fake.NewLayouts(), &fake.Practices{}
 	config := server.Config{
 		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
 		Matcher:   lexical.Matcher{Store: store},
 		Matching:  func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Checkouts: machine, Layouts: layouts,
+		PracticeSources: practicerun.Sources{Snapshots: practiceReads, Secrets: practiceReads, Forge: practiceReads, Clock: fake.NewClock(time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC))},
 	}
 	daemon := serve(t, config, nil)
 	daemon.Store = store
 	daemon.signIn(t, identity)
-	return &Installation{Daemon: daemon, State: state, Checkouts: machine, Layouts: layouts}
+	return &Installation{Daemon: daemon, State: state, Checkouts: machine, Layouts: layouts, Practices: practiceReads}
 }
 
 // In returns the Store and the member's client of one project.
