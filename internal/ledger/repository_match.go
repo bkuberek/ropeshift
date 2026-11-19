@@ -18,6 +18,39 @@ func RemotesDiffer(a, b string) bool {
 	return RepositoryIdentity(a, "") != RepositoryIdentity(b, "")
 }
 
+// NetworkRemote says a remote names a repository on a host, as a URL or git's scp-like form does. A path on this
+// machine, relative or absolute, a file URL, or a remote helper's address names a place that means something only beside the clone that holds
+// it, so two clones can share one, and it names no repository.
+func NetworkRemote(remote string) bool {
+	remote = strings.TrimSpace(remote)
+	if helperRemote(remote) {
+		return false
+	}
+	host, _ := splitRemote(remote)
+	return host != ""
+}
+
+// helperRemote says a remote names a remote helper, as `<transport>::<address>` does, such as `ext::` which runs a
+// command. A helper's address means what its program makes of it, so it names no repository on a host.
+func helperRemote(remote string) bool {
+	transport, _, found := strings.Cut(remote, "::")
+	return found && transport != "" && !strings.ContainsAny(transport, "/:@ ")
+}
+
+// CommitHash says a string is the ID of a git commit: 40 hexadecimal characters, or 64 for a repository whose
+// objects are hashed with SHA-256.
+func CommitHash(commit string) bool {
+	if len(commit) != 40 && len(commit) != 64 {
+		return false
+	}
+	for _, c := range commit {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // MatchRepository finds the record a clone registers as, from its first-parent root and every root it holds
 // (FR-REPO-14). In order:
 //

@@ -42,6 +42,13 @@ var AdoptChecks = []Check{
 	{"AS23", "a consolidation's merge commit the base refuses for a linear history holds with a reason that says so", checkAMergeCommitTheBaseRefusesSaysWhy},
 	{"AS24", "a merged consolidation whose base cannot be checked waits for a member, with why", checkAMergedConsolidationWithNoDesignTipIsTold},
 	{"AS25", "a consolidation lists at most a bounded number of colliding paths, and says the list is cut short", checkTheCollisionsAreCutShort},
+	{"AS26", "a repository that shares the design repository's first commit and has the same relative remote is not removed, and the request says why", checkARelativeRemoteConfirmsNoDesignRepository},
+	{"AS27", "a merged consolidation's base that cannot be checked is raised after two failed checks in a row, and a check that reads it ends the run", checkAnUnreadBaseIsRaisedAfterTwoFailedChecksInARow},
+	{"AS28", "a branch that lacks the merge the worker recorded as its import is unread, though it holds a merge with the import's subject", checkAnImportTheWorkerDidNotRecordIsNotConfirmed},
+	{"AS29", "an adoption whose worker recorded no import is unread", checkAnAdoptionWhoseWorkerRecordedNoImportIsUnread},
+	{"AS30", "a lane's end keeps the merge its worker reported as the import, as an artifact of the branch's lane", checkALanesEndKeepsTheImportItReports},
+	{"AS31", "an import that did not grow from the commit the claim began the branch at is unread", checkAnImportThatDidNotGrowFromTheClaimsBaseIsUnread},
+	{"AS32", "a lane's end keeps no import that is not a commit ID", checkALanesEndKeepsNoImportThatIsNotACommitID},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a
@@ -277,6 +284,12 @@ func adoptedFiles() map[string]string {
 // adoptLaneEnds runs an adopt work order's lane from a claim that recorded where its branch began, and ends it
 // with the branch at head.
 func (w *startWorld) adoptLaneEnds(id, head string) error {
+	return w.adoptLaneEndsImporting(id, head, "")
+}
+
+// adoptLaneEndsImporting is adoptLaneEnds for a lane whose worker made the merge commit imported on its branch and
+// reported it.
+func (w *startWorld) adoptLaneEndsImporting(id, head, imported string) error {
 	request := w.r.Request(id, "a")
 	grant, err := w.leases.Claim(w.r.Ctx, w.r.Scope, request, w.r.worker("a"))
 	if err != nil {
@@ -292,7 +305,9 @@ func (w *startWorld) adoptLaneEnds(id, head string) error {
 		return err
 	}
 	holder := workorders.Holder{Lease: grant.Lease, Lane: lane, Generation: generation}
-	return ops.EndLane(w.r.Ctx, w.r.Scope, holder, LaneFinished(head, LaneCheck(criterionOne, true)), w.r.worker("a"))
+	result := LaneFinished(head, LaneCheck(criterionOne, true))
+	result.ImportMerge = imported
+	return ops.EndLane(w.r.Ctx, w.r.Scope, holder, result, w.r.worker("a"))
 }
 
 // pendingAdoption takes in the adopt lane's branch and reads what its request says of the adoption.

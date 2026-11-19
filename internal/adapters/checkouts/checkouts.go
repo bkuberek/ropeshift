@@ -103,6 +103,25 @@ func (f *File) Keep(_ context.Context, project ledger.WorkspaceID, repository, p
 	return f.write(doc)
 }
 
+// KeepIfAbsent records a checkout only while the worker keeps none of the repository, under the same lock as Keep,
+// so a checkout another caller kept is never replaced.
+func (f *File) KeepIfAbsent(_ context.Context, project ledger.WorkspaceID, repository, path string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, err := f.read()
+	if err != nil {
+		return false, err
+	}
+	if _, kept := doc.Projects[project][repository]; kept {
+		return false, nil
+	}
+	if doc.Projects[project] == nil {
+		doc.Projects[project] = map[string]string{}
+	}
+	doc.Projects[project][repository] = path
+	return true, f.write(doc)
+}
+
 // Forget drops this worker's checkout of a project's repository. Forgetting one it never kept writes
 // nothing.
 func (f *File) Forget(_ context.Context, project ledger.WorkspaceID, repository string) error {

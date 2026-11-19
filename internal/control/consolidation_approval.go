@@ -47,9 +47,10 @@ func (i *Intake) consolidationRead(ctx context.Context, scope ledger.WorkspaceID
 }
 
 // readImport fills in the merge, the design tip, and the collisions of a consolidation from the adoption branch,
-// and says why it could not when it could not. The import is the oldest merge on the branch with the import's
-// subject, which the worker made before the lane began, and its second parent must begin at the design
-// repository's first commit, so a merge the lane made with that subject imports nothing here.
+// and says why it could not when it could not. The import is the merge commit the worker recorded when it made the
+// import, before the lane began: it must be on the branch, be a merge with the import's subject that grew from the
+// commit the claim began the branch at, and have a second parent whose history begins at the design repository's
+// first commit. A merge the lane made with the import's subject is not the one the worker recorded.
 func (i *Intake) readImport(ctx context.Context, scope ledger.WorkspaceID, plan acceptedPlan, view *planning.Consolidation) string {
 	if i.starts == nil {
 		return "this control plane reads no repository's history"
@@ -63,19 +64,31 @@ func (i *Intake) readImport(ctx context.Context, scope ledger.WorkspaceID, plan 
 		return err.Error()
 	}
 	// The branch is read from the commit its claim began it at, or from its newest commits when no claim says.
-	var base string
+	var base, recorded string
 	_ = i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
-		claim, err := tx.Claims().OfLane(plan.lane)
+		claim, _ := tx.Claims().OfLane(plan.lane)
 		base = claim.BaseCommit
+		artifacts, err := tx.Evidence().Artifacts(plan.order.ID)
+		recorded = importArtifact(artifacts, plan.order.Fence)
 		return err
 	})
+	if recorded == "" {
+		return fmt.Sprintf("the worker recorded no merge commit that imports the history of %s on the adoption branch", view.Design)
+	}
 	commits, err := imports.BranchCommits(ctx, path, base, plan.commit)
 	if err != nil {
 		return fmt.Sprintf("git could not read the adoption branch at %s: %v", plan.commit, err)
 	}
-	merge, found := importCommit(commits)
+	merge, found := commitNamed(commits, recorded)
 	if !found {
-		return fmt.Sprintf("the adoption branch holds no merge commit that imports the history of %s among its %d newest commits", view.Design, len(commits))
+		return fmt.Sprintf("the adoption branch does not hold the merge commit %s that the worker recorded as the import of the history of %s among its %d newest commits", recorded, view.Design, len(commits))
+	}
+	design, imported := planning.ImportedDesign(merge.Subject)
+	if !imported || len(merge.Parents) != 2 {
+		return fmt.Sprintf("the commit %s that the worker recorded as the import of the history of %s is not a merge commit with the import's subject", recorded, view.Design)
+	}
+	if base != "" && merge.Parents[0] != base {
+		return fmt.Sprintf("the merge commit %s that the worker recorded as the import of the history of %s did not grow from %s, the commit the adoption branch began at", recorded, view.Design, base)
 	}
 	root, err := imports.FirstParentRoot(ctx, path, merge.Parents[1])
 	if err != nil {
@@ -85,7 +98,6 @@ func (i *Intake) readImport(ctx context.Context, scope ledger.WorkspaceID, plan 
 		return fmt.Sprintf("the merge commit %s brings a history whose first commit is %s, not the design repository's first commit %s, so it imports no history of the design repository",
 			merge.Hash, root, want)
 	}
-	design, _ := planning.ImportedDesign(merge.Subject)
 	ours, oursCut, err := imports.CommitPaths(ctx, path, merge.Parents[0], importPaths)
 	if err != nil {
 		return fmt.Sprintf("git could not read what the workspace held at %s: %v", merge.Parents[0], err)
@@ -106,22 +118,31 @@ func (i *Intake) readImport(ctx context.Context, scope ledger.WorkspaceID, plan 
 	return ""
 }
 
-// importCommit is the oldest commit of a branch, listed newest first, that imports a design repository's history: a
-// merge commit with the import's subject, which the worker makes before an adopt lane starts. A later one is the
-// lane's own.
-func importCommit(commits []ports.Commit) (ports.Commit, bool) {
-	for _, commit := range slices.Backward(commits) {
-		if _, imports := planning.ImportedDesign(commit.Subject); imports && len(commit.Parents) == 2 {
-			return commit, true
+// importArtifact is the merge commit the worker recorded as the import of the attempt with a fence, or nothing when
+// it recorded none.
+func importArtifact(artifacts []ledger.Artifact, fence int64) string {
+	var found string
+	for _, artifact := range artifacts {
+		if artifact.Kind == ledger.ArtifactImport && artifact.Fence == fence {
+			found = artifact.Digest
 		}
 	}
-	return ports.Commit{}, false
+	return found
+}
+
+// commitNamed is the commit of a branch, listed newest first, with a hash.
+func commitNamed(commits []ports.Commit, hash string) (ports.Commit, bool) {
+	at := slices.IndexFunc(commits, func(commit ports.Commit) bool { return commit.Hash == hash })
+	if at < 0 {
+		return ports.Commit{}, false
+	}
+	return commits[at], true
 }
 
 // confirmDesign reads whether the record the project holds under the design repository's first commit is the clone
-// the adoption imported: this worker keeps the record at that clone, or the record's remote and the clone's name
-// one repository. Two repositories cut from one first commit with different remotes, or with a remote missing, are
-// not told apart that way, so approving removes nothing and the request says why. It names the confirmed record,
+// the adoption imported: this worker keeps the record at that clone, or the record's remote and the clone's, both on
+// a host, name one repository. A remote that is a path on this machine names no repository. Two repositories cut
+// from one first commit with different remotes, or with a remote missing or local, are not told apart that way, so approving removes nothing and the request says why. It names the confirmed record,
 // or nothing with the reason.
 func (i *Intake) confirmDesign(ctx context.Context, scope ledger.WorkspaceID, choice planning.Restructure) (string, string) {
 	var record ledger.Repository
@@ -152,7 +173,7 @@ func (i *Intake) confirmDesign(ctx context.Context, scope ledger.WorkspaceID, ch
 		return record.ID, ""
 	}
 	remote := cloneRemote(ctx, i.kept, choice.DesignPath)
-	if record.Remote != "" && remote != "" && !ledger.RemotesDiffer(record.Remote, remote) {
+	if ledger.NetworkRemote(record.Remote) && ledger.NetworkRemote(remote) && !ledger.RemotesDiffer(record.Remote, remote) {
 		return record.ID, ""
 	}
 	where := "keeps no checkout of it"

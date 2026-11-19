@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -155,5 +156,44 @@ func TestMatchRepositoryReportsALookupFailure(t *testing.T) {
 	_, _, _, err := MatchRepository("c", []string{"a", "c"}, nil, nil, func(string) (Repository, bool, error) { return Repository{}, false, failure })
 	if !errors.Is(err, failure) {
 		t.Errorf("the failure reads %v", err)
+	}
+}
+
+func TestOnlyARemoteOnAHostNamesARepository(t *testing.T) {
+	for remote, want := range map[string]bool{
+		"https://example.invalid/acme/design.git": true,
+		"git@example.invalid:acme/design.git":     true,
+		"ssh://git@example.invalid:22/acme/d.git": true,
+		"../design.git":                          false,
+		"./design.git":                           false,
+		"/srv/git/design.git":                    false,
+		"file:///srv/git/design.git":             false,
+		"design.git":                             false,
+		"ext::sh -c 'git-upload-pack /srv/x'":    false,
+		"fd::3/design":                           false,
+		"testgit::https://example.invalid/d.git": false,
+		"":                                       false,
+		"  ":                                     false,
+	} {
+		if got := NetworkRemote(remote); got != want {
+			t.Errorf("NetworkRemote(%q) = %v, want %v", remote, got, want)
+		}
+	}
+}
+
+func TestACommitIDIsFortyOrSixtyFourLowercaseHexCharacters(t *testing.T) {
+	for commit, want := range map[string]bool{
+		strings.Repeat("a", 40): true,
+		strings.Repeat("0", 64): true,
+		strings.Repeat("a", 39): false,
+		strings.Repeat("a", 41): false,
+		strings.Repeat("g", 40): false,
+		strings.Repeat("A", 40): false,
+		"import-merge":          false,
+		"":                      false,
+	} {
+		if got := CommitHash(commit); got != want {
+			t.Errorf("CommitHash(%q) = %v, want %v", commit, got, want)
+		}
 	}
 }

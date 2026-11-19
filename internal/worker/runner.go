@@ -578,11 +578,16 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 	}
 	r.discardReads(context.WithoutCancel(ctx))
 	r.recordUsage(context.WithoutCancel(ctx))
-	return r.w.endLane(context.WithoutCancel(ctx), r.record(), r.lease.BaseCommit, workorders.LaneResult{
+	return r.w.endLane(context.WithoutCancel(ctx), r.record(), r.lease.BaseCommit, r.endResult(report), r.fenced.Load())
+}
+
+// endResult is what the lane's end records of what only the worker saw, beside the report.
+func (r *laneRun) endResult(report workorders.Report) workorders.LaneResult {
+	return workorders.LaneResult{
 		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
-		Settings: r.endSettings(), MaxReviewRounds: r.reviewBound(),
-	}, r.fenced.Load())
+		Settings: r.endSettings(), MaxReviewRounds: r.reviewBound(), ImportMerge: r.importMerge(),
+	}
 }
 
 // adoptedRun rebuilds a lane's run from the journal, because nothing else survived.

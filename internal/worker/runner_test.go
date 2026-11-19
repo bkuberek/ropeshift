@@ -310,7 +310,7 @@ func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
 	t.Parallel()
 	r := newLaneRig(t)
 	claimed := fake.DriverStep{Do: func(spec ports.SessionSpec) {
-		raw := []byte(`{"outcome":"completed","branch":"lane/not-this-one","head":"a-session-wrote-this"}`)
+		raw := []byte(`{"outcome":"completed","branch":"lane/not-this-one","head":"a-session-wrote-this","import_merge":"a-session-wrote-this-too"}`)
 		if _, err := r.journal.SaveReport(context.Background(), spec.Lane, raw); err != nil {
 			r.t.Error(err)
 		}
@@ -328,6 +328,9 @@ func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
 	}
 	if result.Change != nil {
 		t.Errorf("a lane with no base commit measured %+v", result.Change)
+	}
+	if result.ImportMerge != "" {
+		t.Errorf("a lane that imported nothing reports the import %q", result.ImportMerge)
 	}
 }
 

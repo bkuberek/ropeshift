@@ -188,6 +188,10 @@ func (unavailableCheckouts) Keep(context.Context, ledger.WorkspaceID, string, st
 	return repositoryRead(readCheckouts)
 }
 
+func (unavailableCheckouts) KeepIfAbsent(context.Context, ledger.WorkspaceID, string, string) (bool, error) {
+	return false, repositoryRead(readCheckouts)
+}
+
 func (unavailableCheckouts) Forget(context.Context, ledger.WorkspaceID, string) error {
 	return repositoryRead(readCheckouts)
 }
