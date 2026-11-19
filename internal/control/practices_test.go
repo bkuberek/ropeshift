@@ -187,10 +187,16 @@ func (r *practicesRig) mustReport(request, outcome string, result *practices.Res
 
 // aResult is what a check of a repository at a commit came to: an env finding, and the secret findings given.
 func aResult(repository, commit, from string, leaks ...string) *practices.Result {
+	// Every practice of the table once, in its order: `env-ignored` and `secrets` are the first two.
+	statuses := make([]practices.PracticeStatus, 0, len(practices.Table()))
+	for _, p := range practices.Table() {
+		statuses = append(statuses, practices.PracticeStatus{ID: p.ID, Status: practices.StatusMet})
+	}
+	statuses[0].Status = practices.StatusFinding
 	result := practices.Result{
 		Repository: repository, Commit: commit, BaseBranch: "main", Worker: "w", TableVersion: practices.TableVersion, RulesVersion: ledger.CredentialRulesVersion,
 		ScannedFrom: from, CheckedAt: time.Now().UTC().Truncate(time.Millisecond),
-		Practices: []practices.PracticeStatus{{ID: practices.EnvIgnored, Status: practices.StatusFinding}, {ID: practices.Secrets, Status: practices.StatusMet}},
+		Practices: statuses,
 		Findings: []practices.Finding{{
 			ID: "env-ignored:ignore:.", Practice: practices.EnvIgnored, Subject: "ignore:.", Severity: practices.High, Detail: "`.env` is not ignored",
 		}},
@@ -866,6 +872,37 @@ func TestAResultWithAPracticeNoTableHoldsIsRefused(t *testing.T) {
 	}
 	if stored := r.stored(request.ID); stored.State != ledger.PracticesOffered {
 		t.Errorf("a refused report settled the request: %s", stored.State)
+	}
+}
+
+// A result that holds no status for `secrets`, or two, is refused as invalid, so it cannot move the scan tip.
+func TestAResultWithoutExactlyOneSecretsStatusIsRefusedAndLeavesTheTip(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, ""))
+	for name, change := range map[string]func(*practices.Result){
+		"no secrets": func(r *practices.Result) {
+			r.Practices = slices.DeleteFunc(r.Practices, func(p practices.PracticeStatus) bool { return p.ID == practices.Secrets })
+		},
+		"secrets twice": func(r *practices.Result) {
+			r.Practices = append(r.Practices, practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusMet})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+			result := aResult("repo-a", tipTwo, tipOne)
+			change(result)
+			if err := r.report(request.ID, ledger.PracticesOutcomeChecked, result); !errors.Is(err, workorders.ErrInvalid) {
+				t.Errorf("the report answered %v, want invalid", err)
+			}
+			if stored := r.stored(request.ID); stored.State != ledger.PracticesOffered {
+				t.Errorf("a refused report settled the request: %s", stored.State)
+			}
+			if tip := r.tip("repo-a"); tip != tipOne {
+				t.Errorf("the scan tip is %q, want %s left as it was", tip, tipOne)
+			}
+		})
 	}
 }
 

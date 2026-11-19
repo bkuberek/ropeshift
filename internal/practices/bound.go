@@ -103,8 +103,8 @@ func Bound(r Result) Result {
 	return r
 }
 
-// Validate refuses a result no worker makes: a practice the table does not hold, or one twice, a status or a severity
-// no practice has, and a finding of a practice the table does not hold.
+// Validate refuses a result no worker makes: a practice the table does not hold, one twice, or a practice of the table
+// it holds no status for, a status or a severity no practice has, and a finding of a practice the table does not hold.
 func (r Result) Validate() error {
 	seen := map[ID]bool{}
 	for _, p := range r.Practices {
@@ -119,6 +119,11 @@ func (r Result) Validate() error {
 		case StatusMet, StatusFinding, StatusUnknown, StatusNotApplicable:
 		default:
 			return fmt.Errorf("the status of %s is %q, which is no status", p.ID, p.Status)
+		}
+	}
+	for _, p := range table {
+		if !seen[p.ID] {
+			return fmt.Errorf("the result holds no status for %s", p.ID)
 		}
 	}
 	for _, f := range r.Findings {

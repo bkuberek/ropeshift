@@ -147,7 +147,7 @@ func TestBoundKeepsClippedFindingIDsDistinctAndStable(t *testing.T) {
 }
 
 // Validate refuses a result no worker makes: a practice or a status or a severity the tables do not hold, a practice
-// twice, and a finding of no practice.
+// twice or none, and a finding of no practice.
 func TestValidateRefusesAResultNoWorkerMakes(t *testing.T) {
 	good := checked(secondCommit, "", "")
 	if err := good.Validate(); err != nil {
@@ -157,6 +157,13 @@ func TestValidateRefusesAResultNoWorkerMakes(t *testing.T) {
 		"an unknown practice": func(r *practices.Result) { r.Practices[0].ID = "tabs" },
 		"an unknown status":   func(r *practices.Result) { r.Practices[0].Status = "mostly" },
 		"a practice twice":    func(r *practices.Result) { r.Practices = append(r.Practices, r.Practices[0]) },
+		"a practice missing":  func(r *practices.Result) { r.Practices = r.Practices[1:] },
+		"no secrets": func(r *practices.Result) {
+			r.Practices = slices.DeleteFunc(r.Practices, func(p practices.PracticeStatus) bool { return p.ID == practices.Secrets })
+		},
+		"secrets twice": func(r *practices.Result) {
+			r.Practices = append(r.Practices, practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusMet})
+		},
 		"a finding of no practice": func(r *practices.Result) {
 			r.Findings = append(r.Findings, practices.Finding{ID: "x", Practice: "tabs", Severity: practices.Low})
 		},
