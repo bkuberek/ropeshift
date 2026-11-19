@@ -86,6 +86,8 @@ func registry() []section {
 			command("plan list", "", "list plans", (*invocation).planList),
 			command("plan show", "<id>", "show a plan, its goal, contracts, and work, and the approval that waits with what it changes", (*invocation).planShow),
 			command("plan approve", "<id> [--version N]", "approve the plan version that waits, which decides its draft decisions and passes the review of its work", (*invocation).planApprove),
+			command("plan retry", "<plan> <repository> [--version N]", "run the creation of a repository an approved plan version names again, after it was refused, failed, or was interrupted", (*invocation).planRetry),
+			command("plan skip", "<plan> <repository> --reason R [--version N]", "leave a repository an approved plan version names uncreated, with why", (*invocation).planSkip),
 			command("plan revision", "<id>", "show the decisions a member made since a plan's approved version, the finished work they reached, and the work that waits for them", (*invocation).planRevision),
 			command("plan confirm", "<id>", "confirm that a plan's approved version stands with the decisions made since, which releases the work that waited", (*invocation).planConfirm),
 			command("plan revise", "<id> [--worker ID] [--repository R] [--no-attach]", "open a planning session whose brief lists the decisions made since a plan's approved version", (*invocation).planRevise),
