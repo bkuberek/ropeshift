@@ -453,7 +453,8 @@ func (q *Questions) Merge(ctx context.Context, scope ledger.WorkspaceID, id, int
 	})
 }
 
-// mergeIn closes a question in favor of one that stays, in the transaction it is given.
+// mergeIn closes a question in favor of one that stays, in the transaction it is given. The merge is
+// recorded on the rung the question stood on, whoever merged it.
 func (q *Questions) mergeIn(tx ports.WriteTx, record questions.Question, into string, actor ledger.Actor) error {
 	target, err := tx.Questions().Question(into)
 	if err != nil {
@@ -474,7 +475,7 @@ func (q *Questions) mergeIn(tx ports.WriteTx, record questions.Question, into st
 	}
 	crashpoint.Hit("question.merge", "moved")
 	record.Status, record.ClaimedBy, record.ClaimUntil = questions.StatusDismissed, "", 0
-	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged, By: actor.ID})
+	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: record.Rung, Candidates: []string{into}, Outcome: questions.OutcomeMerged, By: actor.ID})
 	if err := saveQuestion(tx, record, actor); err != nil {
 		return err
 	}

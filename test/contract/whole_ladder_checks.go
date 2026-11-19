@@ -21,6 +21,7 @@ var WholeLadderChecks = []Check{
 	{"WL6", "a member's assumption of a question an orchestrator holds, on any rung, closes it, ends the hold, and refuses the orchestrator's next act as resolved", checkTakeoverByAssumption},
 	{"WL7", "a member's merge of a question an orchestrator holds, on any rung, closes it, ends the hold, and refuses the orchestrator's next act as resolved", checkTakeoverByMerge},
 	{"WL8", "a climb cannot record an outcome only the ledger records, so no orchestrator fakes a merge, an answer, a decision, or a rung nobody worked", checkClimbRefusesReservedOutcomes},
+	{"WL9", "a member's merge records the rung the question stood on", checkMemberMergeKeepsItsRung},
 }
 
 // reservedOutcomes are the outcomes only the ledger writes on a step: a merge, an answer from the record, a ruling's
@@ -314,6 +315,32 @@ func checkClimbRefusesReservedOutcomes(r *Rig) error {
 		}
 		if into, merged := dismissed.MergedInto(); merged {
 			return Violatedf("a dismissed question reads as merged into %s after a climb recording %q", into, outcome)
+		}
+	}
+	return nil
+}
+
+func checkMemberMergeKeepsItsRung(r *Rig) error {
+	s := r.Store()
+	holder := r.orchestrator(RungHolder)
+	stays, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	for _, rung := range heldRungs {
+		id, err := r.heldOn(s, fmt.Sprintf("How many retries may a call make on tier %d?", rung), rung, holder)
+		if err != nil {
+			return err
+		}
+		if err := r.NewOps(s).MergeQuestion(r.Ctx, r.Scope, id, stays.QuestionID, r.Actor); err != nil {
+			return err
+		}
+		step, err := r.lastStep(s, id)
+		if err != nil {
+			return err
+		}
+		if step.Outcome != questions.OutcomeMerged || step.Rung != rung {
+			return Violatedf("a member's merge of a question on rung %d reads %+v, want it merged on rung %d", rung, step, rung)
 		}
 	}
 	return nil
