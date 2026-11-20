@@ -65,6 +65,19 @@ describe("grouping by lane", () => {
     ]);
   });
 
+  // Needs you lists every active project's items, and two projects can each have a lane of one name.
+  it("groups a lane's items by its project and its lane, and keys each group by both", () => {
+    const of = (project: string, item: NeedItem): NeedItem => ({ ...item, project: { id: project, name: project } });
+    const items = [of("harbor", approval("h1", "L-1", 1)), of("depot", approval("d1", "L-1", 2)), of("harbor", approval("h2", "L-1", 3)), of("depot", approval("d2", "L-1", 4))];
+    const [section] = arrange(items, "oldest", true);
+    expect(section?.entries.map((entry) => [entry.lane, ids(entry.items)])).toEqual([
+      ["L-1", ["h1", "h2"]],
+      ["L-1", ["d1", "d2"]],
+    ]);
+    const keys = section?.entries.map((entry) => entry.key) ?? [];
+    expect(new Set(keys).size).toBe(2);
+  });
+
   it("groups within a tier, never across one", () => {
     const sections = arrange([approval("a1", "L-1", 1), approval("a2", "L-1", 2, 2, "recovery"), approval("a3", "L-1", 3)], "importance", true);
     expect(sections.map((section) => [section.tier, section.entries.map((entry) => ids(entry.items))])).toEqual([
