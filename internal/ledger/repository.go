@@ -245,8 +245,21 @@ func (r Repository) Base() string {
 	return r.DefaultBranch
 }
 
-// Validate refuses a record that holds a setting nobody offers, or settings that cannot hold together.
-func (r Repository) Validate() error {
+// Validate refuses a record that holds a setting nobody offers, or settings that cannot hold together. Its base branch
+// is checked as a new name, with CheckBranch.
+func (r Repository) Validate() error { return r.validate(CheckBranch) }
+
+// ValidateChange refuses a change to a repository as Validate does, except that a base branch the change keeps is read
+// as a stored name, with CheckStoredBranch, so a repository registered before branch names grew stricter can still be
+// changed. A base branch the change sets is a new name, checked with CheckBranch.
+func (r Repository) ValidateChange(before Repository) error {
+	if r.BaseBranch == before.BaseBranch {
+		return r.validate(CheckStoredBranch)
+	}
+	return r.validate(CheckBranch)
+}
+
+func (r Repository) validate(checkBase func(string) error) error {
 	if r.CI.Custom {
 		if err := r.CI.Check(); err != nil {
 			return err
@@ -283,7 +296,7 @@ func (r Repository) Validate() error {
 		return fmt.Errorf("%w: state %q", ErrInvalidRepository, r.State)
 	}
 	if r.BaseBranch != "" {
-		if err := CheckBranch(r.BaseBranch); err != nil {
+		if err := checkBase(r.BaseBranch); err != nil {
 			return err
 		}
 	}
@@ -305,24 +318,49 @@ func (r Repository) Validate() error {
 // and spaces.
 const forbiddenInBranch = "~^:?*[\\"
 
-// CheckBranch refuses a name git would not take as a branch, because it goes to git as an argument. It also refuses
-// names git takes but reads as something else where a branch is pushed or resolved: HEAD and FETCH_HEAD, which name
-// git's own refs, a leading plus, which a push reads as a forced refspec, and a refs/ prefix, which names a full ref.
+// CheckBranch refuses a new branch name: one CheckStoredBranch refuses, and names git takes but reads as something else
+// where a branch is pushed or resolved: HEAD and FETCH_HEAD, which name git's own refs, a leading plus, which a push
+// reads as a forced refspec, and a refs/ prefix, which names a full ref. It also refuses a character that is not seen
+// and whitespace of any kind.
 func CheckBranch(name string) error {
+	if err := CheckStoredBranch(name); err != nil {
+		return err
+	}
+	bad := func(why string) error { return fmt.Errorf("%w: branch %q %s", ErrInvalidRepository, name, why) }
+	switch {
+	case name == "HEAD" || name == "FETCH_HEAD":
+		return bad("names one of git's own refs")
+	case strings.HasPrefix(name, "+"):
+		return bad("starts with a plus, which a push reads as a forced update")
+	case strings.HasPrefix(name, "refs/"):
+		return bad("starts with refs/, which names a full ref")
+	}
+	for _, r := range name {
+		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
+		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
+		if HiddenRune(r) {
+			return bad("holds a character that is not seen")
+		}
+		if unicode.IsSpace(r) {
+			return bad("holds whitespace")
+		}
+	}
+	return nil
+}
+
+// CheckStoredBranch refuses a branch name git would not take as a branch, because it goes to git as an argument: one
+// that is empty or @, starts with a dash, has an empty part, holds a sequence or a character git refuses, or ends with
+// a dot or has a part git refuses. It is how a name already stored is read, such as a base branch registered before
+// CheckBranch grew stricter. Whatever prints such a name prints it through PlainText.
+func CheckStoredBranch(name string) error {
 	bad := func(why string) error { return fmt.Errorf("%w: branch %q %s", ErrInvalidRepository, name, why) }
 	switch {
 	case name == "":
 		return bad("is empty")
 	case name == "@":
 		return bad("is not a name")
-	case name == "HEAD" || name == "FETCH_HEAD":
-		return bad("names one of git's own refs")
 	case strings.HasPrefix(name, "-"):
 		return bad("starts with a dash")
-	case strings.HasPrefix(name, "+"):
-		return bad("starts with a plus, which a push reads as a forced update")
-	case strings.HasPrefix(name, "refs/"):
-		return bad("starts with refs/, which names a full ref")
 	case strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//"):
 		return bad("has an empty part")
 	case strings.Contains(name, "..") || strings.Contains(name, "@{"):
@@ -333,14 +371,6 @@ func CheckBranch(name string) error {
 	for _, r := range name {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(forbiddenInBranch, r) {
 			return bad("holds a character git refuses")
-		}
-		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
-		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
-		if ControlOrFormatRune(r) {
-			return bad("holds a character that is not seen")
-		}
-		if unicode.IsSpace(r) {
-			return bad("holds whitespace")
 		}
 	}
 	for part := range strings.SplitSeq(name, "/") {
