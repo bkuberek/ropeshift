@@ -229,6 +229,9 @@ const (
 	resetMember
 	// resetWindow is an orchestrator's, which clears the window and leaves the day (ADR-0014).
 	resetWindow
+	// resetCooled is an orchestrator's own breaker cooling down: the restarts that tripped it left its window, so
+	// nothing needs clearing, and the day still counts (FR-ORCH-1).
+	resetCooled
 )
 
 // setDayCapped keeps whether the breaker's last verdict found the lane's day full, which a tripped lane
@@ -267,7 +270,8 @@ func (r *laneRun) waitUntil(ctx context.Context, moment time.Time) bool {
 
 // awaitReset holds a tripped lane until a member resets it, or an orchestrator resets its window. A reset
 // the worker has seen is counted in the journal, so a restart neither loses one nor takes one twice. A
-// member's reset clears every charge, and an orchestrator's leaves on the day what the window counted.
+// member's reset clears every charge, and an orchestrator's leaves on the day what the window counted. An
+// orchestrator's own breaker also ends its wait when it cools down, because no orchestrator supervises it.
 func (r *laneRun) awaitReset(ctx context.Context) resetKind {
 	for {
 		if r.fenced.Load() {
@@ -279,12 +283,30 @@ func (r *laneRun) awaitReset(ctx context.Context) resetKind {
 		} else if kind := r.takeReset(ctx, counts); kind != resetNone {
 			return max(kind, resetNone)
 		}
+		if r.cooled(ctx) {
+			return resetCooled
+		}
 		select {
 		case <-ctx.Done():
 			return resetNone
 		case <-time.After(superviseEvery):
 		}
 	}
+}
+
+// cooled says an orchestrator's tripped breaker cooled down: the restarts that tripped it left its restart window, and
+// its day has room. The orchestrator is there to unblock lanes, so it starts again by itself then, with no member's
+// reset (FR-ORCH-1). A breaker its day tripped stays tripped until a member resets it (ADR-0014).
+func (r *laneRun) cooled(ctx context.Context) bool {
+	if !r.orchestrating() {
+		return false
+	}
+	charges, err := r.w.journal.Restarts(ctx, r.lease.Lane)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return false
+	}
+	return !r.state.breaker().Bounded(r.w.respawnBound(ctx)).Judge(charges, r.w.clock.Now()).Tripped
 }
 
 // resetTally is what the ledger asks of a lane's breaker, and what this worker has acted on.

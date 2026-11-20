@@ -396,6 +396,38 @@ func TestACrashedOrchestratorStopsNoLane(t *testing.T) {
 	}
 }
 
+// An orchestrator whose breaker tripped starts again by itself once the breaker cools down: the restarts that
+// tripped it leave its restart window, and no member resets it (FR-ORCH-1). Until then it stays tripped.
+func TestATrippedOrchestratorStartsAgainOnceItsBreakerCools(t *testing.T) {
+	crash := script([]fake.DriverStep{{Bound: true}, {Crash: true}})
+	o := newOrchestratorRig(t, crash, crash, crash, aSession())
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	o.await(t, "the first backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+	o.await(t, "the second backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(61 * time.Second)
+	o.awaitSessions(t, 3)
+	o.await(t, "a trip", func(row ledger.Orchestrator) bool { return row.Tripped() })
+	o.clock.Advance(5 * time.Minute)
+	for range 5 {
+		o.tick(t)
+	}
+	if got := len(o.specs()); got != 3 {
+		t.Fatalf("%d sessions inside the restart window of a tripped breaker, want 3", got)
+	}
+	o.clock.Advance(6 * time.Minute)
+	o.awaitSessions(t, 4)
+	if next := o.specs()[3]; next.Generation != 4 {
+		t.Errorf("the session after the breaker cooled is generation %d, want 4", next.Generation)
+	}
+}
+
 // A member's stop ends the session and leaves the lanes alone.
 func TestAMembersStopEndsTheSession(t *testing.T) {
 	t.Parallel()
