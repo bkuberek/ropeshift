@@ -67,7 +67,7 @@ func approvalSubject(row authority.Approval) string {
 		if detail.PullRequest != 0 {
 			subject += fmt.Sprintf("\npull request: #%d %s", detail.PullRequest, detail.URL)
 		} else {
-			subject += fmt.Sprintf("\nbranch: %s into %s", detail.Branch, detail.Base)
+			subject += fmt.Sprintf("\nbranch: %s into %s", plainLine(detail.Branch), plainLine(detail.Base))
 		}
 		if detail.Reason != "" {
 			subject += "\nheld: " + detail.Reason

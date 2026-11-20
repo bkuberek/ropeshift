@@ -10,6 +10,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -676,5 +677,24 @@ func TestRepositoryShowAndListDropHiddenCharactersFromStoredNames(t *testing.T) 
 		if !strings.Contains(text, "release") {
 			t.Errorf("%s lacks the base branch with the character dropped:\n%q", name, text)
 		}
+	}
+}
+
+// A work order takes its base from the repository's stored base branch, so a hidden character in that name reaches a
+// work row and a merge approval's row. Each prints with the character dropped.
+func TestWorkAndApprovalRowsDropHiddenCharactersFromABase(t *testing.T) {
+	text := cli.WorkOrderText(workorders.WorkOrder{ID: "wo-1", State: workorders.Ready, Title: "Build", Base: "rel\u202eease"})
+	detail, err := json.Marshal(authority.MergeDetail{Branch: "work\u200b/one", Base: "rel\u202eease"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := cli.ApprovalSubject(authority.Approval{Kind: authority.KindMerge, Detail: string(detail)})
+	for name, got := range map[string]string{"work row": text, "approval row": subject} {
+		if strings.ContainsAny(got, "\u202e\u200b") {
+			t.Errorf("the %s prints a hidden character:\n%q", name, got)
+		}
+	}
+	if !strings.Contains(text, "base\trelease") || !strings.Contains(subject, "branch: work/one into release") {
+		t.Errorf("the rows read:\n%q\n%q", text, subject)
 	}
 }
