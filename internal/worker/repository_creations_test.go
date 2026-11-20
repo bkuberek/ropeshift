@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -674,19 +675,20 @@ func TestARepositoryCreationCheckSaysWhereThePathLeads(t *testing.T) {
 	}
 }
 
-// slowSignIn holds the first read of the sign-in until the test lets it go, and says when it began.
+// slowSignIn holds the first read of the sign-in until the test lets it go, and says when it began. Every later read
+// answers at once.
 type slowSignIn struct {
 	*fake.ForgeAccounts
-	once    sync.Once
+	first   atomic.Bool
 	began   chan struct{}
 	release chan struct{}
 }
 
 func (f *slowSignIn) Account(ctx context.Context, host string) (ports.ForgeAccount, error) {
-	f.once.Do(func() {
+	if f.first.CompareAndSwap(false, true) {
 		close(f.began)
 		<-f.release
-	})
+	}
 	return f.ForgeAccounts.Account(ctx, host)
 }
 
@@ -723,5 +725,34 @@ func TestARealRunsCheckWaitsForAPreviewsCheck(t *testing.T) {
 	}
 	if checked := <-runDone; checked.Refusal != nil || checked.URL == "" {
 		t.Errorf("the real run's check is %+v, want it to pass once the preview is done", checked)
+	}
+}
+
+// A real run's check that waits for a folder a preview holds, and whose context ends first, returns without taking the
+// folder, so a check after the preview takes it.
+func TestAWaitingCheckWhoseContextEndsTakesNoFolder(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	forge := &slowSignIn{ForgeAccounts: r.forge, began: make(chan struct{}), release: make(chan struct{})}
+	creator := r.creator(forge)
+	preview := creation("/work/tt/repos/api")
+	previewDone := make(chan struct{})
+	go func() {
+		defer close(previewDone)
+		_, _ = creator.Check(context.Background(), preview)
+	}()
+	<-forge.began
+	run := preview
+	run.Key, run.Wait = ledger.CreationKey("approval-2", "api"), true
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if checked, err := creator.Check(ctx, run); !errors.Is(err, context.DeadlineExceeded) || checked.Refusal != nil {
+		t.Errorf("the waiting check whose context ended answers %+v (%v), want its context's error", checked, err)
+	}
+	close(forge.release)
+	<-previewDone
+	if checked, err := creator.Check(t.Context(), preview); err != nil || checked.Refusal != nil {
+		t.Errorf("a check after the preview is %+v (%v), want it to take the folder and pass", checked, err)
 	}
 }
