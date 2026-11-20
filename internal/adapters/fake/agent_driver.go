@@ -82,6 +82,8 @@ type DriverScript struct {
 	Turns     [][]DriverStep
 	// Silent admits no input, for a path with no acknowledgement of a brief.
 	Silent bool
+	// Setup is what the session reports it loaded when it binds.
+	Setup *lanes.Setup
 }
 
 // AgentDriver runs scripted sessions in memory. No process starts.
@@ -648,7 +650,7 @@ func (s *driverSession) playTurn(steps []DriverStep) (*ports.SessionEnd, bool) {
 	for _, step := range steps {
 		switch {
 		case step.Bound:
-			s.events <- ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.script.SessionID, ModelResolved: s.script.Model}
+			s.events <- ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.script.SessionID, ModelResolved: s.script.Model, Setup: s.script.Setup}
 		case step.Context != nil:
 			s.mu.Lock()
 			s.context = step.Context.Context()

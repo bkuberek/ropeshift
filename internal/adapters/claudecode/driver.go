@@ -599,6 +599,7 @@ func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, 
 	return &session{
 		handle: handle, client: client, dir: shimDir(spec), socket: shimSocket(spec), grace: d.grace,
 		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter, replies: spec.Assistant,
+		setup: setupContextOf(spec),
 	}
 }
 
@@ -837,6 +838,8 @@ type session struct {
 	agents map[string]string
 	// turn is what the turn in progress is estimated to have spent, from the usage of its API calls.
 	turn turnCost
+	// setup tells the member's own pieces in what the session's init says it loaded.
+	setup setupContext
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -954,6 +957,9 @@ func (s *session) take(line []byte, seq int64) {
 	switch p.event.Kind {
 	case ports.EventSessionBound:
 		s.seen.SessionID, s.seen.ModelResolved = p.event.SessionID, p.event.ModelResolved
+		if p.init != nil {
+			p.event.Setup = s.setup.of(*p.init)
+		}
 	case ports.EventUsage:
 		s.seen.ContextTokens = p.event.ContextTokens
 	}

@@ -411,6 +411,9 @@ type DriverEvent struct {
 	// Tools are the calls the event's message made, with the path a file-writing call named and no other
 	// input.
 	Tools []lanes.ToolUse
+	// Setup is what an EventSessionBound's session loaded at its start, as its CLI reported it. A driver that
+	// reads no such report, or a session whose start it did not see, leaves it nil.
+	Setup *lanes.Setup
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64
