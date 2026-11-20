@@ -6,6 +6,8 @@ package tmux
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -97,10 +99,16 @@ func (t *Terminal) run(ctx context.Context, args ...string) (string, error) {
 // call is one client call. A call that can start the server outlives the worker's service, because
 // the server forks from it and holds every pane (D20).
 func (t *Terminal) call(ctx context.Context, starts bool, args ...string) (string, error) {
+	return t.invoke(ctx, starts, nil, args...)
+}
+
+// invoke is one client call that may be fed on standard input, which is the way to give tmux more
+// than one command line can carry.
+func (t *Terminal) invoke(ctx context.Context, starts bool, stdin io.Reader, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	process, err := t.runner.Start(ctx, ports.ProcessSpec{
 		Path: t.binary, Args: append([]string{"-u", "-f", os.DevNull, "-S", t.socket}, args...), Env: t.env,
-		Stdout: &stdout, Stderr: &stderr, Detached: true, Outlive: starts,
+		Stdin: stdin, Stdout: &stdout, Stderr: &stderr, Detached: true, Outlive: starts,
 	})
 	if err != nil {
 		return "", err
@@ -254,10 +262,50 @@ func (t *Terminal) Keys(ctx context.Context, name string, keys ...string) error 
 	return err
 }
 
-// Type sends literal text.
+// pasteThreshold is the length in bytes above which Type pastes instead of sending keys. A tmux client's
+// command, with its arguments, has to fit one message to the server, about 16 KiB, so a long text cannot
+// travel as an argument. The threshold stays well under that.
+const pasteThreshold = 4096
+
+// cleanupLimit bounds the removal of a buffer a failed paste may have left behind.
+const cleanupLimit = 2 * time.Second
+
+// Type sends literal text. A short text is typed as keys. A long one goes through a tmux paste buffer, which
+// is fed on standard input and so has no length limit, and is written to the pane in one piece, so nothing
+// interleaves with it. The paste is bracketed when the program in the pane asked for that, and a newline in
+// the text then stays part of the text instead of submitting it.
 func (t *Terminal) Type(ctx context.Context, name, text string) error {
-	_, err := t.run(ctx, "send-keys", "-t", target(name), "-l", "--", text)
-	return err
+	if len(text) <= pasteThreshold {
+		_, err := t.run(ctx, "send-keys", "-t", target(name), "-l", "--", text)
+		return err
+	}
+	return t.paste(ctx, name, text)
+}
+
+// paste loads the text into a buffer of its own and pastes it, deleting the buffer. A buffer a failed
+// call may have left is deleted, so no named buffer outlives the call.
+func (t *Terminal) paste(ctx context.Context, name, text string) error {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return err
+	}
+	buffer := "ropeshift-" + hex.EncodeToString(random[:])
+	if _, err := t.invoke(ctx, false, strings.NewReader(text), "load-buffer", "-b", buffer, "-"); err != nil {
+		t.discard(ctx, buffer)
+		return err
+	}
+	if _, err := t.run(ctx, "paste-buffer", "-p", "-d", "-b", buffer, "-t", target(name)); err != nil {
+		t.discard(ctx, buffer)
+		return err
+	}
+	return nil
+}
+
+// discard deletes a buffer, and ignores a buffer that is not there, which is the usual case.
+func (t *Terminal) discard(ctx context.Context, buffer string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupLimit)
+	defer cancel()
+	_, _ = t.run(ctx, "delete-buffer", "-b", buffer)
 }
 
 var signalNumbers = map[ports.Signal]syscall.Signal{
