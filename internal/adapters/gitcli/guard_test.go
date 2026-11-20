@@ -404,3 +404,47 @@ func TestDiscardRemovesADirtyWorktreeAndKeepsItsBranch(t *testing.T) {
 		t.Errorf("a repeat: %v", err)
 	}
 }
+
+// TestASnapshotOfNamedPathsHoldsOnlyThem is the snapshot of a lane's own files (FR-LANE-20): the named changes over
+// HEAD, a folder whole, a deletion as a deletion, and nothing else the worktree holds.
+func TestASnapshotOfNamedPathsHoldsOnlyThem(t *testing.T) {
+	r := newGuardRig(t)
+	r.commit("old.txt", "old\n")
+	r.write("README.txt", "changed\n")
+	r.write("gen/out.go", "package gen\n")
+	r.write(".atl/registry.md", "a tool's cache\n")
+	r.write("left.txt", "not the lane's\n")
+	if err := os.Remove(filepath.Join(r.path, "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	index := r.indexBytes()
+
+	const ref = "refs/ropeshift/checkpoints/one/1"
+	commit, err := r.worktrees.SnapshotPaths(t.Context(), r.path, ref, []string{"README.txt", "gen/", "old.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := strings.Fields(r.inWorktree("ls-tree", "-r", "--name-only", commit))
+	if want := []string{"README.txt", "gen/out.go"}; !slices.Equal(listed, want) {
+		t.Errorf("the snapshot holds %q, want %q", listed, want)
+	}
+	if got := r.inWorktree("show", commit+":README.txt"); got != "changed" {
+		t.Errorf("README.txt holds %q", got)
+	}
+	if !bytes.Equal(r.indexBytes(), index) {
+		t.Error("the lane's index changed")
+	}
+}
+
+// TestASnapshotOfNoPathsHoldsHEAD has nothing of the lane's to save beyond its commits.
+func TestASnapshotOfNoPathsHoldsHEAD(t *testing.T) {
+	r := newGuardRig(t)
+	r.write(".atl/registry.md", "a tool's cache\n")
+	commit, err := r.worktrees.SnapshotPaths(t.Context(), r.path, "refs/ropeshift/checkpoints/one/1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := r.inWorktree("rev-parse", commit+"^{tree}"), r.inWorktree("rev-parse", "HEAD^{tree}"); got != want {
+		t.Errorf("tree %s, want HEAD's %s", got, want)
+	}
+}

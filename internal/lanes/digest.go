@@ -82,6 +82,9 @@ type DigestState struct {
 	// Open says a turn has begun and no `Stop` has ended it, and OpenMs is when it began.
 	Open   bool  `json:"open,omitempty"`
 	OpenMs int64 `json:"open_ms,omitempty"`
+	// Before is what the worktree held changed or untracked when the session began its first turn, and nil until
+	// a worker read it (FR-LANE-20). It stays with the worker and never reaches the ledger.
+	Before *[]string `json:"before,omitempty"`
 }
 
 // DigestRecord is what a worker's journal keeps of one generation's digest: the state a builder goes on from,
@@ -157,6 +160,28 @@ func (b *DigestBuilder) Source() DigestSource { return b.state.Digest.Source }
 
 // Missed records that the worker knows it missed events of this generation.
 func (b *DigestBuilder) Missed() { b.state.Digest.Complete = false }
+
+// Begin keeps what the worktree held before the session's first turn, and says whether it kept it: the first
+// reading is the one that stands.
+func (b *DigestBuilder) Begin(changes []string) bool {
+	if b.state.Before != nil {
+		return false
+	}
+	before := slices.Clone(changes)
+	if before == nil {
+		before = []string{}
+	}
+	b.state.Before = &before
+	return true
+}
+
+// Before is what Begin kept, and whether it kept anything.
+func (b *DigestBuilder) Before() ([]string, bool) {
+	if b.state.Before == nil {
+		return nil, false
+	}
+	return slices.Clone(*b.state.Before), true
+}
 
 // stale says a stream position was folded already. Position zero is no position, so it is never stale.
 func (b *DigestBuilder) stale(seq int64) bool {

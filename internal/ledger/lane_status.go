@@ -89,6 +89,9 @@ type LaneGuard struct {
 	Ref          string `json:"ref,omitempty"`
 	Commit       string `json:"commit,omitempty"`
 	Detail       string `json:"detail,omitempty"`
+	// LeftOut names each changed or untracked path the lane's session did not make, which the guard left out of
+	// every snapshot and the lane did not commit (FR-LANE-20).
+	LeftOut []string `json:"left_out,omitempty"`
 }
 
 // StateEnded is a lane's last state, which the ledger records for itself.

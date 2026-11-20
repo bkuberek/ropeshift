@@ -76,6 +76,8 @@ type GuardResult struct {
 	Commit   string `json:"commit,omitempty"`
 	Pushed   bool   `json:"pushed,omitempty"`
 	Detail   string `json:"detail,omitempty"`
+	// Left names the changes that are not the lane's own, which no snapshot holds (FR-LANE-20).
+	Left []string `json:"left_out,omitempty"`
 }
 
 // SettleGuard decides from a second reading, and not from whether an act returned, so a

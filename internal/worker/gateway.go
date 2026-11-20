@@ -136,6 +136,9 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return refused(lanes.CodeUnavailable, err.Error())
 		}
+		if run := w.runOf(lane.ID); run != nil && run.currentGeneration() == event.Generation {
+			run.readStart(ctx, event)
+		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
 		w.recordWaitDenied(ctx, lane, event)

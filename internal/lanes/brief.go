@@ -312,6 +312,13 @@ const neverWaitNotice = "\nNever wait for CI, a review, or a merge: after you pu
 	"the merge, so call " + ToolLaneReport + " and end your turn. Do not sleep, poll, or watch for them, and do not read their status: a " +
 	"command that does is denied.\n"
 
+// ownFilesNotice tells a lane that commits what its commits may hold (FR-LANE-20). Its checkpoints already hold only
+// its own files, and a file it leaves is reported to the orchestrator, which decides whether the project keeps it.
+const ownFilesNotice = "\nCommit only the files you created or edited in this lane, by naming each one: never stage the whole " +
+	"worktree with git add -A, git add ., or git commit -a. Leave any other changed or untracked file as it is, such as " +
+	"a cache your tools or your agent's setup wrote: ropeshift reports each one when the lane ends, and the " +
+	"orchestrator decides whether it belongs to the project or to the repository's .gitignore.\n"
+
 // Brief is a lane's first prompt: the contract, where its context pack is, and how the lane ends.
 func Brief(spec BriefSpec) string {
 	var out strings.Builder
@@ -364,6 +371,9 @@ func Brief(spec BriefSpec) string {
 		out.WriteString("\n" + pendingNotice + "\n\n" + spec.Pending + "\n")
 	}
 	writeFacts(&out, spec.Facts)
+	if spec.Attempt == nil {
+		out.WriteString(ownFilesNotice)
+	}
 	out.WriteString("\nWhen the work is done, or cannot go on, call the " + ToolLaneReport +
 		" tool once with its outcome, then end your turn.\n")
 	out.WriteString(helpersNotice)
