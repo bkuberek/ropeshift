@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // The work order kinds the default mapping reads. They are the work orders' own, named here so this
@@ -29,13 +30,13 @@ type LaneWork struct {
 
 // LaneAgent chooses the agent a lane runs as (FR-AGENT-13): the agent its work order names, or the
 // default mapping's by kind and size, where rework moves one implementation tier up and never into a
-// per-use agent. An unknown or disabled agent is refused by name.
+// per-use agent. An unknown or disabled agent is refused by name, and so is one unfit for the work.
 func (r Resolved) LaneAgent(work LaneWork) (ResolvedAgent, error) {
 	name := work.Named
 	if name == "" {
 		name = r.defaultFor(work)
 	}
-	return r.usable(name)
+	return r.usable(name, work.Kind)
 }
 
 // DefaultAgent is the agent the default mapping alone gives a work order, before any rework, which is
@@ -44,7 +45,10 @@ func (r Resolved) DefaultAgent(kind, size, named string) (ResolvedAgent, error) 
 	return r.LaneAgent(LaneWork{Kind: kind, Size: size, Named: named})
 }
 
-func (r Resolved) usable(name string) (ResolvedAgent, error) {
+// usable is the agent a lane of some kind of work may run as. The agent a lane runs as narrows the lane's
+// rules by the categories it denies (ADR-0025), and plan, change, and rework lanes must write files and
+// commit, so an agent that denies the shell or file edits is unfit for them.
+func (r Resolved) usable(name, kind string) (ResolvedAgent, error) {
 	agent, ok := r.Agent(name)
 	switch {
 	case name == "":
@@ -54,7 +58,26 @@ func (r Resolved) usable(name string) (ResolvedAgent, error) {
 	case !agent.Enabled:
 		return ResolvedAgent{}, fmt.Errorf("%w: agent %q is disabled in the resolved roster", ErrDisabledAgent, name)
 	}
+	if denied := deniedForCommits(agent.Agent, kind); denied != "" {
+		return ResolvedAgent{}, fmt.Errorf("%w: agent %q denies the %s, and a %s lane that runs as it could not write and commit its work", ErrUnfitAgent, name, denied, kind)
+	}
 	return agent, nil
+}
+
+// deniedForCommits names what an agent denies that a lane of a kind of work that commits needs, or is
+// empty when the work does not commit or the agent denies none of it.
+func deniedForCommits(agent Agent, kind string) string {
+	if kind != workPlan && kind != workChange && kind != workRework {
+		return ""
+	}
+	var denied []string
+	if slices.Contains(agent.Tools.Deny, ToolShell) {
+		denied = append(denied, "shell")
+	}
+	if slices.Contains(agent.Tools.Deny, ToolEdit) {
+		denied = append(denied, "file edits")
+	}
+	return strings.Join(denied, " and ")
 }
 
 func (r Resolved) defaultFor(work LaneWork) string {
@@ -123,21 +146,24 @@ func (r Resolved) ladder() []ResolvedAgent {
 // tier ranks an agent by its class, then its effort.
 func tier(a Agent) int { return rank(Classes, a.Class)*len(efforts) + rank(efforts, a.Effort) }
 
-// Use is something that names an agent: the default mapping, or a work order that is not done.
+// Use is something that names an agent: the default mapping, or a work order that is not done. Kind is
+// the kind of work it names the agent for, which decides what the agent must be able to do.
 type Use struct {
 	Agent string `json:"agent"`
 	By    string `json:"by"`
+	Kind  string `json:"kind,omitempty"`
 }
 
 // DefaultUses lists what the default mapping names.
 func (r Resolved) DefaultUses() []Use { return r.Defaults.names() }
 
-// Missing lists each use whose agent this roster does not hold enabled. A change whose result has any
-// is refused, because what names the agent would fail the definition of ready.
+// Missing lists each use whose agent this roster does not hold enabled, or holds unfit for the kind of
+// work that names it. A change whose result has any is refused, because what names the agent would fail
+// the definition of ready.
 func (r Resolved) Missing(uses []Use) []Use {
 	var out []Use
 	for _, use := range uses {
-		if _, err := r.usable(use.Agent); err != nil {
+		if _, err := r.usable(use.Agent, use.Kind); err != nil {
 			out = append(out, use)
 		}
 	}

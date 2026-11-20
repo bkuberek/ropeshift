@@ -179,7 +179,7 @@ func TestTheDefaultMappingChoosesEachLanesAgent(t *testing.T) {
 		work LaneWork
 		want string
 	}{
-		{LaneWork{Kind: "plan"}, "reasoning"},
+		{LaneWork{Kind: "plan"}, "heavy-implementation"},
 		{LaneWork{Kind: "contract_review"}, "analysis"},
 		{LaneWork{Kind: "review", Size: "large"}, "review"},
 		{LaneWork{Kind: "change", Size: "small"}, "light-implementation"},
@@ -207,6 +207,36 @@ func TestTheDefaultMappingChoosesEachLanesAgent(t *testing.T) {
 	}
 }
 
+// TestAPlanOrChangeLanesAgentKeepsItsShellAndEdits: a lane's own agent narrows the lane's rules by what it
+// denies (ADR-0025), and plan, change, and rework lanes must write and commit, so an agent that denies the
+// shell or file edits is refused for them by name, whether the work order or the default mapping names it.
+// Contract review and review lanes may run as such an agent.
+func TestAPlanOrChangeLanesAgentKeepsItsShellAndEdits(t *testing.T) {
+	resolved := Resolve(Layer{}, Layer{})
+	for _, kind := range []string{"plan", "change", "rework"} {
+		for agent, denied := range map[string]string{"reasoning": "shell", "analysis": "file edits", "explore": "shell and file edits"} {
+			_, err := resolved.LaneAgent(LaneWork{Kind: kind, Named: agent})
+			if !errors.Is(err, ErrUnfitAgent) || !strings.Contains(err.Error(), `"`+agent+`"`) || !strings.Contains(err.Error(), denied) {
+				t.Errorf("a %s lane as %s: %v", kind, agent, err)
+			}
+		}
+	}
+	for _, kind := range []string{"contract_review", "review"} {
+		if _, err := resolved.LaneAgent(LaneWork{Kind: kind, Named: "analysis"}); err != nil {
+			t.Errorf("a %s lane as analysis: %v", kind, err)
+		}
+	}
+	if missing := resolved.Missing(resolved.DefaultUses()); len(missing) != 0 {
+		t.Errorf("the built-in default mapping names an agent its work cannot use: %+v", missing)
+	}
+	shellLess := Resolve(mustApply(t, Layer{}, resolved, Change{Op: OpSet, Agent: "heavy-implementation", Fields: map[string]string{
+		"tools.allow": "read,search,edit,web,context", "tools.deny": "shell,delegate",
+	}}), Layer{})
+	if _, err := shellLess.LaneAgent(LaneWork{Kind: "plan"}); !errors.Is(err, ErrUnfitAgent) || !strings.Contains(err.Error(), "heavy-implementation") {
+		t.Errorf("a plan lane by default as a shell-less agent: %v", err)
+	}
+}
+
 // TestAnAgentInUseCannotBeDisabledOrRemoved is FR-AGENT-4: the refusal names what still uses it.
 func TestAnAgentInUseCannotBeDisabledOrRemoved(t *testing.T) {
 	base := Resolve(Layer{}, Layer{})
@@ -223,6 +253,17 @@ func TestAnAgentInUseCannotBeDisabledOrRemoved(t *testing.T) {
 	}
 	if missing := Resolve(added, Layer{}).Missing(uses); len(missing) != 0 {
 		t.Errorf("an enabled agent counted as missing: %+v", missing)
+	}
+	// A change that leaves a plan or change lane's agent denying the shell is refused like a disable.
+	stripped := Resolve(mustApply(t, Layer{}, base, Change{Op: OpSet, Agent: "implementation", Fields: map[string]string{
+		"tools.allow": "read,search,edit,web,context", "tools.deny": "shell,delegate",
+	}}), Layer{})
+	if missing := stripped.Missing(base.DefaultUses()); len(missing) != 1 || missing[0].Agent != "implementation" || missing[0].Kind != "change" {
+		t.Errorf("the default mapping's shell-less agent: missing %+v", missing)
+	}
+	open := []Use{{Agent: "implementation", By: "work order w-2", Kind: "change"}, {Agent: "implementation", By: "work order w-3", Kind: "review"}}
+	if missing := stripped.Missing(open); len(missing) != 1 || missing[0].By != "work order w-2" {
+		t.Errorf("open work's shell-less agent: missing %+v", missing)
 	}
 }
 

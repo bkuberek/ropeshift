@@ -145,6 +145,27 @@ func TestAPerUseAgentAsksOnEveryStart(t *testing.T) {
 	}
 }
 
+// TestAShellLessAgentKeepsItsLimitsAsAHelper is FR-AGENT-10: an agent's own limits apply to its rendered
+// definition, so the reasoning agent a writing lane may start holds no shell and disallows it, though
+// the lane that starts it has one.
+func TestAShellLessAgentKeepsItsLimitsAsAHelper(t *testing.T) {
+	spec := policySpec(t)
+	spec.Tools, spec.Agents = lanes.Tools, sessionAgents(roster.SessionWriting)
+	if denied := generateSettings(spec).Permissions.Deny; slices.Contains(denied, "Bash") {
+		t.Fatalf("the writing lane has no shell: %v", denied)
+	}
+	reasoning, ok := renderedOf(t, StartArgs(spec))["reasoning"]
+	if !ok {
+		t.Fatal("a writing lane was given no reasoning agent")
+	}
+	if slices.Contains(reasoning.Tools, "Bash") || !slices.Contains(reasoning.DisallowedTools, "Bash") {
+		t.Errorf("the reasoning agent holds a shell as a helper: %+v", reasoning)
+	}
+	if !slices.Contains(reasoning.Tools, "Edit") || !slices.Contains(reasoning.DisallowedTools, "Agent") {
+		t.Errorf("the reasoning agent rendered as %+v", reasoning)
+	}
+}
+
 // TestALanesAgentNarrowsItsRules: the categories the lane's own agent denies become deny rules of the
 // lane, and delegate stays, because the lane's session is the one that routes.
 func TestALanesAgentNarrowsItsRules(t *testing.T) {

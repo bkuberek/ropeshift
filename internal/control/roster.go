@@ -286,7 +286,7 @@ func openUses(orders ports.WorkOrderReader) ([]roster.Use, error) {
 	var out []roster.Use
 	for _, order := range list {
 		if order.Agent != "" && !workorders.Terminal(order.State) {
-			out = append(out, roster.Use{Agent: order.Agent, By: "work order " + order.ID})
+			out = append(out, roster.Use{Agent: order.Agent, By: "work order " + order.ID, Kind: string(order.Kind)})
 		}
 	}
 	return out, nil
@@ -420,14 +420,15 @@ func pinnedRoster(reader ports.RosterReader, pin workorders.RosterPin) (*roster.
 }
 
 // agentProblem is why the definition of ready refuses a work order's agent, or empty when the roster gives
-// it: the agent it names, or the default mapping's for its kind and size, must be known and enabled.
+// it: the agent it names, or the default mapping's for its kind and size, must be known, enabled, and fit
+// for the work.
 func agentProblem(reader ports.RosterReader, order workorders.WorkOrder) (string, error) {
 	view, err := ResolveIn(reader)
 	if err != nil {
 		return "", err
 	}
 	_, err = view.Resolved.DefaultAgent(string(order.Kind), order.Size, order.Agent)
-	if errors.Is(err, roster.ErrUnknownAgent) || errors.Is(err, roster.ErrDisabledAgent) {
+	if errors.Is(err, roster.ErrUnknownAgent) || errors.Is(err, roster.ErrDisabledAgent) || errors.Is(err, roster.ErrUnfitAgent) {
 		return err.Error(), nil
 	}
 	return "", err

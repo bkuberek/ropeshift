@@ -111,10 +111,12 @@ const (
 	SizeLarge  = "large"
 )
 
-// BuiltinDefaults is the default mapping of ADR-0025.
+// BuiltinDefaults is the default mapping of ADR-0025. A plan lane runs as heavy-implementation and not as
+// reasoning, because reasoning denies the shell, which would narrow the lane's rules so that it could not
+// commit its plan.
 func BuiltinDefaults() Defaults {
 	return Defaults{
-		Plan: "reasoning", ContractReview: "analysis", Review: "review",
+		Plan: "heavy-implementation", ContractReview: "analysis", Review: "review",
 		Change: map[string]string{SizeSmall: "light-implementation", SizeMedium: "implementation", SizeLarge: "heavy-implementation"},
 	}
 }
@@ -122,12 +124,12 @@ func BuiltinDefaults() Defaults {
 // names lists every agent the mapping names, each once, in a stable order.
 func (d Defaults) names() []Use {
 	uses := []Use{
-		{Agent: d.Plan, By: "the default mapping for plan"},
-		{Agent: d.ContractReview, By: "the default mapping for contract_review"},
-		{Agent: d.Review, By: "the default mapping for review"},
+		{Agent: d.Plan, By: "the default mapping for plan", Kind: workPlan},
+		{Agent: d.ContractReview, By: "the default mapping for contract_review", Kind: workContractReview},
+		{Agent: d.Review, By: "the default mapping for review", Kind: workReview},
 	}
 	for _, size := range []string{SizeSmall, SizeMedium, SizeLarge} {
-		uses = append(uses, Use{Agent: d.Change[size], By: "the default mapping for a " + size + " change"})
+		uses = append(uses, Use{Agent: d.Change[size], By: "the default mapping for a " + size + " change", Kind: workChange})
 	}
 	return slices.DeleteFunc(uses, func(u Use) bool { return u.Agent == "" })
 }
