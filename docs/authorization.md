@@ -183,6 +183,20 @@ Every session ropeshift starts receives the agent roster as subagents: agents by
 - The agent a lane runs as sets its model, through the class mapping of the user's profile, and its effort. Its denied categories narrow the lane's rules, and never widen them. A lane's own profile layer still wins. A plan, change, or rework lane must write and commit its work, so ropeshift refuses, naming it, an agent for that work that denies the shell or file edits, whether the work order or the default mapping names it.
 - Changing the roster or its routing guide is a consent operation: only a member's session runs `ropeshift agent set`, `add`, `disable`, `enable`, `reset`, `revert`, and `guide set` and `reset`, at a scope the command names. The class mapping lives in the user's profile, `[agent.classes]`, which no repository or lane layer can change, so a file a plan or an agent can edit cannot make a cheap agent expensive.
 
+## Your own agent CLI setup
+
+A lane runs clean of the member's own Claude Code setup, and keeps their sign-in. The worker starts every session, headless or in a pane, a start or a resume, with the member's own configuration directory, where the vendor keeps the sign-in, and never sets a second `CLAUDE_CONFIG_DIR`. What keeps the member's setup out is the vendor's documented switches:
+
+| Switch | What it keeps out of a lane |
+|--------|-----------------------------|
+| `--setting-sources project,local` | The `user` source: `~/.claude/settings.json`, with its hooks, status line, permissions, environment, and enabled plugins; `~/.claude/CLAUDE.md` and `~/.claude/rules/`; and the skills, commands, and subagents in `~/.claude/skills/`, `~/.claude/commands/`, and `~/.claude/agents/` ([CLI reference](https://code.claude.com/docs/en/cli-reference), [setting sources](https://code.claude.com/docs/en/agent-sdk/claude-code-features#control-filesystem-settings-with-settingsources)). Skills synced from claude.ai do not sync either ([skills](https://code.claude.com/docs/en/skills)) |
+| `--strict-mcp-config` with ropeshift's own `--mcp-config` | Every MCP server but ropeshift's: the member's in `~/.claude.json`, a plugin's, the repository's `.mcp.json`, and the claude.ai connectors ([CLI reference](https://code.claude.com/docs/en/cli-reference), [setting sources](https://code.claude.com/docs/en/agent-sdk/claude-code-features#what-settingsources-does-not-control)) |
+| `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | The member's auto memory, which the CLI keeps per repository, shares across its worktrees, and loads whatever the setting sources say ([environment variables](https://code.claude.com/docs/en/env-vars), [memory](https://code.claude.com/docs/en/memory)) |
+
+A lane still reads the repository's own files: `.claude/settings.json` and `.claude/settings.local.json`, its `CLAUDE.md` or `AGENTS.md` and `.claude/rules/`, and the skills, commands, and subagents under its `.claude/`. It also reads what ropeshift gives it: the generated settings, the agent roster, and ropeshift's MCP server. So what a project needs in its lanes goes in the repository's files and its lane profile. A pane's status line runs ropeshift's command, and then the repository's when its settings name one; the member's own status line does not run in a lane.
+
+`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` is documented, and a lane does not set it: it drops every CLAUDE.md, the repository's own among them ([environment variables](https://code.claude.com/docs/en/env-vars)), and leaving out the `user` source already leaves out the member's. `--safe-mode` and `--bare` are not used either. The first turns off hooks and MCP servers, and ropeshift's own hooks and server hold a lane's rules and tools; the second does not use a subscription sign-in, and runs no hook passed with `--settings` ([CLI reference](https://code.claude.com/docs/en/cli-reference), [headless](https://code.claude.com/docs/en/headless#start-faster-with-bare-mode)).
+
 ## Recovery
 
 An orchestrator recovers stuck work with no member, within a versioned `[recovery_policy]` that only a member publishes. The built-in version is this one:
