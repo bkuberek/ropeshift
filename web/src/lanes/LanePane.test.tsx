@@ -1,6 +1,6 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { paneKeys } from "../api/client";
 import type { InProgress, OnHold } from "../api/types";
@@ -264,6 +264,120 @@ describe("a lane's pane, copied, selected, and searched", () => {
     act(() => screen.getByRole("log", named).focus());
     await user.keyboard("{Control>}f{/Control}");
     expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Find in the pane" }));
+  });
+});
+
+describe("a lane's pane, scrolled and sized", () => {
+  const named = { name: `Screen of lane ${lane}` };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // geometry stands for the browser's layout, which jsdom has none of: how tall the screen's text is, and
+  // how tall the screen shows it.
+  function geometry(sizes: { scrollHeight: number; clientHeight: number }) {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(() => sizes.scrollHeight);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => sizes.clientHeight);
+    return sizes;
+  }
+
+  async function scrolledPane() {
+    const sizes = geometry({ scrollHeight: 1000, clientHeight: 200 });
+    serve();
+    openPage(page);
+    const stream = await opened();
+    show(stream, "line\n".repeat(60) + "the newest line");
+    return { sizes, stream, log: screen.getByRole("log", named) };
+  }
+
+  it("opens scrolled to the newest line", async () => {
+    const { log } = await scrolledPane();
+    expect(log.scrollTop).toBe(800);
+  });
+
+  it("stays at the newest line as output arrives", async () => {
+    const { sizes, stream, log } = await scrolledPane();
+    sizes.scrollHeight = 1500;
+    show(stream, "line\n".repeat(90) + "a newer line");
+    expect(log.scrollTop).toBe(1300);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  });
+
+  it("stays where the member scrolled up to as output arrives, and offers Jump to latest", async () => {
+    const { sizes, stream, log } = await scrolledPane();
+    log.scrollTop = 100;
+    fireEvent.scroll(log);
+    const jump = await screen.findByRole("button", { name: "Jump to latest" });
+    sizes.scrollHeight = 1500;
+    show(stream, "line\n".repeat(90) + "a newer line");
+    expect(log.scrollTop).toBe(100);
+    await userEvent.setup().click(jump);
+    expect(log.scrollTop).toBe(1300);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  });
+
+  it("follows the newest line again once the member scrolls back to the bottom", async () => {
+    const { sizes, stream, log } = await scrolledPane();
+    log.scrollTop = 100;
+    fireEvent.scroll(log);
+    await screen.findByRole("button", { name: "Jump to latest" });
+    log.scrollTop = 800;
+    fireEvent.scroll(log);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull());
+    sizes.scrollHeight = 1500;
+    show(stream, "line\n".repeat(90) + "a newer line");
+    expect(log.scrollTop).toBe(1300);
+  });
+
+  it("fills the height under the page's header down to the bottom of the view", async () => {
+    geometry({ scrollHeight: 0, clientHeight: 900 });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const box = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) });
+      if (this.classList.contains("main")) {
+        return box(60, 960);
+      }
+      if (this.classList.contains("pane-screen")) {
+        return box(300, 500);
+      }
+      if (this.classList.contains("pane")) {
+        return box(280, 700);
+      }
+      return box(0, 0);
+    });
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    // 900 visible, less the 240 above the screen, the 200 of controls under it, and a 16 gap.
+    expect(screen.getByRole("log", named).style.height).toBe("444px");
+  });
+
+  it("takes the whole view in Full view, and leaves it on Escape", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const region = screen.getByRole("region", { name: `Pane of lane ${lane}` });
+    const full = screen.getByRole("button", { name: "Full view" });
+    await user.click(full);
+    expect(full.getAttribute("aria-pressed")).toBe("true");
+    expect(region.classList.contains("is-full")).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(full.getAttribute("aria-pressed")).toBe("false");
+    expect(region.classList.contains("is-full")).toBe(false);
+    expect(typed).toEqual([]);
+  });
+
+  it("sends Escape to the session from the empty line field, and stays in Full view", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    await user.click(screen.getByRole("textbox", { name: "Type into the session" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(typed.map((sent) => sent.body)).toEqual([{ key: "Escape" }]));
+    expect(screen.getByRole("region", { name: `Pane of lane ${lane}` }).classList.contains("is-full")).toBe(true);
   });
 });
 

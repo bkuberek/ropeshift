@@ -242,7 +242,9 @@ A lane's page shows its screen or its event stream, its facts, the spend of its 
 
 The Lane page, the Planning page, and the conversation panel show an interactive lane's terminal pane: its screen as text, and Type into the session under it. A terminal attached with `ropeshift lane attach` shows the same session.
 
-A toolbar above the screen holds Copy screen, which copies the screen as text and says how many lines it copied, Select all, which selects the pane's text and nothing else on the page, and Search. While the screen has focus, the select-all shortcut, `⌘ A` on macOS and `Ctrl A` elsewhere, selects the pane's text too, and the find shortcut, `⌘ F` or `Ctrl F`, opens the search.
+On the Lane page and the Planning page the screen takes the height the page shows under its header, with the key row and Type into the session under it. The screen opens at the newest line and stays there as output arrives. Scroll up and it stays where you are while output goes on, with Jump to latest to go back; scrolling back to the bottom follows the newest line again. Full view on the toolbar gives the pane the whole view, and Full view again, or Escape, leaves it. Escape that the pane takes for itself, such as from an empty Type into the session, where it goes to the session, does not leave it.
+
+A toolbar above the screen holds Copy screen, which copies the screen as text and says how many lines it copied, Select all, which selects the pane's text and nothing else on the page, Search, and Full view. While the screen has focus, the select-all shortcut, `⌘ A` on macOS and `Ctrl A` elsewhere, selects the pane's text too, and the find shortcut, `⌘ F` or `Ctrl F`, opens the search.
 
 The search finds text in the pane, apart from case unless Match case is on, and says which match is current and how many there are, such as "1 of 3". Enter goes to the next match and Shift-Enter to the previous one, and each match keeps the colours of the text it spans. Escape or Close ends the search, with focus back on the screen.
 

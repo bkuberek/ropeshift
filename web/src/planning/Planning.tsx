@@ -191,7 +191,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             ) : null}
           </div>
           {resume.failure ? <Refusal>{resume.failure}</Refusal> : null}
-          <LanePane lane={laneId} live={live} attached={attached && !parked} state={found?.actual_state} startedAt={found ? 0 : startedAt(laneId)} />
+          <LanePane lane={laneId} live={live} attached={attached && !parked} state={found?.actual_state} startedAt={found ? 0 : startedAt(laneId)} fill />
         </div>
         <Outline lane={laneId} live={live} />
       </div>
