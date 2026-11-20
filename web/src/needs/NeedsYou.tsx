@@ -361,7 +361,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
             <div className="decision is-resolved">
               <div className="decision-body">
                 <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} decided={decided[keyOf(selected)]} noteRef={resolvedNote} />
-                {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} /> : null}
+                {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} approval={selected.id} /> : null}
               </div>
             </div>
           ) : null}

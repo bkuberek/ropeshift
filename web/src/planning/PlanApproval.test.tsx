@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { ApprovalRecord, Plans, PlanView } from "../api/types";
+import type { ApprovalRecord, ManifestRegistration, Plans, PlanView } from "../api/types";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { golden, goldenNeedsYou, here, refusal, serveViews } from "../testing";
@@ -485,8 +485,9 @@ describe("a first version from a planning branch", () => {
   const requestPage = here(`/plan?id=${request.id}&version=1`);
   const draft = { id: "sailings-under-berths", question: "Do the sailings get a page of their own?", answer: "No. Each berth shows its sailings under it." };
 
-  function serveBranch(drafts: unknown[]) {
-    const approval = structuredClone(request);
+  function serveBranch(drafts: unknown[], registration?: ManifestRegistration) {
+    const approval = structuredClone(request) as ApprovalRecord;
+    approval.registration = registration;
     const detail = JSON.parse(approval.detail ?? "{}") as Record<string, unknown>;
     delete detail.adoption;
     detail.decisions = drafts.length;
@@ -507,6 +508,16 @@ describe("a first version from a planning branch", () => {
     expect(within(panel).getByRole("list", { name: "Draft decisions" }).textContent).toContain(draft.answer);
     const decision = screen.getByRole("complementary", { name: "Your decision" });
     expect(decision.textContent).toContain("Approving decides 1 draft decision as yours");
+  });
+
+  it("shows the preview its request carries before the ledger holds the version, and says what approving creates", async () => {
+    serveBranch([draft], golden<PlanView>("plan-created").approval?.registration);
+    openPage(requestPage);
+    const panel = await screen.findByRole("region", { name: "Repositories approving registers" });
+    expect(within(panel).getByRole("listitem", { name: "web" }).textContent).toContain("Will create");
+    expect(within(panel).getByRole("listitem", { name: "docs" }).textContent).toContain("Public: anyone can read it");
+    const decision = screen.getByRole("complementary", { name: "Your decision" });
+    expect(decision.textContent).toContain("of 3 contracts, and creates 1 repository on GitHub, acme/web, private, and registers it. Contract review still runs");
   });
 
   it("says it drafts none in both places when its request carries none", async () => {
@@ -535,7 +546,7 @@ describe("the repositories a version's manifest lists", () => {
     await heading();
     const panel = screen.getByRole("region", { name: "Repositories approving registers" });
     const billing = within(panel).getByRole("listitem", { name: "billing" });
-    expect(billing.textContent).toContain("Would register");
+    expect(billing.textContent).toContain("Will register");
     expect(billing.textContent).toContain("../billing");
     expect(billing.textContent).toContain("/work/billing");
     expect(billing.textContent).toContain("git@example.invalid:acme/billing.git");
@@ -559,7 +570,7 @@ describe("the repositories a version's manifest lists", () => {
     expect(web.textContent).toContain("Planned");
     expect(web.textContent).toContain("Path ../web");
     expect(web.textContent).not.toContain("leads to");
-    expect(within(web).getByText("no work order of this version targets web")).toBeTruthy();
+    expect(web.textContent).toContain("Created when a version that gives it work is approved. No work order of this version targets web.");
     expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("Path ../billing leads to /work/billing");
   });
 

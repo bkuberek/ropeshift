@@ -1877,3 +1877,30 @@ tr.selected td {
     background: CanvasText;
   }
 }
+
+/* The steps of a repository's creation: one per line, each with its name, its outcome as a word, and its detail. */
+.creation-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.creation-steps > li {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) minmax(5rem, 8rem) 1fr;
+  gap: var(--s-4) var(--s-12);
+  align-items: baseline;
+}
+
+.creation-step-outcome {
+  font-weight: 600;
+}
+
+.creation-step-detail {
+  overflow-wrap: anywhere;
+}

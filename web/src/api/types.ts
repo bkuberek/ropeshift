@@ -509,6 +509,25 @@ export type SpendLimitChange = {
 // SpendStopEnded is what blocking a spend stop or sending it to replanning left.
 export type SpendStopEnded = { work_order: string; state: string; reason: string };
 
+// RepositoryCreationAction is what a member can do about a repository a plan approval did not create.
+export type RepositoryCreationAction = "repository_retry" | "repository_skip";
+
+// RepositoryCreationNeed is a repository an approved plan version creates that was refused, failed, was interrupted, or
+// runs now. The item's ID is the approval and the entry's name, joined by a slash. A running creation offers no action.
+export type RepositoryCreationNeed = {
+  approval: string;
+  plan: string;
+  plan_version: number;
+  name: string;
+  manifest_path: string;
+  path?: string;
+  state: "refused" | "failed" | "interrupted" | "running";
+  reason?: string;
+  remedy?: string;
+  creation?: CreationOutcome;
+  actions: RepositoryCreationAction[];
+};
+
 export type NeedItem = {
   id: string;
   since: number;
@@ -524,6 +543,7 @@ export type NeedItem = {
   | { kind: "plan_revision"; plan_revision: PlanRevisionView }
   | { kind: "ci"; ci: CINeed }
   | { kind: "spend"; spend: SpendNeed }
+  | { kind: "repository_creation"; repository_creation: RepositoryCreationNeed }
 );
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
@@ -1227,18 +1247,44 @@ export type PlanApprovalDetail = {
   adoption?: Adoption;
 };
 
+// CreationStep is one step of a repository's creation on the forge: create, origin, or push, and whether it is done,
+// failed, or skipped, with the detail a failed one carries. The text is what git or gh printed.
+export type CreationStep = { step: string; outcome: "done" | "failed" | "skipped"; detail?: string };
+
+// CreationOutcome is what creating a repository came to, or in a preview would: the forge account and repository, its
+// visibility and first branch, the remote URL it adds, each step, the commands that finish it by hand, the remedy for
+// a refusal, and, once created, the workspace Makefile entry.
+export type CreationOutcome = {
+  forge: string;
+  owner: string;
+  forge_name: string;
+  visibility: "private" | "public";
+  default_branch?: string;
+  url?: string;
+  login?: string;
+  commit?: string;
+  commit_error?: string;
+  steps?: CreationStep[];
+  remaining?: string[];
+  remedy?: string;
+  makefile?: string;
+};
+
 // RepositoryOutcome is what became of one repository a manifest lists, or would on approval: its name, the
-// path of its clone as the manifest writes it, where that path leads on the daemon's worker's machine, its
-// remote, and why it was refused. A repository a failure stopped the run before is not attempted. An entry that
-// creates its repository, which no work order of the version names, is planned, and its path leads nowhere yet.
+// path of its clone as the manifest writes it, where that path leads on the daemon's worker's machine (for an entry
+// to create, the folder the creation writes), its remote, and why it was refused. A repository a failure stopped the
+// run before is not attempted. An entry that creates its repository, which no work order of the version names, is
+// planned, and its path leads nowhere yet. An entry to create carries its creation, and a refusal its refusal code.
 export type RepositoryOutcome = {
   name?: string;
   manifest_path?: string;
   remote?: string;
   path: string;
-  outcome: "registered" | "known" | "refused" | "not_attempted" | "planned";
+  outcome: "registered" | "known" | "refused" | "not_attempted" | "planned" | "created" | "create_failed" | "skipped";
   checkout?: string;
   reason?: string;
+  refusal_code?: string;
+  creation?: CreationOutcome;
 };
 
 // ApprovalDecided is a decided request, with what approving a plan registered of the repositories its manifest
@@ -1285,8 +1331,10 @@ export type PlanView = {
   revision?: PlanRevisionView;
 };
 
-// A request as the approvals list and show routes answer, with who decided it and when once it is decided.
-export type ApprovalRecord = Approval & { decided_by?: string; decided_at?: number; reason?: string; conversation?: CardConversation };
+// A request as the approvals list and show routes answer, with who decided it and when once it is decided. A plan approval
+// the show route answers carries the registration of its version's manifest: the preview while it waits, and what the approval
+// registered once it is decided.
+export type ApprovalRecord = Approval & { decided_by?: string; decided_at?: number; reason?: string; conversation?: CardConversation; registration?: ManifestRegistration };
 
 export type OutlineDocument = { path: string; kind: string; title?: string; status: "new" | "changed" };
 export type OutlineMilestone = { id: string; title: string; priority: number };
