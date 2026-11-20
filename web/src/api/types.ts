@@ -31,6 +31,9 @@ export type QuestionItem = {
   // ladder_trace is every rung it passed, and says which rungs the core ran and which an orchestrator judged.
   no_orchestrator?: boolean;
   ladder_trace?: LadderStep[];
+  // asked_by is who asked the question, and lane is the lane that asked it, absent when no lane did.
+  asked_by?: string;
+  lane?: string;
 };
 
 // BatchRecord is a batch as the ledger holds it: when it opened, when it closes, and when it reached a person.
@@ -67,6 +70,9 @@ export type Approval = {
   decided_at?: number;
   channel?: string;
   reason?: string;
+  // gate says the call is one the lane's profile gates, or a push, which asks in every mode and is approved one call at a
+  // time, never in a batch.
+  gate?: boolean;
 };
 
 // A change a confirmation card makes: one field of a record from its value to another, one argument the
@@ -532,6 +538,9 @@ export type NeedItem = {
   id: string;
   since: number;
   project?: ProjectLabel;
+  // tier is how much the item holds, which Needs you sorts by first: 1 holds a running session, 2 is stopped work, 3
+  // waits for a decision, and 4 can wait. A daemon from before tiers states none.
+  tier?: number;
 } & (
   | { kind: "questions"; batch: Batch }
   | { kind: "approval"; approval: Approval }

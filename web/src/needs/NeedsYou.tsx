@@ -1,14 +1,15 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
-import type { Ref } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from "react";
 
-import { readView } from "../api/client";
+import { ApiError, decideApproval, readView } from "../api/client";
 import type { Allowance, ManifestRegistration, NeedItem, NeedsYou as View, Plans, WorkOrder } from "../api/types";
-import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
+import { useFlag } from "../app/prefs";
+import { addressOf, CurrentProject, go, inProject, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
 import { useTalk } from "../talk/state";
 import { useClock, ViewTime } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
-import { EmptyState, ProjectTag } from "../ui/display";
+import { EmptyState, ProjectTag, Refusal } from "../ui/display";
 import { HeldTag } from "../floor/StartHeld";
 import { StartWork, startOf } from "../floor/StartWork";
 import { Select } from "../ui/forms";
@@ -21,17 +22,25 @@ import type { Decided } from "./decided";
 import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
-import { contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
+import { approvalHeading, contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
+import { nextStepOf } from "./next";
+import type { NextStep } from "./next";
+import { arrange, flatten, gateRequests, orderOf, orders, permissionRequests, tierNames } from "./order";
+import type { Entry, Order } from "./order";
 import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { PlanRevisionCard } from "./PlanRevisionCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { RepositoryCreationCard } from "./RepositoryCreationCard";
 import type { Answered } from "./QuestionBatch";
 import { SpendCard } from "./SpendCard";
+import { useAct } from "./useAct";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard } from "./WorkCard";
 
 const hourMs = 3_600_000;
+
+// A press this soon after the page moved to the next item is taken as the end of the last one, and presses nothing.
+const settleMoveMs = 300;
 
 // useAssistantCard is what an assistant's card offers beyond a delegate's: going to the conversation that
 // prepared it, and asking the assistant again for one that went void. Both belong to the project the page shows.
@@ -89,21 +98,41 @@ function Wait({ ms }: { ms: number }) {
   );
 }
 
+// NextStepLine says what a decision set going, and links where to watch it.
+function NextStepLine({ step, project }: { step: NextStep; project: string }) {
+  return (
+    <p>
+      {step.words} <Link to={project ? inProject(project, step.to) : step.to}>{step.link}</Link>
+    </p>
+  );
+}
+
 // ResolvedNote says why the selected item no longer waits: the person answered or decided it on this page,
-// with who the ledger recorded it for and what it was, or else it was settled somewhere else.
-function ResolvedNote({ heading, answered, decided, resolved, noteRef }: { heading: string; answered?: Answered; decided?: Decided; resolved?: string; noteRef: Ref<HTMLParagraphElement> }) {
+// with who the ledger recorded it for and what it was, or else it was settled somewhere else. It points to the next
+// item only when one waits, and otherwise says what happens next.
+function ResolvedNote({ heading, answered, decided, resolved, noteRef, more, next }: {
+  heading: string;
+  answered?: Answered;
+  decided?: Decided;
+  resolved?: string;
+  noteRef: Ref<HTMLParagraphElement>;
+  more: boolean;
+  next: ReactNode;
+}) {
   const by = (answered ?? decided)?.by;
   const done = answered ? "answered" : decided ? "decided" : "";
+  const then = more ? " Press J for the next item." : " Nothing else waits.";
   return (
     <>
       <p className="resolved-note" ref={noteRef} tabIndex={-1}>
         <Icon name="check" />
         {done
-          ? `${heading} no longer waits: you ${done} it${by ? `, as ${by}` : ""}. Press J for the next item.`
+          ? `${heading} no longer waits: you ${done} it${by ? `, as ${by}` : ""}.${then}`
           : resolved
-            ? `${heading} no longer waits: ${resolved}. Press J for the next item.`
-            : `${heading} no longer waits: it was decided or resolved in another place. Press J for the next item.`}
+            ? `${heading} no longer waits: ${resolved}.${then}`
+            : `${heading} no longer waits: it was decided or resolved in another place.${then}`}
       </p>
+      {more ? null : next}
       {decided ? (
         <ul className="links" aria-label="Your decision">
           <li>
@@ -168,18 +197,105 @@ function StartRetried({ order, project, after }: { order: WorkOrder; project?: s
   );
 }
 
+// LaneGroupHead stands over a lane's items: the lane, its work order, how many wait, the gates Approve all leaves out,
+// and Approve all for its permission requests. Approve all decides each request bound to the digest this page read, so
+// a request that changed or went void is refused, skipped, and named, and the rest are approved.
+function LaneGroupHead({ entry, after, onActed }: { entry: Entry; after: () => Promise<void>; onActed: (keys: string[]) => void }) {
+  const { act, busy, failure } = useAct(after);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const said = useId();
+  const requests = permissionRequests(entry.items);
+  const gated = gateRequests(entry.items);
+  const gates = gated.length;
+  const [first] = entry.items;
+  const project = first?.project?.name ?? "";
+  const workOrder = requests[0]?.work_order_id ?? "";
+  const approveAll = () =>
+    act(async () => {
+      const missed: string[] = [];
+      onActed(entry.items.filter((item) => item.kind === "approval" && !item.approval.gate).map(keyOf));
+      for (const request of requests) {
+        try {
+          await decideApproval(request.id, request.subject_digest, true, "", "needs_you");
+        } catch (error) {
+          missed.push(`${request.subject}: ${error instanceof ApiError ? error.message : String(error)}`);
+        }
+      }
+      setSkipped(missed);
+    });
+  const lane = addressOf("/lane", { id: entry.lane });
+  // The gates stand above Approve all, each by what it asks, so a person sees what it leaves out before pressing it.
+  return (
+    <div className="lane-group-head">
+      <div className="lane-group-title">
+        <strong>Lane {entry.lane}</strong>
+      </div>
+      <p className="subtle" id={`${said}-says`}>
+        {[workOrder, `${entry.items.length} waiting`].filter(Boolean).join(" · ")}
+        {requests.length > 1 ? `. Approve all allows each of its ${requests.length} requests as its card shows it, bound to the digest this page read.` : ""}{" "}
+        <Link to={project ? inProject(project, lane) : lane}>Open lane</Link>
+      </p>
+      {gates > 0 ? (
+        <>
+          <p className="subtle" id={`${said}-gates`}>
+            {gates === 1 ? "1 gate waits" : `${gates} gates wait`} to be reviewed one by one, and Approve all leaves {gates === 1 ? "it" : "them"} out:
+          </p>
+          <ul className="lane-group-gates" aria-labelledby={`${said}-gates`}>
+            {gated.map((request) => (
+              <li key={request.id}>{approvalHeading(request)}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {requests.length > 1 ? (
+        <div className="row-tight">
+          <Button small loading={busy} disabled={busy} onClick={() => void approveAll()} aria-describedby={gates > 0 ? `${said}-says ${said}-gates` : `${said}-says`}>
+            Approve all {requests.length}
+          </Button>
+        </div>
+      ) : null}
+      {skipped.length > 0 ? (
+        <Refusal>
+          {skipped.length === 1 ? "One request was skipped" : `${skipped.length} requests were skipped`}, because it changed or went void: {skipped.join("; ")}
+        </Refusal>
+      ) : null}
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </div>
+  );
+}
+
+// guardPress keeps a press from deciding the next item when the page just moved there, or when a key is held
+// down, so a double press never decides two items.
+function guardPress(movedAt: { current: number }) {
+  return (event: KeyboardEvent | MouseEvent) => {
+    if (!(event.target instanceof Element) || !event.target.closest("button")) {
+      return;
+    }
+    const held = "repeat" in event && event.repeat && (event.key === "Enter" || event.key === " ");
+    const soon = !("key" in event) && Date.now() - movedAt.current < settleMoveMs;
+    if (held || soon) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+}
+
 type Props = { view: View; readAt: number; after: () => Promise<void>; active?: boolean };
 
-// NeedsYou lists what waits on a member in every active project, the longest wait first (FR-UI-2,
-// FR-PROJ-8), beside the selected item's decision card. An item another place resolved stays where it
-// stood, struck through, until the person moves on, so nothing moves under the cursor.
+// NeedsYou lists what waits on a member in every active project, the most important first and then the longest
+// wait (FR-UI-2, FR-PROJ-8), each lane's items together, beside the selected item's decision card. After a
+// decision on its card, the next item opens with focus on its primary button. An item another place resolved
+// stays where it stood, struck through, until the person moves on, so nothing moves under the cursor.
 export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const now = useClock();
   const elapsed = Math.max(0, now - readAt);
   const route = useRoute();
   const narrow = useNarrow();
+  const current = useContext(CurrentProject);
   const title = useRef<HTMLHeadingElement>(null);
   const resolvedNote = useRef<HTMLParagraphElement>(null);
+  const doneNote = useRef<HTMLDivElement>(null);
+  const page = useRef<HTMLDivElement>(null);
   const tabsId = useId();
   useArrivalFocus(title, active);
   const params = active ? route.params : new URLSearchParams();
@@ -187,6 +303,21 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const project = params.get("project") ?? "";
   const tab = params.get("tab") === "decided" ? "decided" : "open";
   const chosenKey = params.get("item") ?? "";
+  const order: Order = orderOf(params.get("order"));
+  const grouped = params.get("group") !== "off";
+  const [advance, setAdvance] = useFlag("ropeshift-advance", true);
+  // acted holds the items a person decided on this page, whose leaving the list moves the page to the next item, and
+  // retriedHere the work they retried, which stays to offer Start. Each is kept as the act returns, before the read
+  // that no longer lists the item.
+  const acted = useRef(new Set<string>());
+  const retriedHere = useRef(new Set<string>());
+  // movedAt is when the page last moved to the next item on its own, focusNext the item whose primary button takes
+  // focus once it shows, and said the polite line that says what happened and what is next.
+  const movedAt = useRef(0);
+  const focusNext = useRef("");
+  const [said, setSaid] = useState("");
+  // finished is the last item a person decided here, once nothing else waits, which says what happens next.
+  const [finished, setFinished] = useState<NeedItem | null>(null);
 
   // registered holds what approving a plan registered of its manifest's repositories, by item, so a member reads
   // it after the plan stops waiting and its card goes.
@@ -202,31 +333,97 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   // retried holds the work a member returned to ready from its card, by item, which has no lane until someone starts one.
   const [retried, setRetried] = useState<Record<string, WorkOrder>>({});
 
-  // gone holds the selected item after the server stopped listing it, at the place it stood.
-  const [gone, setGone] = useState<{ item: NeedItem; at: number } | null>(null);
+  const address = (changes: Record<string, string>) =>
+    addressOf("/needs-you", {
+      project,
+      kind: filter === "all" ? "" : filter,
+      tab: tab === "open" ? "" : tab,
+      order: order === "importance" ? "" : order,
+      group: grouped ? "" : "off",
+      item: chosenKey,
+      ...changes,
+    });
+
+  // outcomeOf says what a person did to an item on this page, for the line that says what is next.
+  const outcomeOf = (key: string, item: NeedItem) => {
+    const heading = headingOf(item).replace(/[.?!]+$/, "");
+    const done = decided[key];
+    if (answered[key]) {
+      return `Answered: ${heading}`;
+    }
+    if (done) {
+      return `${done.approved ? "Approved" : "Declined"}: ${heading}`;
+    }
+    return resolved[key] ? `${heading}: ${resolved[key]}` : `Done: ${heading}`;
+  };
+
+  // gone holds the selected item after the server stopped listing it, which stays at the place it stood.
+  const [gone, setGone] = useState<NeedItem | null>(null);
   const shown = useRef<NeedItem[]>(view.items);
-  // lastSelected is the item the person had selected at the last render, before this read arrived.
+  // lastSelected is the item the person had selected at the last render, before this read arrived, and lastListed
+  // the order the list showed then, which says what came after it.
   const lastSelected = useRef("");
+  const lastListed = useRef<string[]>([]);
+  // An item a person decided here moves the page to the next item in the list's order, and says so. One that
+  // another place settled stays, struck through, until the person moves on.
   useEffect(() => {
     const was = shown.current;
     const key = lastSelected.current;
-    if (key && !view.items.some((item) => keyOf(item) === key)) {
-      const at = was.findIndex((item) => keyOf(item) === key);
-      const item = was[at];
-      if (item) {
-        setGone({ item, at });
+    shown.current = view.items;
+    const still = (wanted: string | undefined) => view.items.some((item) => keyOf(item) === wanted);
+    const item = key && !still(key) ? was.find((row) => keyOf(row) === key) : undefined;
+    const decidedHere = item !== undefined && acted.current.has(key);
+    for (const wanted of [...acted.current]) {
+      if (still(wanted) || wanted === key) {
+        acted.current.delete(wanted);
       }
     }
-    shown.current = view.items;
+    // A page the person left moves nowhere, and keeps nothing struck through for them to come back to.
+    if (!item || !active) {
+      return;
+    }
+    if (!decidedHere || !advance) {
+      setGone(item);
+      return;
+    }
+    // A card tells of a retry from its act's reply, before the read that no longer lists the work. Work a member
+    // retried here waits for them to start it, so the page stays on it to offer Start.
+    if (retriedHere.current.has(key)) {
+      setGone(item);
+      return;
+    }
+    const order = lastListed.current;
+    const at = order.indexOf(key);
+    const following = at < 0 ? [] : [...order.slice(at + 1), ...order.slice(0, at).reverse()];
+    const next = view.items.find((row) => keyOf(row) === following.find(still));
+    if (next) {
+      movedAt.current = Date.now();
+      focusNext.current = keyOf(next);
+      const then = headingOf(next);
+      setSaid(`${outcomeOf(key, item)}. Next: ${/[.?!]$/.test(then) ? then : `${then}.`}`);
+      go(address({ item: keyOf(next) }), { stay: true, replace: true });
+      return;
+    }
+    setFinished(item);
+    setSaid(`${outcomeOf(key, item)}. Nothing else needs you.`);
+    go(address({ item: "" }), { stay: true, replace: true });
   }, [view.items]);
 
+  // Leaving the page is moving on, so an item settled while it was open is gone when the person comes back.
+  useEffect(() => {
+    if (!active) {
+      setGone(null);
+    }
+  }, [active]);
+
   // An item the server labeled with no project is of the only project there is.
-  const inProject = (item: NeedItem) => !project || !item.project || item.project.name === project;
-  const counts = Object.fromEntries(filters.map((row) => [row.id, view.items.filter((item) => inProject(item) && (row.id === "all" || filterOf(item) === row.id)).length]));
-  let listed = view.items.filter((item) => inProject(item) && (filter === "all" || filterOf(item) === filter));
-  if (gone && !listed.some((item) => keyOf(item) === keyOf(gone.item))) {
-    listed = [...listed.slice(0, gone.at), gone.item, ...listed.slice(gone.at)];
-  }
+  const ofProject = (item: NeedItem) => !project || !item.project || item.project.name === project;
+  const counts = Object.fromEntries(filters.map((row) => [row.id, view.items.filter((item) => ofProject(item) && (row.id === "all" || filterOf(item) === row.id)).length]));
+  const kept = (item: NeedItem) => ofProject(item) && (filter === "all" || filterOf(item) === filter);
+  const visible = view.items.filter(kept);
+  // The item that left stays in the list where its tier and its wait put it, until the person moves on.
+  const sections = arrange(gone && kept(gone) && !visible.some((item) => keyOf(item) === keyOf(gone)) ? [...visible, gone] : visible, order, grouped);
+  const listed = flatten(sections);
   // A person who looks at another view and comes back finds the item they had open.
   const remembered = useRef("");
   if (chosenKey) {
@@ -238,18 +435,53 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const assistantOfSelected = useAssistantCard(selected);
   useEffect(() => {
     lastSelected.current = selectedKey;
+    lastListed.current = listed.map(keyOf);
   });
-  const isGone = (item: NeedItem) => gone !== null && keyOf(gone.item) === keyOf(item);
+  const isGone = (item: NeedItem) => gone !== null && keyOf(gone) === keyOf(item);
 
-  const address = (changes: Record<string, string>) => addressOf("/needs-you", { project, kind: filter === "all" ? "" : filter, tab: tab === "open" ? "" : tab, item: chosenKey, ...changes });
+  // workingElsewhere says a person's focus is in another part of the window, such as a message they type in the
+  // conversation panel, which moving on must not take from them.
+  const workingElsewhere = () => {
+    const at = document.activeElement;
+    return at !== null && at !== document.body && !page.current?.contains(at);
+  };
+
+  // The next item's primary button takes focus once its card shows, unless the person works elsewhere. One that cannot
+  // be pressed yet, such as a batch with nothing chosen, leaves focus on the card's first button, or on the item in the
+  // list.
+  useEffect(() => {
+    if (!focusNext.current || focusNext.current !== selectedKey) {
+      return;
+    }
+    focusNext.current = "";
+    if (workingElsewhere()) {
+      return;
+    }
+    const card = [...document.querySelectorAll<HTMLElement>("[data-card]")].find((element) => element.dataset.card === selectedKey);
+    (card?.querySelector<HTMLElement>(".decide .btn-primary:not(:disabled)") ?? card?.querySelector<HTMLElement>(".decide .btn:not(:disabled)") ?? document.getElementById(`need-${selectedKey}`))?.focus();
+  });
+
+  // With nothing left, focus moves to the line that says so, and what happens next. A new item ends it.
+  useEffect(() => {
+    if (finished && active && !workingElsewhere()) {
+      doneNote.current?.focus();
+    }
+  }, [finished, active]);
+  const anyListed = listed.length > 0;
+  useEffect(() => {
+    if (anyListed) {
+      setFinished(null);
+    }
+  }, [anyListed]);
 
   const select = (item: NeedItem | undefined, focus = true) => {
     if (!item) {
       return;
     }
-    if (gone && keyOf(gone.item) !== keyOf(item)) {
+    if (gone && keyOf(gone) !== keyOf(item)) {
       setGone(null);
     }
+    setFinished(null);
     go(address({ item: keyOf(item) }), { stay: true });
     if (focus) {
       requestAnimationFrame(() => document.getElementById(`need-${keyOf(item)}`)?.focus());
@@ -292,7 +524,49 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   }, [selectedGone, active]);
 
   const projectsCount = new Set(view.items.map((item) => item.project?.name ?? "")).size;
+  const orderLabel = (orders.find((row) => row.id === order)?.label ?? "").toLowerCase();
+  const nextOf = (item: NeedItem) => <NextStepLine step={nextStepOf(item, decided[keyOf(item)])} project={item.project?.name ?? current} />;
+  const guard = guardPress(movedAt);
   const waitOf = (item: NeedItem) => view.as_of - item.since + elapsed;
+  const itemRow = (item: NeedItem) => {
+    const key = keyOf(item);
+    const done = isGone(item);
+    return (
+      <li key={key}>
+        <Link
+          id={`need-${key}`}
+          to={address({ item: key })}
+          stay
+          data-item
+          className={`item${done ? " done" : ""}`}
+          aria-current={selected && keyOf(selected) === key ? "true" : undefined}
+          onClick={() => {
+            if (gone && keyOf(gone) !== key) {
+              setGone(null);
+            }
+            setFinished(null);
+          }}
+        >
+          <Icon name={kindOf(item).icon} />
+          <span className="item-title" title={fullHeadingOf(item) === headingOf(item) ? undefined : fullHeadingOf(item)}>
+            {headingOf(item)}
+            {done ? <span className="visually-hidden"> (resolved)</span> : null}
+          </span>
+          <Wait ms={waitOf(item)} />
+          <span className="item-meta">
+            {item.project ? <ProjectTag name={item.project.name} display={item.project.display_name} /> : null}
+            {item.kind === "confirm" && !done ? (
+              <span className="truncate">
+                <Icon name="key" size="sm" /> {preparerOf(item.card)}
+              </span>
+            ) : (
+              <span className="truncate">{done ? (answered[key] ? "Answered by you" : decided[key] ? "Decided by you" : resolved[key] ? "Settled by you" : "Resolved elsewhere") : contextOf(item)}</span>
+            )}
+          </span>
+        </Link>
+      </li>
+    );
+  };
   const frameOf = (item: NeedItem): Frame => ({
     project: item.project,
     title: headingOf(item),
@@ -308,7 +582,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
 
   return (
     <ViewTime.Provider value={{ asOf: view.as_of, elapsed }}>
-      <div className={`split${selected && (narrow || chosenKey) ? " show-detail" : ""}`}>
+      <div className={`split${selected && (narrow || chosenKey) ? " show-detail" : ""}`} ref={page}>
         <section className="split-list" aria-labelledby={`${tabsId}-title`}>
           <div className="split-list-head">
             <div className="split-title">
@@ -316,7 +590,10 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                 Needs you
               </h1>
               <p className="subtle small" aria-live="polite">
-                {view.items.length === 0 ? "Nothing is waiting." : `${view.items.length} waiting in ${projectsCount === 1 ? "1 project" : `${projectsCount} projects`} · oldest first`}
+                {view.items.length === 0 ? "Nothing is waiting." : `${view.items.length} waiting in ${projectsCount === 1 ? "1 project" : `${projectsCount} projects`} · ${orderLabel}`}
+              </p>
+              <p className="visually-hidden" aria-live="polite" data-said>
+                {said}
               </p>
             </div>
             <Tabs
@@ -348,6 +625,23 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                     ))}
                   </Select>
                 ) : null}
+                <div className="needs-controls">
+                  <Select small aria-label="Order" value={order} onChange={(event) => go(address({ order: event.target.value === "importance" ? "" : event.target.value }), { stay: true })}>
+                    {orders.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.label}
+                      </option>
+                    ))}
+                  </Select>
+                  <label className="check-row">
+                    <input type="checkbox" checked={grouped} onChange={(event) => go(address({ group: event.target.checked ? "" : "off" }), { stay: true })} />
+                    Group by lane
+                  </label>
+                  <label className="check-row">
+                    <input type="checkbox" checked={advance} onChange={(event) => setAdvance(event.target.checked)} />
+                    Advance after each decision
+                  </label>
+                </div>
               </>
             ) : null}
           </div>
@@ -356,6 +650,12 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
               <EmptyState icon="history" title="Decided requests are not shown yet">
                 This build's API lists only what still waits. Each decision stays in the project's ledger, and the last 30 days of them arrive here in a later build.
               </EmptyState>
+            ) : listed.length === 0 && finished ? (
+              <div className="empty needs-done" ref={doneNote} tabIndex={-1}>
+                <Icon name="check" size="lg" />
+                <strong>{view.items.some(ofProject) ? "Nothing else of this kind needs you" : "Nothing else needs you"}</strong>
+                {nextOf(finished)}
+              </div>
             ) : listed.length === 0 ? (
               <EmptyState icon="inbox" title={view.items.length === 0 ? "Nothing needs you" : "Nothing of this kind waits"}>
                 {view.items.length === 0
@@ -364,41 +664,34 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
               </EmptyState>
             ) : (
               <ol className="split-list-body" aria-label="Waiting items">
-                {listed.map((item) => {
-                  const key = keyOf(item);
-                  const done = isGone(item);
+                {sections.map((section) => {
+                  const rows = section.entries.map((entry) =>
+                    entry.lane ? (
+                      <li key={entry.key} className="lane-group">
+                        <ItemProject.Provider value={entry.items[0]?.project?.name ?? ""}>
+                          <LaneGroupHead entry={entry} after={after} onActed={(keys) => keys.forEach((key) => acted.current.add(key))} />
+                        </ItemProject.Provider>
+                        <ol aria-label={`Lane ${entry.lane}`}>{entry.items.map((item) => itemRow(item))}</ol>
+                      </li>
+                    ) : (
+                      entry.items.map((item) => itemRow(item))
+                    ),
+                  );
+                  if (section.tier === null) {
+                    return rows;
+                  }
+                  const count = section.entries.reduce((sum, entry) => sum + entry.items.length, 0);
+                  const heading = `${tabsId}-tier-${section.tier}`;
                   return (
-                    <li key={key}>
-                      <Link
-                        id={`need-${key}`}
-                        to={address({ item: key })}
-                        stay
-                        data-item
-                        className={`item${done ? " done" : ""}`}
-                        aria-current={selected && keyOf(selected) === key ? "true" : undefined}
-                        onClick={() => {
-                          if (gone && keyOf(gone.item) !== key) {
-                            setGone(null);
-                          }
-                        }}
-                      >
-                        <Icon name={kindOf(item).icon} />
-                        <span className="item-title" title={fullHeadingOf(item) === headingOf(item) ? undefined : fullHeadingOf(item)}>
-                          {headingOf(item)}
-                          {done ? <span className="visually-hidden"> (resolved)</span> : null}
+                    <li key={`tier:${section.tier}`} className="tier">
+                      <h2 className="tier-head" id={heading}>
+                        <span>{tierNames[section.tier] ?? `Tier ${section.tier}`}</span>
+                        <span>
+                          <span className="visually-hidden">, </span>
+                          {count}
                         </span>
-                        <Wait ms={waitOf(item)} />
-                        <span className="item-meta">
-                          {item.project ? <ProjectTag name={item.project.name} display={item.project.display_name} /> : null}
-                          {item.kind === "confirm" && !done ? (
-                            <span className="truncate">
-                              <Icon name="key" size="sm" /> {preparerOf(item.card)}
-                            </span>
-                          ) : (
-                            <span className="truncate">{done ? (answered[key] ? "Answered by you" : decided[key] ? "Decided by you" : resolved[key] ? "Settled by you" : "Resolved elsewhere") : contextOf(item)}</span>
-                          )}
-                        </span>
-                      </Link>
+                      </h2>
+                      <ol aria-labelledby={heading}>{rows}</ol>
                     </li>
                   );
                 })}
@@ -406,7 +699,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
             )}
           </TabPanel>
         </section>
-        <section className="split-detail" aria-label="The selected item">
+        <section className="split-detail" aria-label="The selected item" onKeyDownCapture={guard} onClickCapture={guard}>
           {narrow && selected ? (
             <Button small icon="chevron-left" className="back-to-list" onClick={() => go(address({ item: "" }), { stay: true })}>
               All items
@@ -415,7 +708,15 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
           {selected && tab === "open" && isGone(selected) && selected.kind !== "confirm" ? (
             <div className="decision is-resolved">
               <div className="decision-body">
-                <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} decided={decided[keyOf(selected)]} resolved={resolved[keyOf(selected)]} noteRef={resolvedNote} />
+                <ResolvedNote
+                  heading={headingOf(selected)}
+                  answered={answered[keyOf(selected)]}
+                  decided={decided[keyOf(selected)]}
+                  resolved={resolved[keyOf(selected)]}
+                  noteRef={resolvedNote}
+                  more={listed.some((item) => keyOf(item) !== keyOf(selected))}
+                  next={nextOf(selected)}
+                />
                 {retried[keyOf(selected)] ? <StartRetried order={retried[keyOf(selected)] as WorkOrder} project={selected.project?.name} after={after} /> : null}
                 {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} approval={selected.id} /> : null}
               </div>
@@ -426,11 +727,17 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
           ) : null}
           {/* Every card stays mounted, and only the selected one shows, so an answer in progress survives a look at another item. */}
           {view.items.map((item) => (
-            <div key={keyOf(item)} hidden={tab !== "open" || !selected || keyOf(selected) !== keyOf(item)}>
+            <div key={keyOf(item)} data-card={keyOf(item)} hidden={tab !== "open" || !selected || keyOf(selected) !== keyOf(item)}>
               <ItemProject.Provider value={item.project?.name ?? ""}>
                 <Card
                   item={item}
-                  after={after}
+                  after={async (ok?: boolean) => {
+                    // Only a change the server took is a decision made here; a refused one leaves the card to say why.
+                    if (ok !== false) {
+                      acted.current.add(keyOf(item));
+                    }
+                    await after();
+                  }}
                   frame={frameOf(item)}
                   registered={{ registration: registered[keyOf(item)], onRegistered: (registration) => setRegistered((was) => ({ ...was, [keyOf(item)]: registration })) }}
                   settled={{
@@ -438,6 +745,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                     onDecided: (done) => setDecided((was) => ({ ...was, [keyOf(item)]: done })),
                     onResolved: (words) => setResolved((was) => ({ ...was, [keyOf(item)]: words })),
                     onRetried: (order) => {
+                      retriedHere.current.add(keyOf(item));
                       setResolved((was) => ({ ...was, [keyOf(item)]: "you retried it, and the work is ready, but no lane has started. Start it to choose the worker that runs it" }));
                       setRetried((was) => ({ ...was, [keyOf(item)]: order }));
                     },

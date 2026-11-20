@@ -12,9 +12,11 @@ describe("the views", () => {
   it("offers every view of the design", async () => {
     serveViews();
     openPage("/");
-    const names = within(await views()).getAllByRole("link").map((link) => link.textContent);
-    expect(names).toEqual([
-      "Needs you12 waiting", "Overview", "Roadmap", "Plans", "Planning", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Reviews", "Measures",
+    const nav = await views();
+    const names = () => within(nav).getAllByRole("link").map((link) => link.textContent);
+    await waitFor(() => expect(names()).toContain("Open questions3 open"));
+    expect(names()).toEqual([
+      "Needs you12 waiting", "Overview", "Roadmap", "Plans", "Planning", "Documents", "Decisions", "Open questions3 open", "Work orders", "Floor", "Reviews", "Measures",
       "Conversations", "Repositories", "Agents", "Settings", "Audit", "Projects", "Templates", "Workers and resources", "Members", "Usage",
     ]);
   });
@@ -166,6 +168,19 @@ describe("what waits, from anywhere", () => {
     expect(within(await views()).getByRole("link", { name: /^Needs you/ }).textContent).toContain("12 waiting");
   });
 
+  // Needs you is where questions are decided, so Open questions counts its open questions in a soft pill, to know
+  // about, and says in its title how many of them wait for you there.
+  it("counts the open questions apart from what waits for you", async () => {
+    serveViews();
+    openPage("/roadmap");
+    await screen.findByRole("heading", { level: 1, name: "Roadmap" });
+    const link = within(await views()).getByRole("link", { name: /^Open questions/ });
+    await waitFor(() => expect(link.textContent).toBe("Open questions3 open"));
+    const pill = link.querySelector(".count");
+    expect(pill?.classList.contains("count-quiet")).toBe(true);
+    expect(pill?.getAttribute("title")).toBe("3 open: 2 wait for you in Needs you, 1 is on the ladder");
+  });
+
   it("drops the count when nothing waits", async () => {
     serveViews((call) => (call.path === "/v1/needs-you" ? { status: 200, body: { ...golden<object>("needs-you"), items: [] } } : undefined));
     openPage("/roadmap");
@@ -177,6 +192,10 @@ describe("what waits, from anywhere", () => {
     serveViews();
     openPage("/");
     await userEvent.click(await screen.findByRole("link", { name: /2 questions/ }));
+    const [unfold] = await screen.findAllByRole("button", { name: "Choose another" });
+    if (unfold) {
+      await userEvent.click(unfold);
+    }
     const somethingElse = (await screen.findAllByRole("radio", { name: "Something else" }))[0];
     if (!somethingElse) {
       throw new Error("no such choice");

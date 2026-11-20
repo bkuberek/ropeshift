@@ -44,8 +44,11 @@ describe("a question in a conversation", () => {
     const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
     show(entryOf({ reversibility: "reversible" }));
     const group = screen.getByRole("group", { name: asking });
+    expect(within(group).getByText("Recommended").closest("p")?.textContent).toBe("Recommended Rotate it");
+    expect(screen.queryByRole("button", { name: "Discuss" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Choose another" }));
     expect((within(group).getByRole("radio", { name: /^Rotate it/ }) as HTMLInputElement).checked).toBe(true);
-    await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with recommendation" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({
       method: "POST",
@@ -57,10 +60,13 @@ describe("a question in a conversation", () => {
   it("starts with nothing chosen when its answer is one-way, whatever its reason says", async () => {
     show(entryOf({ reversibility: "one_way" }));
     const group = screen.getByRole("group", { name: asking });
+    expect(within(group).getByText("Nothing is chosen: a one-way answer is always your own choice.")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Choose another" }));
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
     }
-    expect((screen.getByRole("button", { name: "Send 0 of 1 answer" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
+    // Agree on a one-way question asks for a confirm before it records anything.
+    expect((screen.getByRole("button", { name: "Agree with recommendation" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is recorded on its own once you confirm it.");
   });
 });

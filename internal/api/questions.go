@@ -112,10 +112,12 @@ type QuestionBatch struct {
 	Items []QuestionItem  `json:"items"`
 }
 
-// QuestionItem is one question of a batch, with the title of the record its scope names, as DecisionView says.
+// QuestionItem is one question of a batch, with the title of the record its scope names, as DecisionView says, and the
+// lane that asked it, which is empty when no lane the ledger holds did, as for a member's question.
 type QuestionItem struct {
 	questions.Item
 	ScopeTitle string `json:"scope_title,omitempty"`
+	Lane       string `json:"lane,omitempty"`
 }
 
 // DecisionList is the answer to a list of decisions.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -359,7 +360,7 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 	payload, err := json.Marshal(authority.Approval{
 		ID: id, Lane: lane.ID, WorkOrder: lane.WorkOrder, Generation: lane.Generation, Kind: authority.KindToolCall, Subject: call.Tool,
 		SubjectDigest: call.Digest, Input: call.Input, Command: call.Command, Path: call.Path, Agent: call.Agent, Summary: call.Summary,
-		RequestedBy: authority.Principal(r.principal(lane)),
+		RequestedBy: authority.Principal(r.principal(lane)), Gate: r.gated(call),
 	})
 	if err != nil {
 		return lanes.OpenApproval{}, err
@@ -371,6 +372,318 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 	r.noteRequest(ctx, len(rows)+1)
 	r.sendRequests()
 	return open, nil
+}
+
+// gated says a call is a gate: one this lane's profile gates, or a push, each of which asks in every mode (FR-LANE-19)
+// and which a member approves one call at a time. A shell command is a gate when any command in it is one.
+func (r *laneRun) gated(call authority.ToolCall) bool {
+	r.handleLock.Lock()
+	rules := r.gates
+	r.handleLock.Unlock()
+	gates := make([]lanes.GateRule, 0, len(rules))
+	for _, rule := range rules {
+		gates = append(gates, lanes.ReadGate(rule))
+	}
+	command := strings.TrimSpace(call.Command)
+	if (lanes.DenyPolicy{Gates: gates}).Gated(lanes.ToolCall{Tool: call.Tool, Command: command}) {
+		return true
+	}
+	return call.Tool == lanes.ToolBash && shellGated(command, gates)
+}
+
+// shellGated says a shell command is a gate: one of its commands is a push or a call a gate names, whatever stands
+// before it, such as an assignment, `env`, `cd … &&`, a wrapper such as `nohup`, or git's own options. A command it
+// cannot read with confidence is a gate too, because a gate it missed would reach Approve all.
+func shellGated(command string, gates []lanes.GateRule) bool {
+	return gatedText(command, gates, 0)
+}
+
+// maxGateDepth bounds how deep a command inside a word, such as the text of `sh -c`, is read. Past it, a command
+// reads as a gate.
+const maxGateDepth = 4
+
+// shellSyntax are the characters that make a word worth reading as a command of its own: a word a shell, `eval`,
+// `env -S`, or a remote shell may run.
+const shellSyntax = " \t\r\n;&|()<>$`'\"\\"
+
+func gatedText(text string, gates []lanes.GateRule, depth int) bool {
+	if depth > maxGateDepth {
+		return true
+	}
+	commands, ok := readShell(text, depth > 0)
+	if !ok {
+		return true
+	}
+	for _, words := range commands {
+		if gatedWords(words, gates) {
+			return true
+		}
+		for _, word := range words {
+			// A word that reads back as itself holds no command of its own.
+			if word.text != text && strings.ContainsAny(word.text, shellSyntax) && gatedText(word.text, gates, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// gatedWords says one simple command is a gate. Whatever stands before a program may run the words after it, as an
+// assignment, `env`, `nohup`, or `timeout 5` does, so every word is read as a place a command could start. `xargs`
+// builds its command from input no reading of the call can see.
+func gatedWords(words []shellWord, gates []lanes.GateRule) bool {
+	texts := make([]string, len(words))
+	for i, word := range words {
+		if word.glob && globMeans(word.text, gates) {
+			return true
+		}
+		texts[i] = word.text
+	}
+	policy := lanes.DenyPolicy{Gates: gates}
+	gatedLine := func(words []string) bool {
+		return policy.Gated(lanes.ToolCall{Tool: lanes.ToolBash, Command: strings.Join(words, " ")})
+	}
+	for i, text := range texts {
+		name := path.Base(text)
+		if strings.EqualFold(name, "xargs") || gatedLine(texts[i:]) {
+			return true
+		}
+		if !strings.EqualFold(name, "git") {
+			continue
+		}
+		rest, ok := gitSubcommand(texts[i+1:])
+		if !ok || (len(rest) != 0 && rest[0] == "push") || gatedLine(append([]string{"git"}, rest...)) {
+			return true
+		}
+	}
+	return false
+}
+
+// globMeans says a word a shell may expand could become git, push, or a word a gate names.
+func globMeans(pattern string, gates []lanes.GateRule) bool {
+	if strings.Contains(pattern, "{") && strings.Contains(pattern, "}") && (strings.Contains(pattern, ",") || strings.Contains(pattern, "..")) {
+		return true
+	}
+	targets := []string{"git", "push"}
+	for _, gate := range gates {
+		targets = append(targets, strings.Fields(gate.CommandPrefix)...)
+	}
+	for _, target := range targets {
+		for _, form := range []string{pattern, path.Base(pattern)} {
+			if matched, err := path.Match(form, target); err == nil && matched {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// gitValueOptions are git's options before a subcommand that take the next word when no `=` joins them.
+var gitValueOptions = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--attr-source"}
+
+// gitSubcommand takes git's own options away from the words after `git`, and returns its subcommand and the rest. ok
+// is false for a setting that makes a word git reads as a subcommand run another one.
+func gitSubcommand(args []string) ([]string, bool) {
+	for len(args) != 0 && strings.HasPrefix(args[0], "-") {
+		name, value, joined := strings.Cut(args[0], "=")
+		if !joined && slices.Contains(gitValueOptions, args[0]) && len(args) > 1 {
+			value = args[1]
+			args = args[1:]
+		}
+		if (name == "-c" || name == "--config-env") && renamesCommands(value) {
+			return nil, false
+		}
+		args = args[1:]
+	}
+	return args, true
+}
+
+// renamesCommands says a setting makes a subcommand stand for another: an alias, or autocorrect, which runs the
+// subcommand a mistyped one is near.
+func renamesCommands(setting string) bool {
+	key, _, _ := strings.Cut(strings.ToLower(setting), "=")
+	return strings.HasPrefix(key, "alias.") || key == "help.autocorrect"
+}
+
+// shellWord is one word of a command as a shell passes it, with its quotes taken away. Glob says it holds an unquoted
+// pattern or brace a shell may expand into other words.
+type shellWord struct {
+	text string
+	glob bool
+}
+
+// shellReader splits a command line the way a shell does, and no further: it holds to what a gate needs to see.
+type shellReader struct {
+	text string
+	at   int
+	// lenient reads a quote that never closes to the end of the text, for a word read again as a command, which is
+	// more often prose with an apostrophe than a command a shell would refuse.
+	lenient  bool
+	commands [][]shellWord
+	words    []shellWord
+	word     strings.Builder
+	inWord   bool
+	glob     bool
+	// redirect says the next word is a redirect's target, which is no word of the command.
+	redirect bool
+	// unread says the text holds what this reading does not follow.
+	unread bool
+}
+
+// readShell splits a command line into its simple commands, at `&&`, `||`, `;`, `|`, `&`, a newline, and the
+// parentheses of a subshell, and leaves out comments and redirects. ok is false for what it does not follow: an
+// expansion or a substitution, a here-document or here-string, a process substitution, a redirect with no target,
+// and, unless lenient, a quote that never closes.
+func readShell(text string, lenient bool) ([][]shellWord, bool) {
+	r := &shellReader{text: text, lenient: lenient}
+	for r.at < len(r.text) && !r.unread {
+		r.step()
+	}
+	r.endCommand()
+	return r.commands, !r.unread
+}
+
+func (r *shellReader) peek() byte {
+	if r.at < len(r.text) {
+		return r.text[r.at]
+	}
+	return 0
+}
+
+func (r *shellReader) add(text string) {
+	r.word.WriteString(text)
+	r.inWord = true
+}
+
+func (r *shellReader) endWord() {
+	if r.inWord {
+		if r.redirect {
+			r.redirect = false
+		} else {
+			r.words = append(r.words, shellWord{text: r.word.String(), glob: r.glob})
+		}
+	}
+	r.word.Reset()
+	r.inWord, r.glob = false, false
+}
+
+func (r *shellReader) endCommand() {
+	r.endWord()
+	if r.redirect {
+		r.unread = true
+	}
+	if len(r.words) != 0 {
+		r.commands = append(r.commands, r.words)
+	}
+	r.words = nil
+}
+
+func (r *shellReader) step() {
+	c := r.text[r.at]
+	r.at++
+	switch {
+	case c == ' ' || c == '\t' || c == '\r':
+		r.endWord()
+	case strings.IndexByte(";|()\n", c) >= 0:
+		r.endCommand()
+	case c == '&' && r.peek() == '>':
+		r.readRedirect()
+	case c == '&':
+		r.endCommand()
+	case c == '<' || c == '>':
+		r.at--
+		r.readRedirect()
+	case c == '#' && !r.inWord:
+		for r.at < len(r.text) && r.text[r.at] != '\n' {
+			r.at++
+		}
+	case c == '\\':
+		if next := r.peek(); next != 0 {
+			r.at++
+			if next != '\n' {
+				r.add(string(next))
+			}
+		}
+	case c == '\'':
+		r.readSingleQuoted()
+	case c == '"':
+		r.readDoubleQuoted()
+	case c == '`', c == '$' && expands(r.peek(), true):
+		r.unread = true
+	default:
+		if strings.IndexByte("*?[{", c) >= 0 {
+			r.glob = true
+		}
+		r.add(string(c))
+	}
+}
+
+// readRedirect reads a redirect's operator, whose target is the next word. A number just before it names the file
+// descriptor and is part of it.
+func (r *shellReader) readRedirect() {
+	if r.inWord && strings.Trim(r.word.String(), "0123456789") == "" {
+		r.word.Reset()
+		r.inWord, r.glob = false, false
+	} else {
+		r.endWord()
+	}
+	op := r.text[r.at]
+	r.at++
+	next := r.peek()
+	switch {
+	case r.redirect, next == '(', op == '<' && next == '<':
+		r.unread = true
+	case op == '>' && strings.IndexByte(">&|", next) >= 0, op == '<' && (next == '&' || next == '>'):
+		r.at++
+	}
+	r.redirect = true
+}
+
+func (r *shellReader) readSingleQuoted() {
+	end := strings.IndexByte(r.text[r.at:], '\'')
+	if end < 0 {
+		r.unread = !r.lenient
+		r.add(r.text[r.at:])
+		r.at = len(r.text)
+		return
+	}
+	r.add(r.text[r.at : r.at+end])
+	r.at += end + 1
+}
+
+func (r *shellReader) readDoubleQuoted() {
+	r.inWord = true
+	for r.at < len(r.text) {
+		c := r.text[r.at]
+		r.at++
+		switch {
+		case c == '"':
+			return
+		case c == '\\' && strings.IndexByte("$`\"\\\n", r.peek()) >= 0:
+			if r.peek() != '\n' {
+				r.word.WriteByte(r.peek())
+			}
+			r.at++
+		case c == '`', c == '$' && expands(r.peek(), false):
+			r.unread = true
+			return
+		default:
+			r.word.WriteByte(c)
+		}
+	}
+	r.unread = !r.lenient
+}
+
+// expands says a `$` before this byte starts an expansion: of a name, a parameter, or a substitution, and outside
+// double quotes a quote of its own, which a shell decodes.
+func expands(next byte, unquoted bool) bool {
+	switch {
+	case next == '_', next >= 'a' && next <= 'z', next >= 'A' && next <= 'Z', next >= '0' && next <= '9':
+		return true
+	case strings.IndexByte("{([@*#?$!-", next) >= 0:
+		return true
+	}
+	return unquoted && (next == '\'' || next == '"')
 }
 
 // keepRequest is one journal write, because a request a lane parked on and the ledger never heard of

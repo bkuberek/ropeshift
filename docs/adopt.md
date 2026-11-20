@@ -76,7 +76,7 @@ Select Start adopt session. It reads the plan again: a plan that differs from th
 
 ### 5. Answer its questions
 
-The session asks in Needs you, as [plan your first change](plan-your-first-change.md#4-answer-its-questions-in-needs-you) shows: here, which branches in flight the plan keeps. Choose an answer, and select Send this answer. What you type into the session becomes a draft decision in the plan, as for any planning session.
+The session asks in Needs you, as [plan your first change](plan-your-first-change.md#4-answer-its-questions-in-needs-you) shows: here, which branches in flight the plan keeps. Agree with its recommendation, or choose another answer and send it. What you type into the session becomes a draft decision in the plan, as for any planning session.
 
 ### 6. Read the grouped plan approval
 

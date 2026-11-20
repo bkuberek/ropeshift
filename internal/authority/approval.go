@@ -155,6 +155,10 @@ type Approval struct {
 	Plan        string `json:"plan_id,omitempty"`
 	PlanVersion int64  `json:"plan_version,omitempty"`
 	Detail      string `json:"detail,omitempty"`
+	// Gate says a lane's call is one its profile gates, or a push, which asks in every mode by design, so a member
+	// approves it one call at a time and no batch covers it. The worker that raises the request says so, because the
+	// control plane reads no profile.
+	Gate bool `json:"gate,omitempty"`
 }
 
 // Decision is what a principal says of a request. Digest is what it saw.

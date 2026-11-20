@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/delivery"
@@ -231,10 +232,12 @@ type ContractReviewNeed struct {
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field
 // holds the rest. Project names its project in the combined Needs you.
 type NeedItem struct {
-	Project        *ProjectLabel       `json:"project,omitempty"`
-	Kind           string              `json:"kind"`
-	ID             string              `json:"id"`
-	Since          int64               `json:"since"`
+	Project *ProjectLabel `json:"project,omitempty"`
+	Kind    string        `json:"kind"`
+	ID      string        `json:"id"`
+	Since   int64         `json:"since"`
+	// Tier is how much the item holds, one of the Tier constants, which Needs you sorts by before its wait.
+	Tier           int                 `json:"tier"`
 	Batch          *QuestionBatch      `json:"batch,omitempty"`
 	Approval       *authority.Approval `json:"approval,omitempty"`
 	Effect         *EffectView         `json:"effect,omitempty"`
@@ -248,6 +251,55 @@ type NeedItem struct {
 	// RepositoryCreation is set for a repository_creation item, whose ID is the approval and the entry's name, joined by a
 	// slash.
 	RepositoryCreation *RepositoryCreationNeed `json:"repository_creation,omitempty"`
+}
+
+// The tiers of importance of what waits for a person, most important first. Needs you sorts by tier, then by wait.
+const (
+	// TierRunningSession holds a running session: a lane waits on it to go on.
+	TierRunningSession = 1
+	// TierStopped is work that stopped and waits for a member to move it.
+	TierStopped = 2
+	// TierDecision waits for a member's decision while nothing that runs is held.
+	TierDecision = 3
+	// TierLater can wait: a check of what already merged.
+	TierLater = 4
+)
+
+// TierOf is how much an item holds, from its kind and state alone: a call or an artifact a lane waits to run, or a
+// question that blocks its lane, holds a running session; stuck, failed, or parked work, a recovery act, an uncertain
+// effect, a spend stop, CI that asks a person, and a repository a plan approval did not create are stopped work; a
+// design history check can wait; and everything else, a kind this build does not know included, waits for a decision.
+func TierOf(item NeedItem) int {
+	switch item.Kind {
+	case NeedApproval:
+		if item.Approval == nil {
+			return TierDecision
+		}
+		switch item.Approval.Kind {
+		case authority.KindToolCall, authority.KindArtifact:
+			return TierRunningSession
+		case authority.KindRecovery:
+			return TierStopped
+		}
+	case NeedQuestions:
+		if item.Batch != nil && slices.ContainsFunc(item.Batch.Items, func(question QuestionItem) bool { return question.Blocking }) {
+			return TierRunningSession
+		}
+	case NeedWork:
+		if item.Work == nil {
+			return TierStopped
+		}
+		switch item.Work.Reason {
+		case ReasonAcceptance:
+			return TierDecision
+		case ReasonHistoryMissing, ReasonHistoryUnread:
+			return TierLater
+		}
+		return TierStopped
+	case NeedEffect, NeedSpend, NeedCI, NeedRepositoryCreation:
+		return TierStopped
+	}
+	return TierDecision
 }
 
 // RepositoryCreationNeed is a repository an approved plan version creates that waits for a member, or runs: the approval
