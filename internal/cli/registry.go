@@ -103,6 +103,7 @@ func registry() []section {
 			command("question dismiss", "<id>", "close a question with no answer", (*invocation).questionDismiss),
 			command("question answer", "<id> --answer A [flags]", "answer a question, once", (*invocation).questionAnswer),
 			command("question merge", "<id> --into Q", "close a question in favor of one that stays", (*invocation).questionMerge),
+			command("question decide-now", "<id>", "take a question off the ladder into Needs you", (*invocation).questionDecideNow),
 			command("question answer-batch", "<batch> [--accept-reversible] [--answers FILE]", "answer a batch once: every answer or none", (*invocation).questionAnswerBatch),
 			command("question batches", "[--category C]", "show what reached members and still waits", (*invocation).questionBatches),
 			command("decision list", "[--category C] [--status S] [--scope S] [--text T]", "find decisions", (*invocation).decisionList),

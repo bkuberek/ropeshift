@@ -118,6 +118,7 @@ const (
 	OpQuestionAnswer                      = "question.answer"
 	OpQuestionAnswerBatch                 = "question.answer_batch"
 	OpQuestionMerge                       = "question.merge"
+	OpQuestionDecideNow                   = "question.decide_now"
 	OpDecisionAssume                      = "decision.assume"
 	OpDecisionRecord                      = "decision.record"
 	OpDecisionOverturn                    = "decision.overturn"
@@ -313,6 +314,9 @@ var operations = append(onInstallation(
 	// A member merges a question into the one that stays in an orchestrator's place (FR-QD-3). An orchestrator merges
 	// through its own acts, and a delegate's call is refused, because the lanes of one question move to another.
 	memberOnly(OpQuestionMerge, "Merge a question into another", ActionMergeQuestion),
+	// A member takes a question off the ladder into their own Needs you to decide it now, in place of the orchestrator
+	// that would judge it. A delegate's call is refused, because it changes who decides the question.
+	memberOnly(OpQuestionDecideNow, "Decide a question now, off the ladder", ActionAnswerQuestion),
 	// Recording a decision is a member's consent whoever drafts it, the assistant included (ADR-0024). An
 	// orchestrator's decisions within policy reach the ledger through its own acts, which no class reads.
 	consent(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),

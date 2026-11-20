@@ -104,12 +104,15 @@ const OutcomeMerged = "merged"
 // OutcomeAnswered is the ladder step of a question an orchestrator answered from a decision the record holds.
 const OutcomeAnswered = "answered"
 
+// OutcomeDecidedNow is the ladder step of a question a member took off the ladder to decide now.
+const OutcomeDecidedNow = "decided_now"
+
 // ReservedOutcome says an outcome is one only the ledger writes on a step: a merge, an answer from the record, a
 // ruling's status, and the rungs the core ran with no orchestrator. A climb that recorded one would fake that act, so a
 // dismissed question would read as merged, or a question an orchestrator judged as one nobody judged.
 func ReservedOutcome(outcome string) bool {
 	switch outcome {
-	case OutcomeMerged, OutcomeAnswered, string(DecisionDecided), string(DecisionAssumed), OutcomeUnjudged, OutcomeNoOrchestrator:
+	case OutcomeMerged, OutcomeAnswered, OutcomeDecidedNow, string(DecisionDecided), string(DecisionAssumed), OutcomeUnjudged, OutcomeNoOrchestrator:
 		return true
 	}
 	return false

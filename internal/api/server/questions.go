@@ -20,6 +20,7 @@ func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/questions/{id}/dismiss", h.member(h.dismissQuestion))
 	mux.HandleFunc("POST /v1/questions/{id}/answer", h.member(h.answerQuestion))
 	mux.HandleFunc("POST /v1/questions/{id}/merge", h.member(h.mergeQuestion))
+	mux.HandleFunc("POST /v1/questions/{id}/decide-now", h.member(h.decideNow))
 	mux.HandleFunc("GET /v1/question-batches", h.listBatches)
 	mux.HandleFunc("POST /v1/batches/{id}/answers", h.member(h.answerBatch))
 	mux.HandleFunc("GET /v1/decisions", h.listDecisions)
@@ -177,6 +178,16 @@ func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request, actor 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// decideNow answers with the question as it waits for the member in Needs you, in the batch that reached them.
+func (h *handler) decideNow(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	record, err := h.questions.DecideNow(r.Context(), h.Scope, r.PathValue("id"), actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, record)
 }
 
 func (h *handler) mergeQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {

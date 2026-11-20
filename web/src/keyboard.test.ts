@@ -448,6 +448,13 @@ const paths: Record<string, KeyPath> = {
       await k.activate(inDialog(page).getByRole("button", { name: "Merge question" }));
     },
   },
+  "POST /v1/projects/{project}/questions/{id}/decide-now": {
+    sent: post(/^\/v1\/projects\/default\/questions\/question-review\/decide-now$/),
+    run: async (k) => {
+      await k.palette("Open questions", "Open questions");
+      await k.palette("Decide now: Does the plan cover a restart?");
+    },
+  },
   "POST /v1/projects/{project}/decisions/{id}/overturn": {
     sent: post(/^\/v1\/projects\/default\/decisions\/decision-3\/overturn$/, expect.objectContaining({ statement: "Retry twice, and no more." })),
     run: async (k, page) => {

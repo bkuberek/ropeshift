@@ -56,6 +56,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/projects/{project}/questions/{id}/dismiss": { title: "Dismiss question: ", at: `${project}/questions` },
   "POST /v1/projects/{project}/questions/{id}/answer": { title: "Answer question: ", at: `${project}/questions` },
   "POST /v1/projects/{project}/questions/{id}/merge": { title: "Merge question: ", at: `${project}/questions` },
+  "POST /v1/projects/{project}/questions/{id}/decide-now": { title: "Decide now: ", at: `${project}/questions` },
   "POST /v1/projects/{project}/batches/{id}/answers": decide,
   "POST /v1/projects/{project}/decisions": { title: "Record decision", at: home },
   "POST /v1/projects/{project}/decisions/{id}/overturn": { title: "Overturn decision: ", at: `${project}/decisions` },

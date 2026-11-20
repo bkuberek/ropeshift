@@ -276,6 +276,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/questions/{id}/decide-now",
+    "command": "question decide-now"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/batches/{id}/answers",
     "command": "question answer-batch"
   },

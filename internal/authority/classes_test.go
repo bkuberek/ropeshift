@@ -57,6 +57,20 @@ func TestADelegateMayNotMergeAQuestion(t *testing.T) {
 	}
 }
 
+// TestADelegateMayNotDecideAQuestionNow holds question.decide_now to a member: it takes a question off the ladder into
+// the member's own Needs you, so the audit names who chose to decide it now, and a delegate's call is refused.
+func TestADelegateMayNotDecideAQuestionNow(t *testing.T) {
+	op, ok := authority.OperationOf(authority.OpQuestionDecideNow)
+	if !ok || op.ID != "question.decide_now" || op.Class != authority.ClassMemberOnly {
+		t.Fatalf("question.decide_now reads %+v, want it member-only", op)
+	}
+	for _, action := range op.Actions {
+		if authority.Allowed(delegate, action) {
+			t.Errorf("a delegate holds %s, which question.decide_now needs", action)
+		}
+	}
+}
+
 // TestOnlyAMemberRetriesOrSkipsARepositoryCreation holds the two operations on a failed repository creation to the
 // member-only class: a delegate's call is refused, not carded, and neither a delegate nor a lane holds what either needs,
 // while a member holds all of it.

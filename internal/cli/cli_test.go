@@ -1187,6 +1187,28 @@ func TestQuestionMerge(t *testing.T) {
 	}
 }
 
+// TestQuestionDecideNow holds that a member takes a question still on the ladder into Needs you, which says the batch
+// it waits in, and that a question that no longer waits cannot be.
+func TestQuestionDecideNow(t *testing.T) {
+	s := newSession(t)
+	s.must("question", "record", "--id", "q1", "--text", "How many retries?")
+	s.must("question", "record", "--id", "q2", "--text", "What is the retry budget?")
+	if code, _, _ := s.run("question", "decide-now"); code != cli.ExitUsage {
+		t.Fatalf("no question: exit %d", code)
+	}
+	text := s.must("question", "decide-now", "q1")
+	if !strings.HasPrefix(text, "q1\tneeds_human\t") || !strings.Contains(text, "waits for you in Needs you") {
+		t.Fatalf("printed %q", text)
+	}
+	if text := s.must("question", "show", "q1"); !strings.Contains(text, "needs_human") {
+		t.Errorf("the question reads %q", text)
+	}
+	s.must("question", "dismiss", "q2")
+	if code, _, _ := s.run("question", "decide-now", "q2"); code != cli.ExitConflict {
+		t.Errorf("a question that no longer waits: exit %d", code)
+	}
+}
+
 // TestOrchestratorSchedule holds that a start is scheduled only for a worker the installation holds, and that a
 // cancel of a start nobody scheduled finds nothing.
 func TestOrchestratorSchedule(t *testing.T) {

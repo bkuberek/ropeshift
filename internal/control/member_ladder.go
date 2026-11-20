@@ -49,3 +49,48 @@ func (q *Questions) MergeQuestion(ctx context.Context, scope ledger.WorkspaceID,
 		return q.mergeIn(tx, record, into, actor)
 	})
 }
+
+// DecideNow takes a question off the ladder into the member's own Needs you, in place of the orchestrator that would
+// judge it: it waits for a person from now, with a step that says a member chose to, and the batch it joins reaches
+// members at once, with whatever else waited in it. A question that already waits for a person is left as it is, so a
+// second call finds the first, and one that no longer waits has nothing to decide.
+func (q *Questions) DecideNow(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (questions.Question, error) {
+	if !authority.Allowed(actor, authority.ActionAnswerQuestion) {
+		return questions.Question{}, workorders.ErrForbidden
+	}
+	var record questions.Question
+	err := q.store.Write(ctx, scope, "question.decide_now", func(tx ports.WriteTx) error {
+		var err error
+		if record, err = tx.Questions().Question(id); err != nil {
+			return err
+		}
+		switch {
+		case !record.Status.Unresolved():
+			return fmt.Errorf("%w: %s is %s", questions.ErrResolved, id, record.Status)
+		case record.Status == questions.StatusNeedsHuman:
+			return nil
+		}
+		record.Status, record.Rung, record.ClaimedBy, record.ClaimUntil = questions.StatusNeedsHuman, questions.RungEscalate, "", 0
+		record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungEscalate, Outcome: questions.OutcomeDecidedNow, By: actor.ID})
+		if err := q.reachPerson(tx, &record, actor); err != nil {
+			return err
+		}
+		batch, err := tx.Questions().Batch(record.BatchID)
+		if err != nil {
+			return err
+		}
+		if err := hastenTo(tx, batch, tx.Now(), actor); err != nil {
+			return err
+		}
+		return saveQuestion(tx, record, actor)
+	})
+	if err != nil {
+		return questions.Question{}, err
+	}
+	if record.BatchID != "" {
+		if _, err := q.deliver(ctx, scope, record.BatchID, actor); err != nil {
+			return questions.Question{}, err
+		}
+	}
+	return record, nil
+}

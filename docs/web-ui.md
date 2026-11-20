@@ -199,6 +199,8 @@ A member works a question that waits in an orchestrator's place. Assume, on a qu
 
 Answer, on a question that waits, opens the answer where the question stands, through the control Needs you answers with: the options with the recommendation chosen, or Something else for your own words, and a one-way choice starts with nothing chosen. Send this answer records it once, as yours, as the decision that closes the question, which is what `ropeshift question answer` does. Under each question, Replaces a decision opens a list of the decisions in force, each with its ID and statement, and choosing one makes the answer replace it, with no rework, as `--supersedes` does: the decision ends `replaced` in the transaction that records the answer. It reads the decisions only when you open it, and a question that replaces nothing sends nothing extra.
 
+Decide now, on a question still on the ladder, takes it into your Needs you in place of the orchestrator that would judge it, and opens its card there with its primary button focused, as `ropeshift question decide-now` does. It decides nothing itself.
+
 Each control on these views is a member's own act, through the route the command line uses, so the rules are the same. A member's session does each one directly, and a delegate or the assistant that prepares the same operation makes a confirmation card for a member to confirm in Needs you; the web listener takes no delegate's credential. [Authorization](authorization.md#who-can-do-what) says who may do what, and [the command line](cli.md) has a command for each: `ropeshift question record`, `question dismiss`, `question answer`, and `question merge`, `decision record` and `decision overturn`, `category add`, and `search`.
 
 ## Work orders

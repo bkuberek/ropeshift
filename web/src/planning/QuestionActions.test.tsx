@@ -81,3 +81,25 @@ describe("Assume on an open question", () => {
     expect(record.hasAttribute("disabled")).toBe(false);
   });
 });
+
+// Decide now takes a question still on the ladder into the member's Needs you, and opens its card there with the
+// primary button focused. It answers nothing itself.
+describe("Decide now", () => {
+  it("takes a question off the ladder and opens its card in Needs you", async () => {
+    const sent = serveApi((call) =>
+      call.method === "POST" && call.path === "/v1/questions/question-1/decide-now" ? { status: 200, body: { ...questionOf("question-1"), status: "needs_human", batch_id: "batch-9" } } : undefined,
+    );
+    const question = { ...questionOf("question-1"), status: "open", batch_id: undefined };
+    shown(question, [question]);
+    await userEvent.click(screen.getByRole("button", { name: `Decide now: ${question.text}` }));
+    await waitFor(() => expect(sent.filter((call) => call.method === "POST")).toHaveLength(1));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toContain("/needs-you?item=questions%3Abatch-9&focus=primary"));
+  });
+
+  it("is not offered once the question waits for a person", () => {
+    serveApi(() => undefined);
+    const question = { ...questionOf("question-1"), status: "needs_human", batch_id: "batch-9" };
+    shown(question, [question]);
+    expect(screen.queryByRole("button", { name: /^Decide now/ })).toBeNull();
+  });
+});

@@ -70,6 +70,7 @@ export const paths = {
   batchAnswers: (id: string) => project(`/batches/${encodeURIComponent(id)}/answers`),
   dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
   merge: (id: string) => project(`/questions/${encodeURIComponent(id)}/merge`),
+  decideNow: (id: string) => project(`/questions/${encodeURIComponent(id)}/decide-now`),
   decisions: () => project("/decisions"),
   overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
   candidates: (text: string, limit: number) => project(`/candidates?${new URLSearchParams({ text, kinds: candidateKinds.join(","), limit: String(limit) })}`),
@@ -355,6 +356,12 @@ export function dismissQuestion(id: string): Promise<void> {
 // `ropeshift question merge --into` does.
 export function mergeQuestion(id: string, into: string): Promise<void> {
   return call("POST", paths.merge(id), { into });
+}
+
+// decideQuestionNow takes a question off the ladder into the member's Needs you, as `ropeshift question decide-now`
+// does, and answers with the question as it waits there, in its batch.
+export function decideQuestionNow(id: string): Promise<Question> {
+  return call<Question>("POST", paths.decideNow(id), {});
 }
 
 // recordDecision records a decision, or with the status `assumed` an assumption, as `ropeshift decision record`
