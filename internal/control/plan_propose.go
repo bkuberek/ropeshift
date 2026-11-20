@@ -41,6 +41,12 @@ func (i *Intake) proposablePlans(ctx context.Context, scope ledger.WorkspaceID) 
 				return err
 			}
 			if !asked {
+				// A branch ropeshift held back at this commit is not read again until the lane commits something new.
+				if held, err := heldAt(tx, row.ID, branch.Digest); err != nil {
+					return err
+				} else if held {
+					continue
+				}
 				out = append(out, acceptedPlan{order: row, commit: branch.Digest, lane: branch.Lane})
 			}
 		}
@@ -177,6 +183,14 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 	if err != nil || asked {
 		return err
 	}
+	// Every plan the branch holds is read before any is asked about, because approving one accepts the work order and
+	// merges the whole branch, with the placeholder of another plan in it.
+	if missing, err := unfinishedPlans(tx, batch); err != nil || len(missing) != 0 {
+		if err != nil {
+			return err
+		}
+		return holdPlanBack(tx, branch.order.ID, branch.commit, missing)
+	}
 	for _, item := range batch.Records {
 		if item.Plan == nil {
 			continue
@@ -210,10 +224,15 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 			ask.plan = link.RecordID
 			latest, err := tx.Planning().LatestPlanVersion(ask.plan)
 			if err == nil && latest.Digest == ask.digest {
-				// The ledger already holds exactly this plan, so there is nothing to approve.
-				continue
-			}
-			if err == nil {
+				// The ledger already holds exactly this plan, so there is nothing to approve, unless the version
+				// stands only because it was a placeholder when it was read, and the branch has finished it.
+				if _, held, err := unfinishedRequest(tx.Approvals(), ask.plan, latest.Version); err != nil {
+					return err
+				} else if !held {
+					continue
+				}
+				ask.version = latest.Version
+			} else if err == nil {
 				ask.version = latest.Version + 1
 			} else if !errors.Is(err, ports.ErrNotFound) {
 				return err

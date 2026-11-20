@@ -25,6 +25,9 @@ import (
 // planning branch the version came from, and records the estimates and forecasts it showed as the
 // baseline. A kill leaves all of that or none of it (FR-PLAN-9, FR-PLAN-10, FR-EST-10).
 func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
+	if missing := planDetailOf(approval).Unfinished; len(missing) != 0 {
+		return fmt.Errorf("%w: the plan is not finished: %s", workorders.ErrInvalid, strings.Join(missing, " "))
+	}
 	version, err := tx.Planning().PlanVersion(approval.Plan, approval.PlanVersion)
 	if errors.Is(err, ports.ErrNotFound) && approval.WorkOrder != "" {
 		// The ledger does not hold this version: it is a branch nothing has read, and approving it is

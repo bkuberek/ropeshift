@@ -192,6 +192,11 @@ type WorkNeed struct {
 	// ExtraAttempt says the retry that failed work waits for adds an attempt, because the work used every one
 	// it was given. Only a member can add one, so the card says so.
 	ExtraAttempt bool `json:"extra_attempt,omitempty"`
+	// Unfinished lists what a planning branch's plan still lacks, when ropeshift held the plan back from approval
+	// after it had already sent the work back once. SendBackReason is the reason the card's Send back offers, which
+	// says the same.
+	Unfinished     []string `json:"unfinished,omitempty"`
+	SendBackReason string   `json:"send_back_reason,omitempty"`
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
@@ -208,9 +213,12 @@ type PlanApprovalNeed struct {
 	// Replaced lists the drafts approval will not decide again, because a decision outside the plan replaced or
 	// overturned what an earlier version decided for them and their text has not changed. Each names the decision in
 	// force. It is absent when there are none.
-	Replaced   []questions.ReplacedDraft `json:"replaced,omitempty"`
-	Difference planning.Difference       `json:"difference"`
-	Summary    string                    `json:"summary"`
+	Replaced []questions.ReplacedDraft `json:"replaced,omitempty"`
+	// Unfinished lists what the version lacks when its request stands only to say it is a placeholder. Such a request cannot be
+	// approved, so its card offers no Approve.
+	Unfinished []string            `json:"unfinished,omitempty"`
+	Difference planning.Difference `json:"difference"`
+	Summary    string              `json:"summary"`
 	// Adoption groups a plan that adopts an existing project, with every file its branch changed (ADR-0023).
 	Adoption *planning.Adoption `json:"adoption,omitempty"`
 	// Revision is the plan's open revision when this version is a later one, which the member reads beside the

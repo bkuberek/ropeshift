@@ -188,6 +188,7 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
   const contracts = subject.detail.counts?.contract ?? 0;
   const creates = subject.registration?.preview ? createsLine(subject.registration.repositories) : "";
   const open = state === "pending";
+  const unfinished = subject.detail.unfinished ?? [];
   const resolution = open ? undefined : (
     <div className="resolution" role="status" aria-label="Resolution">
       <StateBadge table={approvalStates} state={state === "superseded" ? "void" : state} />
@@ -231,13 +232,27 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
             <Button disabled={change.busy} onClick={() => setDeclining(true)}>
               Decline…
             </Button>
-            <Button variant="primary" loading={change.busy} onClick={approve}>
-              Approve version {subject.version}
-            </Button>
+            {unfinished.length === 0 ? (
+              <Button variant="primary" loading={change.busy} onClick={approve}>
+                Approve version {subject.version}
+              </Button>
+            ) : null}
           </>
         }
       >
         <div className="small stack-8">
+          {unfinished.length > 0 ? (
+            <>
+              <p>Ropeshift did not offer this version for approval, because it is not finished. Still missing:</p>
+              <ul>
+                {unfinished.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <p className="muted">A commit that finishes the plan replaces this request.</p>
+            </>
+          ) : (
+          <>
           <p>
             Approving decides {decisions} draft {decisions === 1 ? "decision" : "decisions"} as yours
             {contracts ? ` and passes contract review for the work of ${contracts} ${contracts === 1 ? "contract" : "contracts"}` : ""}
@@ -249,6 +264,8 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
             </p>
           ) : null}
           <p className="muted">A one-way decision, a conflict between requirements, or a change of scope still reaches you later.</p>
+          </>
+          )}
           {change.failure ? <Refusal>{change.failure}</Refusal> : null}
         </div>
       </DecisionCard>
