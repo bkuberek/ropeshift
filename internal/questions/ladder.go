@@ -213,6 +213,10 @@ type Ask struct {
 	RecommendationRationale string `json:"recommendation_rationale,omitempty"`
 	Lane                    string `json:"lane,omitempty"`
 	Generation              int64  `json:"generation,omitempty"`
+	// Title, Tradeoffs, and Unblocks are the question's shape, as Question says.
+	Title     string            `json:"title,omitempty"`
+	Tradeoffs map[string]string `json:"tradeoffs,omitempty"`
+	Unblocks  string            `json:"unblocks,omitempty"`
 	// Direct says the question goes straight to the person. The control plane sets it from the
 	// ledger's work order when the asking lane runs a plan, so it never travels from a lane.
 	Direct bool `json:"-"`

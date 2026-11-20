@@ -62,3 +62,22 @@ describe("the title of a question", () => {
     expect(fullHeadingOf(item)).toBe("2 questions");
   });
 });
+
+// A lane titles its question in a few words, which the list shows in place of the text, and the full text stays one
+// hover away.
+describe("a question its asker titled", () => {
+  const titled: NeedItem = {
+    kind: "questions",
+    id: "batch-1",
+    since: 0,
+    batch: {
+      batch: { id: "batch-1", status: "open", opened_at: 0, closes_at: 0 },
+      items: [{ id: "q-1", text: "How often does a call to the forge retry before it gives up?", title: "Forge retries" }],
+    },
+  } as NeedItem;
+
+  it("is headed by its title, with its text whole beside it", () => {
+    expect(headingOf(titled)).toBe("Forge retries");
+    expect(fullHeadingOf(titled)).toBe("How often does a call to the forge retry before it gives up?");
+  });
+});

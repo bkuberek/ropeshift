@@ -7,6 +7,11 @@ export type Stamp = { as_of: number; revision: number };
 export type QuestionItem = {
   id: string;
   text: string;
+  // title is the question in a few words, tradeoffs what choosing each option gives up, by option, and unblocks what
+  // the answer lets go on, each as the asker wrote it.
+  title?: string;
+  tradeoffs?: Record<string, string>;
+  unblocks?: string;
   categories?: string[];
   blocking?: boolean;
   options?: string[];
@@ -714,6 +719,10 @@ export type ScheduledStart = { worker_id: string; starts_at?: number; scheduled_
 export type Question = {
   id: string;
   text: string;
+  // title, tradeoffs, and unblocks are the question's shape, as QuestionItem says.
+  title?: string;
+  tradeoffs?: Record<string, string>;
+  unblocks?: string;
   categories?: string[];
   status: string;
   rung: number;
