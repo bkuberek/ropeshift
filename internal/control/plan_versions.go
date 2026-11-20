@@ -323,6 +323,12 @@ type planAsk struct {
 	targets   []string
 	source    string
 	workOrder string
+	// body, goal, and contracts are the plan's text and what a member reads of the goal and the contracts of a
+	// branch's version, which its request carries for the same reason.
+	body      string
+	bodyCut   bool
+	goal      *planning.DetailGoal
+	contracts []planning.DetailContract
 	// adoption groups a plan that adopts a project, for a branch of an adopt lane.
 	adoption *planning.Adoption
 }
@@ -372,6 +378,7 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	detail, err := json.Marshal(planning.PlanDetail{
 		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Drafts: ask.drafts,
 		Manifest: ask.manifest, Targets: ask.targets, Difference: difference, Source: ask.source, Adoption: ask.adoption,
+		Body: ask.body, BodyCut: ask.bodyCut, Goal: ask.goal, Contracts: ask.contracts,
 	})
 	if err != nil {
 		return err

@@ -267,12 +267,34 @@ type PlanDetail struct {
 	Targets    []string             `json:"targets,omitempty"`
 	Difference Difference           `json:"difference"`
 	Source     string               `json:"source,omitempty"`
+	// Body is the text of the plan's file, cut at MaxPlanBody bytes, and Goal and Contracts are what a branch's
+	// version names, which a branch's version carries here for the same reason. A version the ledger holds reads
+	// all of them from its records.
+	Body      string           `json:"body,omitempty"`
+	BodyCut   bool             `json:"body_cut,omitempty"`
+	Goal      *DetailGoal      `json:"goal,omitempty"`
+	Contracts []DetailContract `json:"contracts,omitempty"`
 	// Adoption groups a plan that adopts an existing project, and lists every file its branch changed
 	// (ADR-0023). Any other plan has none.
 	Adoption *Adoption `json:"adoption,omitempty"`
 	// Shown is what the request showed of the plan's open revision at the moment a member approved the version.
 	// It is nil until a member approves, and for an approval recorded before this was kept.
 	Shown *ShownDecisions `json:"shown,omitempty"`
+}
+
+// DetailGoal is the goal a branch's plan names, with the statement its file holds.
+type DetailGoal struct {
+	Title           string   `json:"title"`
+	Statement       string   `json:"statement,omitempty"`
+	SuccessMeasures []string `json:"success_measures,omitempty"`
+}
+
+// DetailContract is a contract a branch's version holds, with what its file says of the work.
+type DetailContract struct {
+	ID        string      `json:"id"`
+	Title     string      `json:"title"`
+	Statement string      `json:"statement,omitempty"`
+	Criteria  []Criterion `json:"criteria,omitempty"`
 }
 
 // ShownDecisions are the decisions a plan's open revision listed when a member approved a version of the plan, in the

@@ -49,6 +49,7 @@ var PlanApprovalChecks = []Check{
 	{"PA22", "a draft whose earlier decision a decision outside the plan replaced or overturned is not decided again while its text is unchanged, and the approval lists it as replaced", checkReplacedDraftIsNotDecidedAgain},
 	{"PA23", "a draft whose text changed after its earlier decision was replaced or overturned is decided under the new version's ID, superseding the decision in force", checkChangedDraftSupersedesTheDecisionInForce},
 	{"PA24", "a plan version keeps the text of the plan's file, cut at a bound, and a version a spec made keeps the text the plan's file had", checkPlanVersionKeepsThePlansText},
+	{"PA25", "a branch's request carries its plan's text, its goal, and each contract with its criteria, because the ledger holds none of them", checkBranchRequestCarriesWhatMemberReads},
 }
 
 const approvalPlan = "retry"
@@ -1542,4 +1543,34 @@ func checkPlanVersionKeepsThePlansText(r *Rig) error {
 		return Violatedf("version 4 keeps %d bytes (cut %v), want %d, cut", len(fourth.Body), fourth.BodyCut, planning.MaxPlanBody)
 	}
 	return r.CheckProjection(s)
+}
+
+func checkBranchRequestCarriesWhatMemberReads(r *Rig) error {
+	s := r.Store()
+	files := map[string]string{
+		"goal.md":   GoalText("shore", "Reach the shore"),
+		"plan.md":   PlanText(approvalPlan, "Retry budget", "shore"),
+		"budget.md": placedContract{ID: "budget", Plan: approvalPlan}.text(),
+	}
+	_, pending, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	var detail planning.PlanDetail
+	if err := json.Unmarshal([]byte(pending.Detail), &detail); err != nil {
+		return err
+	}
+	if detail.Body != "How.\n" || detail.BodyCut {
+		return Violatedf("the request carries the plan's text %q (cut %v)", detail.Body, detail.BodyCut)
+	}
+	if goal := detail.Goal; goal == nil || goal.Title != "Reach the shore" || goal.Statement != "Why.\n" || !slices.Equal(goal.SuccessMeasures, []string{"It holds"}) {
+		return Violatedf("the request carries the goal %+v", detail.Goal)
+	}
+	if len(detail.Contracts) != 1 {
+		return Violatedf("the request carries contracts %+v", detail.Contracts)
+	}
+	if c := detail.Contracts[0]; c.ID != "budget" || c.Title != "The contract budget" || len(c.Criteria) != 1 || c.Criteria[0].Text != "It works" {
+		return Violatedf("the request carries the contract %+v", c)
+	}
+	return nil
 }

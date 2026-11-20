@@ -33,6 +33,10 @@ type PlanView struct {
 	// Revision is the plan's open revision when it has one: the decisions made inside its approved version, which
 	// keep the work they bind in contract review until a member confirms the version or approves a later one.
 	Revision *PlanRevisionView `json:"revision,omitempty"`
+	// Body is the text of the plan's file at the version shown: the version the request names, or else the one
+	// asked for, or else the newest. BodyCut says the version kept only the start of it.
+	Body    string `json:"body,omitempty"`
+	BodyCut bool   `json:"body_cut,omitempty"`
 }
 
 // PlanVersionLine is one version of a plan and where the request to approve it stands: the request's ID and
