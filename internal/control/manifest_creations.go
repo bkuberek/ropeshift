@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -23,6 +24,52 @@ import (
 func (r *Repositories) Placing(worker func(context.Context) (string, error)) *Repositories {
 	r.worker = worker
 	return r
+}
+
+// creationRunLimit is how long a real registration run may take, from the registration's lock to its record: the
+// checks and the creations of every entry the run reaches.
+const creationRunLimit = 10 * time.Minute
+
+// RunLimit sets how long a real registration run may take, in place of creationRunLimit. Zero restores it.
+func (r *Repositories) RunLimit(limit time.Duration) *Repositories {
+	r.runLimit = limit
+	return r
+}
+
+// runLimitError is the cause of a run's context ending at its limit.
+type runLimitError struct{ limit time.Duration }
+
+func (e runLimitError) Error() string {
+	if e.limit%time.Minute == 0 {
+		return fmt.Sprintf("the run passed its limit of %d minutes", e.limit/time.Minute)
+	}
+	return fmt.Sprintf("the run passed its limit of %s", e.limit)
+}
+
+// recordTimeout bounds the write of a run's record, which stands when the run's own context has ended. It is well over the
+// store's wait for a write lock, so a record waits for a writer that holds the store and only a write that would never end is
+// cut off.
+const recordTimeout = time.Minute
+
+// recording is the context of a write of a run's record: it outlives the run's context and the caller's, and ends at
+// recordTimeout.
+func recording(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+}
+
+// limitedRun is the context of a real run: ctx, ended when the run's limit passes.
+func (r *Repositories) limitedRun(ctx context.Context) (context.Context, context.CancelFunc) {
+	limit := cmp.Or(r.runLimit, creationRunLimit)
+	return context.WithTimeoutCause(ctx, limit, runLimitError{limit})
+}
+
+// limited is err with the limit of the run named when the run's context ended at it.
+func limited(ctx context.Context, err error) error {
+	var over, already runLimitError
+	if err == nil || !errors.As(context.Cause(ctx), &over) || errors.As(err, &already) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", over, err)
 }
 
 // Creating says the creation of an approval's entry runs now in this process, which tells a creation that was
@@ -319,7 +366,7 @@ func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID
 	defer r.clearCreating(job.Key)
 	report, err := run.creator.Create(ctx, job)
 	if err != nil {
-		return ledger.CreationFinishedEvent{}, err
+		return ledger.CreationFinishedEvent{}, limited(ctx, err)
 	}
 	finished := finishedCreation(entry, job, outcome, report)
 	return finished, r.appendCreation(ctx, scope, ledger.EventRepositoryCreationFinished, run.cause.Approval, finished, actor)
@@ -508,6 +555,10 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 		item.State = CreationRunning
 	case latest.State == ledger.CreationRefused && code == ledger.TemplateRefusedBusy:
 		return UncreatedRepository{}, false, nil
+	case refusedLater && latest.State == ledger.CreationStarted && refused.RefusalCode == "":
+		// A run an error or its limit stopped recorded why, after the creation started and with no finish: the creation was
+		// interrupted, and may have written a folder or the forge repository, so it is no refusal. The record's reason stands.
+		item.State, item.Reason = CreationInterrupted, refused.Reason
 	case refusedLater:
 		// A retry the creator's check refused came after the creation's last record, and says why it cannot go on.
 		item.State, item.Reason, item.Creation = CreationRefused, refused.Reason, refused.Creation
@@ -721,7 +772,7 @@ func (r *Repositories) refuseRunning(approval, name string) error {
 // recorded. Retrying is a member's act, as approving the plan was. An entry that is not one the approval's version
 // creates, a name the project holds, an approval that is not an approved plan approval, and a creation that runs now are
 // refused as an illegal move, and record nothing; an error that comes with a registration is one the run met after it
-// began.
+// began. A retry is a real run, and has a real run's limit.
 func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.WorkspaceID, approval, name string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) || !authority.Allowed(actor, authority.ActionCreateRemotes) {
 		return nil, workorders.ErrForbidden
@@ -731,6 +782,8 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	}
 	r.registering.Lock()
 	defer r.registering.Unlock()
+	runCtx, cancel := r.limitedRun(ctx)
+	defer cancel()
 	var target creationTarget
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		var err error
@@ -746,7 +799,7 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	if target.recorded == nil || target.recorded.Problem != "" {
 		// An approval that recorded nothing, or whose run an error stopped, registers anew: the entries it never reached are
 		// attempted, and the record it appends holds no problem unless this run meets one.
-		return r.registerApproved(ctx, scope, approval, kept, creator, project, false, true, actor)
+		return r.registerApproved(runCtx, scope, approval, kept, creator, project, false, true, actor)
 	}
 	run := manifestRun{cause: registrationCause{Approval: target.row.ID, Plan: target.row.Plan, PlanVersion: target.row.PlanVersion}, targets: target.targets, creator: creator, project: project}
 	// The entries before this one in the version would have created their repositories first, so a repository one of them
@@ -754,15 +807,19 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	if at := slices.IndexFunc(target.entries, func(entry planning.ManifestRepository) bool { return entry.Name == name }); at > 0 {
 		run.before = target.entries[:at]
 	}
-	added, runErr := r.registerEntries(ctx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
+	added, runErr := r.registerEntries(runCtx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
+	runErr = limited(runCtx, runErr)
 	if len(added) == 0 {
 		return nil, runErr
 	}
 	record := replacedOutcome(*target.recorded, outcomesOf(added[:1])[0], runErr)
-	if failed := r.recordRegistration(ctx, scope, approval, record, actor); failed != nil {
+	// The record is written after the run, whether or not its limit passed, so it has a context of its own.
+	written, done := recording(ctx)
+	defer done()
+	if failed := r.recordRegistration(written, scope, approval, record, actor); failed != nil {
 		return nil, errors.Join(runErr, failed)
 	}
-	out, err := r.recordedAs(ctx, scope, record)
+	out, err := r.recordedAs(written, scope, record)
 	return out, errors.Join(runErr, err)
 }
 

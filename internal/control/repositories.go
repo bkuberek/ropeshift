@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -30,6 +31,9 @@ type Repositories struct {
 	creating   map[string]bool
 	// worker names the worker whose machine creates repositories, which each creation's start records. Nil names none.
 	worker func(context.Context) (string, error)
+	// runLimit bounds a real registration run, which creates repositories while it holds registering. Zero is
+	// creationRunLimit.
+	runLimit time.Duration
 	// profiles reads the worktree root in force for a clone, so a registration can say when it would lie
 	// inside the clone. Nil says nothing.
 	profiles ports.ProfileSource

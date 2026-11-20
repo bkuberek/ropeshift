@@ -34,7 +34,9 @@ import (
 // version is approved it registers nothing, and a dry run, which a member reads before approving, says what
 // approving would register. Approving records the outcome on the approval, which RegistrationOf reads, and
 // registers once: an approval that recorded its outcome answers with that record, and a later approval of a
-// new version is what registers a repository whose clone came after.
+// new version is what registers a repository whose clone came after. A real run holds the registration for at most
+// creationRunLimit: when it passes, the entry in progress ends as an error of the creator does, and the run stops with
+// an error that names the limit.
 func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
@@ -43,6 +45,9 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		// A second word on one approval waits for the first, so it finds what the first recorded.
 		r.registering.Lock()
 		defer r.registering.Unlock()
+		var cancel context.CancelFunc
+		ctx, cancel = r.limitedRun(ctx)
+		defer cancel()
 	}
 	return r.registerApproved(ctx, scope, approval, kept, creator, project, dryRun, false, actor)
 }
@@ -114,6 +119,7 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 		})
 	}
 	added, err := r.registerEntries(ctx, scope, run, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted, creator: creator, project: project}, actor)
+	err = limited(ctx, err)
 	if len(skipped) != 0 {
 		added = withSkipped(entries, run, added, skipped)
 	}
@@ -125,7 +131,10 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 	if err != nil {
 		record.Problem = err.Error()
 	}
-	if failed := r.recordRegistration(ctx, scope, approval, record, actor); failed != nil {
+	// The record is kept when the run's limit has passed, so it is written outside the run's context, with a bound of its own.
+	written, done := recording(ctx)
+	defer done()
+	if failed := r.recordRegistration(written, scope, approval, record, actor); failed != nil {
 		return added, errors.Join(err, failed)
 	}
 	return added, err

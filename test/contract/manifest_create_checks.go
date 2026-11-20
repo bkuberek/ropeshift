@@ -41,6 +41,7 @@ var ManifestCreateChecks = []Check{
 	{"RM53", "text a worker's refusal or step carries, with an escape, a control character, or a line break in it, is stored and returned plain and on one line: in the outcome, the creation, the approval's record, and each event", checkWorkerTextIsPlain},
 	{"RM54", "a creation holds the registration from its check through its creation: a second decision of the approval waits for the first, finds its record, and asks the creator nothing", checkCreationHoldsTheRegistrationThroughCreate},
 	{"RM55", "a repository that exists on the forge, as when an earlier creation timed out after the forge made it, is refused, at the check and at the creation, with the fix: clone it at the entry's path and write remote in place of create in the manifest", checkExistingRepositoryRefusalNamesTheFix},
+	{"RM62", "a real run that passes its time limit stops as an error of the creator does: the entry in progress stays started with no finish, which reads as interrupted in Needs you with the limit as its reason; nothing more registers, each later entry is not attempted, the error names the limit, and the registration is free for the next call, whose own limit starts once it holds the registration and not while it waits", checkARunThatPassesItsLimitStopsLikeACreatorError},
 }
 
 // machineCreator is the fake creator over a worker's machine: a creation that writes leaves the clone it made on the
@@ -58,8 +59,10 @@ type machineCreator struct {
 	// busy are the entries whose path another creation holds until a run waits for it: a check that does not wait is refused
 	// at once as busy, and one that waits is answered as the check set, once the other creation is over.
 	busy map[string]bool
-	// during hears each job before its creation runs, and checking hears each before its check does.
+	// during hears each job before its creation runs, and checking hears each before its check does. creating hears each job
+	// with the context its creation runs under.
 	during, checking func(ledger.RepositoryCreation)
+	creating         func(context.Context, ledger.RepositoryCreation)
 }
 
 func newMachineCreator(machine *fake.Checkouts, approval string) *machineCreator {
@@ -137,6 +140,9 @@ func (c *machineCreator) Check(ctx context.Context, job ledger.RepositoryCreatio
 func (c *machineCreator) Create(ctx context.Context, job ledger.RepositoryCreation) (ledger.TemplateWriteReport, error) {
 	if c.during != nil {
 		c.during(job)
+	}
+	if c.creating != nil {
+		c.creating(ctx, job)
 	}
 	report, err := c.RepositoryCreator.Create(ctx, job)
 	if err == nil && report.Outcome == ledger.TemplateOutcomeWritten {
@@ -667,6 +673,14 @@ func checkCreatorErrorStopsTheRun(r *Rig) error {
 	}
 	if record, err := r.registrationOf(s, w.request.ID); err != nil || record == nil || !strings.Contains(record.Problem, "the worker's machine is gone") {
 		return Violatedf("the approval recorded %+v: %v", record, err)
+	}
+	// The creation started and has no finish, and none runs: Needs you reads it as interrupted, with the error as its reason.
+	items, err := r.uncreated(s, noCreationRuns)
+	if err != nil || len(items) != 2 || items[0].Name != "search" {
+		return Violatedf("a run the creator stopped leaves %+v for a member: %v", items, err)
+	}
+	if items[0].State != control.CreationInterrupted || !strings.Contains(items[0].Reason, "the worker's machine is gone") {
+		return Violatedf("the creation the creator failed on reads in Needs you as %+v, want it interrupted, with the error as its reason", items[0])
 	}
 	return r.CheckProjection(s)
 }
@@ -1293,6 +1307,163 @@ func checkBusyRefusalOfAnApprovalIsNeverKept(r *Rig) error {
 	}
 	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started search", "finished search"}) {
 		return Violatedf("the creation events are %v: %v", types, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkARunThatPassesItsLimitStopsLikeACreatorError(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("site", "../site", ""), []string{"search", "site"}, nil)
+	if err != nil {
+		return err
+	}
+	w.creator.passes("search", "search", "main")
+	w.creator.passes("site", "site", "main")
+	key := w.creator.key("search")
+	w.creator.BlockCreate(key, true)
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	// The limit covers the reads, the registration, and the check before the creation, so it is long enough that a slow store
+	// reaches the creation within it.
+	const limit = 2 * time.Second
+	named := "limit of " + limit.String()
+	w.repositories.RunLimit(limit)
+	// The guard ends a run that has no limit, so a run that ignores it fails this check and does not hang it.
+	guard, cancel := context.WithTimeout(r.Ctx, 20*time.Second)
+	defer cancel()
+	added, err := w.repositories.RegisterApproved(guard, r.Scope, w.request.ID, w.machine, w.creator, "shop", false, r.member())
+	select {
+	case <-w.creator.Entered(key):
+	default:
+		return Violatedf("the limit passed before the creator was asked to create search: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), named) {
+		return Violatedf("a run that passed its limit stopped with %v, want an error that names the limit", err)
+	}
+	if search, _ := outcomeNamed(added, "search"); search.Outcome != ledger.RegistrationRefused || search.Repository.ID != "" || !strings.Contains(search.Reason, named) {
+		return Violatedf("the entry in progress when the limit passed reads %+v", search)
+	}
+	if site, _ := outcomeNamed(added, "site"); site.Outcome != ledger.NotAttempted {
+		return Violatedf("the entry after the limit reads %+v", site)
+	}
+	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started search"}) {
+		return Violatedf("the creation events are %v: %v", types, err)
+	}
+	if slices.Contains(asked(w.creator.Created()), "site") {
+		return Violatedf("the creator was asked to create the entry after the limit: %v", asked(w.creator.Created()))
+	}
+	if w.repositories.Creating(w.request.ID, "search") {
+		return Violatedf("a creation the limit stopped still reads as running")
+	}
+	if record, err := r.registrationOf(s, w.request.ID); err != nil || record == nil || !strings.Contains(record.Problem, named) || len(record.Repositories) != 3 {
+		return Violatedf("the approval recorded %+v: %v", record, err)
+	}
+	if latest, err := r.latestCreation(s, w.request.ID, "search"); err != nil || latest.State != ledger.CreationStarted {
+		return Violatedf("the creation the limit stopped reads as %+v, want it started with no finish, which reads as interrupted: %v", latest, err)
+	}
+	items, err := r.uncreated(s, noCreationRuns)
+	if err != nil || len(items) != 2 || items[0].Name != "search" {
+		return Violatedf("a run the limit stopped leaves %+v for a member: %v", items, err)
+	}
+	if items[0].State != control.CreationInterrupted || !strings.Contains(items[0].Reason, named) {
+		return Violatedf("the creation the limit stopped reads in Needs you as %+v, want it interrupted, with the limit as its reason", items[0])
+	}
+	if running, err := r.uncreated(s, func(approval, name string) bool { return approval == w.request.ID && name == "search" }); err != nil || running[0].State != control.CreationRunning {
+		return Violatedf("a creation that runs now reads as %+v: %v", running, err)
+	}
+	// The registration is free: a second call is not held behind the run that stopped, and reads its record.
+	second := make(chan error, 1)
+	go func() {
+		_, err := w.repositories.RegisterApproved(r.Ctx, r.Scope, w.request.ID, w.machine, w.creator, "shop", false, r.member())
+		second <- err
+	}()
+	select {
+	case err := <-second:
+		if err == nil || !strings.Contains(err.Error(), named) {
+			return Violatedf("a second call read %v, want the record of the run the limit stopped", err)
+		}
+	case <-time.After(5 * time.Second):
+		return Violatedf("a second call is still held after the run stopped")
+	}
+	return r.limitStartsWithTheLock(w, s)
+}
+
+// limitStartsWithTheLock holds the registration with a retry of search for a clear interval, and has a retry of site wait for it:
+// the limit of the retry that waited starts once it holds the registration, so its deadline is a whole limit after the moment
+// the first retry let the registration go, and not after the moment it began to wait.
+func (r *Rig) limitStartsWithTheLock(w *creationWorld, s ports.Store) error {
+	const limit, hold, tolerance = time.Minute, 500 * time.Millisecond, 5 * time.Millisecond
+	w.repositories.RunLimit(limit)
+	w.creator.BlockCreate(w.creator.key("search"), false)
+	held := errors.New("the worker's machine is gone")
+	holding := make(chan struct{})
+	var once sync.Once
+	var releasing time.Time
+	// The first creation of search holds the registration for the interval and then fails, so the run stops there and site is
+	// left for the retry that waits. Later creations of search, the retry's, are not failed.
+	w.creator.during = func(job ledger.RepositoryCreation) {
+		if job.Name != "search" {
+			return
+		}
+		first := false
+		once.Do(func() {
+			first = true
+			close(holding)
+			time.Sleep(hold)
+			w.creator.failsCreate("search", held)
+			releasing = time.Now()
+		})
+		if !first {
+			w.creator.failsCreate("search", nil)
+		}
+	}
+	var deadline time.Time
+	var bounded bool
+	w.creator.creating = func(ctx context.Context, job ledger.RepositoryCreation) {
+		if job.Name == "site" {
+			deadline, bounded = ctx.Deadline()
+		}
+	}
+	retry := func(name string) chan error {
+		done := make(chan error, 1)
+		go func() {
+			_, err := w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, name, w.machine, w.creator, "shop", r.member())
+			done <- err
+		}()
+		return done
+	}
+	first := retry("search")
+	select {
+	case <-holding:
+	case <-time.After(2 * time.Minute):
+		return Violatedf("the retry of search never asked the creator to create it")
+	}
+	waiting := retry("site")
+	select {
+	case err := <-first:
+		if !errors.Is(err, held) {
+			return Violatedf("the retry that held the registration stopped with %v, want %v", err, held)
+		}
+	case <-time.After(2 * time.Minute):
+		return Violatedf("the retry that held the registration never stopped")
+	}
+	select {
+	case err := <-waiting:
+		if err != nil {
+			return Violatedf("the retry that waited for the registration stopped with %v", err)
+		}
+	case <-time.After(2 * time.Minute):
+		return Violatedf("the retry that waited for the registration never answered")
+	}
+	if !bounded {
+		return Violatedf("the creation of site, in the retry that waited, ran with no deadline")
+	}
+	if early := releasing.Add(limit).Sub(deadline); early > tolerance {
+		return Violatedf("the retry that waited for the registration had a deadline %v before a whole limit after the registration was let go: its limit started before it held it", early)
+	}
+	if items, err := r.uncreated(s, noCreationRuns); err != nil || len(items) != 0 {
+		return Violatedf("Needs you holds %+v after the retry that waited created both: %v", items, err)
 	}
 	return r.CheckProjection(s)
 }

@@ -21,13 +21,17 @@ type RepositoryCreator struct {
 	createErrors map[string]error
 	checked      []ledger.RepositoryCreation
 	created      []ledger.RepositoryCreation
+	// blocked are the keys whose creation waits for its context to end, and entered are the channels Entered gives, each
+	// closed when the creation of its key is first run.
+	blocked map[string]bool
+	entered map[string]chan struct{}
 }
 
 // NewRepositoryCreator returns a creator that passes every check and writes every job.
 func NewRepositoryCreator() *RepositoryCreator {
 	return &RepositoryCreator{
 		checks: map[string]ledger.CreationCheck{}, reports: map[string]ledger.TemplateWriteReport{},
-		checkErrors: map[string]error{}, createErrors: map[string]error{},
+		checkErrors: map[string]error{}, createErrors: map[string]error{}, blocked: map[string]bool{}, entered: map[string]chan struct{}{},
 	}
 }
 
@@ -57,6 +61,29 @@ func (c *RepositoryCreator) FailCreate(key string, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.createErrors[key] = err
+}
+
+// BlockCreate makes the creation of the job with key wait until its context ends, and fail with that context's error.
+// False clears it.
+func (c *RepositoryCreator) BlockCreate(key string, blocked bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.blocked[key] = blocked
+}
+
+// Entered returns a channel that is closed when the creation of the job with key is first run, whether it then blocks or
+// not, so a test knows the creator was asked to create it.
+func (c *RepositoryCreator) Entered(key string) <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.enteredLocked(key)
+}
+
+func (c *RepositoryCreator) enteredLocked(key string) chan struct{} {
+	if c.entered[key] == nil {
+		c.entered[key] = make(chan struct{})
+	}
+	return c.entered[key]
 }
 
 // Checked lists the jobs the creator was asked to check, in order.
@@ -98,8 +125,16 @@ func (c *RepositoryCreator) Create(ctx context.Context, job ledger.RepositoryCre
 		return ledger.TemplateWriteReport{}, err
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.created = append(c.created, job)
+	if entered := c.enteredLocked(job.Key); !closed(entered) {
+		close(entered)
+	}
+	if c.blocked[job.Key] {
+		c.mu.Unlock()
+		<-ctx.Done()
+		return ledger.TemplateWriteReport{}, ctx.Err()
+	}
+	defer c.mu.Unlock()
 	if err := c.createErrors[job.Key]; err != nil {
 		return ledger.TemplateWriteReport{}, err
 	}
@@ -107,6 +142,16 @@ func (c *RepositoryCreator) Create(ctx context.Context, job ledger.RepositoryCre
 		return report, nil
 	}
 	return ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeWritten, Project: job.Project}, nil
+}
+
+// closed says a channel nothing is sent on is closed.
+func closed(done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
 
 var _ ports.RepositoryCreator = (*RepositoryCreator)(nil)
