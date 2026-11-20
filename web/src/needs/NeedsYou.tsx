@@ -1,14 +1,16 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { Ref } from "react";
 
-import type { ManifestRegistration, NeedItem, NeedsYou as View, WorkOrder } from "../api/types";
+import { readView } from "../api/client";
+import type { Allowance, ManifestRegistration, NeedItem, NeedsYou as View, Plans, WorkOrder } from "../api/types";
 import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
 import { useTalk } from "../talk/state";
 import { useClock, ViewTime } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
-import { StartWork } from "../floor/StartWork";
+import { HeldTag } from "../floor/StartHeld";
+import { StartWork, startOf } from "../floor/StartWork";
 import { Select } from "../ui/forms";
 import { useNarrow } from "../ui/narrow";
 import { ApprovalDecision } from "./ApprovalDecision";
@@ -124,24 +126,45 @@ function ResolvedNote({ heading, answered, decided, resolved, noteRef }: { headi
   );
 }
 
-// StartRetried offers Start for work a retry returned to ready. The work is ready, which is when the state machine lets
-// it be claimed, and the server refuses the claim if it is not. The dialog works in the project the page shows, so work
-// of another project leads to its page instead.
+// StartRetried offers Start for work a retry returned to ready, as the plans view says the work stands now: its
+// state, the hold the ledger keeps it in, and what a member may do to it. Work the view does not offer a claim or a
+// lane start of, or a view that cannot be read, leads to the work order's page instead. The dialog works in the
+// project the page shows, so work of another project leads to its page as well.
 function StartRetried({ order, project, after }: { order: WorkOrder; project?: string; after: () => Promise<void> }) {
   const current = useContext(CurrentProject);
-  if (project && project !== current) {
+  const elsewhere = Boolean(project && project !== current);
+  const [now, setNow] = useState<{ order: WorkOrder; allowed?: Allowance } | null>(null);
+  useEffect(() => {
+    if (elsewhere) {
+      return;
+    }
+    let live = true;
+    readView<Plans>("plans")
+      .then((plans) => {
+        const found = [...plans.plans.flatMap((plan) => plan.work_orders), ...plans.unplanned].find((row) => row.id === order.id);
+        if (live && found) {
+          setNow({ order: found, allowed: plans.work_actions?.[found.id] });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [order.id, elsewhere]);
+  if (!elsewhere && now && ["claim", "lane"].includes(startOf(now.order, now.allowed)?.kind ?? "")) {
     return (
-      <ItemProject.Provider value={project}>
-        <p className="small">
-          <Link to={addressOf("/work-order", { id: order.id })}>Open work order {order.id}</Link>
-        </p>
-      </ItemProject.Provider>
+      <p className="row-tight">
+        <StartWork order={now.order} allowed={now.allowed} after={after} />
+        <HeldTag hold={now.order.start_held} />
+      </p>
     );
   }
   return (
-    <p>
-      <StartWork order={order} allowed={{ actions: ["claim"] }} after={after} />
-    </p>
+    <ItemProject.Provider value={project ?? ""}>
+      <p className="small">
+        <Link to={addressOf("/work-order", { id: order.id })}>Open work order {order.id}</Link>
+      </p>
+    </ItemProject.Provider>
   );
 }
 

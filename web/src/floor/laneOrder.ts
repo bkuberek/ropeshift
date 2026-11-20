@@ -1,6 +1,6 @@
-// How a lane ranks on the floor: lanes that work first, then lanes that wait on a person, then parked lanes, then the
+// How a lane ranks on the floor: lanes that run, idle ones among them, first, then lanes that wait on a person, then parked lanes, then the
 // rest. An ended lane is not ranked: the floor holds it in its own group below the live ones.
-const working = new Set(["provisioning", "starting", "briefing", "working", "compacting", "handing_off"]);
+const working = new Set(["provisioning", "starting", "briefing", "working", "idle", "compacting", "handing_off"]);
 const parked = new Set(["parking", "parked"]);
 
 export function laneRank(state: string): number {
