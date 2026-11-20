@@ -360,7 +360,7 @@ func checkAnInterruptedCreationIsAnItemAndRetryFinishesIt(r *Rig) error {
 	if items, err = r.uncreated(s, noCreationRuns); err != nil || len(items) != 1 {
 		return Violatedf("a creation refused for an existing repository reads as %+v: %v", items, err)
 	}
-	const remedy = "clone acme/search to ../search, and write `remote` in place of `create` in the manifest's entry for search, or skip it"
+	const remedy = "clone acme/search to /work/search, and write `remote` in place of `create` in the manifest's entry for search, or skip it"
 	if items[0].State != control.CreationRefused || !strings.Contains(items[0].Reason, "acme/search already exists on GitHub") || items[0].Remedy != remedy || items[0].Path != "/work/search" {
 		return Violatedf("a creation refused for an existing repository reads as %+v, want it refused with the remedy %q", items[0], remedy)
 	}

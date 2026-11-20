@@ -40,7 +40,7 @@ var ManifestCreateChecks = []Check{
 	{"RM58", "a worker that refuses an approval's check as busy, though the check was asked to wait, leaves no refusal on the approval: the entry is not attempted and the run stops with that error, so it can be run again", checkBusyRefusalOfAnApprovalIsNeverKept},
 	{"RM53", "text a worker's refusal or step carries, with an escape, a control character, or a line break in it, is stored and returned plain and on one line: in the outcome, the creation, the approval's record, and each event", checkWorkerTextIsPlain},
 	{"RM54", "a creation holds the registration from its check through its creation: a second decision of the approval waits for the first, finds its record, and asks the creator nothing", checkCreationHoldsTheRegistrationThroughCreate},
-	{"RM55", "a repository that exists on the forge, as when an earlier creation timed out after the forge made it, is refused, at the check and at the creation, with the fix: clone it at the entry's path and write remote in place of create in the manifest", checkExistingRepositoryRefusalNamesTheFix},
+	{"RM55", "a repository that exists on the forge, as when an earlier creation timed out after the forge made it, is refused, at the check and at the creation, with the fix: clone it where the entry's path leads and write remote in place of create in the manifest", checkExistingRepositoryRefusalNamesTheFix},
 	{"RM62", "a real run that passes its time limit stops as an error of the creator does: the entry in progress stays started with no finish, which reads as interrupted in Needs you with the limit as its reason; nothing more registers, each later entry is not attempted, the error names the limit, and the registration is free for the next call, whose own limit starts once it holds the registration and not while it waits", checkARunThatPassesItsLimitStopsLikeACreatorError},
 }
 
@@ -1052,11 +1052,16 @@ func checkCreationHoldsTheRegistrationThroughCreate(r *Rig) error {
 
 func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 	s := r.Store()
-	w, err := r.creationWorld(s, creationEntry("exists", "../exists", "")+creationEntry("late", "../late", "")+creationEntry("signedout", "../signedout", ""), []string{"exists", "late", "signedout"}, nil)
+	w, err := r.creationWorld(s, creationEntry("exists", "../exists", "")+creationEntry("late", "../late", "")+creationEntry("found", "../found", "")+creationEntry("signedout", "../signedout", ""), []string{"exists", "late", "found", "signedout"}, nil)
 	if err != nil {
 		return err
 	}
 	w.creator.passes("late", "late", "main")
+	// The fix names the folder the entry's path leads to, which a link can make another than the path the manifest writes.
+	w.creator.leads("late", "/work/links/late")
+	w.creator.SetCheck(w.creator.key("found"), ledger.CreationCheck{
+		Leads: "/work/links/found", Refusal: &ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists, Detail: "acme/found already exists on GitHub"},
+	})
 	// The worker's detail of the check that found the repository already says how to clone it and what to write, with the
 	// path as the manifest writes it. The creation of late finds the repository the forge made for an earlier attempt that
 	// timed out, and its detail says nothing of the fix.
@@ -1089,6 +1094,10 @@ func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 	if err := once("exists", exists, "clone it to ../exists"); err != nil {
 		return err
 	}
+	found, _ := outcomeNamed(preview, "found")
+	if err := once("found", found, "clone acme/found to /work/links/found"); err != nil {
+		return err
+	}
 	// A fix the worker names itself is not replaced.
 	if signedOut, _ := outcomeNamed(preview, "signedout"); signedOut.Creation == nil || signedOut.Creation.Remedy != "gh auth login --hostname github.com" {
 		return Violatedf("the remedy the worker gave reads %+v", signedOut.Creation)
@@ -1101,7 +1110,7 @@ func checkExistingRepositoryRefusalNamesTheFix(r *Rig) error {
 		return err
 	}
 	late, _ := outcomeNamed(added, "late")
-	if err := once("late", late, "clone acme/late to ../late"); err != nil {
+	if err := once("late", late, "clone acme/late to /work/links/late"); err != nil {
 		return err
 	}
 	latest, err := r.latestCreation(s, w.request.ID, "late")

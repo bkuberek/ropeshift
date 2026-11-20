@@ -220,7 +220,7 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 		return Added{Path: plainPath(cmp.Or(check.Leads, at)), Outcome: ledger.NotAttempted, Reason: plainLine(entry.Name + " was not attempted: " + err.Error())}, err
 	}
 	if check.Refusal != nil {
-		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome)
+		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome, check.Leads)
 		added := withCreation(refused(cmp.Or(check.Leads, at), refusalText(*check.Refusal, outcome.Remedy)), outcome)
 		added.RefusalCode = plainLine(check.Refusal.Reason)
 		return added, nil
@@ -300,9 +300,10 @@ const busyRemedy = "another creation at this path is running; preview again when
 // remedyFor is the fix a refusal of the creator names: the command the worker gave, or, for a repository that exists on
 // the forge, which ropeshift never adopts, the clone to make at the entry's path and the manifest change that registers
 // it. The worker's detail of that refusal says so already, with the path as the manifest writes it, and then it is the
-// remedy, so the fix is said once; otherwise the remedy says it in the same form. A creation that timed out after the
+// remedy, so the fix is said once; otherwise the remedy says it in the same form, with the folder the entry's path leads to,
+// which is the manifest's path when the check read none. A creation that timed out after the
 // forge made the repository is refused this way on every retry.
-func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestRepository, outcome ledger.CreationOutcome) string {
+func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestRepository, outcome ledger.CreationOutcome, leads string) string {
 	switch {
 	case report.Remedy != "":
 		return plainLine(report.Remedy)
@@ -311,7 +312,7 @@ func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestReposit
 	case report.Reason == ledger.TemplateRefusedRemoteExists && strings.Contains(report.Detail, "in place of `create`"):
 		return plainLine(report.Detail)
 	case report.Reason == ledger.TemplateRefusedRemoteExists:
-		return plainLine(fmt.Sprintf("clone %s/%s to %s, and write `remote` in place of `create` in the manifest's entry for %s", outcome.Owner, outcome.ForgeName, entry.Path, entry.Name))
+		return plainLine(fmt.Sprintf("clone %s/%s to %s, and write `remote` in place of `create` in the manifest's entry for %s", outcome.Owner, outcome.ForgeName, cmp.Or(leads, entry.Path), entry.Name))
 	}
 	return ""
 }
@@ -368,16 +369,16 @@ func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID
 	if err != nil {
 		return ledger.CreationFinishedEvent{}, limited(ctx, err)
 	}
-	finished := finishedCreation(entry, job, outcome, report)
+	finished := finishedCreation(entry, job, outcome, leads, report)
 	return finished, r.appendCreation(ctx, scope, ledger.EventRepositoryCreationFinished, run.cause.Approval, finished, actor)
 }
 
 // finishedCreation reads what a report of the creator says a creation came to. It is created when every step is done
 // and no command remains, refused when a check refused with nothing written, and failed otherwise.
-func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, report ledger.TemplateWriteReport) ledger.CreationFinishedEvent {
+func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, leads string, report ledger.TemplateWriteReport) ledger.CreationFinishedEvent {
 	finished := ledger.CreationFinishedEvent{Name: entry.Name, Key: job.Key, CreationOutcome: outcome}
 	if report.Outcome == ledger.TemplateOutcomeRefused {
-		finished.Remedy = remedyFor(report, entry, outcome)
+		finished.Remedy = remedyFor(report, entry, outcome, leads)
 		finished.Outcome, finished.Reason, finished.RefusalCode = ledger.CreationRefused, refusalText(report, finished.Remedy), plainLine(report.Reason)
 		return finished
 	}
