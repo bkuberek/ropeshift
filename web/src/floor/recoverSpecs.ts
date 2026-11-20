@@ -98,6 +98,14 @@ export function labelOf(action: RecoverAction, allowance: Allowance | undefined)
   return action === "retry" && allowance?.extra_attempt ? "Retry with an extra attempt" : specs[action].label;
 }
 
+// retriedAfterFailure is what a retry says when its member leaves the note empty: words of the member's side that
+// name no cause. The server keeps the failed lane with the retry, so what that lane wrote stays the lane's and is
+// never sent as the member's words.
+export const retriedAfterFailure = "Retried after the recorded failure";
+
+// retryNote is the reason a retry sends: the member's own words, or the fixed words when there are none.
+export const retryNote = (typed: string): string => typed.trim() || retriedAfterFailure;
+
 // recoveries are the actions of an allowance that this page offers, in the server's order.
 export function recoveries(allowance: Allowance | undefined): RecoverAction[] {
   return (allowance?.actions ?? []).filter(isRecover);
