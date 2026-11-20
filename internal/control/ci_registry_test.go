@@ -242,7 +242,7 @@ func TestAStoredBaseBranchWithANoBreakSpaceStillTakesAChangeThatKeepsIt(t *testi
 	r := newPlaneRig(t, ledger.ProtocolVersion)
 	err := r.stores["pa"].Write(t.Context(), "pa", "test.register", func(tx ports.WriteTx) error {
 		record := ledger.NewRepository("repository-1")
-		record.BaseBranch = "release one"
+		record.BaseBranch = "release\u00a0one"
 		if _, err := tx.Repositories().Insert(record); err != nil {
 			return err
 		}
@@ -263,7 +263,7 @@ func TestAStoredBaseBranchWithANoBreakSpaceStillTakesAChangeThatKeepsIt(t *testi
 	if _, err := repositories.Change(t.Context(), "pa", "repository-1", control.RepositoryChange{MergeMethod: &method}, projectMember); err != nil {
 		t.Errorf("a change that keeps the stored base branch is refused: %v", err)
 	}
-	next := "next one"
+	next := "next\u00a0one"
 	if _, err := repositories.Change(t.Context(), "pa", "repository-1", control.RepositoryChange{Base: &next}, projectMember); err == nil {
 		t.Error("a new base branch with a no-break space was taken")
 	}

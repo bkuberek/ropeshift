@@ -680,8 +680,8 @@ func TestRepositoryShowAndListDropHiddenCharactersFromStoredNames(t *testing.T) 
 	}
 }
 
-// A work order takes its base from the repository's stored base branch, so a hidden character in that name reaches a
-// work row and a merge approval's row. Each prints with the character dropped.
+// A work order's base is the branch its plan file names, and a merge approval names the branch its work merges into,
+// so a hidden character in either name reaches a work row or a merge approval's row. Each prints with it dropped.
 func TestWorkAndApprovalRowsDropHiddenCharactersFromABase(t *testing.T) {
 	text := cli.WorkOrderText(workorders.WorkOrder{ID: "wo-1", State: workorders.Ready, Title: "Build", Base: "rel\u202eease"})
 	detail, err := json.Marshal(authority.MergeDetail{Branch: "work\u200b/one", Base: "rel\u202eease"})
