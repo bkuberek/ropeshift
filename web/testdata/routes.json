@@ -136,6 +136,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/workers/{id}/autonomy/one-way-acknowledgement",
+    "command": "worker acknowledge-one-way"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/workers/{id}/windows",
     "command": "worker window-open"
   },

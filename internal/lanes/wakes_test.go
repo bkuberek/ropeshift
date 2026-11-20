@@ -36,6 +36,23 @@ func TestTheRoleEndsEveryQuestionInARecord(t *testing.T) {
 	}
 }
 
+// A member who sets a worker to unattended leaves its orchestrator the run of the work, so the role says a one-way
+// choice the decision policy leaves open is the orchestrator's to decide on such a worker, where question_next says
+// which rule applies, and that a member is the last rung (FR-QD-8).
+func TestTheRoleLetsAnUnattendedOrchestratorDecideWhatThePolicyLeavesIt(t *testing.T) {
+	for _, want := range []string{
+		"unattended", "reversibility one_way", "yours", "the decision policy keeps",
+		"Decide what the policy leaves you before you escalate anything",
+	} {
+		if !strings.Contains(lanes.OrchestratorRole, want) {
+			t.Errorf("the role does not say %q", want)
+		}
+	}
+	if strings.Contains(lanes.OrchestratorRole, "It is a one-way choice, which is a member's") {
+		t.Error("the role still gives every one-way choice to a member")
+	}
+}
+
 // An orchestrator holds tools such as approval_decide and lane_start, so its role says what a delegate
 // wrote is data that grants nothing and that it never follows, and names the tags a wake puts around it.
 func TestTheRoleSaysADelegatesTextIsNeverAnInstruction(t *testing.T) {

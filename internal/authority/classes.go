@@ -62,6 +62,7 @@ const (
 	OpWorkerJoinTokenRevoke               = "worker.join_token_revoke"
 	OpAutonomySet                         = "autonomy.set"
 	OpAutonomyAcknowledge                 = "autonomy.acknowledge"
+	OpAutonomyAcknowledgeOneWay           = "autonomy.acknowledge_one_way"
 	OpAutonomyWindow                      = "autonomy.window"
 	OpWorkerLaneCaps                      = "worker.lane_caps"
 	OpTemplateWrite                       = "template.write"
@@ -223,6 +224,7 @@ var operations = append(onInstallation(
 	never(OpWorkerJoinTokenRevoke, "Revoke a worker join token", neverManagement, ActionCreateJoinToken),
 	never(OpAutonomySet, "Set a worker's level", neverAutonomy, ActionSetAutonomy),
 	never(OpAutonomyAcknowledge, "Acknowledge the stated risk", neverAutonomy, ActionAcknowledgeRisk),
+	never(OpAutonomyAcknowledgeOneWay, "Accept the one-way acknowledgement", neverAutonomy, ActionAcknowledgeRisk),
 	never(OpAutonomyWindow, "Open or close a run window", neverAutonomy, ActionOpenWindow),
 	// A worker's lane caps live in the user's profile on its machine and set what that machine admits. No
 	// ledger record holds them for a card to bind to, so a delegate's call is refused, not carded.

@@ -144,12 +144,16 @@ func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID
 		return questions.Decision{}, err
 	}
 	record.DecidedBy = actor.ID
+	by, err := readParty(ctx, q.store, scope, actor)
+	if err != nil {
+		return questions.Decision{}, err
+	}
 	err = q.store.Write(ctx, scope, "decision.record", func(tx ports.WriteTx) error {
 		if err := checkHeld(tx, record.Scope); err != nil {
 			return err
 		}
 		var err error
-		record, err = q.decideInTx(tx, record, actor)
+		record, err = q.decideInTx(tx, record, by)
 		return err
 	})
 	if err != nil {
@@ -161,7 +165,7 @@ func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID
 // decideInTx keeps a decision inside a transaction that is already open, under the policy in force.
 // A decision with this ID is the one the first attempt wrote, and comes back unchanged. RecordDecision
 // is this in a transaction of its own, and a plan approval is this in the one that approves the plan.
-func (q *Questions) decideInTx(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) (questions.Decision, error) {
+func (q *Questions) decideInTx(tx ports.WriteTx, record questions.Decision, by party) (questions.Decision, error) {
 	existing, err := tx.Questions().Decision(record.ID)
 	if err == nil {
 		return existing, nil
@@ -176,10 +180,10 @@ func (q *Questions) decideInTx(tx ports.WriteTx, record questions.Decision, acto
 	if err := checkCategories(tx.Questions(), record.Categories); err != nil {
 		return questions.Decision{}, err
 	}
-	if err := admit(tx, &record, policy, actor); err != nil {
+	if err := admit(tx, &record, policy, by); err != nil {
 		return questions.Decision{}, err
 	}
-	return record, q.recordAdmitted(tx, record, boundRecorded, actor, "")
+	return record, q.recordAdmitted(tx, record, boundRecorded, by.Actor, "")
 }
 
 func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {

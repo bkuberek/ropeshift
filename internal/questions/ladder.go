@@ -82,6 +82,20 @@ func Gate(q Question) []GateFailure {
 	return failed
 }
 
+// GateUnattended is the gate for an orchestrator whose worker a member set to unattended, which leaves it the run of
+// the work (FR-QD-8). It refuses what Gate refuses, and a one-way choice in categories the decision policy leaves open,
+// which that orchestrator decides itself. A category the policy keeps, a conflict between requirements, and a change of
+// scope still reach a member.
+func (p Policy) GateUnattended(q Question) []GateFailure {
+	failed := Gate(q)
+	if q.EscalationReason == ReasonOneWay && p.MayDecide(q) {
+		failed = append(failed, GateFailure{GateReason, fmt.Sprintf(
+			"this worker is unattended and the decision policy keeps none of %v for a member, so this one-way choice is yours: "+
+				"record it with status decided and reversibility one_way, with your rationale and citations", q.Categories)})
+	}
+	return failed
+}
+
 // ToPerson puts a drafted question straight to the person, which is the one way past the gate
 // (FR-QD-3, FR-SESSION-3). It stands at the last rung with no ladder trace, and it needs no options and
 // no recommendation. The gate would have named a category, so this does, because members find questions
