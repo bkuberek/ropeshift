@@ -14,11 +14,10 @@ import { Banner, Digest, StateBadge } from "../ui/display";
 import { Select } from "../ui/forms";
 import { useToast } from "../ui/overlays";
 import { DocumentText } from "./DocumentText";
+import { outside } from "./PlanText";
 import { documentAddress, kindWord, reviewWords, versionLabel } from "./documentTree";
 import type { TreeItem } from "./documentTree";
 import { requirementStatus } from "./requirementTrace";
-
-const outside = "This text comes from a repository, as anyone with a commit wrote it. It is shown as text: nothing in it runs, loads, or links.";
 
 function CopyLink() {
   const toast = useToast();

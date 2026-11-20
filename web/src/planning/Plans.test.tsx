@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { PlanDetail, Plans } from "../api/types";
+import type { PlanDetail, Plans, PlanView } from "../api/types";
 import { openPage } from "../opening";
 import { golden, here, serveViews } from "../testing";
 
@@ -39,6 +39,58 @@ const openPlan = async () => {
   openPage(`/plans?plan=${encodeURIComponent(plan.plan.id)}`);
   await screen.findByRole("heading", { level: 1, name: plan.plan.title });
 };
+
+describe("what a plan page says of the plan", () => {
+  it("shows the goal's statement and the text of the version in force", async () => {
+    const sent: string[] = [];
+    serveViews((call) => {
+      sent.push(call.path);
+      return undefined;
+    });
+    const plan = golden<Plans>("plans").plans.find((row) => row.plan.title === "The factory floor");
+    openPage(`/plans?plan=${encodeURIComponent(plan?.plan.id ?? "")}`);
+    await screen.findByRole("heading", { level: 1, name: "The factory floor" });
+    const goal = await screen.findByRole("region", { name: "Goal" });
+    expect(within(goal).getByText("One person plans, and the factory builds.")).toBeTruthy();
+    const text = await screen.findByRole("region", { name: "Plan text" });
+    await within(text).findByText("How the factory floor is built.");
+    expect(sent.some((path) => path === `/v1/plans/${encodeURIComponent(plan?.plan.id ?? "")}?version=5`)).toBe(true);
+  });
+
+  it("shows a text a repository wrote as text", async () => {
+    const hostile = "<script>window.hit = 1</script>\n\n[open it](javascript:window.hit=2)\n\n<img src=x onerror=\"window.hit=3\">\n";
+    serveViews((call) => {
+      if (call.method === "GET" && /^\/v1\/plans\/[^/?]+(\?|$)/.test(call.path)) {
+        const view = golden<PlanView>("plan");
+        view.body = hostile;
+        return { status: 200, body: view };
+      }
+      return undefined;
+    });
+    const plan = golden<Plans>("plans").plans.find((row) => row.plan.title === "The factory floor");
+    openPage(`/plans?plan=${encodeURIComponent(plan?.plan.id ?? "")}`);
+    const text = await screen.findByRole("region", { name: "Plan text" });
+    await within(text).findByText(/window\.hit = 1/);
+    expect(text.querySelector("script, img, iframe, object, embed, [onerror]")).toBeNull();
+    expect(Array.from(text.querySelectorAll("a")).some((link) => /^\s*javascript:/i.test(link.getAttribute("href") ?? ""))).toBe(false);
+    expect((window as unknown as { hit?: number }).hit).toBeUndefined();
+  });
+
+  it("says when the version recorded no text", async () => {
+    serveViews((call) => {
+      if (call.method === "GET" && /^\/v1\/plans\/[^/?]+(\?|$)/.test(call.path)) {
+        const view = golden<PlanView>("plan");
+        view.body = undefined;
+        return { status: 200, body: view };
+      }
+      return undefined;
+    });
+    const plan = golden<Plans>("plans").plans.find((row) => row.plan.title === "The factory floor");
+    openPage(`/plans?plan=${encodeURIComponent(plan?.plan.id ?? "")}`);
+    const text = await screen.findByRole("region", { name: "Plan text" });
+    await within(text).findByText("This version recorded no plan text.");
+  });
+});
 
 describe("the plan list", () => {
   it("lists each plan by title and links to it", async () => {
@@ -219,7 +271,9 @@ describe("one plan", () => {
   it("names its goal, and leads back to the list", async () => {
     serveViews();
     await openPlan();
-    expect(screen.getByText("Ship solo mode")).toBeTruthy();
+    const goal = await screen.findByRole("region", { name: "Goal" });
+    expect(within(goal).getByText("Ship solo mode")).toBeTruthy();
+    expect(within(goal).getByText("One machine runs the whole product.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "All plans" }).getAttribute("href")).toBe(here("/plans"));
   });
 
