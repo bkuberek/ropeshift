@@ -174,7 +174,13 @@ func lanes() map[string]any {
 				turn(
 					context(14500),
 					bash("git log --oneline -3"),
-					step{"mcp": "ask", "arguments": map[string]any{"text": questionSigningKeys, "categories": []string{"security"}, "blocking": true}},
+					step{"mcp": "ask", "arguments": map[string]any{
+						"text": questionSigningKeys, "title": "Old key grace period", "categories": []string{"security"}, "blocking": true,
+						"options": []string{"One hour", "One day"}, "recommendation": "One day",
+						"recommendation_rationale": "A day covers the longest session, so nobody is signed out by the rotation.",
+						"tradeoffs":                map[string]string{"One hour": "A stolen old key stops working sooner.", "One day": "An old key stays valid for a day after it rotates."},
+						"unblocks":                 "The verifier's window for the old key.",
+					}},
 					result(0.11, 1400),
 				),
 				{
