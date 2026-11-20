@@ -80,13 +80,6 @@ func (p TerminalPanes) Send(ctx context.Context, lane string, generation int64, 
 	return p.Terminal.Keys(ctx, name, input.Keys...)
 }
 
-// paneKeys names each key a member may press as the terminal names it. A key it does not hold is
-// refused, so no key name a page sends reaches the terminal as it was sent.
-var paneKeys = map[string]string{
-	"Enter": "Enter", "Escape": "Escape", "Tab": "Tab", "Backspace": "BSpace",
-	"Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right", "Ctrl-C": "C-c", "Ctrl-D": "C-d",
-}
-
 // The pane's routes take only a member's session, so neither a lane nor an orchestrator can read a
 // screen or type into one.
 func (h *handler) paneRoutes(mux *http.ServeMux) {
@@ -272,20 +265,20 @@ func (h *handler) typeIntoPane(w http.ResponseWriter, r *http.Request, _ ledger.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// paneInputOf checks what a member typed, and names its key as the terminal does. Text is typed
-// literally, so a control character in it would act as a key that is not on the list.
+// paneInputOf checks what a member typed, and names its keys as the terminal does. Text is typed
+// literally, so a control character in it would act as a key the key grammar never let through.
 func paneInputOf(in api.PaneInput) (PaneInput, error) {
 	switch {
 	case in.Key != "" && (in.Text != "" || in.Enter):
-		return PaneInput{}, errors.New("an input types text or presses one key, not both")
+		return PaneInput{}, errors.New("an input types text or presses keys, not both")
 	case in.Key != "":
-		key, ok := paneKeys[in.Key]
-		if !ok {
-			return PaneInput{}, fmt.Errorf("no key is named %q: the keys are %s", in.Key, strings.Join(api.PaneKeys, ", "))
+		keys, err := paneSequence(in.Key)
+		if err != nil {
+			return PaneInput{}, err
 		}
-		return PaneInput{Keys: []string{key}}, nil
+		return PaneInput{Keys: keys}, nil
 	case in.Text == "":
-		return PaneInput{}, errors.New("an input types text or presses one key")
+		return PaneInput{}, errors.New("an input types text or presses keys")
 	case len(in.Text) > api.MaxPaneText:
 		return PaneInput{}, fmt.Errorf("the text is longer than %d bytes", api.MaxPaneText)
 	case strings.ContainsFunc(in.Text, unicode.IsControl):
@@ -293,7 +286,7 @@ func paneInputOf(in api.PaneInput) (PaneInput, error) {
 	}
 	input := PaneInput{Text: in.Text}
 	if in.Enter {
-		input.Keys = []string{paneKeys["Enter"]}
+		input.Keys = []string{"Enter"}
 	}
 	return input, nil
 }

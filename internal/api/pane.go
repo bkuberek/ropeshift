@@ -46,16 +46,38 @@ type PaneLane struct {
 	State      string `json:"state"`
 }
 
-// PaneInput is what a member types into a pane: literal text, which Enter may follow, or one key from
-// PaneKeys. The key list is closed, so no key name a page sends reaches the terminal as it was sent.
+// PaneInput is what a member types into a pane: literal text, which Enter may follow, or keys. Key is a
+// key sequence in the pane's key grammar, which the server reads into the terminal's names for the keys,
+// so no text a page sends reaches the terminal as a key name it was sent as.
+//
+// A chord is zero or more of the modifiers Ctrl, Alt, and Shift, each followed by a hyphen, then one of
+// PaneKeyNames or one printable character: Enter, Shift-Tab, Ctrl-O, Alt-x, or Ctrl--. Modifiers and
+// names are read in any case. Shift goes only with a named key, because a character carries its own
+// Shift: send A, not Shift-a. A sequence is one to MaxPaneChords chords, each separated from the next by
+// one space: Ctrl-X Ctrl-S.
 type PaneInput struct {
 	Text  string `json:"text,omitempty"`
 	Enter bool   `json:"enter,omitempty"`
 	Key   string `json:"key,omitempty"`
 }
 
-// PaneKeys are the keys a member may press in a pane, by the names the API takes.
-var PaneKeys = []string{"Enter", "Escape", "Tab", "Backspace", "Up", "Down", "Left", "Right", "Ctrl-C", "Ctrl-D"}
+// PaneKeyNames are the named keys a chord may end with. They are tmux's names for them
+// (https://man.openbsd.org/tmux.1#KEY_BINDINGS): BSpace is Backspace, BTab is Shift-Tab, DC is Delete,
+// and IC is Insert.
+var PaneKeyNames = []string{
+	"Up", "Down", "Left", "Right", "BSpace", "BTab", "DC", "End", "Enter", "Escape",
+	"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+	"Home", "IC", "PageUp", "PageDown", "Space", "Tab",
+}
+
+// PaneModifiers are the modifiers a chord may hold.
+var PaneModifiers = []string{"Ctrl", "Alt", "Shift"}
+
+// MaxPaneChords bounds the chords of one key sequence.
+const MaxPaneChords = 8
+
+// MaxPaneKeys bounds a key sequence, in bytes: eight of the longest chords, with the spaces between them.
+const MaxPaneKeys = 256
 
 // MaxPaneText bounds the text of one input, in bytes. A person types a line at a time.
 const MaxPaneText = 4096
