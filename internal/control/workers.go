@@ -77,6 +77,9 @@ type WorkerOptions struct {
 	// Warn hears what could not be read for a lease and was left out of it, which is no reason to withhold the lease.
 	// Nil says nothing.
 	Warn func(string)
+	// StartsOrchestrator has a worker's session ask for its orchestrator when no member has said otherwise, so it runs
+	// with its worker (FR-ORCH-1). A daemon sets it, and a test rig leaves it off and starts one when a test asks.
+	StartsOrchestrator bool
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -372,10 +375,38 @@ func openSession(ctx context.Context, installation ports.Installation, options W
 		}
 		draft := workerEvent(eventSessionOpened, record.ID, ledger.Actor{Kind: ledger.ActorWorker, ID: record.ID})
 		draft.Data = []byte(fmt.Sprintf(`{"epoch":%d,"protocol":%d}`, session.Epoch, session.Protocol))
-		_, err = tx.Append(draft)
-		return err
+		if _, err = tx.Append(draft); err != nil || !options.StartsOrchestrator {
+			return err
+		}
+		return startWithWorker(tx, record.ID)
 	})
 	return session, err
+}
+
+// workerStart is who asks for an orchestrator when its worker's session opens.
+var workerStart = ledger.Actor{Kind: ledger.ActorSystem, ID: "worker-start"}
+
+// startWithWorker asks for a worker's orchestrator when its session opens and no member has said anything of it yet.
+// The orchestrator is there to unblock lanes, so it runs with its worker, and its session still starts only when
+// there is something to judge (FR-ORCH-1). A member's Stop is a record of its own, which this never replaces.
+func startWithWorker(tx ports.SharedTx, worker string) error {
+	_, err := tx.Workers().Orchestrator(worker)
+	if !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	row := nextRun(ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), WorkerID: worker})
+	if err := tx.Workers().SaveOrchestrator(row); err != nil {
+		return err
+	}
+	data, err := json.Marshal(row)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(ledger.EventDraft{
+		Type: ledger.EventOrchestratorDesired, Actor: workerStart, Data: data,
+		Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: row.ID},
+	})
+	return err
 }
 
 // checkSession reads the worker and refuses a stale epoch.

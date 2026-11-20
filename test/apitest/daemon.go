@@ -297,7 +297,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	}
 	identity := fake.NewIdentityProvider().Within(store)
 	config := server.Config{
-		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
+		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs, HoldsOrchestrator: true,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
@@ -386,9 +386,10 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 	machine, layouts, practiceReads := fake.NewCheckouts(), fake.NewLayouts(), &fake.Practices{}
 	config := server.Config{
 		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
-		Matcher:   lexical.Matcher{Store: store},
-		Matching:  func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
-		Checkouts: machine, Layouts: layouts,
+		HoldsOrchestrator: true,
+		Matcher:           lexical.Matcher{Store: store},
+		Matching:          func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Checkouts:         machine, Layouts: layouts,
 		PracticeSources: practicerun.Sources{Snapshots: practiceReads, Secrets: practiceReads, Forge: practiceReads, Clock: fake.NewClock(time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC))},
 	}
 	daemon := serve(t, config, nil)
