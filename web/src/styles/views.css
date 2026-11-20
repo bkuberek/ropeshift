@@ -339,6 +339,19 @@ p + .kv {
   color: var(--text-2);
 }
 
+/* What a lane recorded, quoted above a member's note, so it never reads as the member's own words. */
+.recorded-cause {
+  margin: 0;
+}
+
+.recorded-cause blockquote {
+  margin: var(--s-4) 0 0;
+  padding-left: var(--s-8);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
 .refusal {
   margin-top: var(--s-4);
 }

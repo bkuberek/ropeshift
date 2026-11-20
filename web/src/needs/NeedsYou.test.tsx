@@ -829,12 +829,32 @@ describe("waiting work", () => {
     expect(within(card).getByRole("link", { name: "Open work order wo-failed" }).getAttribute("href")).toContain("/work-order?id=wo-failed");
     await userEvent.click(within(card).getByRole("button", { name: "Retry with an extra attempt" }));
     expect(sent).toHaveLength(0);
+    // The note is the member's own and starts empty. What the lane recorded stands above it, quoted as the lane's.
+    const why = within(card).getByRole("textbox", { name: "Why (optional)" }) as HTMLTextAreaElement;
+    expect(why.value).toBe("");
+    const quoted = within(card).getByRole("figure", { name: "The lane recorded" });
+    expect(quoted.textContent).toContain("It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>");
     const confirm = within(card).getByRole("button", { name: "Retry with an extra attempt" });
-    expect((confirm as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.type(within(card).getByRole("textbox", { name: "Why (required)" }), "The network came back.");
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.type(why, "The network came back.");
     await userEvent.click(confirm);
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-failed/retry", body: { reason: "The network came back." } });
+  });
+
+  // An empty note sends the member's fixed words, and the server keeps the failed lane with the retry, so what the lane
+  // wrote never reaches the request as the member's words. The attack fixture stays text.
+  it("retries failed work with an empty note as the member's fixed words, never the lane's", async () => {
+    const sent = serveApi(() => ({ status: 200, body: { work_order: "wo-failed", state: "ready" } }));
+    show();
+    const card = await cardNamed(/Try the impossible/);
+    await userEvent.click(within(card).getByRole("button", { name: "Retry with an extra attempt" }));
+    expect(card.querySelector("img, script")).toBeNull();
+    expect(within(card).getByText("Leave it empty and the retry says: Retried after the recorded failure")).toBeTruthy();
+    await userEvent.click(within(card).getByRole("button", { name: "Retry with an extra attempt" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ path: "/v1/work-orders/wo-failed/retry", body: { reason: "Retried after the recorded failure" } });
+    expect(JSON.stringify(sent[0]?.body)).not.toContain("It gave up on");
   });
 
   // After a retry, what the plans view says the work allows is what the page offers: Start with the hold that keeps
@@ -864,7 +884,7 @@ describe("waiting work", () => {
         return call.path.startsWith("/v1/views/plans") ? { status: 200, body: plans } : undefined;
       });
       await userEvent.click(await screen.findByRole("button", { name: "Retry with an extra attempt" }));
-      await userEvent.type(screen.getByRole("textbox", { name: "Why (required)" }), "The network came back.");
+      await userEvent.type(screen.getByRole("textbox", { name: "Why (optional)" }), "The network came back.");
       await userEvent.click(screen.getByRole("button", { name: "Retry with an extra attempt" }));
       await waitFor(() => expect(sent.some((call) => call.path === "/v1/work-orders/wo-failed/retry")).toBe(true));
       return screen.findByText(/no longer waits/);

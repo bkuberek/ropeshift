@@ -3,6 +3,8 @@ import { useId, useState } from "react";
 import { actOnWork, startOrchestrator, workActions } from "../api/client";
 import type { OrchestratorAction, WorkAction, WorkNeed, WorkOrder } from "../api/types";
 import { Link } from "../app/route";
+import { retryNote } from "../floor/recoverSpecs";
+import { RetryNote } from "../floor/RetryNote";
 import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
 import { Verdicts } from "../parts/Verdicts";
 import type { ButtonVariant } from "../ui/controls";
@@ -155,7 +157,7 @@ export function WorkCard({
             <Button disabled={busy} onClick={() => setAsking(null)}>
               Cancel
             </Button>
-            <Button variant={asking === "cancel" ? "danger" : "primary"} type="submit" form={form} disabled={busy || reason.trim() === ""}>
+            <Button variant={asking === "cancel" ? "danger" : "primary"} type="submit" form={form} disabled={busy || (asking !== "retry" && reason.trim() === "")}>
               {wordsOf(asking, work)}
             </Button>
           </>
@@ -214,12 +216,16 @@ export function WorkCard({
           className="reason"
           onSubmit={(event) => {
             event.preventDefault();
-            void send(asking, reason.trim());
+            void send(asking, asking === "retry" ? retryNote(reason) : reason.trim());
           }}
         >
-          <Field label="Why (required)">
-            <textarea className="textarea" rows={2} autoComplete="off" value={reason} disabled={busy} required autoFocus onChange={(event) => setReason(event.target.value)} />
-          </Field>
+          {asking === "retry" ? (
+            <RetryNote cause={work.detail} label="Why" note={reason} disabled={busy} autoFocus onChange={setReason} />
+          ) : (
+            <Field label="Why (required)">
+              <textarea className="textarea" rows={2} autoComplete="off" value={reason} disabled={busy} required autoFocus onChange={(event) => setReason(event.target.value)} />
+            </Field>
+          )}
         </form>
       ) : null}
       {failure ? <Refusal>{failure}</Refusal> : null}
