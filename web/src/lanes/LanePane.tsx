@@ -207,8 +207,15 @@ function Screen({ lane, text, fill, full, onFull, pane }: { lane: string; text: 
       }
     };
     fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
+    // The page's scroll area and the pane resize the screen: the view, and the controls under the screen.
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", fit);
+      return () => window.removeEventListener("resize", fit);
+    }
+    const sizes = new ResizeObserver(fit);
+    sizes.observe(pre.closest<HTMLElement>(".main") ?? document.documentElement);
+    sizes.observe(frame);
+    return () => sizes.disconnect();
   }, [fill, full, pane]);
   useLayoutEffect(() => {
     if (following.current) {
@@ -223,10 +230,12 @@ function Screen({ lane, text, fill, full, onFull, pane }: { lane: string; text: 
     following.current = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - bottomSlack;
     setAway(!following.current);
   };
+  // Jump to latest goes once it has jumped, so it leaves focus on the screen.
   const jump = () => {
     following.current = true;
     setAway(false);
     toLatest();
+    screen.current?.focus();
   };
 
   const selectAll = () => {
@@ -284,7 +293,7 @@ function Screen({ lane, text, fill, full, onFull, pane }: { lane: string; text: 
       ) : null}
       {/* The whole screen changes at once, so a screen reader reads it when asked and the status line says
           what changed. */}
-      <pre ref={screen} className="pane-screen" role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0} onKeyDown={keyDown} onScroll={scrolled}>
+      <pre ref={screen} className={fill && !full ? "pane-screen is-filled" : "pane-screen"} role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0} onKeyDown={keyDown} onScroll={scrolled}>
         {markRuns(runs, starts, query.length).map((run, place) =>
           run.match === null ? (
             <span key={place} className={run.className || undefined}>
@@ -406,8 +415,29 @@ function Typing({ lane, live }: { lane: string; live: boolean }) {
 // typing away and leaves the screen, and the state the ledger gives the lane, which labels the last screen
 // received when the lane is parked and has no process to show. A page sent to a lane that was just started
 // gives the time of the start, so the pane waits for the ledger to hold it; 0 says the lane was not just started.
-// A page that fills the pane gives its screen the height the page shows under it; Full view gives the pane
-// the whole view, and Escape leaves it unless a part of the pane took that Escape for itself.
+// inertOutside makes everything outside an element inert, from the element up to the body, so nothing Full
+// view covers takes focus (WCAG 2.2 SC 2.4.11), and returns how to undo it. What was inert stays inert, and
+// what opens later, such as the command palette, is not covered.
+function inertOutside(element: HTMLElement): () => void {
+  const made: Element[] = [];
+  for (let at: Element = element; at.parentElement && at !== document.body; at = at.parentElement) {
+    for (const sibling of at.parentElement.children) {
+      if (sibling !== at && !sibling.hasAttribute("inert")) {
+        sibling.setAttribute("inert", "");
+        made.push(sibling);
+      }
+    }
+  }
+  return () => {
+    for (const sibling of made) {
+      sibling.removeAttribute("inert");
+    }
+  };
+}
+
+// A page that fills the pane gives its screen the height the page shows under it. Full view gives the pane
+// the whole view, with everything it covers inert, and its toolbar's Exit full view leaves it. Escape stays
+// with the pane, so it can still reach the session.
 export function LanePane({
   lane,
   live,
@@ -428,15 +458,9 @@ export function LanePane({
   const [full, setFull] = useState(false);
   const screen = shown.kind === "screen" || shown.kind === "away" || shown.kind === "refused" ? shown.screen : "";
   const parked = shown.kind !== "screen" && (state === "parked" || (shown.kind === "away" && shown.state === "parked"));
-  const keyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (full && event.key === "Escape" && !event.defaultPrevented) {
-      event.preventDefault();
-      event.stopPropagation();
-      setFull(false);
-    }
-  };
+  useEffect(() => (full && pane.current ? inertOutside(pane.current) : undefined), [full]);
   return (
-    <section ref={pane} className={full ? "pane is-full" : "pane"} aria-label={`Pane of lane ${lane}`} data-keys="own" onKeyDown={keyDown}>
+    <section ref={pane} className={full ? "pane is-full" : "pane"} aria-label={`Pane of lane ${lane}`} data-keys="own">
       <p className="pane-status" role="status">
         {statusOf(shown)}
       </p>

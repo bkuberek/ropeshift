@@ -1082,7 +1082,7 @@ details.older[open] > summary {
 }
 
 /* A screen the page sizes to fill the view takes the height it is given, not the cap of a short one. */
-.pane-screen[style*="height"] {
+.pane-screen.is-filled {
   max-height: none;
 }
 

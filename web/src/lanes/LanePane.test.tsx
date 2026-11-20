@@ -315,6 +315,7 @@ describe("a lane's pane, scrolled and sized", () => {
     await userEvent.setup().click(jump);
     expect(log.scrollTop).toBe(1300);
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+    expect(document.activeElement).toBe(log);
   });
 
   it("follows the newest line again once the member scrolls back to the bottom", async () => {
@@ -352,20 +353,43 @@ describe("a lane's pane, scrolled and sized", () => {
     expect(screen.getByRole("log", named).style.height).toBe("444px");
   });
 
-  it("takes the whole view in Full view, and leaves it on Escape", async () => {
+  it("takes the whole view in Full view, keeps Escape for the session, and leaves on Exit full view", async () => {
     const typed = serve();
     openPage(page);
     show(await opened(), "a screen");
     const user = userEvent.setup();
     const region = screen.getByRole("region", { name: `Pane of lane ${lane}` });
-    const full = screen.getByRole("button", { name: "Full view" });
-    await user.click(full);
-    expect(full.getAttribute("aria-pressed")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Full view" }));
     expect(region.classList.contains("is-full")).toBe(true);
+    const exit = screen.getByRole("button", { name: "Exit full view" });
     await user.keyboard("{Escape}");
-    expect(full.getAttribute("aria-pressed")).toBe("false");
+    expect(region.classList.contains("is-full")).toBe(true);
+    await user.click(exit);
     expect(region.classList.contains("is-full")).toBe(false);
+    expect(screen.getByRole("button", { name: "Full view" })).toBeTruthy();
     expect(typed).toEqual([]);
+  });
+
+  // WCAG 2.2 SC 2.4.11: what Full view covers takes no focus. The test reads the mechanism, because the
+  // test DOM does not skip inert content when it tabs.
+  it("leaves no covered control able to take focus in Full view", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const region = screen.getByRole("region", { name: `Pane of lane ${lane}` });
+    const focusable = () => [...document.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1'])")];
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    const outside = focusable().filter((element) => !region.contains(element));
+    expect(outside.length).toBeGreaterThan(0);
+    for (const element of outside) {
+      expect(element.closest("[inert]"), element.outerHTML.slice(0, 80)).not.toBeNull();
+    }
+    for (const element of focusable().filter((element) => region.contains(element))) {
+      expect(element.closest("[inert]")).toBeNull();
+    }
+    await user.click(screen.getByRole("button", { name: "Exit full view" }));
+    expect(document.querySelector("[inert]")).toBeNull();
   });
 
   it("sends Escape to the session from the empty line field, and stays in Full view", async () => {
