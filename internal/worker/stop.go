@@ -115,6 +115,7 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 			acts.Ref, acts.Commit = ref, commit
 		}
 	}
+	leftRef, leftSaved := w.saveLeft(ctx, record, left, failed)
 	crashpoint.Hit("worker.guard", "snapshotted")
 	if acts.Plan.PushSnapshot && acts.Ref != "" {
 		if err := worktrees.Push(ctx, record.Worktree, found.Remote, ref); err != nil {
@@ -128,13 +129,36 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 	if err != nil {
 		failed("reading the worktree again", err)
 		result := lanes.SettleGuard(found, acts)
-		result.Unpushed, result.Left = true, capped(left)
+		result.Unpushed, result.LeftRef = true, leftRef
+		result.Left, result.LeftMore = leftOut(own, left, found)
 		return result
 	}
 	ownAfter, leftAfter := w.ownChanges(files, after)
 	result := lanes.SettleGuard(owned(after, ownAfter, leftAfter), acts)
-	result.Left = capped(leftAfter)
+	result.Left, result.LeftMore = leftOut(ownAfter, leftAfter, after)
+	result.LeftRef = leftRef
+	// Files left out that no ref holds would be lost with the worktree, so it stays.
+	result.Unpushed = result.Unpushed || len(leftAfter) != 0 && !leftSaved
 	return result
+}
+
+// saveLeft keeps the files a generation left out on a ref of this machine that nothing pushes, before anything can
+// remove the worktree, so a wrong reading can be undone and a path decided part of the project still has its file.
+// It says whether the files are kept, which nothing left out counts as.
+func (w *Worker) saveLeft(ctx context.Context, record lanes.Record, left []string, failed func(string, error)) (string, bool) {
+	if len(left) == 0 {
+		return "", true
+	}
+	scoped, offered := w.config.Lanes.Provisioner.Worktrees.(ports.PathSnapshots)
+	if !offered {
+		return "", false
+	}
+	ref := lanes.LeftRef(record.ID, record.Generation)
+	if _, err := scoped.SnapshotPaths(ctx, record.Worktree, ref, left); err != nil {
+		failed("keeping the files left out", err)
+		return "", false
+	}
+	return ref, true
 }
 
 // snapshot saves the lane's own changes under ref: the whole worktree when nothing is left out, which is the
@@ -145,13 +169,6 @@ func (w *Worker) snapshot(ctx context.Context, worktree, ref string, own, left [
 		return scoped.SnapshotPaths(ctx, worktree, ref, own)
 	}
 	return worktrees.Snapshot(ctx, worktree, ref)
-}
-
-func capped(paths []string) []string {
-	if len(paths) > maxLeftOut {
-		return paths[:maxLeftOut]
-	}
-	return paths
 }
 
 // pushesOnStop reads the user's choice to send a lane's work to its remote (push_on_stop). Only
@@ -300,7 +317,8 @@ func (w *Worker) reportGuard(ctx context.Context, record lanes.Record, result la
 		return nil
 	}
 	payload, err := json.Marshal(ledger.LaneGuard{
-		UnpushedWork: result.Unpushed, Ref: result.Ref, Commit: result.Commit, Detail: result.Detail, LeftOut: result.Left,
+		UnpushedWork: result.Unpushed, Ref: result.Ref, Commit: result.Commit, Detail: result.Detail,
+		LeftOut: result.Left, LeftOutMore: result.LeftMore, LeftRef: result.LeftRef,
 	})
 	if err != nil {
 		return err

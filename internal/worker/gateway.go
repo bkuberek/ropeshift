@@ -405,6 +405,9 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return err
 		}
+		if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation && event.Event == lanes.EventUserPromptSubmit {
+			run.leaveUnread(ctx)
+		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
 		if event.WaitRule != "" {

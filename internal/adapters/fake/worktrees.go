@@ -32,6 +32,7 @@ type Worktrees struct {
 	// changes is what a worktree ChangeFiles named holds changed, and scoped the paths each SnapshotPaths
 	// took, by ref.
 	changes  map[string][]string
+	folders  map[string][]string
 	scoped   map[string][]string
 	contexts map[string][]string
 	files    map[string]map[string]string
@@ -69,7 +70,7 @@ type Worktrees struct {
 func NewWorktrees() *Worktrees {
 	return &Worktrees{
 		byPath: map[string]ports.Worktree{}, branches: map[string]string{}, ahead: map[string]int64{},
-		snapshots: map[string]string{}, changes: map[string][]string{}, scoped: map[string][]string{}, contexts: map[string][]string{}, files: map[string]map[string]string{}, touched: map[string][]string{},
+		snapshots: map[string]string{}, changes: map[string][]string{}, folders: map[string][]string{}, scoped: map[string][]string{}, contexts: map[string][]string{}, files: map[string]map[string]string{}, touched: map[string][]string{},
 		history: map[string][]string{}, tips: map[string]string{}, fileCommits: map[string][]ports.Commit{},
 	}
 }
@@ -240,6 +241,13 @@ func (w *Worktrees) ChangeFiles(path string, files ...string) {
 	w.changes[path] = slices.Clone(files)
 }
 
+// UntrackedFolders stands for the folders git tracks nothing in, which a survey names beside the files.
+func (w *Worktrees) UntrackedFolders(path string, folders ...string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.folders[path] = slices.Clone(folders)
+}
+
 // ScopedSnapshot is the paths a SnapshotPaths under ref took, and whether one did.
 func (w *Worktrees) ScopedSnapshot(ref string) ([]string, bool) {
 	w.mu.Lock()
@@ -357,6 +365,7 @@ func (w *Worktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindin
 		if changes, named := w.changes[path]; named {
 			found.DirtyPaths = slices.Clone(changes)
 		}
+		found.Folders = slices.Clone(w.folders[path])
 	}
 	return found, nil
 }

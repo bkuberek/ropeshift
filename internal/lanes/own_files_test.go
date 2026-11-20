@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 )
@@ -17,22 +18,28 @@ func TestALaneOwnsWhatChangedAfterItsSessionBegan(t *testing.T) {
 		{
 			name:    "no reading of the start owns every change",
 			files:   LaneFiles{Written: []string{"a.go"}, AllWritten: true},
-			changes: []string{".atl/", "a.go"},
-			own:     []string{".atl/", "a.go"},
+			changes: []string{".atl/a.md", "a.go"},
+			own:     []string{".atl/a.md", "a.go"},
 		},
 		{
-			name:    "a change there before the first turn is left out",
-			files:   LaneFiles{Before: []string{".atl/"}, Began: true, AllWritten: true},
-			changes: []string{".atl/", "gen/out.go"},
+			name:    "a file there before the first turn is left out",
+			files:   LaneFiles{Before: []string{".atl/a.md"}, Began: true, AllWritten: true},
+			changes: []string{".atl/a.md", "gen/out.go"},
 			own:     []string{"gen/out.go"},
-			left:    []string{".atl/"},
+			left:    []string{".atl/a.md"},
 		},
 		{
-			name:    "a file under a folder there before is left out",
-			files:   LaneFiles{Before: []string{".cache/"}, Began: true, AllWritten: true},
-			changes: []string{".cache/index", "main.go"},
-			own:     []string{"main.go"},
+			name:    "a new file in a folder that was there before is the lane's own",
+			files:   LaneFiles{Before: []string{".cache/index"}, Began: true, AllWritten: true},
+			changes: []string{".cache/index", ".cache/new", "main.go"},
+			own:     []string{".cache/new", "main.go"},
 			left:    []string{".cache/index"},
+		},
+		{
+			name:    "a folder in the reading makes no new file in it old",
+			files:   LaneFiles{Before: []string{".cache/"}, Began: true, AllWritten: true},
+			changes: []string{".cache/new"},
+			own:     []string{".cache/new"},
 		},
 		{
 			name:    "a file there before that the session edited is its own",
@@ -41,17 +48,17 @@ func TestALaneOwnsWhatChangedAfterItsSessionBegan(t *testing.T) {
 			own:     []string{".env.example"},
 		},
 		{
-			name:    "what the session wrote in a folder there before is its own, and the rest is left out",
-			files:   LaneFiles{Before: []string{".atl/"}, Began: true, Written: []string{".atl/notes.md"}, AllWritten: true},
-			changes: []string{".atl/"},
+			name:    "what the session wrote beside files there before is its own, and the rest is left out",
+			files:   LaneFiles{Before: []string{".atl/a.md", ".atl/notes.md"}, Began: true, Written: []string{".atl/notes.md"}, AllWritten: true},
+			changes: []string{".atl/a.md", ".atl/notes.md"},
 			own:     []string{".atl/notes.md"},
-			left:    []string{".atl/"},
+			left:    []string{".atl/a.md"},
 		},
 		{
 			name:    "writes not all known leave nothing out",
-			files:   LaneFiles{Before: []string{".atl/"}, Began: true},
-			changes: []string{".atl/", "a.go"},
-			own:     []string{".atl/", "a.go"},
+			files:   LaneFiles{Before: []string{".atl/a.md"}, Began: true},
+			changes: []string{".atl/a.md", "a.go"},
+			own:     []string{".atl/a.md", "a.go"},
 		},
 		{
 			name:    "a clean start owns everything after it",
@@ -77,10 +84,10 @@ func TestADigestKeepsWhatTheWorktreeHeldBeforeTheFirstTurnOnce(t *testing.T) {
 	if _, began := builder.Before(); began {
 		t.Fatal("a new digest says what the worktree held before it began")
 	}
-	if !builder.Begin([]string{".atl/"}) {
+	if !builder.Begin([]string{".atl/a.md"}) {
 		t.Fatal("the first reading was not kept")
 	}
-	if builder.Begin([]string{".atl/", "a.go"}) {
+	if builder.Begin([]string{".atl/a.md", "a.go"}) {
 		t.Error("a second reading replaced the first")
 	}
 	raw, err := builder.Marshal()
@@ -88,7 +95,7 @@ func TestADigestKeepsWhatTheWorktreeHeldBeforeTheFirstTurnOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := LaneFilesOf([]DigestRecord{{Lane: "lane-1", Generation: 1, State: raw}})
-	if !files.Began || !slices.Equal(files.Before, []string{".atl/"}) || !files.AllWritten {
+	if !files.Began || !slices.Equal(files.Before, []string{".atl/a.md"}) || !files.AllWritten {
 		t.Errorf("files %+v", files)
 	}
 }
@@ -115,4 +122,56 @@ func record(t *testing.T, generation int64, builder *DigestBuilder) DigestRecord
 		t.Fatal(err)
 	}
 	return DigestRecord{Lane: "lane-1", Generation: generation, State: raw}
+}
+
+// TestAReadingAfterTheSessionBeganIsNeverTaken is the reading's one moment: a digest that has seen a turn or a call,
+// or that was told the reading failed, keeps no reading and owns every change from then on.
+func TestAReadingAfterTheSessionBeganIsNeverTaken(t *testing.T) {
+	t.Parallel()
+	called := NewDigest(DigestHooks, "/lanes/lane-1", 1)
+	called.Hook(HookEvent{Event: EventPreToolUse, Tool: "Bash"})
+	prompted := NewDigest(DigestHooks, "/lanes/lane-1", 1)
+	prompted.Hook(HookEvent{Event: EventUserPromptSubmit})
+	failed := NewDigest(DigestHooks, "/lanes/lane-1", 1)
+	failed.LeaveUnread()
+	many := NewDigest(DigestHooks, "/lanes/lane-1", 1)
+	for name, builder := range map[string]*DigestBuilder{"a call": called, "a turn": prompted, "a failed reading": failed, "too many changes": many} {
+		changes := []string{".atl/a.md"}
+		if builder == many {
+			changes = make([]string, MaxBefore+1)
+			for i := range changes {
+				changes[i] = fmt.Sprintf("cache/%d", i)
+			}
+		}
+		if builder.Begin(changes) {
+			t.Errorf("after %s, a reading was kept", name)
+		}
+		if builder.Begin(nil) {
+			t.Errorf("after %s, a second reading was kept", name)
+		}
+		if files := LaneFilesOf([]DigestRecord{record(t, 1, builder)}); files.Began || len(files.Before) != 0 {
+			t.Errorf("after %s, the lane's files read as begun with %d files", name, len(files.Before))
+		}
+	}
+}
+
+// TestALeftOutReportNamesAWhollyUntrackedFolderOnce collapses the files of a folder git does not track, and holds
+// nothing of the lane's own, into that folder, which is what a .gitignore entry would name.
+func TestALeftOutReportNamesAWhollyUntrackedFolderOnce(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name               string
+		left, own, folders []string
+		want               []string
+	}{
+		{"a cache folder", []string{".atl/a.md", ".atl/b.md", "notes.txt"}, []string{"gen/out.go"}, []string{".atl/"}, []string{".atl/", "notes.txt"}},
+		{"a folder that holds a file of the lane's", []string{".atl/a.md"}, []string{".atl/new.md"}, []string{".atl/"}, []string{".atl/a.md"}},
+		{"a deeper file", []string{"build/x/y.o"}, nil, []string{"build/"}, []string{"build/"}},
+		{"no folder", []string{"a.log"}, nil, nil, []string{"a.log"}},
+	}
+	for _, tt := range tests {
+		if got := CollapseLeft(tt.left, tt.own, tt.folders); !slices.Equal(got, tt.want) {
+			t.Errorf("%s: %q, want %q", tt.name, got, tt.want)
+		}
+	}
 }
