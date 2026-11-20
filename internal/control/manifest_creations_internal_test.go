@@ -200,3 +200,47 @@ func TestAPathBusyRefusalIsNeverAnItemOfNeedsYou(t *testing.T) {
 		}
 	}
 }
+
+// A path_busy refusal is transient, so it never replaces the record of an earlier failure: a creation that failed or was
+// interrupted, and whose later attempt finished refused as busy, stays an item with the earlier failure's reason.
+func TestAPathBusyFinishDoesNotHideAnEarlierFailure(t *testing.T) {
+	row := authority.Approval{ID: "ap-1", Plan: "tt", PlanVersion: 1}
+	entry := planning.ManifestRepository{Name: "api", Path: "repos/api"}
+	outcome := ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "api", Visibility: ledger.VisibilityPrivate}
+	started := func(rev int64) ledger.Event {
+		return eventOf(t, rev, ledger.EventRepositoryCreationStarted, ledger.CreationStartedEvent{Name: "api", Key: "k", Path: "/work/repos/api"})
+	}
+	finished := func(rev int64, state ledger.CreationState, code, reason string) ledger.Event {
+		return eventOf(t, rev, ledger.EventRepositoryCreationFinished, ledger.CreationFinishedEvent{Name: "api", Key: "k", Outcome: state, Reason: reason, RefusalCode: code, CreationOutcome: outcome})
+	}
+	for name, tt := range map[string]struct {
+		events []ledger.Event
+		listed bool
+		state  UncreatedState
+		reason string
+	}{
+		"a failure, then a busy finish": {
+			events: []ledger.Event{started(1), finished(2, ledger.CreationFailed, "", "the push failed"), started(3), finished(4, ledger.CreationRefused, ledger.TemplateRefusedBusy, "another creation writes it")},
+			listed: true, state: CreationFailed, reason: "the push failed",
+		},
+		"an interruption, then a busy finish": {
+			events: []ledger.Event{started(1), started(2), finished(3, ledger.CreationRefused, ledger.TemplateRefusedBusy, "another creation writes it")},
+			listed: true, state: CreationInterrupted,
+		},
+		"a refusal, then a busy finish": {
+			events: []ledger.Event{started(1), finished(2, ledger.CreationRefused, "gh_signed_out", "gh is signed out"), started(3), finished(4, ledger.CreationRefused, ledger.TemplateRefusedBusy, "another creation writes it")},
+			listed: true, state: CreationRefused, reason: "gh is signed out",
+		},
+		"a busy finish and nothing before it": {
+			events: []ledger.Event{started(1), finished(2, ledger.CreationRefused, ledger.TemplateRefusedBusy, "another creation writes it")},
+		},
+		"a created repository, then a busy finish": {
+			events: []ledger.Event{started(1), finished(2, ledger.CreationCreated, "", ""), started(3), finished(4, ledger.CreationRefused, ledger.TemplateRefusedBusy, "another creation writes it")},
+		},
+	} {
+		item, listed, err := uncreated(row, entry, tt.events, nil, false)
+		if err != nil || listed != tt.listed || (listed && (item.State != tt.state || item.Reason != tt.reason)) {
+			t.Errorf("%s: listed %v as %q with reason %q (%v), want listed %v as %q with reason %q", name, listed, item.State, item.Reason, err, tt.listed, tt.state, tt.reason)
+		}
+	}
+}

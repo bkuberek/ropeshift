@@ -457,7 +457,8 @@ type UncreatedRepository struct {
 
 // UncreatedRepositories lists, for each approved plan approval, the entries its version creates whose latest creation
 // is refused, failed, or interrupted, or runs now, and whose name the project does not hold. A skipped or a created
-// entry is not listed. creating says whether the creation of an approval's entry runs now in this process, and an entry
+// entry is not listed, and a refusal because another creation holds the path is no latest creation: an earlier failure
+// stays the one listed. creating says whether the creation of an approval's entry runs now in this process, and an entry
 // whose creation does is running. An entry whose creation left no record is read from the registration the approval
 // recorded, when that says it was refused, not attempted, or failed to create.
 func UncreatedRepositories(tx ports.ReadTx, creating func(approval, name string) bool) ([]UncreatedRepository, error) {
@@ -520,7 +521,7 @@ func heldNames(tx ports.ReadTx) (map[string]bool, error) {
 
 // uncreated reads where one entry's creation stands, and says whether it waits for a member or runs.
 func uncreated(row authority.Approval, entry planning.ManifestRepository, events []ledger.Event, recorded *ledger.ManifestRegistration, running bool) (UncreatedRepository, bool, error) {
-	latest, err := ledger.LatestCreation(events, entry.Name)
+	latest, err := latestUnbusy(events, entry.Name)
 	if err != nil {
 		return UncreatedRepository{}, false, err
 	}
@@ -553,8 +554,6 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	switch {
 	case running:
 		item.State = CreationRunning
-	case latest.State == ledger.CreationRefused && code == ledger.TemplateRefusedBusy:
-		return UncreatedRepository{}, false, nil
 	case refusedLater && latest.State == ledger.CreationStarted && refused.RefusalCode == "":
 		// A run an error or its limit stopped recorded why, after the creation started and with no finish: the creation was
 		// interrupted, and may have written a folder or the forge repository, so it is no refusal. The record's reason stands.
@@ -590,6 +589,40 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	}
 	item.Remedy = creationRemedy(item, code)
 	return item, true, nil
+}
+
+// latestUnbusy is where the events leave the creation of the entry named, leaving out each attempt that finished refused
+// because another creation held its path: that refusal is transient, and says nothing of the creation, so an earlier
+// failure, interruption, or refusal stays what the creation reads as.
+func latestUnbusy(events []ledger.Event, name string) (ledger.CreationRecord, error) {
+	var kept []ledger.Event
+	start := -1
+	for _, event := range events {
+		var named struct {
+			Name        string `json:"name"`
+			Outcome     string `json:"outcome"`
+			RefusalCode string `json:"refusal_code"`
+		}
+		switch event.Type {
+		case ledger.EventRepositoryCreationStarted:
+			if json.Unmarshal(event.Data, &named) == nil && named.Name == name {
+				start = len(kept)
+			}
+		case ledger.EventRepositoryCreationFinished:
+			if json.Unmarshal(event.Data, &named) == nil && named.Name == name {
+				if ledger.CreationState(named.Outcome) == ledger.CreationRefused && named.RefusalCode == ledger.TemplateRefusedBusy {
+					if start >= 0 {
+						kept = slices.Delete(kept, start, start+1)
+					}
+					start = -1
+					continue
+				}
+				start = -1
+			}
+		}
+		kept = append(kept, event)
+	}
+	return ledger.LatestCreation(kept, name)
 }
 
 // creationRemedy says what a member does about a creation that waits for them, from the code the creator refused it
