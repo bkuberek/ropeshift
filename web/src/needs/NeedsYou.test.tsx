@@ -337,6 +337,53 @@ describe("the flow from one decision to the next", () => {
     expect(after).toHaveBeenCalled();
   });
 
+  it("leaves a gate out of Approve all, and says how many wait to be reviewed one by one", async () => {
+    const { view, items } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "git push origin feature"],
+      ["L-88", "npx vitest run"],
+      ["L-88", "git tag v1"],
+    ]);
+    for (const gated of [items[1], items[3]]) {
+      if (gated) {
+        gated.approval.gate = true;
+      }
+    }
+    const sent = serveApi(() => ({ status: 200 }));
+    show(view);
+    expect(screen.getByText(/2 gates wait to be reviewed one by one/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Approve all 2" }));
+    await waitFor(() => expect(posts(sent)).toHaveLength(2));
+    expect(posts(sent).map((call) => call.path)).toEqual(["/v1/approvals/approval-1/decide", "/v1/approvals/approval-3/decide"]);
+  });
+
+  it("offers no Approve all when what the lane asks is gates and one other request", async () => {
+    const { view, items } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "git push origin feature"],
+    ]);
+    const push = items[1];
+    if (push) {
+      push.approval.gate = true;
+    }
+    show(view);
+    expect(screen.getByRole("list", { name: "Lane L-88" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Approve all/ })).toBeNull();
+    expect(screen.getByText(/1 gate waits to be reviewed one by one/)).toBeTruthy();
+  });
+
+  it("says on a gate's card that it is approved one call at a time", async () => {
+    const { view, items } = requests([["L-88", "git push origin feature"]]);
+    const push = items[0];
+    if (push) {
+      push.approval.gate = true;
+    }
+    show(view, undefined, "approval");
+    expect(within(screen.getByRole("article")).getByText(/^Gate:/).textContent).toBe(
+      "Gate: the lane's profile gates this call, or it is a push, so it asks in every mode and is approved one call at a time, never with Approve all.",
+    );
+  });
+
   it("keeps grouping off in the address once a person turns it off", async () => {
     const { view } = requests([
       ["L-88", "npm install"],

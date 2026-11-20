@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { Approval, NeedItem, QuestionItem } from "../api/types";
-import { arrange, flatten, laneOf, orderOf, permissionRequests, tierOf } from "./order";
+import { arrange, flatten, gateRequests, laneOf, orderOf, permissionRequests, tierOf } from "./order";
 
-const approval = (id: string, lane: string, since: number, tier = 1, kind = "tool_call"): NeedItem => ({
+const approval = (id: string, lane: string, since: number, tier = 1, kind = "tool_call", gate = false): NeedItem => ({
   kind: "approval",
   id,
   since,
   tier,
-  approval: { id, lane_id: lane, work_order_id: "wo-1", generation: 1, kind, subject: `call ${id}`, subject_digest: `d-${id}`, summary: "", requested_by: lane, state: "open" } as Approval,
+  approval: { id, lane_id: lane, work_order_id: "wo-1", generation: 1, kind, subject: `call ${id}`, subject_digest: `d-${id}`, summary: "", requested_by: lane, state: "open", gate } as Approval,
 });
 
 const question = (id: string, lane: string): QuestionItem => ({ id, text: `Question ${id}`, lane, asked_by: lane });
@@ -83,5 +83,12 @@ describe("grouping by lane", () => {
   it("approves all of a lane's permission requests, and no other kind of request", () => {
     const entry = [approval("a1", "L-1", 1), approval("m", "L-1", 2, 3, "merge"), approval("a2", "L-1", 3, 1, "artifact"), batch("b", 4, 1, [question("q", "L-1")])];
     expect(permissionRequests(entry).map((row) => row.id)).toEqual(["a1", "a2"]);
+  });
+
+  // A gate or a push asks in every mode by design, so a batch never covers one: each waits for its own review.
+  it("leaves every gate out of what Approve all covers", () => {
+    const entry = [approval("a1", "L-1", 1), approval("push", "L-1", 2, 1, "tool_call", true), approval("a2", "L-1", 3)];
+    expect(permissionRequests(entry).map((row) => row.id)).toEqual(["a1", "a2"]);
+    expect(gateRequests(entry).map((row) => row.id)).toEqual(["push"]);
   });
 });

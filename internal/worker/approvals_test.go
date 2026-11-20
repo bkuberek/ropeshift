@@ -3,6 +3,7 @@ package worker_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -178,6 +179,25 @@ func TestACallWaitsForAMember(t *testing.T) {
 		t.Fatalf("decision %s", got)
 	}
 	r.eventually("the turn again", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+}
+
+// A call the lane's profile gates, and a push, is a gate, which a person approves one call at a time in every mode, so
+// its request says so and no Approve all covers it. Any other call that asks is no gate.
+func TestARequestSaysWhetherItsCallIsAGate(t *testing.T) {
+	t.Parallel()
+	r, _ := aLaneThatWaitsUnder(t, approvalProfile+"[agent]\ngates = [\"Bash(git tag *)\"]\n")
+	push, install := `{"command":"git push origin feature"}`, `{"command":"npm install"}`
+	for i, call := range []string{gatedCall, push, install} {
+		if got := decisionIn(t, r.look(t, call, fmt.Sprintf("call-%d", i+1), false)); got != lanes.ApprovalWaiting {
+			t.Fatalf("decision %s for %s", got, call)
+		}
+	}
+	rows := r.requests(t)
+	for call, gate := range map[string]bool{gatedCall: true, push: true, install: false} {
+		if got := requestOf(t, rows, digestOf(t, call)); got.Gate != gate {
+			t.Errorf("the request for %s says gate %v", call, got.Gate)
+		}
+	}
 }
 
 // A lane's own token reaches the decide path, and that path is refused, with the request untouched.

@@ -359,7 +359,7 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 	payload, err := json.Marshal(authority.Approval{
 		ID: id, Lane: lane.ID, WorkOrder: lane.WorkOrder, Generation: lane.Generation, Kind: authority.KindToolCall, Subject: call.Tool,
 		SubjectDigest: call.Digest, Input: call.Input, Command: call.Command, Path: call.Path, Agent: call.Agent, Summary: call.Summary,
-		RequestedBy: authority.Principal(r.principal(lane)),
+		RequestedBy: authority.Principal(r.principal(lane)), Gate: r.gated(call),
 	})
 	if err != nil {
 		return lanes.OpenApproval{}, err
@@ -371,6 +371,21 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 	r.noteRequest(ctx, len(rows)+1)
 	r.sendRequests()
 	return open, nil
+}
+
+// gated says a call is a gate: one this lane's profile gates, or a push, each of which asks in every mode (FR-LANE-19)
+// and which a member approves one call at a time.
+func (r *laneRun) gated(call authority.ToolCall) bool {
+	r.handleLock.Lock()
+	rules := r.gates
+	r.handleLock.Unlock()
+	gates := make([]lanes.GateRule, 0, len(rules))
+	for _, rule := range rules {
+		gates = append(gates, lanes.ReadGate(rule))
+	}
+	command := strings.TrimSpace(call.Command)
+	push := call.Tool == lanes.ToolBash && (command == "git push" || strings.HasPrefix(command, "git push "))
+	return push || lanes.DenyPolicy{Gates: gates}.Gated(lanes.ToolCall{Tool: call.Tool, Command: command})
 }
 
 // keepRequest is one journal write, because a request a lane parked on and the ledger never heard of

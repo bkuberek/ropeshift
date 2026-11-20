@@ -26,7 +26,7 @@ import type { NeedFilter } from "./kinds";
 import { contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { nextStepOf } from "./next";
 import type { NextStep } from "./next";
-import { arrange, flatten, orderOf, orders, permissionRequests, tierNames } from "./order";
+import { arrange, flatten, gateRequests, orderOf, orders, permissionRequests, tierNames } from "./order";
 import type { Entry, Order } from "./order";
 import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { PlanRevisionCard } from "./PlanRevisionCard";
@@ -207,13 +207,14 @@ function LaneGroupHead({ entry, after, onActed }: { entry: Entry; after: () => P
   const { act, busy, failure } = useAct(after);
   const [skipped, setSkipped] = useState<string[]>([]);
   const requests = permissionRequests(entry.items);
+  const gates = gateRequests(entry.items).length;
   const [first] = entry.items;
   const project = first?.project?.name ?? "";
   const workOrder = requests[0]?.work_order_id ?? "";
   const approveAll = () =>
     act(async () => {
       const missed: string[] = [];
-      onActed(entry.items.filter((item) => item.kind === "approval").map(keyOf));
+      onActed(entry.items.filter((item) => item.kind === "approval" && !item.approval.gate).map(keyOf));
       for (const request of requests) {
         try {
           await decideApproval(request.id, request.subject_digest, true, "", "needs_you");
@@ -236,7 +237,8 @@ function LaneGroupHead({ entry, after, onActed }: { entry: Entry; after: () => P
       </div>
       <p className="subtle" id={`group-${entry.lane}-says`}>
         {[workOrder, `${entry.items.length} waiting`].filter(Boolean).join(" · ")}
-        {requests.length > 1 ? `. Approve all allows each of its ${requests.length} requests as its card shows it, bound to the digest this page read.` : ""}{" "}
+        {requests.length > 1 ? `. Approve all allows each of its ${requests.length} requests as its card shows it, bound to the digest this page read.` : ""}
+        {gates > 0 ? ` ${gates === 1 ? "1 gate waits" : `${gates} gates wait`} to be reviewed one by one, and Approve all leaves ${gates === 1 ? "it" : "them"} out.` : ""}{" "}
         <Link to={project ? inProject(project, lane) : lane}>Open lane</Link>
       </p>
       {skipped.length > 0 ? (
