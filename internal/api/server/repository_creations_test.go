@@ -210,3 +210,16 @@ func TestACreationRefusedForAnExistingRepositoryCarriesItsRemedy(t *testing.T) {
 		t.Errorf("the need reads %+v, want it refused with the remedy %q", need, remedy)
 	}
 }
+
+// TestGoldenRepositoryCreationNeed writes what Needs you reads of a creation that stopped at its push, from a real
+// ledger: the item with its steps, the commands that remain, and the actions.
+func TestGoldenRepositoryCreationNeed(t *testing.T) {
+	t.Parallel()
+	p := approvedCreation(t)
+	view := readView[api.NeedsYou](t, p.Daemon, api.ViewNeedsYou, "")
+	view.Items = creationItems(t, p.Daemon)
+	if len(view.Items) != 1 {
+		t.Fatalf("Needs you holds %d creations", len(view.Items))
+	}
+	holdsGolden(t, "repository-creation-needs-you", steadyTimes(steady(pretty(t, view))))
+}

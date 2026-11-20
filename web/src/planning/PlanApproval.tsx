@@ -14,6 +14,7 @@ import { DecisionCard } from "../ui/DecisionCard";
 import { Banner, Digest, EmptyState, Panel, Refusal, SkeletonRows, StateBadge, TargetChip } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
+import { createsLine } from "./creation";
 import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions, registrationTitle, RegistrationRows } from "./PlanParts";
 import { versionLinks } from "./planChanges";
 import { RevisionSince } from "./RevisionSince";
@@ -85,7 +86,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
   }
   // The ledger holds no record of a branch's version until it is approved, so its request carries its drafts.
   const detail = detailOf(approval);
-  return { address: id, versions: [], approval, detail, records: [], drafts: detail.drafts ?? [], version: approval.plan_version ?? 1 };
+  return { address: id, versions: [], approval, detail, records: [], drafts: detail.drafts ?? [], version: approval.plan_version ?? 1, registration: approval.registration };
 }
 
 function DeclineDialog({ subject, onClose, onDone, after }: { subject: Subject; onClose: () => void; onDone: () => void; after: () => Promise<void> }) {
@@ -166,6 +167,7 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
   // The drafts the page lists are the ones approving decides, so the sentence counts them and nothing else.
   const decisions = subject.drafts.length;
   const contracts = subject.detail.counts?.contract ?? 0;
+  const creates = subject.registration?.preview ? createsLine(subject.registration.repositories) : "";
   const open = state === "pending";
   const resolution = open ? undefined : (
     <div className="resolution" role="status" aria-label="Resolution">
@@ -219,8 +221,8 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
         <div className="small stack-8">
           <p>
             Approving decides {decisions} draft {decisions === 1 ? "decision" : "decisions"} as yours
-            {contracts ? ` and passes contract review for the work of ${contracts} ${contracts === 1 ? "contract" : "contracts"}` : ""}. Contract review still runs and sends any new question up the
-            ladder.
+            {contracts ? ` and passes contract review for the work of ${contracts} ${contracts === 1 ? "contract" : "contracts"}` : ""}
+            {creates ? `, and ${creates}` : ""}. Contract review still runs and sends any new question up the ladder.
           </p>
           {subject.forecast ? (
             <p>
@@ -315,7 +317,7 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           </Panel>
           {subject.registration ? (
             <Panel title={registrationTitle(subject.registration)}>
-              <RegistrationRows registration={subject.registration} />
+              <RegistrationRows registration={subject.registration} approval={approval.id} />
             </Panel>
           ) : null}
           <Versions subject={subject} />

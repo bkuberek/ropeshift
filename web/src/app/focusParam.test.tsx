@@ -38,6 +38,14 @@ describe("an address that names a control to focus", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("looks only in the view, never at the skip link or a control of the shell", async () => {
+    serveViews();
+    openPage("/workers?focus=Skip to content");
+    await screen.findByRole("heading", { level: 1, name: "Workers and resources" });
+    await waitFor(() => expect(window.location.search).toBe(""), { timeout: 8000 });
+    expect(document.activeElement).not.toBe(screen.getByRole("link", { name: "Skip to content" }));
+  }, 12_000);
+
   it("gives up on a name no control has, and still takes it off the address", async () => {
     serveViews();
     openPage("/workers?focus=No such control");

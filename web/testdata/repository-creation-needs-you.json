@@ -1,0 +1,53 @@
+{
+  "as_of": 1794000000000,
+  "revision": 26,
+  "items": [
+    {
+      "kind": "repository_creation",
+      "id": "generated-1/ghost",
+      "since": 1794000000000,
+      "repository_creation": {
+        "approval": "generated-1",
+        "plan": "generated-2",
+        "plan_version": 1,
+        "name": "ghost",
+        "manifest_path": "../ghost",
+        "path": "/work/ghost",
+        "state": "failed",
+        "reason": "the push step failed: remote: Permission denied",
+        "creation": {
+          "forge": "github",
+          "owner": "acme",
+          "forge_name": "ghost",
+          "visibility": "private",
+          "default_branch": "main",
+          "url": "git@github.com:acme/ghost.git",
+          "login": "octo",
+          "commit": "5d6e7f8",
+          "steps": [
+            {
+              "step": "create",
+              "outcome": "done"
+            },
+            {
+              "step": "origin",
+              "outcome": "done"
+            },
+            {
+              "step": "push",
+              "outcome": "failed",
+              "detail": "remote: Permission denied"
+            }
+          ],
+          "remaining": [
+            "git -C /work/ghost push --set-upstream origin main"
+          ]
+        },
+        "actions": [
+          "repository_retry",
+          "repository_skip"
+        ]
+      }
+    }
+  ]
+}

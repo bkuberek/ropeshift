@@ -11,7 +11,8 @@ import { Button } from "../ui/controls";
 import { Banner, Refusal, SkeletonRows } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
-import { Dialog, useToast } from "../ui/overlays";
+import { Dialog } from "../ui/overlays";
+import { useCopy } from "../ui/useCopy";
 import { RemoteSection, RepositoriesWritten, RepositoryRows, useGitHubAccount } from "./NewProjectRemote";
 import { useChange } from "./parts";
 import type { Draft, Problem, Question, RemoteMode, Row } from "./projectRemoteRequest";
@@ -112,16 +113,6 @@ const optionLabel = (choice: Choice) =>
       ]
         .filter(Boolean)
         .join(" · ");
-
-// copy puts text on the clipboard, and says when the browser did not let the page.
-function useCopy() {
-  const toast = useToast();
-  return (text: string, what: string) =>
-    void navigator.clipboard?.writeText(text).then(
-      () => toast("success", `Copied ${what}.`),
-      () => toast("warning", "The browser did not let this page copy. Select the text and copy it."),
-    );
-}
 
 type Phase = { kind: "form" } | { kind: "sent"; view: TemplateWriteView };
 

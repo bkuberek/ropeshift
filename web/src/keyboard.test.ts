@@ -846,6 +846,26 @@ const paths: Record<string, KeyPath> = {
     sent: post(/\/work-orders\/wo-ci\/ci-rerun$/),
     run: decide("Add the retry budget (ci_not_finished)", "Rerun"),
   },
+  "POST /v1/projects/{project}/approvals/{id}/repositories/{name}/retry": {
+    sent: post(/\/approvals\/generated-1\/repositories\/ghost\/retry$/, {}),
+    run: async (k, page) => {
+      await k.palette("Retry creating ghost", "retry creating");
+      const retry = page.getByRole("button", { name: "Retry", exact: true });
+      await k.landed(retry);
+      await k.press("Enter");
+    },
+  },
+  "POST /v1/projects/{project}/approvals/{id}/repositories/{name}/skip": {
+    sent: post(/\/approvals\/generated-1\/repositories\/ghost\/skip$/, { reason: "built by hand" }),
+    run: async (k, page) => {
+      await k.palette("Skip creating ghost", "skip creating");
+      await k.landed(page.getByRole("button", { name: "Skip", exact: true }));
+      await k.press("Enter");
+      await page.getByRole("dialog", { name: "Leave ghost uncreated?" }).waitFor();
+      await k.typeInto(inDialog(page).getByLabel(/^Reason/), "built by hand");
+      await k.activate(inDialog(page).getByRole("button", { name: "Skip repository" }));
+    },
+  },
   "POST /v1/projects/{project}/work-orders/{id}/spend/raise": {
     sent: post(/\/work-orders\/wo-stop\/spend\/raise$/, { by_percent: 50 }),
     run: decide("Add the retry budget (spend stop)", "Raise by 50 percent"),
@@ -910,6 +930,36 @@ afterAll(async () => {
   await browser?.close();
   await server?.close();
 }, 60_000);
+
+suite("the repository creation card", () => {
+  it(
+    "is reached with J and K, and A and Tab reach Skip and Retry in order",
+    async () => {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light", reducedMotion: "reduce" });
+      await context.route(/\/v1\//, serveChanges([]));
+      const page = await context.newPage();
+      await page.goto(`${base}/needs-you?kind=cards`);
+      await ready(page);
+      const keys = new Keys(page);
+      const card = page.getByRole("article", { name: "ghost was not created" });
+      // J and K move through the list, and select as they go: the item's card shows once the keyboard is on its row.
+      const row = page.getByRole("link", { name: /^ghost was not created/ });
+      await keys.activate(row);
+      await card.waitFor();
+      await keys.press("j", "k");
+      await card.waitFor();
+      // A moves to the card's primary button, Retry, and Shift+Tab goes back to Skip, the safe choice before it.
+      await keys.press("a");
+      await keys.landed(card.getByRole("button", { name: "Retry", exact: true }));
+      await keys.press("Shift+Tab");
+      await keys.landed(card.getByRole("button", { name: "Skip", exact: true }));
+      await keys.press("Tab");
+      await keys.landed(card.getByRole("button", { name: "Retry", exact: true }));
+      await context.close();
+    },
+    60_000,
+  );
+});
 
 suite("each keyboard path, from the default view,", () => {
   it.each(Object.entries(paths))(

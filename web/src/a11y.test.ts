@@ -1502,6 +1502,15 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByRole("dialog", { name: "Decline version 6" }).waitFor();
         found.push(...(await audit(page)).map((violation) => `decline dialog ${violation}`));
         await page.keyboard.press("Escape");
+        await page.goto(`${base}/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fghost`);
+        await ready(page);
+        await page.getByRole("button", { name: "Skip", exact: true }).click();
+        await page.getByRole("dialog", { name: "Leave ghost uncreated?" }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `skip repository dialog ${violation}`));
+        await page.getByRole("button", { name: "Skip repository" }).click();
+        await page.getByText("Say why you skip it.").waitFor();
+        found.push(...(await audit(page)).map((violation) => `skip repository dialog with its error ${violation}`));
+        await page.keyboard.press("Escape");
         if (size === "phone") {
           await page.getByRole("button", { name: "Views" }).click();
           await page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Roadmap" }).waitFor();

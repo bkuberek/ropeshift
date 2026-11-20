@@ -33,9 +33,6 @@ var opExempt = map[string]string{
 var opGaps = map[string]string{
 	// Raising the project's daily or weekly limit is not on a page yet; SP4 builds it (ADR-0037).
 	authority.OpSpendRaiseProject: "SP4",
-	// Retrying and skipping a repository creation are not on a page yet; CR7 builds them.
-	authority.OpPlanRepositoryRetry: "CR7",
-	authority.OpPlanRepositorySkip:  "CR7",
 }
 
 var (

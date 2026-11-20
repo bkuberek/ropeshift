@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 
 import { readRecorded, readView } from "../api/client";
-import type { Adoption, ApprovalDecided, Consolidation, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, ReplacedDraft, WorkOrder } from "../api/types";
+import type { Adoption, ApprovalDecided, Consolidation, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, ReplacedDraft, RepositoryOutcome, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
-import type { StateLook } from "../floor/states";
 import { Badge, Banner, Refusal, StateBadge } from "../ui/display";
 import { Icon } from "../ui/Icon";
+import { CommandLine, creationLine, plainLine, PublicWarning, StepList, stateOf, registrationStates } from "./creation";
 import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "./consolidation";
 import { kindWord } from "./documentTree";
 import { changeLines, refKind, refName } from "./planChanges";
@@ -414,16 +414,6 @@ function ConsolidationGroups({ consolidation }: { consolidation: Consolidation }
   );
 }
 
-// registrationStates are what became of a repository a manifest lists, and in a preview what would.
-const registrationStates: Record<string, StateLook> = {
-  registered: { label: "Registered", tone: "success", glyph: "check" },
-  would: { label: "Would register", tone: "active", glyph: "half" },
-  known: { label: "Already registered", tone: "neutral", glyph: "dot" },
-  refused: { label: "Refused", tone: "danger", glyph: "cross" },
-  not_attempted: { label: "Not attempted", tone: "neutral", glyph: "dot" },
-  planned: { label: "Planned", tone: "neutral", glyph: "ring" },
-};
-
 // registrationOf is what an approval's answer says of the repositories its manifest listed, or nothing when it
 // lists none.
 export function registrationOf(decided: ApprovalDecided | undefined): ManifestRegistration | undefined {
@@ -438,43 +428,102 @@ export function registrationTitle(registration: ManifestRegistration): string {
   return registration.preview ? "Repositories approving registers" : "Repositories this approval registered";
 }
 
+// Where a refusal's remedy is a sentence the API wrote, and not a command to run: a forge repository that exists, and a
+// path another creation holds.
+const sentenceRemedies = new Set(["remote_exists", "path_busy"]);
+
+// CreationRow is what an entry to create adds to its row: where it is made, a public one's warning, the steps it took, and
+// the workspace Makefile entry once it is created.
+function CreationRow({ one, preview }: { one: RepositoryOutcome; preview: boolean }) {
+  const creation = one.creation;
+  if (!creation) {
+    return null;
+  }
+  const made = one.outcome === "created" && !preview;
+  return (
+    <>
+      <span className="small row-tight">
+        <span>{creationLine(creation)}</span>
+        <PublicWarning creation={creation} />
+      </span>
+      {made || one.outcome === "create_failed" ? <StepList creation={creation} label={`Steps of ${plainLine(one.name)}`} /> : null}
+      {made && creation.makefile ? (
+        <span className="small stack-8">
+          <span>Add to REPOSITORIES in the workspace Makefile:</span>
+          <CommandLine command={creation.makefile} />
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+// Refused says why an entry is refused and how to fix it. Before approval a refusal blocks nothing, and says so; a busy
+// path says to read the preview again, which is no failure.
+function Refused({ one, preview }: { one: RepositoryOutcome; preview: boolean }) {
+  const remedy = one.creation?.remedy;
+  const sentence = sentenceRemedies.has(one.refusal_code ?? "");
+  return (
+    <>
+      {one.reason ? <span className="small">{plainLine(one.reason)}</span> : null}
+      {remedy ? sentence ? <span className="small">{plainLine(remedy)}</span> : <CommandLine command={remedy} /> : null}
+      {preview && one.refusal_code !== "path_busy" ? <span className="small muted">Fix this and reload before you approve, or approve and retry it from Needs you.</span> : null}
+    </>
+  );
+}
+
 // RegistrationRows lists each repository the version's manifest lists: whether approving registers it, or did,
 // its name, its path as the manifest writes it, where that path leads on the daemon's worker's machine, its
-// remote, and why it is refused, was not reached, or is planned, so a member reads what approving consents to. A
-// planned entry's path leads nowhere yet, so its row names only the path. The plan page and the plan approval's
-// card in Needs you show the same rows.
-export function RegistrationRows({ registration }: { registration: ManifestRegistration }) {
+// remote, and why it is refused, was not reached, or is planned, so a member reads what approving consents to. An
+// entry approving creates adds where it makes the repository, and its steps once it has them. A planned entry's path
+// leads nowhere yet, so its row names only the path. The plan page and the plan approval's card in Needs you show the
+// same rows. A creation that stopped links its item in Needs you, which the approval's ID names.
+export function RegistrationRows({ registration, approval }: { registration: ManifestRegistration; approval?: string }) {
+  const preview = Boolean(registration.preview);
   return (
     <>
       {registration.preview ? <p className="small muted">Read now from the clones on the daemon's worker's machine. Reading it registers nothing.</p> : null}
       {registration.repositories.length ? (
         <ul className="list-rows" aria-label="Repositories the manifest lists">
           {registration.repositories.map((one) => (
-            <li key={one.name ?? one.path} className="list-row stack-8" aria-label={one.name ?? one.path}>
+            <li key={one.name ?? one.path} className="list-row stack-8" aria-label={plainLine(one.name ?? one.path)}>
               <span className="row-tight">
-                <StateBadge table={registrationStates} state={registration.preview && one.outcome === "registered" ? "would" : one.outcome} />
-                <span className="mono">{one.name ?? "-"}</span>
+                <StateBadge table={registrationStates} state={stateOf(one, registration.preview)} />
+                <span className="mono">{plainLine(one.name) || "-"}</span>
               </span>
               <span className="small">
-                Path <code>{one.manifest_path ?? "-"}</code>
+                Path <code>{plainLine(one.manifest_path) || "-"}</code>
                 {one.path ? (
                   <>
                     {" "}
-                    leads to <code>{one.path}</code>
+                    leads to <code>{plainLine(one.path)}</code>
                   </>
                 ) : null}
                 {one.remote ? (
                   <>
-                    , remote <code>{one.remote}</code>
+                    , remote <code>{plainLine(one.remote)}</code>
                   </>
                 ) : null}
               </span>
-              {one.reason ? <span className="small muted">{one.reason}</span> : null}
+              <CreationRow one={one} preview={preview} />
+              {one.outcome === "planned" ? (
+                <span className="small muted">
+                  Created when a version that gives it work is approved. No work order of this version targets {plainLine(one.name)}.
+                </span>
+              ) : one.outcome === "refused" && one.creation ? (
+                <Refused one={one} preview={preview} />
+              ) : one.reason ? (
+                <span className="small muted">{plainLine(one.reason)}</span>
+              ) : null}
+              {one.outcome === "create_failed" && approval && one.name ? (
+                <span className="small">
+                  <Link to={addressOf("/needs-you", { item: `repository_creation:${approval}/${one.name}` })}>Retry or skip it in Needs you</Link>
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>
       ) : null}
-      {registration.problem ? <Refusal>{registration.problem}</Refusal> : null}
+      {registration.problem ? <Refusal>{plainLine(registration.problem)}</Refusal> : null}
     </>
   );
 }

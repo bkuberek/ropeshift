@@ -1,4 +1,5 @@
 import type { Approval, CIKind, NeedItem } from "../api/types";
+import { plainLine } from "../planning/creation";
 import type { IconName } from "../ui/Icon";
 import { ciKinds } from "./ciWords";
 import { isHeld, mergeContext, mergeHeading } from "./merge";
@@ -20,6 +21,7 @@ export const filters: { id: NeedFilter; label: string }[] = [
 export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
   switch (item.kind) {
     case "confirm":
+    case "repository_creation":
       return "cards";
     case "questions":
     case "plan_approval":
@@ -70,7 +72,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -109,6 +111,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return `ci-${item.ci.kind}`;
     case "spend":
       return "spend";
+    case "repository_creation":
+      return "repository-creation";
   }
 }
 
@@ -136,6 +140,9 @@ export function approvalHeading(approval: Approval): string {
   }
 }
 
+// creationKind is the overline of a repository a plan approval did not create.
+export const creationKind: { icon: IconName; name: string } = { icon: "repo", name: "Repository creation" };
+
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   switch (item.kind) {
@@ -161,6 +168,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return { icon: ciKinds[item.ci.kind].icon, name: ciKinds[item.ci.kind].name };
     case "spend":
       return spendKind;
+    case "repository_creation":
+      return creationKind;
   }
 }
 
@@ -221,6 +230,8 @@ export function headingOf(item: NeedItem): string {
       return item.ci.work_order.title || item.ci.work_order.id;
     case "spend":
       return item.spend.work_order.title || item.spend.work_order.id;
+    case "repository_creation":
+      return `${plainLine(item.repository_creation.name)} ${item.repository_creation.state === "running" ? "is being created" : "was not created"}`;
   }
 }
 
@@ -261,6 +272,8 @@ export function contextOf(item: NeedItem): string {
       return [item.ci.work_order.id, `pull request #${item.ci.number}`].join(" · ");
     case "spend":
       return [item.spend.work_order.id, `${money(item.spend.spend.charged.charged_usd)} of ${money(item.spend.spend.hard_limit)}`].join(" · ");
+    case "repository_creation":
+      return [`Plan ${plainLine(item.repository_creation.plan)}`, `version ${item.repository_creation.plan_version}`].join(" · ");
   }
 }
 

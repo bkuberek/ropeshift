@@ -1258,7 +1258,7 @@ describe("a plan approval", () => {
     expect((await approveButton()).disabled).toBe(true);
     const panel = await within(await card()).findByRole("region", { name: "Repositories approving registers" });
     const billing = within(panel).getByRole("listitem", { name: "billing" });
-    expect(billing.textContent).toContain("Would register");
+    expect(billing.textContent).toContain("Will register");
     expect(billing.textContent).toContain("../billing");
     expect(billing.textContent).toContain("/work/billing");
     expect(billing.textContent).toContain("git@example.invalid:acme/billing.git");
@@ -1268,6 +1268,21 @@ describe("a plan approval", () => {
     expect(sent[0]).toMatchObject({ method: "GET", path: `/v1/plans/${planId}?version=${need.plan_approval.version}` });
     await userEvent.click(await approveButton());
     await waitFor(() => expect(sent.some((call) => call.method === "POST" && call.path === `/v1/approvals/${need.id}/decide`)).toBe(true));
+  });
+
+  it("says what approving creates, with a public repository's warning, while it holds the approval until the preview is read", async () => {
+    const created = golden<PlanView>("plan-created").approval?.registration;
+    const { view, need, planId, plan } = withManifest(created);
+    const sent = serveApi((call) => (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`) ? { status: 200, body: plan } : { status: 200 }));
+    show(view, undefined, "plan_approval");
+    expect((await approveButton()).disabled).toBe(true);
+    const panel = await within(await card()).findByRole("region", { name: "Repositories approving registers" });
+    expect(within(panel).getByRole("listitem", { name: "web" }).textContent).toContain("Will create");
+    expect(within(panel).getByRole("listitem", { name: "docs" }).textContent).toContain("Public: anyone can read it");
+    expect((await card()).textContent).toContain("Approving it also creates 1 repository on GitHub, acme/web, private, and registers it.");
+    await waitFor(async () => expect((await approveButton()).disabled).toBe(false));
+    expect(sent.filter((call) => call.method === "POST")).toEqual([]);
+    expect(need.id).toBeTruthy();
   });
 
   it("does not approve when it cannot read what approving registers, and leads to the page that can", async () => {

@@ -183,13 +183,102 @@ function spendCards(): NeedItem[] {
   return written.items.map((item) => (item.kind === "spend" ? { ...item, spend: { ...item.spend, work_order: { ...item.spend.work_order, title: `${item.spend.work_order.title} (spend stop)` } } } : item));
 }
 
+// The repository a plan approval did not create, as a Go test wrote it from a real ledger, in each state a creation waits in: failed at
+// its push, refused with the command that fixes it, refused because a forge repository exists, interrupted, and run by another
+// request. Each is named for its state, so a palette that lists items by title finds it.
+function creationCards(): NeedItem[] {
+  const written = JSON.parse(goldens["repository-creation-needs-you"] ?? "{}") as { items: NeedItem[] };
+  const [failed] = written.items;
+  if (!failed || failed.kind !== "repository_creation") {
+    return [];
+  }
+  const state = (name: string, change: Partial<(typeof failed)["repository_creation"]>): NeedItem => ({
+    ...failed,
+    id: `${failed.repository_creation.approval}/${name}`,
+    repository_creation: { ...failed.repository_creation, name, ...change },
+  });
+  return [
+    failed,
+    state("signedout", {
+      state: "refused",
+      reason: "signedout is not registered: gh_signed_out",
+      remedy: "run `gh auth login --hostname github.com`",
+      creation: { forge: "github", owner: "acme", forge_name: "signedout", visibility: "public", default_branch: "main", remedy: "gh auth login --hostname github.com" },
+    }),
+    state("existing", {
+      state: "refused",
+      reason: "existing is not registered: remote_exists",
+      remedy: "clone acme/existing at /work/existing and write `remote` in place of `create` in the manifest entry for existing, or skip it",
+      creation: { forge: "github", owner: "acme", forge_name: "existing", visibility: "private", default_branch: "main" },
+    }),
+    state("halted", { state: "interrupted", reason: "the daemon stopped while it ran" }),
+    state("running", { state: "running", reason: "", remedy: "", actions: [] }),
+  ];
+}
+
+// plansOf is the plan pages the checks open for a version that creates repositories: what approving would create, a version whose
+// entry no work orders name, and what an approval created and where it stopped.
+function planOf(name: string): string | undefined {
+  const created = JSON.parse(goldens["plan-created"] ?? "null") as { approval?: { approval: { state: string }; registration?: { preview?: boolean; repositories: Record<string, unknown>[] } } } | null;
+  const planned = goldens["plan-planned"];
+  if (!created?.approval?.registration) {
+    return undefined;
+  }
+  const entry = (extra: Record<string, unknown>) => ({ path: "", manifest_path: "", ...extra });
+  const creation = (forge_name: string, visibility: string, more: Record<string, unknown> = {}) => ({ forge: "github", owner: "acme", forge_name, visibility, default_branch: "main", login: "octo", ...more });
+  if (name === "plan-created") {
+    created.approval.registration.repositories = [
+      entry({ name: "api", manifest_path: "repos/api", path: "/work/repos/api", outcome: "created", creation: creation("api", "private", { url: "git@github.com:acme/api.git" }) }),
+      entry({ name: "site", manifest_path: "repos/site", path: "/work/repos/site", outcome: "created", creation: creation("site", "public", { url: "git@github.com:acme/site.git" }) }),
+      entry({
+        name: "docs",
+        manifest_path: "repos/docs",
+        path: "/work/repos/docs",
+        outcome: "refused",
+        reason: "docs is not registered: gh_signed_out: Run `gh auth login --hostname github.com` on this machine",
+        refusal_code: "gh_signed_out",
+        creation: creation("docs", "public", { remedy: "gh auth login --hostname github.com" }),
+      }),
+      entry({
+        name: "legacy",
+        manifest_path: "repos/legacy",
+        path: "/work/repos/legacy",
+        outcome: "refused",
+        reason: "legacy is not registered: remote_exists",
+        refusal_code: "remote_exists",
+        creation: creation("legacy", "private", { remedy: "clone acme/legacy to repos/legacy, and write `remote` in place of `create` in the manifest's entry for legacy" }),
+      }),
+      entry({
+        name: "busy",
+        manifest_path: "repos/busy",
+        path: "/work/repos/busy",
+        outcome: "refused",
+        reason: "busy is not registered: path_busy",
+        refusal_code: "path_busy",
+        creation: creation("busy", "private", { remedy: "another creation at this path is running; preview again when it finishes" }),
+      }),
+    ];
+    return JSON.stringify(created);
+  }
+  if (name === "plan-planned") {
+    return planned;
+  }
+  if (name === "plan-made") {
+    const decided = JSON.parse(goldens["approval-decided-created"] ?? "{}") as { repositories?: Record<string, unknown>[] };
+    created.approval.approval.state = "approved";
+    created.approval.registration = { repositories: decided.repositories ?? [] };
+    return JSON.stringify(created);
+  }
+  return undefined;
+}
+
 // needsYouItems is what the checks' Needs you holds: the ledger's own items, the confirmation cards a delegate
 // prepared, two merge requests, a card of each kind the ledger's items do not reach, the CI that asks a person, and a
-// work order a spend limit parked.
+// work order a spend limit parked, and the repositories a plan approval did not create.
 export function needsYouItems(): NeedItem[] {
   const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: NeedItem[] };
   const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: NeedItem[] };
-  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards(), ...ciCards(), ...spendCards()] as NeedItem[];
+  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards(), ...ciCards(), ...spendCards(), ...creationCards()] as NeedItem[];
 }
 
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
@@ -386,6 +475,11 @@ export async function answer(route: Route): Promise<void> {
   }
   if (/^\/v1\/work-orders\/[^/]+\/spend$/.test(path) && goldens["work-order-spend"]) {
     return json(goldens["work-order-spend"]);
+  }
+  const creating = /^\/v1\/plans\/(plan-created|plan-planned|plan-made)$/.exec(path)?.[1];
+  const creatingPlan = creating ? planOf(creating) : undefined;
+  if (creatingPlan) {
+    return json(creatingPlan);
   }
   if (path.startsWith("/v1/plans/adopt-approval")) {
     return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);

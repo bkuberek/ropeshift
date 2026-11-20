@@ -38,6 +38,13 @@ export const views = [
   "/needs-you?item=ci%3Awo-ci%3Aci_base_unread",
   "/needs-you?item=ci%3Awo-ci%3Aci_action_required",
   "/needs-you?item=spend%3Awo-stop%3Aspend_limit",
+  // A repository a plan approval did not create, in each state a creation waits in: failed at its push, refused with a command to
+  // run, refused because a forge repository exists, interrupted, and run by another request.
+  "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fghost",
+  "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fsignedout",
+  "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fexisting",
+  "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fhalted",
+  "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Frunning",
   "/projects/default",
   "/projects/quiet",
   "/projects/fresh",
@@ -56,6 +63,11 @@ export const views = [
   "/projects/default/plan?id=generated-1&version=6",
   "/projects/default/plan?id=generated-1&version=5",
   "/projects/default/plan?id=adopt-approval&version=1",
+  // A version that creates repositories: what approving would create, private and public, a refusal with its remedy, a forge
+  // repository that exists, and a busy path; an entry no work order names; and what an approval created and where it stopped.
+  "/projects/default/plan?id=plan-created&version=1",
+  "/projects/default/plan?id=plan-planned&version=1",
+  "/projects/default/plan?id=plan-made&version=1",
   "/projects/default/planning",
   "/projects/default/planning?lane=lane-wo-running",
   "/projects/default/documents?kind=requirements",
@@ -184,6 +196,7 @@ export const dialogStates: DialogState[] = [
   { file: "planning/StartReview.tsx", title: /^Start contract review$/ },
   { file: "planning/StartSession.tsx", title: /^Start planning session$/ },
   { file: "planning/PlanApproval.tsx", title: /^Decline version / },
+  { file: "needs/RepositoryCreationCard.tsx", title: /^Leave .* uncreated\?$/ },
   { file: "reviews/Queue.tsx", title: /^Send .* back for rework$/ },
   { file: "reviews/Queue.tsx", title: /^Merge request for / },
   { file: "admin/Agents.tsx", title: /^Add agent$/ },

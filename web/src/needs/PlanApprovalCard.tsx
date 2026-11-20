@@ -5,6 +5,7 @@ import { decideApproval, inProjectOf, readPlan } from "../api/client";
 import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
 import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "../planning/consolidation";
+import { createsLine } from "../planning/creation";
 import { registrationOf, registrationTitle, RegistrationRows, ReplacedDrafts } from "../planning/PlanParts";
 import { RevisionSince } from "../planning/RevisionSince";
 import { words } from "../parts/parts";
@@ -266,10 +267,10 @@ function usePreview(plan: string, version: number, digest: string, lists: boolea
 // each entry, its path, its remote, and what approving does with it.
 // RegisteredRepositories is what an approval registered of the repositories its manifest lists, as the answer to
 // the decision said it.
-export function RegisteredRepositories({ registration }: { registration: ManifestRegistration }) {
+export function RegisteredRepositories({ registration, approval }: { registration: ManifestRegistration; approval?: string }) {
   return (
     <Part title={registrationTitle(registration)}>
-      <RegistrationRows registration={registration} />
+      <RegistrationRows registration={registration} approval={approval} />
     </Part>
   );
 }
@@ -304,6 +305,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
       }
     });
   const holds = holdings(need.counts);
+  const creates = registered || preview.state !== "read" ? "" : createsLine(preview.registration?.repositories);
   return (
     <DecisionCard
       kind={{ icon: "plan", name: "Plan approval" }}
@@ -330,6 +332,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
       <p>
         Approving it decides each draft decision as yours, and passes the contract review of the work it covers, which then needs no
         review of its own.
+        {creates ? ` Approving it also ${creates}.` : ""}
       </p>
       <Facts>
         <Fact name="Requested by" mono>
@@ -354,12 +357,12 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
         {approval.plan_id ? <Link to={addressOf("/plans", { plan: approval.plan_id })}>Read the plan</Link> : null}
       </p>
       {need.adoption ? <AdoptionGroups adoption={need.adoption} /> : null}
-      {registered ? <RegisteredRepositories registration={registered} /> : null}
+      {registered ? <RegisteredRepositories registration={registered} approval={approval.id} /> : null}
       {!registered && preview.state === "reading" ? <p className="muted">Reading what approving registers of the repositories its manifest lists.</p> : null}
       {!registered && preview.state === "failed" ? (
         <Refusal>{`What approving registers could not be read (${preview.failure}). Open the full plan approval to read it.`}</Refusal>
       ) : null}
-      {!registered && preview.state === "read" && preview.registration ? <RegisteredRepositories registration={preview.registration} /> : null}
+      {!registered && preview.state === "read" && preview.registration ? <RegisteredRepositories registration={preview.registration} approval={approval.id} /> : null}
       <Changes difference={need.difference} />
       {need.revision?.revision ? (
         <Part title={`Decisions since version ${need.revision.revision.approved_version}`}>
