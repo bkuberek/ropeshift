@@ -1,13 +1,14 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { Ref } from "react";
 
-import type { ManifestRegistration, NeedItem, NeedsYou as View } from "../api/types";
+import type { ManifestRegistration, NeedItem, NeedsYou as View, WorkOrder } from "../api/types";
 import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
 import { useTalk } from "../talk/state";
 import { useClock, ViewTime } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
+import { StartWork } from "../floor/StartWork";
 import { Select } from "../ui/forms";
 import { useNarrow } from "../ui/narrow";
 import { ApprovalDecision } from "./ApprovalDecision";
@@ -47,7 +48,7 @@ function useAssistantCard(item: NeedItem | undefined) {
 
 type Registered = { registration?: ManifestRegistration; onRegistered: (registration: ManifestRegistration) => void };
 
-type Settled = { onAnswered: (answered: Answered) => void; onDecided: (decided: Decided) => void; onResolved: (words: string) => void };
+type Settled = { onAnswered: (answered: Answered) => void; onDecided: (decided: Decided) => void; onResolved: (words: string) => void; onRetried: (order: WorkOrder) => void };
 
 function Card({ item, after, frame, registered, settled }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered; settled: Settled }) {
   const assistant = useAssistantCard(item);
@@ -59,7 +60,7 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
     case "effect":
       return <EffectCard effect={item.effect} after={after} frame={frame} />;
     case "work":
-      return <WorkCard id={item.id} work={item.work} after={after} frame={frame} />;
+      return <WorkCard id={item.id} work={item.work} after={after} frame={frame} onRetried={settled.onRetried} />;
     case "plan_approval":
       return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} onDecided={settled.onDecided} />;
     case "plan_revision":
@@ -123,6 +124,27 @@ function ResolvedNote({ heading, answered, decided, resolved, noteRef }: { headi
   );
 }
 
+// StartRetried offers Start for work a retry returned to ready. The work is ready, which is when the state machine lets
+// it be claimed, and the server refuses the claim if it is not. The dialog works in the project the page shows, so work
+// of another project leads to its page instead.
+function StartRetried({ order, project, after }: { order: WorkOrder; project?: string; after: () => Promise<void> }) {
+  const current = useContext(CurrentProject);
+  if (project && project !== current) {
+    return (
+      <ItemProject.Provider value={project}>
+        <p className="small">
+          <Link to={addressOf("/work-order", { id: order.id })}>Open work order {order.id}</Link>
+        </p>
+      </ItemProject.Provider>
+    );
+  }
+  return (
+    <p>
+      <StartWork order={order} allowed={{ actions: ["claim"] }} after={after} />
+    </p>
+  );
+}
+
 type Props = { view: View; readAt: number; after: () => Promise<void>; active?: boolean };
 
 // NeedsYou lists what waits on a member in every active project, the longest wait first (FR-UI-2,
@@ -154,6 +176,8 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   // resolved holds, in words, how the person settled an item that has no answer or decision of its own, such as a repository they
   // retried or skipped.
   const [resolved, setResolved] = useState<Record<string, string>>({});
+  // retried holds the work a member returned to ready from its card, by item, which has no lane until someone starts one.
+  const [retried, setRetried] = useState<Record<string, WorkOrder>>({});
 
   // gone holds the selected item after the server stopped listing it, at the place it stood.
   const [gone, setGone] = useState<{ item: NeedItem; at: number } | null>(null);
@@ -369,6 +393,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
             <div className="decision is-resolved">
               <div className="decision-body">
                 <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} decided={decided[keyOf(selected)]} resolved={resolved[keyOf(selected)]} noteRef={resolvedNote} />
+                {retried[keyOf(selected)] ? <StartRetried order={retried[keyOf(selected)] as WorkOrder} project={selected.project?.name} after={after} /> : null}
                 {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} approval={selected.id} /> : null}
               </div>
             </div>
@@ -389,6 +414,10 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                     onAnswered: (done) => setAnswered((was) => ({ ...was, [keyOf(item)]: done })),
                     onDecided: (done) => setDecided((was) => ({ ...was, [keyOf(item)]: done })),
                     onResolved: (words) => setResolved((was) => ({ ...was, [keyOf(item)]: words })),
+                    onRetried: (order) => {
+                      setResolved((was) => ({ ...was, [keyOf(item)]: "you retried it, and the work is ready, but no lane has started. Start it to choose the worker that runs it" }));
+                      setRetried((was) => ({ ...was, [keyOf(item)]: order }));
+                    },
                   }}
                 />
               </ItemProject.Provider>

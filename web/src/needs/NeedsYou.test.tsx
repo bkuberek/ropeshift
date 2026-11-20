@@ -837,6 +837,29 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-failed/retry", body: { reason: "The network came back." } });
   });
 
+  // A retry returns the work to ready and starts no lane, so the page says so and puts Start where the card stood.
+  it("says what comes after a retry: the work is ready, no lane has started, and Start is one press away", async () => {
+    const view = goldenNeedsYou();
+    const failed = (row: NeedItem) => row.kind === "work" && row.id === "wo-failed";
+    const without = (
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.filter((row) => !failed(row)) }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>
+    );
+    let rerender: ReturnType<typeof show>["rerender"] = () => {};
+    ({ rerender } = show(view, async () => rerender(without), failed));
+    const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { work_order: "wo-failed", state: "ready" } } : undefined));
+    await userEvent.click(await screen.findByRole("button", { name: "Retry with an extra attempt" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Why (required)" }), "The network came back.");
+    await userEvent.click(screen.getByRole("button", { name: "Retry with an extra attempt" }));
+    await waitFor(() => expect(sent.some((call) => call.path === "/v1/work-orders/wo-failed/retry")).toBe(true));
+    const note = await screen.findByText(/no longer waits/);
+    expect(note.textContent).toContain("you retried it");
+    expect(note.textContent).toContain("no lane has started");
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    expect((await screen.findByRole("dialog")).textContent).toContain("Start Try the impossible");
+  });
+
   it("names a plain retry when the failed work has an attempt left", async () => {
     const view = goldenNeedsYou();
     for (const item of view.items) {
