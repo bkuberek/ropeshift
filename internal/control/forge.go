@@ -477,10 +477,16 @@ func desiredForge(tx ports.ReadTx, worker string, state *ledger.DesiredState) er
 		if !merges {
 			continue
 		}
-		state.Forge = append(state.Forge, ledger.DesiredForge{
+		desired := ledger.DesiredForge{
 			ID: r.ID, Kind: r.Kind, WorkOrder: r.WorkOrder, Repository: r.Repository, Binding: r.Binding, Branch: r.Branch, Base: r.Base,
 			Commit: r.Commit, Number: r.Number, Title: r.Title, Body: r.Body, Method: r.Method, Attempt: r.Attempt,
-		})
+		}
+		if r.Kind == ledger.ForgePublish {
+			if err := publishedLane(tx, &desired); err != nil {
+				return err
+			}
+		}
+		state.Forge = append(state.Forge, desired)
 	}
 	records, err := tx.Repositories().Repositories()
 	if err != nil {
@@ -494,6 +500,31 @@ func desiredForge(tx ports.ReadTx, worker string, state *ledger.DesiredState) er
 		}
 	}
 	return watched(tx, worker, bindings, state)
+}
+
+// publishedLane names, on a publish, the lane whose branch it pushes, where that branch began, and what the
+// orchestrator decided of paths in the repository, for the worker to read the branch's commits against before it
+// pushes (FR-LANE-20). The lane is the one whose branch artifact the publish names, and its base the one its last
+// claim recorded. A branch no artifact names names no lane, and the worker reads nothing.
+func publishedLane(tx ports.ReadTx, desired *ledger.DesiredForge) error {
+	artifacts, err := tx.Evidence().Artifacts(desired.WorkOrder)
+	if err != nil {
+		return err
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind == ledger.ArtifactBranch && artifact.URI == desired.Branch && artifact.Digest == desired.Commit {
+			desired.Lane = artifact.Lane
+		}
+	}
+	if desired.Lane != "" {
+		claim, err := tx.Claims().OfLane(desired.Lane)
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		desired.BaseCommit = claim.BaseCommit
+	}
+	desired.Files, err = desiredFiles(tx, desired.Repository)
+	return err
 }
 
 // mergeStillWanted says a forge request is still the worker's to run: every request but a merge is, and a

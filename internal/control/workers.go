@@ -778,6 +778,9 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder, warn func(string), 
 		return lease, err
 	}
 	lease.Kind = string(row.Kind)
+	if lease.Files, err = desiredFiles(tx, row.RepositoryID); err != nil {
+		return lease, err
+	}
 	// An adopt lane reads what the project already holds before it plans, so the worker takes the inventory.
 	lease.Adopt, lease.Inventory = row.Adopt, row.Adopt
 	if row.Restructure != nil {

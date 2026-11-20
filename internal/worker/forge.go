@@ -583,6 +583,9 @@ func (w *Worker) performForge(ctx context.Context, request ledger.DesiredForge) 
 	repo := ports.ForgeRepo{Dir: dir, Binding: binding}
 	switch request.Kind {
 	case ledger.ForgePublish:
+		if reason := w.refusedPublish(ctx, request); reason != "" {
+			return ledger.ForgeReport{}, errors.New(reason)
+		}
 		pr, err := w.publish(ctx, request, repo)
 		return ledger.ForgeReport{PullRequest: &pr}, err
 	case ledger.ForgeComment:

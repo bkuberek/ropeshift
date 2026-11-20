@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -116,9 +118,18 @@ func (r *laneRun) leaveUnread(ctx context.Context) {
 	}
 }
 
-// laneFiles reads what the journal holds of a lane's own files, from the digest of each of its generations. A
-// generation with no digest started no session, and one the journal cannot read leaves the writes unknown.
-func (w *Worker) laneFiles(ctx context.Context, record lanes.Record) lanes.LaneFiles {
+// laneFiles reads what the journal holds of a lane's own files, from the digest of each of its generations, and the
+// paths the orchestrator decided its repository keeps. A generation with no digest started no session, and one the
+// journal cannot read leaves the writes unknown.
+func (w *Worker) laneFiles(ctx context.Context, record lanes.Record, decided *ledger.DesiredFiles) lanes.LaneFiles {
+	files := w.digestFiles(ctx, record)
+	if decided != nil {
+		files.Kept = decided.Keep
+	}
+	return files
+}
+
+func (w *Worker) digestFiles(ctx context.Context, record lanes.Record) lanes.LaneFiles {
 	var records []lanes.DigestRecord
 	for generation := int64(firstGeneration); generation <= record.Generation; generation++ {
 		kept, err := w.journal.Digest(ctx, record.ID, generation)
@@ -160,4 +171,97 @@ func owned(found lanes.WorktreeFindings, own, left []string) lanes.WorktreeFindi
 	}
 	found.DirtyPaths = own
 	return found
+}
+
+// leaseFiles is what the orchestrator decided of paths in a lane's repository, as the lease its claim holds says, and
+// nil once no lease names the claim.
+func (w *Worker) leaseFiles(ctx context.Context, record lanes.Record) *ledger.DesiredFiles {
+	state, err := w.desired(ctx)
+	if err != nil || leaseless(record.Owner) {
+		return nil
+	}
+	for _, lease := range state.Leases {
+		if lease.ClaimID == record.ClaimID {
+			return lease.Files
+		}
+	}
+	return nil
+}
+
+// foreignCommits lists what the lane's commits beyond base hold that is neither its own nor a path its repository
+// keeps (FR-LANE-20). The worker reads them before every push it makes or lets a lane ask for. With no base, a store
+// that lists no commits, or a worktree it cannot read, it cannot tell, and a guard that refused a push before still
+// stands.
+func (w *Worker) foreignCommits(ctx context.Context, record lanes.Record, base string, files lanes.LaneFiles) []string {
+	trees, listed := w.config.Lanes.Provisioner.Worktrees.(ports.FileCommits)
+	if !listed || base == "" || record.Worktree == "" {
+		return record.Guard.Refused
+	}
+	commits, err := trees.Commits(ctx, record.Worktree, base)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: reading its commits before a push: %w", record.ID, err))
+		return record.Guard.Refused
+	}
+	var paths []string
+	for _, commit := range commits {
+		paths = append(paths, commit.Files...)
+	}
+	_, foreign := files.Split(paths)
+	if len(foreign) > maxLeftOut {
+		foreign = foreign[:maxLeftOut]
+	}
+	return foreign
+}
+
+// refusedPush is the reason the worker refuses a push of a lane's branch, and empty when its commits hold only what
+// is the lane's own.
+func (w *Worker) refusedPush(ctx context.Context, record lanes.Record) string {
+	base := w.baseOf(ctx, record)
+	foreign := w.foreignCommits(ctx, record, base, w.laneFiles(ctx, record, w.leaseFiles(ctx, record)))
+	if len(foreign) == 0 {
+		return ""
+	}
+	return lanes.ForeignCommits(base, foreign)
+}
+
+// ignoreDecided adds each path the orchestrator decided to ignore in this lane's repository to its .gitignore,
+// before the lane's first session starts, in a commit of that file alone (FR-LANE-20). A line the file holds
+// already is not added again, so a start a crash repeats commits nothing twice. A lane that writes no branch of its
+// own, and a later generation, whose worktree holds the session's work, add nothing.
+func (r *laneRun) ignoreDecided(ctx context.Context, worktree string) {
+	decided := r.lease.Files
+	if decided == nil || len(decided.Ignore) == 0 || r.reviewing() || r.orchestrating() || r.assisting() ||
+		r.currentGeneration() != firstGeneration || r.resumeFrom != "" {
+		return
+	}
+	trees, offered := r.rt.Provisioner.Worktrees.(ports.FileCommits)
+	if !offered {
+		return
+	}
+	lines := make([]string, 0, len(decided.Ignore))
+	for _, path := range decided.Ignore {
+		lines = append(lines, lanes.IgnoreLine(path))
+	}
+	file := ports.TreeFile{Path: planning.GitignorePath, Lines: lines}
+	if _, err := trees.CommitFiles(ctx, worktree, []ports.TreeFile{file}, lanes.IgnoreCommitSubject); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: ignoring the paths the orchestrator decided: %w", r.lease.Lane, err))
+	}
+}
+
+// refusedPublish is the reason the worker refuses to push a branch for its pull request, read from the lane that
+// made it, and empty when the branch is not that lane's or holds only its own files. A lane this worker's journal
+// does not hold is not read.
+func (w *Worker) refusedPublish(ctx context.Context, request ledger.DesiredForge) string {
+	if request.Lane == "" {
+		return ""
+	}
+	record, err := w.journal.Lane(ctx, request.Lane)
+	if err != nil || record.Branch != request.Branch {
+		return ""
+	}
+	foreign := w.foreignCommits(ctx, record, request.BaseCommit, w.laneFiles(ctx, record, request.Files))
+	if len(foreign) == 0 {
+		return ""
+	}
+	return lanes.ForeignCommits(request.BaseCommit, foreign)
 }

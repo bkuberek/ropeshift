@@ -56,6 +56,14 @@ func (w *Worker) takeApproval(ctx context.Context, lane lanes.Record, request la
 	if err != nil {
 		return refused(lanes.CodeInvalid, err.Error())
 	}
+	// A push of commits that hold another's files is answered before it asks anyone, while the lane can still fix
+	// its commits (FR-LANE-20).
+	if call.Tool == lanes.ToolBash && lanes.Pushes(call.Command) {
+		if reason := w.refusedPush(ctx, lane); reason != "" {
+			run.callRefused(ctx, lane, call.Digest)
+			return answer(lanes.ApprovalDeny, reason, "")
+		}
+	}
 	reply := run.lookAt(ctx, lane, call.Lands(insideWorktree(lane.Worktree, call.Path)), request)
 	if reply.Approval != nil && reply.Approval.Decision == lanes.ApprovalDeny {
 		run.callRefused(ctx, lane, call.Digest)

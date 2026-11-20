@@ -219,3 +219,25 @@ func TestALeftOutReportNamesAWhollyUntrackedFolderOnce(t *testing.T) {
 		}
 	}
 }
+
+// TestAPathTheProjectKeepsIsTheLanesOwn is a path the orchestrator decided is part of the project: a later lane
+// in the repository saves it and commits it as its own.
+func TestAPathTheProjectKeepsIsTheLanesOwn(t *testing.T) {
+	t.Parallel()
+	files := LaneFiles{Before: []string{".atl/registry.md", ".cache/index"}, Began: true, AllWritten: true, Kept: []string{".atl/"}}
+	own, left := files.Split([]string{".atl/registry.md", ".cache/index"})
+	if !slices.Equal(own, []string{".atl/registry.md"}) || !slices.Equal(left, []string{".cache/index"}) {
+		t.Errorf("own %q, left %q", own, left)
+	}
+}
+
+func TestAnIgnoreLineNamesThePathAndNothingElse(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]string{
+		".atl/": "/.atl/", "build/out.log": "/build/out.log", "a*b?[c]": `/a\*b\?\[c]`, "trailing ": `/trailing\ `, `back\slash`: `/back\\slash`,
+	} {
+		if got := IgnoreLine(path); got != want {
+			t.Errorf("%q ignores as %q, want %q", path, got, want)
+		}
+	}
+}
