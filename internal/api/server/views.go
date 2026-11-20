@@ -1298,8 +1298,10 @@ func (h *handler) readQuestions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 	if err != nil {
 		return nil, err
 	}
+	// A workspace may have added a category before a release made it built in, and it is one category.
 	categories := append(questions.BuiltIn(), added...)
 	slices.Sort(categories)
+	categories = slices.Compact(categories)
 	views, err := questionViews(tx, open)
 	if err != nil {
 		return nil, err

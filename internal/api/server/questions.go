@@ -359,7 +359,12 @@ func (h *handler) listCategories(w http.ResponseWriter, r *http.Request) {
 	list := api.CategoryList{Categories: questions.BuiltIn()}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		added, err := tx.Questions().Categories()
-		list.Categories = append(list.Categories, added...)
+		for _, name := range added {
+			// A workspace may have added a category before a release made it built in, and it is one category.
+			if !slices.Contains(list.Categories, name) {
+				list.Categories = append(list.Categories, name)
+			}
+		}
 		return err
 	})
 	if err != nil {

@@ -273,7 +273,9 @@ func (r *laneRun) handoffFacts(ctx context.Context, record lanes.Record, guard l
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: the handoff's survey: %w", record.ID, err))
 	}
-	facts.Branch, facts.Head, facts.DirtyPaths, facts.UnpushedCommits = found.Branch, found.Head, found.DirtyPaths, found.Ahead
+	// A folder git tracks nothing in reads as the folder, as a survey named it before it named each file.
+	facts.Branch, facts.Head, facts.UnpushedCommits = found.Branch, found.Head, found.Ahead
+	facts.DirtyPaths = lanes.CollapseLeft(found.DirtyPaths, nil, found.Folders)
 	bounded, cancel := context.WithTimeout(ctx, laneFactsDeadline)
 	defer cancel()
 	held, err := r.w.link.LaneFacts(bounded, ledger.LaneFactsRequest{

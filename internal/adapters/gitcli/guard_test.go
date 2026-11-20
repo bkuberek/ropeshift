@@ -225,7 +225,8 @@ func TestSurvey(t *testing.T) {
 	}
 }
 
-// A handoff names what changed, so each thing git can say about a file reads as a path.
+// A handoff names what changed, so each thing git can say about a file reads as a path, a move as the path it
+// left and the path it took, and a file in an untracked folder as itself, with the folder named beside it.
 func TestSurveyNamesWhatChanged(t *testing.T) {
 	r := newGuardRig(t)
 	r.commit("moved.txt", "moved\n")
@@ -234,11 +235,10 @@ func TestSurveyNamesWhatChanged(t *testing.T) {
 	r.write("staged.txt", "new\n")
 	r.inWorktree("add", "--", "staged.txt")
 	r.inWorktree("mv", "moved.txt", "renamed.txt")
-	got := r.survey().DirtyPaths
-	slices.Sort(got)
-	want := []string{"README.txt", "deep/", "renamed.txt", "staged.txt"}
-	if !slices.Equal(got, want) {
-		t.Errorf("paths %q, want %q", got, want)
+	found := r.survey()
+	want := []string{"README.txt", "deep/new file.txt", "moved.txt", "renamed.txt", "staged.txt"}
+	if !slices.Equal(found.DirtyPaths, want) || !slices.Equal(found.Folders, []string{"deep/"}) {
+		t.Errorf("paths %q and folders %q, want %q and deep/", found.DirtyPaths, found.Folders, want)
 	}
 }
 
@@ -402,5 +402,94 @@ func TestDiscardRemovesADirtyWorktreeAndKeepsItsBranch(t *testing.T) {
 	}
 	if err := r.worktrees.Discard(ctx, r.repo.Dir, r.path); err != nil {
 		t.Errorf("a repeat: %v", err)
+	}
+}
+
+// TestASnapshotOfNamedPathsHoldsOnlyThem is the snapshot of a lane's own files (FR-LANE-20): the named changes over
+// HEAD, a folder whole, a deletion as a deletion, and nothing else the worktree holds.
+func TestASnapshotOfNamedPathsHoldsOnlyThem(t *testing.T) {
+	r := newGuardRig(t)
+	r.commit("old.txt", "old\n")
+	r.write("README.txt", "changed\n")
+	r.write("gen/out.go", "package gen\n")
+	r.write(".atl/registry.md", "a tool's cache\n")
+	r.write("left.txt", "not the lane's\n")
+	if err := os.Remove(filepath.Join(r.path, "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	index := r.indexBytes()
+
+	const ref = "refs/ropeshift/checkpoints/one/1"
+	commit, err := r.worktrees.SnapshotPaths(t.Context(), r.path, ref, []string{"README.txt", "gen/", "old.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := strings.Fields(r.inWorktree("ls-tree", "-r", "--name-only", commit))
+	if want := []string{"README.txt", "gen/out.go"}; !slices.Equal(listed, want) {
+		t.Errorf("the snapshot holds %q, want %q", listed, want)
+	}
+	if got := r.inWorktree("show", commit+":README.txt"); got != "changed" {
+		t.Errorf("README.txt holds %q", got)
+	}
+	if !bytes.Equal(r.indexBytes(), index) {
+		t.Error("the lane's index changed")
+	}
+}
+
+// TestASnapshotOfNoPathsHoldsHEAD has nothing of the lane's to save beyond its commits.
+func TestASnapshotOfNoPathsHoldsHEAD(t *testing.T) {
+	r := newGuardRig(t)
+	r.write(".atl/registry.md", "a tool's cache\n")
+	commit, err := r.worktrees.SnapshotPaths(t.Context(), r.path, "refs/ropeshift/checkpoints/one/1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := r.inWorktree("rev-parse", commit+"^{tree}"), r.inWorktree("rev-parse", "HEAD^{tree}"); got != want {
+		t.Errorf("tree %s, want HEAD's %s", got, want)
+	}
+}
+
+// TestASurveyNamesEveryChangedFileExactly reads a worktree one file at a time and by its exact name: a file in an
+// untracked folder is its own path, the folder is named as wholly untracked, a name that holds " -> " is that name,
+// and a move is the old path gone and the new one added.
+func TestASurveyNamesEveryChangedFileExactly(t *testing.T) {
+	r := newGuardRig(t)
+	r.commit("old.txt", "old\n")
+	r.write("README.txt", "changed\n")
+	r.write("a -> b.txt", "a name with an arrow\n")
+	r.write("cache/one", "1\n")
+	r.write("cache/sub/two", "2\n")
+	r.inWorktree("mv", "old.txt", "new.txt")
+	found, err := r.worktrees.Survey(t.Context(), r.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"README.txt", "a -> b.txt", "cache/one", "cache/sub/two", "new.txt", "old.txt"}; !slices.Equal(found.DirtyPaths, want) {
+		t.Errorf("the survey names %q, want %q", found.DirtyPaths, want)
+	}
+	if !slices.Equal(found.Folders, []string{"cache/"}) {
+		t.Errorf("the untracked folders are %q", found.Folders)
+	}
+}
+
+// TestASnapshotOfNamedPathsSkipsWhatItCannotAdd is a snapshot of paths a survey named a moment before: one gone
+// since, one ignored since, and one now beyond a link to a folder are left out, and the rest is saved.
+func TestASnapshotOfNamedPathsSkipsWhatItCannotAdd(t *testing.T) {
+	r := newGuardRig(t)
+	r.write("kept.txt", "kept\n")
+	r.write(".gitignore", "ignored.txt\n")
+	r.write("ignored.txt", "ignored\n")
+	r.write("real/file.txt", "real\n")
+	if err := os.Symlink("real", filepath.Join(r.path, "link")); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"kept.txt", "gone.txt", "ignored.txt", "link/file.txt"}
+	commit, err := r.worktrees.SnapshotPaths(t.Context(), r.path, "refs/ropeshift/checkpoints/one/1", paths)
+	if err != nil {
+		t.Fatalf("a snapshot of paths it cannot all add: %v", err)
+	}
+	listed := strings.Fields(r.inWorktree("ls-tree", "-r", "--name-only", commit))
+	if want := []string{"README.txt", "kept.txt"}; !slices.Equal(listed, want) {
+		t.Errorf("the snapshot holds %q, want %q", listed, want)
 	}
 }

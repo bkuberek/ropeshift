@@ -25,13 +25,16 @@ const (
 	CategoryCompliance   = "compliance"
 	CategoryOperations   = "operations"
 	CategoryBusiness     = "business"
+	// CategoryFiles is whether a path a lane left out of its commits belongs to the project or to its
+	// repository's .gitignore (FR-LANE-20).
+	CategoryFiles = "files"
 )
 
 // BuiltIn lists the categories every workspace has.
 func BuiltIn() []string {
 	return []string{
 		CategoryProduct, CategoryDesign, CategoryArchitecture, CategoryData,
-		CategorySecurity, CategoryCompliance, CategoryOperations, CategoryBusiness,
+		CategorySecurity, CategoryCompliance, CategoryOperations, CategoryBusiness, CategoryFiles,
 	}
 }
 

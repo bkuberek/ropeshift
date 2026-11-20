@@ -82,7 +82,16 @@ type DigestState struct {
 	// Open says a turn has begun and no `Stop` has ended it, and OpenMs is when it began.
 	Open   bool  `json:"open,omitempty"`
 	OpenMs int64 `json:"open_ms,omitempty"`
+	// Before is every file the worktree held changed or untracked when the session began its first turn, and nil
+	// until a worker read it (FR-LANE-20). Unread says no reading will be taken, because the moment for one passed
+	// or the reading failed. It stays with the worker and never reaches the ledger.
+	Before *[]string `json:"before,omitempty"`
+	Unread bool      `json:"before_unread,omitempty"`
 }
+
+// MaxBefore is how many files a reading of the worktree before the first turn keeps. A worktree that holds more,
+// such as one whose dependency folder its .gitignore lacks, keeps no reading, and its lane owns every change.
+const MaxBefore = 1000
 
 // DigestRecord is what a worker's journal keeps of one generation's digest: the state a builder goes on from,
 // whether the generation is over so that the state is final, and whether the event that carries the digest to
@@ -157,6 +166,49 @@ func (b *DigestBuilder) Source() DigestSource { return b.state.Digest.Source }
 
 // Missed records that the worker knows it missed events of this generation.
 func (b *DigestBuilder) Missed() { b.state.Digest.Complete = false }
+
+// Begin keeps what the worktree held before the session's first turn, and says whether it kept it. Only a digest
+// that has seen no turn, no prompt, and no call may keep one: later, the session's own files would read as there
+// before. A digest past that moment, or a reading of more than MaxBefore files, is left unread for good.
+func (b *DigestBuilder) Begin(changes []string) bool {
+	if b.Settled() {
+		return false
+	}
+	if !b.Fresh() || len(changes) > MaxBefore {
+		b.state.Unread = true
+		return false
+	}
+	before := slices.Clone(changes)
+	if before == nil {
+		before = []string{}
+	}
+	b.state.Before = &before
+	return true
+}
+
+// LeaveUnread says no reading will be taken, as when the one taken at the first prompt failed.
+func (b *DigestBuilder) LeaveUnread() {
+	if b.state.Before == nil {
+		b.state.Unread = true
+	}
+}
+
+// Fresh says the digest has seen no turn, no prompt, and no call, which is the only time a reading may be taken.
+func (b *DigestBuilder) Fresh() bool {
+	digest := b.state.Digest
+	return digest.Turns == 0 && !b.state.Open && len(digest.ToolCalls) == 0
+}
+
+// Settled says a reading was kept or will never be.
+func (b *DigestBuilder) Settled() bool { return b.state.Before != nil || b.state.Unread }
+
+// Before is what Begin kept, and whether it kept anything.
+func (b *DigestBuilder) Before() ([]string, bool) {
+	if b.state.Before == nil || b.state.Unread {
+		return nil, false
+	}
+	return slices.Clone(*b.state.Before), true
+}
 
 // stale says a stream position was folded already. Position zero is no position, so it is never stale.
 func (b *DigestBuilder) stale(seq int64) bool {

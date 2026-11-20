@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -49,7 +50,11 @@ func (w Worktrees) Survey(ctx context.Context, path string) (lanes.WorktreeFindi
 	}
 	// A detached head has no symbolic name, which is an answer and not a failure.
 	branch, _ := git.Text(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")
-	status, err := readStatus(ctx, git)
+	changes, err := statusEntries(ctx, git, "all")
+	if err != nil {
+		return lanes.WorktreeFindings{}, err
+	}
+	folders, err := untrackedFolders(ctx, git, changes)
 	if err != nil {
 		return lanes.WorktreeFindings{}, err
 	}
@@ -61,33 +66,57 @@ func (w Worktrees) Survey(ctx context.Context, path string) (lanes.WorktreeFindi
 	if err != nil {
 		return lanes.WorktreeFindings{}, err
 	}
-	return lanes.WorktreeFindings{
-		Branch: branch, Head: head, Dirty: status != "", DirtyPaths: dirtyPaths(status), Remote: remote, Ahead: ahead,
-	}, nil
+	found := lanes.WorktreeFindings{Branch: branch, Head: head, Dirty: len(changes) != 0, Folders: folders, Remote: remote, Ahead: ahead}
+	for _, change := range changes {
+		found.DirtyPaths = append(found.DirtyPaths, change.path)
+	}
+	slices.Sort(found.DirtyPaths)
+	return found, nil
 }
 
-// statusColumns is what comes before a path on a line of `git status --porcelain`: two
+// statusColumns is what comes before a path in an entry of `git status --porcelain`: two
 // letters and a space.
 const statusColumns = 3
 
-// dirtyPaths reads `git status --porcelain`. A rename shows where it went, and git quotes a
-// name it cannot print bare.
-func dirtyPaths(status string) []string {
-	var paths []string
-	for line := range strings.SplitSeq(status, "\n") {
-		if len(line) <= statusColumns {
-			continue
-		}
-		path := line[statusColumns:]
-		if _, renamed, ok := strings.Cut(path, " -> "); ok {
-			path = renamed
-		}
-		if unquoted, err := strconv.Unquote(path); err == nil {
-			path = unquoted
-		}
-		paths = append(paths, path)
+// statusEntry is one entry of `git status --porcelain -z`: its two letters and its path, as git holds it.
+type statusEntry struct {
+	code string
+	path string
+}
+
+// statusEntries reads `git status` in the form whose names are never quoted, with a move read as the path gone
+// and the path added, so each entry names one path exactly. Untracked is git's untracked-files mode: `all` names
+// every file in an untracked folder, and `normal` names the folder.
+func statusEntries(ctx context.Context, git Git, untracked string) ([]statusEntry, error) {
+	out, err := git.Output(ctx, "--no-optional-locks", "status", "--porcelain", "-z", "--no-renames", "--untracked-files="+untracked)
+	if err != nil {
+		return nil, err
 	}
-	return paths
+	var entries []statusEntry
+	for entry := range strings.SplitSeq(string(out), "\x00") {
+		if len(entry) > statusColumns {
+			entries = append(entries, statusEntry{code: entry[:statusColumns-1], path: entry[statusColumns:]})
+		}
+	}
+	return entries, nil
+}
+
+// untrackedFolders names the folders git tracks nothing in, which only a worktree with an untracked file holds.
+func untrackedFolders(ctx context.Context, git Git, changes []statusEntry) ([]string, error) {
+	if !slices.ContainsFunc(changes, func(entry statusEntry) bool { return entry.code == "??" }) {
+		return nil, nil
+	}
+	entries, err := statusEntries(ctx, git, "normal")
+	if err != nil {
+		return nil, err
+	}
+	var folders []string
+	for _, entry := range entries {
+		if entry.code == "??" && strings.HasSuffix(entry.path, "/") {
+			folders = append(folders, entry.path)
+		}
+	}
+	return folders, nil
 }
 
 // remoteOf finds where a push goes: the branch's upstream, then the usual name, then the
@@ -145,6 +174,122 @@ func commitsAhead(ctx context.Context, git Git, remote, branch string) (int64, e
 // Snapshot builds a commit from the worktree in an index of its own, because `git stash
 // create` omits untracked files and the lane's own index belongs to the session.
 func (w Worktrees) Snapshot(ctx context.Context, path, ref string) (string, error) {
+	return w.snapshot(ctx, path, ref, func(index Git) error {
+		_, err := index.Output(ctx, snapshotAdd()...)
+		return err
+	})
+}
+
+// SnapshotPaths builds the same commit from only the named paths, read literally and fed on standard input, so
+// no name is taken for an option or a pattern and no list is too long for one command.
+func (w Worktrees) SnapshotPaths(ctx context.Context, path, ref string, paths []string) (string, error) {
+	return w.snapshot(ctx, path, ref, func(index Git) error {
+		if len(paths) == 0 {
+			return nil
+		}
+		addable, err := addablePaths(ctx, index, path, paths)
+		if err != nil || len(addable) == 0 {
+			return err
+		}
+		names := []byte(strings.Join(addable, "\x00") + "\x00")
+		_, err = index.Feed(ctx, names, "--literal-pathspecs", "add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul")
+		return err
+	})
+}
+
+// addablePaths keeps the paths an add takes, because one it refuses fails the whole add: a path that is in neither
+// the worktree nor the snapshot's index, which HEAD filled, one that lies beyond a link, and one git now ignores.
+// A path gone from the worktree that the index holds stays, because it is a removal.
+func addablePaths(ctx context.Context, index Git, worktree string, paths []string) ([]string, error) {
+	var present, gone []string
+	for _, path := range paths {
+		if beyondLink(worktree, path) {
+			continue
+		}
+		_, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(path)))
+		switch {
+		case err == nil:
+			present = append(present, path)
+		case errors.Is(err, os.ErrNotExist):
+			gone = append(gone, path)
+		default:
+			return nil, err
+		}
+	}
+	held, err := indexed(ctx, index, gone)
+	if err != nil {
+		return nil, err
+	}
+	ignored, err := ignoredPaths(ctx, index, present)
+	if err != nil {
+		return nil, err
+	}
+	var addable []string
+	for _, path := range present {
+		if !slices.Contains(ignored, path) {
+			addable = append(addable, path)
+		}
+	}
+	return append(addable, held...), nil
+}
+
+// beyondLink says a path lies past a link: one of the folders above it in the worktree is a link.
+func beyondLink(worktree, path string) bool {
+	parts := strings.Split(path, "/")
+	for i := 1; i < len(parts); i++ {
+		info, err := os.Lstat(filepath.Join(worktree, filepath.FromSlash(strings.Join(parts[:i], "/"))))
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// indexedChunk is how many paths one `ls-files` names, which keeps a command line short.
+const indexedChunk = 500
+
+// indexed is what of the paths the index holds.
+func indexed(ctx context.Context, index Git, paths []string) ([]string, error) {
+	var held []string
+	for chunk := range slices.Chunk(paths, indexedChunk) {
+		out, err := index.Output(ctx, append([]string{"--literal-pathspecs", "ls-files", "-z", "--cached", "--"}, chunk...)...)
+		if err != nil {
+			return nil, err
+		}
+		for name := range strings.SplitSeq(string(out), "\x00") {
+			if name != "" {
+				held = append(held, name)
+			}
+		}
+	}
+	return held, nil
+}
+
+// ignoredPaths is what of the paths git ignores. A file the index tracks is never ignored. Git exits 1 when it
+// ignores none.
+func ignoredPaths(ctx context.Context, index Git, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out, err := index.Feed(ctx, []byte(strings.Join(paths, "\x00")+"\x00"), "check-ignore", "-z", "--stdin")
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ignored []string
+	for name := range strings.SplitSeq(string(out), "\x00") {
+		if name != "" {
+			ignored = append(ignored, name)
+		}
+	}
+	return ignored, nil
+}
+
+// snapshot builds a snapshot whose index add fills from HEAD's tree.
+func (w Worktrees) snapshot(ctx context.Context, path, ref string, add func(index Git) error) (string, error) {
 	git := w.git(path)
 	file, err := git.Text(ctx, "rev-parse", "--path-format=absolute", "--git-path", snapshotIndex)
 	if err != nil {
@@ -162,7 +307,7 @@ func (w Worktrees) Snapshot(ctx context.Context, path, ref string) (string, erro
 		return "", err
 	}
 	crashpoint.Hit("worktree.snapshot", "read")
-	if _, err := index.Output(ctx, snapshotAdd()...); err != nil {
+	if err := add(index); err != nil {
 		return "", err
 	}
 	crashpoint.Hit("worktree.snapshot", "added")

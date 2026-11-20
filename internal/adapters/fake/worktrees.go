@@ -29,10 +29,15 @@ type Worktrees struct {
 	pushed    []string
 	fetched   []string
 	snapshots map[string]string
-	contexts  map[string][]string
-	files     map[string]map[string]string
-	touched   map[string][]string
-	context   error
+	// changes is what a worktree ChangeFiles named holds changed, and scoped the paths each SnapshotPaths
+	// took, by ref.
+	changes  map[string][]string
+	folders  map[string][]string
+	scoped   map[string][]string
+	contexts map[string][]string
+	files    map[string]map[string]string
+	touched  map[string][]string
+	context  error
 
 	// fetchedCommits is every commit FetchCommit asked for.
 	fetchedCommits []string
@@ -65,7 +70,7 @@ type Worktrees struct {
 func NewWorktrees() *Worktrees {
 	return &Worktrees{
 		byPath: map[string]ports.Worktree{}, branches: map[string]string{}, ahead: map[string]int64{},
-		snapshots: map[string]string{}, contexts: map[string][]string{}, files: map[string]map[string]string{}, touched: map[string][]string{},
+		snapshots: map[string]string{}, changes: map[string][]string{}, folders: map[string][]string{}, scoped: map[string][]string{}, contexts: map[string][]string{}, files: map[string]map[string]string{}, touched: map[string][]string{},
 		history: map[string][]string{}, tips: map[string]string{}, fileCommits: map[string][]ports.Commit{},
 	}
 }
@@ -225,6 +230,32 @@ func (w *Worktrees) Dirty(path string) {
 	w.byPath[path] = entry
 }
 
+// ChangeFiles stands for a worktree whose changes, as a survey names them, are exactly these files, and none
+// clears it.
+func (w *Worktrees) ChangeFiles(path string, files ...string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	entry := w.byPath[path]
+	entry.Clean = len(files) == 0
+	w.byPath[path] = entry
+	w.changes[path] = slices.Clone(files)
+}
+
+// UntrackedFolders stands for the folders git tracks nothing in, which a survey names beside the files.
+func (w *Worktrees) UntrackedFolders(path string, folders ...string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.folders[path] = slices.Clone(folders)
+}
+
+// ScopedSnapshot is the paths a SnapshotPaths under ref took, and whether one did.
+func (w *Worktrees) ScopedSnapshot(ref string) ([]string, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	paths, ok := w.scoped[ref]
+	return slices.Clone(paths), ok
+}
+
 // LaneHead is the commit a worktree made from no base stands at: a valid commit ID, as a real worktree has.
 const LaneHead = "fa4e0000000000000000000000000000000000ad"
 
@@ -331,6 +362,10 @@ func (w *Worktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindin
 	}
 	if found.Dirty {
 		found.DirtyPaths = []string{DirtyPath}
+		if changes, named := w.changes[path]; named {
+			found.DirtyPaths = slices.Clone(changes)
+		}
+		found.Folders = slices.Clone(w.folders[path])
 	}
 	return found, nil
 }
@@ -344,6 +379,17 @@ func (w *Worktrees) Snapshot(_ context.Context, path, ref string) (string, error
 	}
 	w.snapshots[ref] = path
 	return "fake-snapshot", nil
+}
+
+// SnapshotPaths records which worktree a ref holds, and the paths it took.
+func (w *Worktrees) SnapshotPaths(ctx context.Context, path, ref string, paths []string) (string, error) {
+	commit, err := w.Snapshot(ctx, path, ref)
+	if err == nil {
+		w.mu.Lock()
+		w.scoped[ref] = slices.Clone(paths)
+		w.mu.Unlock()
+	}
+	return commit, err
 }
 
 // Push takes a ref, or refuses every one.
@@ -549,5 +595,6 @@ var (
 	_ ports.HistoryImports = (*Worktrees)(nil)
 	_ ports.ReviewTrees    = (*Worktrees)(nil)
 	_ ports.ChangeSizes    = (*Worktrees)(nil)
+	_ ports.PathSnapshots  = (*Worktrees)(nil)
 	_ ports.BranchMerger   = (*Worktrees)(nil)
 )
