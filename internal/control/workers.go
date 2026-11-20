@@ -1240,8 +1240,15 @@ func reportGuard(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 			return err
 		}
 	}
-	if err := askLeftFiles(tx, worker, id, e, guard); err != nil {
+	unasked, err := askLeftFiles(tx, worker, id, e, guard)
+	if err != nil {
 		return err
+	}
+	if len(unasked) != 0 {
+		guard.Unasked = unasked
+		if e.Payload, err = json.Marshal(guard); err != nil {
+			return err
+		}
 	}
 	return appendLaneEvent(tx, worker, id, ledger.EventLaneGuarded, e)
 }
