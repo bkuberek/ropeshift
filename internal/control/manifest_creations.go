@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -23,6 +24,52 @@ import (
 func (r *Repositories) Placing(worker func(context.Context) (string, error)) *Repositories {
 	r.worker = worker
 	return r
+}
+
+// creationRunLimit is how long a real registration run may take, from the registration's lock to its record: the
+// checks and the creations of every entry the run reaches.
+const creationRunLimit = 10 * time.Minute
+
+// RunLimit sets how long a real registration run may take, in place of creationRunLimit. Zero restores it.
+func (r *Repositories) RunLimit(limit time.Duration) *Repositories {
+	r.runLimit = limit
+	return r
+}
+
+// runLimitError is the cause of a run's context ending at its limit.
+type runLimitError struct{ limit time.Duration }
+
+func (e runLimitError) Error() string {
+	if e.limit%time.Minute == 0 {
+		return fmt.Sprintf("the run passed its limit of %d minutes", e.limit/time.Minute)
+	}
+	return fmt.Sprintf("the run passed its limit of %s", e.limit)
+}
+
+// recordTimeout bounds the write of a run's record, which stands when the run's own context has ended. It is well over the
+// store's wait for a write lock, so a record waits for a writer that holds the store and only a write that would never end is
+// cut off.
+const recordTimeout = time.Minute
+
+// recording is the context of a write of a run's record: it outlives the run's context and the caller's, and ends at
+// recordTimeout.
+func recording(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+}
+
+// limitedRun is the context of a real run: ctx, ended when the run's limit passes.
+func (r *Repositories) limitedRun(ctx context.Context) (context.Context, context.CancelFunc) {
+	limit := cmp.Or(r.runLimit, creationRunLimit)
+	return context.WithTimeoutCause(ctx, limit, runLimitError{limit})
+}
+
+// limited is err with the limit of the run named when the run's context ended at it.
+func limited(ctx context.Context, err error) error {
+	var over, already runLimitError
+	if err == nil || !errors.As(context.Cause(ctx), &over) || errors.As(err, &already) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", over, err)
 }
 
 // Creating says the creation of an approval's entry runs now in this process, which tells a creation that was
@@ -173,7 +220,7 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 		return Added{Path: plainPath(cmp.Or(check.Leads, at)), Outcome: ledger.NotAttempted, Reason: plainLine(entry.Name + " was not attempted: " + err.Error())}, err
 	}
 	if check.Refusal != nil {
-		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome)
+		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome, check.Leads)
 		added := withCreation(refused(cmp.Or(check.Leads, at), refusalText(*check.Refusal, outcome.Remedy)), outcome)
 		added.RefusalCode = plainLine(check.Refusal.Reason)
 		return added, nil
@@ -253,9 +300,10 @@ const busyRemedy = "another creation at this path is running; preview again when
 // remedyFor is the fix a refusal of the creator names: the command the worker gave, or, for a repository that exists on
 // the forge, which ropeshift never adopts, the clone to make at the entry's path and the manifest change that registers
 // it. The worker's detail of that refusal says so already, with the path as the manifest writes it, and then it is the
-// remedy, so the fix is said once; otherwise the remedy says it in the same form. A creation that timed out after the
+// remedy, so the fix is said once; otherwise the remedy says it in the same form, with the folder the entry's path leads to,
+// which is the manifest's path when the check read none. A creation that timed out after the
 // forge made the repository is refused this way on every retry.
-func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestRepository, outcome ledger.CreationOutcome) string {
+func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestRepository, outcome ledger.CreationOutcome, leads string) string {
 	switch {
 	case report.Remedy != "":
 		return plainLine(report.Remedy)
@@ -264,7 +312,7 @@ func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestReposit
 	case report.Reason == ledger.TemplateRefusedRemoteExists && strings.Contains(report.Detail, "in place of `create`"):
 		return plainLine(report.Detail)
 	case report.Reason == ledger.TemplateRefusedRemoteExists:
-		return plainLine(fmt.Sprintf("clone %s/%s to %s, and write `remote` in place of `create` in the manifest's entry for %s", outcome.Owner, outcome.ForgeName, entry.Path, entry.Name))
+		return plainLine(fmt.Sprintf("clone %s/%s to %s, and write `remote` in place of `create` in the manifest's entry for %s", outcome.Owner, outcome.ForgeName, cmp.Or(leads, entry.Path), entry.Name))
 	}
 	return ""
 }
@@ -319,18 +367,18 @@ func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID
 	defer r.clearCreating(job.Key)
 	report, err := run.creator.Create(ctx, job)
 	if err != nil {
-		return ledger.CreationFinishedEvent{}, err
+		return ledger.CreationFinishedEvent{}, limited(ctx, err)
 	}
-	finished := finishedCreation(entry, job, outcome, report)
+	finished := finishedCreation(entry, job, outcome, leads, report)
 	return finished, r.appendCreation(ctx, scope, ledger.EventRepositoryCreationFinished, run.cause.Approval, finished, actor)
 }
 
 // finishedCreation reads what a report of the creator says a creation came to. It is created when every step is done
 // and no command remains, refused when a check refused with nothing written, and failed otherwise.
-func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, report ledger.TemplateWriteReport) ledger.CreationFinishedEvent {
+func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, leads string, report ledger.TemplateWriteReport) ledger.CreationFinishedEvent {
 	finished := ledger.CreationFinishedEvent{Name: entry.Name, Key: job.Key, CreationOutcome: outcome}
 	if report.Outcome == ledger.TemplateOutcomeRefused {
-		finished.Remedy = remedyFor(report, entry, outcome)
+		finished.Remedy = remedyFor(report, entry, outcome, leads)
 		finished.Outcome, finished.Reason, finished.RefusalCode = ledger.CreationRefused, refusalText(report, finished.Remedy), plainLine(report.Reason)
 		return finished
 	}
@@ -410,7 +458,8 @@ type UncreatedRepository struct {
 
 // UncreatedRepositories lists, for each approved plan approval, the entries its version creates whose latest creation
 // is refused, failed, or interrupted, or runs now, and whose name the project does not hold. A skipped or a created
-// entry is not listed. creating says whether the creation of an approval's entry runs now in this process, and an entry
+// entry is not listed, and a refusal because another creation holds the path is no latest creation: an earlier failure
+// stays the one listed. creating says whether the creation of an approval's entry runs now in this process, and an entry
 // whose creation does is running. An entry whose creation left no record is read from the registration the approval
 // recorded, when that says it was refused, not attempted, or failed to create.
 func UncreatedRepositories(tx ports.ReadTx, creating func(approval, name string) bool) ([]UncreatedRepository, error) {
@@ -473,7 +522,7 @@ func heldNames(tx ports.ReadTx) (map[string]bool, error) {
 
 // uncreated reads where one entry's creation stands, and says whether it waits for a member or runs.
 func uncreated(row authority.Approval, entry planning.ManifestRepository, events []ledger.Event, recorded *ledger.ManifestRegistration, running bool) (UncreatedRepository, bool, error) {
-	latest, err := ledger.LatestCreation(events, entry.Name)
+	latest, err := latestUnbusy(events, entry.Name)
 	if err != nil {
 		return UncreatedRepository{}, false, err
 	}
@@ -506,8 +555,10 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	switch {
 	case running:
 		item.State = CreationRunning
-	case latest.State == ledger.CreationRefused && code == ledger.TemplateRefusedBusy:
-		return UncreatedRepository{}, false, nil
+	case refusedLater && latest.State == ledger.CreationStarted && refused.RefusalCode == "":
+		// A run an error or its limit stopped recorded why, after the creation started and with no finish: the creation was
+		// interrupted, and may have written a folder or the forge repository, so it is no refusal. The record's reason stands.
+		item.State, item.Reason = CreationInterrupted, refused.Reason
 	case refusedLater:
 		// A retry the creator's check refused came after the creation's last record, and says why it cannot go on.
 		item.State, item.Reason, item.Creation = CreationRefused, refused.Reason, refused.Creation
@@ -539,6 +590,40 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	}
 	item.Remedy = creationRemedy(item, code)
 	return item, true, nil
+}
+
+// latestUnbusy is where the events leave the creation of the entry named, leaving out each attempt that finished refused
+// because another creation held its path: that refusal is transient, and says nothing of the creation, so an earlier
+// failure, interruption, or refusal stays what the creation reads as.
+func latestUnbusy(events []ledger.Event, name string) (ledger.CreationRecord, error) {
+	var kept []ledger.Event
+	start := -1
+	for _, event := range events {
+		var named struct {
+			Name        string `json:"name"`
+			Outcome     string `json:"outcome"`
+			RefusalCode string `json:"refusal_code"`
+		}
+		switch event.Type {
+		case ledger.EventRepositoryCreationStarted:
+			if json.Unmarshal(event.Data, &named) == nil && named.Name == name {
+				start = len(kept)
+			}
+		case ledger.EventRepositoryCreationFinished:
+			if json.Unmarshal(event.Data, &named) == nil && named.Name == name {
+				if ledger.CreationState(named.Outcome) == ledger.CreationRefused && named.RefusalCode == ledger.TemplateRefusedBusy {
+					if start >= 0 {
+						kept = slices.Delete(kept, start, start+1)
+					}
+					start = -1
+					continue
+				}
+				start = -1
+			}
+		}
+		kept = append(kept, event)
+	}
+	return ledger.LatestCreation(kept, name)
 }
 
 // creationRemedy says what a member does about a creation that waits for them, from the code the creator refused it
@@ -721,7 +806,7 @@ func (r *Repositories) refuseRunning(approval, name string) error {
 // recorded. Retrying is a member's act, as approving the plan was. An entry that is not one the approval's version
 // creates, a name the project holds, an approval that is not an approved plan approval, and a creation that runs now are
 // refused as an illegal move, and record nothing; an error that comes with a registration is one the run met after it
-// began.
+// began. A retry is a real run, and has a real run's limit.
 func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.WorkspaceID, approval, name string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) || !authority.Allowed(actor, authority.ActionCreateRemotes) {
 		return nil, workorders.ErrForbidden
@@ -731,6 +816,8 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	}
 	r.registering.Lock()
 	defer r.registering.Unlock()
+	runCtx, cancel := r.limitedRun(ctx)
+	defer cancel()
 	var target creationTarget
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		var err error
@@ -746,23 +833,27 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	if target.recorded == nil || target.recorded.Problem != "" {
 		// An approval that recorded nothing, or whose run an error stopped, registers anew: the entries it never reached are
 		// attempted, and the record it appends holds no problem unless this run meets one.
-		return r.registerApproved(ctx, scope, approval, kept, creator, project, false, true, actor)
+		return r.registerApproved(runCtx, scope, approval, kept, creator, project, false, true, actor)
 	}
 	run := manifestRun{cause: registrationCause{Approval: target.row.ID, Plan: target.row.Plan, PlanVersion: target.row.PlanVersion}, targets: target.targets, creator: creator, project: project}
 	// The entries before this one in the version would have created their repositories first, so a repository one of them
-	// creates is refused to this one, as it was in the run that registered the version.
+	// creates is refused to this one, as it was in the run that registered the version, unless a member skipped that entry.
 	if at := slices.IndexFunc(target.entries, func(entry planning.ManifestRepository) bool { return entry.Name == name }); at > 0 {
-		run.before = target.entries[:at]
+		run.before = leavingOut(target.entries[:at], skippedIn(target.recorded))
 	}
-	added, runErr := r.registerEntries(ctx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
+	added, runErr := r.registerEntries(runCtx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
+	runErr = limited(runCtx, runErr)
 	if len(added) == 0 {
 		return nil, runErr
 	}
 	record := replacedOutcome(*target.recorded, outcomesOf(added[:1])[0], runErr)
-	if failed := r.recordRegistration(ctx, scope, approval, record, actor); failed != nil {
+	// The record is written after the run, whether or not its limit passed, so it has a context of its own.
+	written, done := recording(ctx)
+	defer done()
+	if failed := r.recordRegistration(written, scope, approval, record, actor); failed != nil {
 		return nil, errors.Join(runErr, failed)
 	}
-	out, err := r.recordedAs(ctx, scope, record)
+	out, err := r.recordedAs(written, scope, record)
 	return out, errors.Join(runErr, err)
 }
 

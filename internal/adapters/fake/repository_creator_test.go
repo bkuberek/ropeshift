@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -111,5 +112,40 @@ func TestRepositoryCreatorStopsOnAnEndedContext(t *testing.T) {
 	}
 	if _, err := creator.Create(ctx, creationJob("api")); err == nil {
 		t.Error("a create ran after its context ended")
+	}
+}
+
+// A creation blocked for one key waits for its context to end and fails with that context's error, records the job, and
+// leaves the other keys alone; clearing it lets the key write again.
+func TestRepositoryCreatorBlocksOneKeyUntilItsContextEnds(t *testing.T) {
+	creator := fake.NewRepositoryCreator()
+	job := creationJob("web")
+	creator.BlockCreate(job.Key, true)
+	entered := creator.Entered(job.Key)
+	select {
+	case <-entered:
+		t.Fatal("a creation nobody ran reads as entered")
+	default:
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := creator.Create(ctx, job); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a blocked create answers %v, want its context's deadline", err)
+	}
+	select {
+	case <-entered:
+	default:
+		t.Error("a blocked create did not signal that it was entered")
+	}
+	if got := creator.Created(); len(got) != 1 || got[0] != job {
+		t.Errorf("a blocked create recorded %+v", got)
+	}
+	if _, err := creator.Create(t.Context(), creationJob("api")); err != nil {
+		t.Errorf("a create of another name was blocked: %v", err)
+	}
+	creator.BlockCreate(job.Key, false)
+	if report, err := creator.Create(t.Context(), job); err != nil || report.Outcome != ledger.TemplateOutcomeWritten {
+		t.Errorf("a create after the block was cleared answers %+v (%v)", report, err)
 	}
 }

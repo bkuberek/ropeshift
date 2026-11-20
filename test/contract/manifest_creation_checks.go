@@ -360,7 +360,7 @@ func checkAnInterruptedCreationIsAnItemAndRetryFinishesIt(r *Rig) error {
 	if items, err = r.uncreated(s, noCreationRuns); err != nil || len(items) != 1 {
 		return Violatedf("a creation refused for an existing repository reads as %+v: %v", items, err)
 	}
-	const remedy = "clone acme/search to ../search, and write `remote` in place of `create` in the manifest's entry for search, or skip it"
+	const remedy = "clone acme/search to /work/search, and write `remote` in place of `create` in the manifest's entry for search, or skip it"
 	if items[0].State != control.CreationRefused || !strings.Contains(items[0].Reason, "acme/search already exists on GitHub") || items[0].Remedy != remedy || items[0].Path != "/work/search" {
 		return Violatedf("a creation refused for an existing repository reads as %+v, want it refused with the remedy %q", items[0], remedy)
 	}
@@ -723,6 +723,106 @@ func checkARunAWorkerStoppedAsBusyIsAnItemAndARetryRegistersTheRest(r *Rig) erro
 	}
 	if items, err := r.uncreated(s, noCreationRuns); err != nil || len(items) != 0 {
 		return Violatedf("Needs you holds %+v after the retry", items)
+	}
+	return r.CheckProjection(s)
+}
+
+// skippedDuplicatesWorld is a project whose plan version lists two manifests, each with two entries that create one forge
+// repository: alpha at ../alpha and alphacopy at ../copy/alpha, and beta at ../beta and betacopy at ../copy/beta.
+func (r *Rig) skippedDuplicatesWorld(s ports.Store) (*creationWorld, error) {
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return nil, err
+	}
+	files.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \""+manifestPlan+"\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\", \"repositories:second\"]\n+++\n\nOne plan for every repository.\n"))
+	files.Write("repositories.md", []byte(manifestText(creationEntry("alpha", "../alpha", "")+creationEntry("beta", "../beta", ""), "api")))
+	files.Write("second.md", []byte("+++\nkind = \"repositories\"\nid = \"second\"\ntitle = \"The second\"\nplan = \""+manifestPlan+"\"\n"+creationEntry("alphacopy", "../copy/alpha", "")+creationEntry("betacopy", "../copy/beta", "")+"+++\n\nThe second manifest.\n"))
+	orders := []orderIn{{ID: "core-api", Repo: "api"}}
+	for _, name := range []string{"alpha", "beta", "alphacopy", "betacopy"} {
+		orders = append(orders, orderIn{ID: "core-" + name, Repo: name})
+	}
+	files.Write("core.md", []byte(placedContract{ID: "core", Plan: manifestPlan, Orders: orders}.text()))
+	if _, err := r.intake(s, files); err != nil {
+		return nil, err
+	}
+	machine, err := r.planningMachine()
+	if err != nil {
+		return nil, err
+	}
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return nil, err
+	}
+	return &creationWorld{store: s, machine: machine, creator: newMachineCreator(machine, request.ID), repositories: r.repositories(s), request: request}, nil
+}
+
+func checkASkippedEntryTakesNoForgeRepository(r *Rig) error {
+	s := r.Store()
+	w, err := r.skippedDuplicatesWorld(s)
+	if err != nil {
+		return err
+	}
+	// The creation of alpha and of beta stops at its push, so neither repository is held, and the entry after each that would
+	// create the same forge repository is refused for it.
+	w.creator.failsPush("alpha", "alpha", "main")
+	w.creator.failsPush("beta", "beta", "main")
+	w.creator.passes("alphacopy", "alpha", "main")
+	w.creator.passes("betacopy", "beta", "main")
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := r.runCreation(w, false)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"alphacopy", "betacopy"} {
+		if copied, _ := outcomeNamed(added, name); copied.Outcome != ledger.RegistrationRefused || !strings.Contains(copied.Reason, "which the entry") {
+			return Violatedf("approving reads %s as %+v, want it refused for creating what its original creates", name, copied)
+		}
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		if _, err := w.repositories.SkipCreation(r.Ctx, r.Scope, w.request.ID, name, "built by hand", r.member()); err != nil {
+			return err
+		}
+	}
+	// A retry of alphacopy runs it alone, and a skipped alpha takes no forge repository: alphacopy is created.
+	created := len(w.creator.Created())
+	again, err := w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, "alphacopy", w.machine, w.creator, "shop", r.member())
+	if err != nil {
+		return Violatedf("a retry of alphacopy: %v", err)
+	}
+	if copied, _ := outcomeNamed(again, "alphacopy"); copied.Outcome != ledger.Created {
+		return Violatedf("a retry of alphacopy, whose original alpha was skipped, reads it as %+v, want it created", copied)
+	}
+	if jobs := asked(w.creator.Created()[created:]); !slices.Equal(jobs, []string{"alphacopy"}) {
+		return Violatedf("a retry of alphacopy had the creator create %v", jobs)
+	}
+	// A creator that cannot answer stops a retry of betacopy, which leaves the approval a problem, so the next retry registers
+	// the whole version again, with alpha and beta left as the member left them, and creates betacopy.
+	errNotStarted := errors.New("the worker has not started")
+	w.creator.FailCheck(w.creator.key("betacopy"), errNotStarted)
+	if _, err := w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, "betacopy", w.machine, w.creator, "shop", r.member()); !errors.Is(err, errNotStarted) {
+		return Violatedf("a retry of betacopy with a creator that cannot answer ended with %v, want %v", err, errNotStarted)
+	}
+	w.creator.FailCheck(w.creator.key("betacopy"), nil)
+	created = len(w.creator.Created())
+	again, err = w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, "betacopy", w.machine, w.creator, "shop", r.member())
+	if err != nil {
+		return Violatedf("a second retry of betacopy: %v", err)
+	}
+	if copied, _ := outcomeNamed(again, "betacopy"); copied.Outcome != ledger.Created {
+		return Violatedf("a registration of the whole version again reads betacopy, whose original beta was skipped, as %+v, want it created", copied)
+	}
+	if jobs := asked(w.creator.Created()[created:]); !slices.Equal(jobs, []string{"betacopy"}) {
+		return Violatedf("a registration of the whole version again had the creator create %v, want betacopy alone", jobs)
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		if skipped, _ := outcomeNamed(again, name); skipped.Outcome != ledger.Skipped {
+			return Violatedf("a registration of the whole version again reads %s as %+v, want it as the member left it", name, skipped)
+		}
 	}
 	return r.CheckProjection(s)
 }

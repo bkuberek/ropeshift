@@ -34,7 +34,9 @@ import (
 // version is approved it registers nothing, and a dry run, which a member reads before approving, says what
 // approving would register. Approving records the outcome on the approval, which RegistrationOf reads, and
 // registers once: an approval that recorded its outcome answers with that record, and a later approval of a
-// new version is what registers a repository whose clone came after.
+// new version is what registers a repository whose clone came after. A real run holds the registration for at most
+// creationRunLimit: when it passes, the entry in progress ends as an error of the creator does, and the run stops with
+// an error that names the limit.
 func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
@@ -43,6 +45,9 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		// A second word on one approval waits for the first, so it finds what the first recorded.
 		r.registering.Lock()
 		defer r.registering.Unlock()
+		var cancel context.CancelFunc
+		ctx, cancel = r.limitedRun(ctx)
+		defer cancel()
 	}
 	return r.registerApproved(ctx, scope, approval, kept, creator, project, dryRun, false, actor)
 }
@@ -68,14 +73,8 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 				}
 				return err
 			}
-			if recorded != nil {
-				// The run registers anew, and leaves out each entry a member skipped: it stays as the member left it.
-				for _, one := range recorded.Repositories {
-					if one.Outcome == ledger.Skipped {
-						skipped = append(skipped, one)
-					}
-				}
-			}
+			// The run registers anew, and leaves out each entry a member skipped: it stays as the member left it.
+			skipped = skippedIn(recorded)
 			recorded = nil
 		}
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
@@ -107,13 +106,9 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 	for _, name := range targets {
 		targeted[name] = true
 	}
-	run := entries
-	if len(skipped) != 0 {
-		run = slices.DeleteFunc(slices.Clone(entries), func(entry planning.ManifestRepository) bool {
-			return slices.ContainsFunc(skipped, func(one ledger.ManifestOutcome) bool { return one.Name == entry.Name })
-		})
-	}
+	run := leavingOut(entries, skipped)
 	added, err := r.registerEntries(ctx, scope, run, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted, creator: creator, project: project}, actor)
+	err = limited(ctx, err)
 	if len(skipped) != 0 {
 		added = withSkipped(entries, run, added, skipped)
 	}
@@ -125,10 +120,32 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 	if err != nil {
 		record.Problem = err.Error()
 	}
-	if failed := r.recordRegistration(ctx, scope, approval, record, actor); failed != nil {
+	// The record is kept when the run's limit has passed, so it is written outside the run's context, with a bound of its own.
+	written, done := recording(ctx)
+	defer done()
+	if failed := r.recordRegistration(written, scope, approval, record, actor); failed != nil {
 		return added, errors.Join(err, failed)
 	}
 	return added, err
+}
+
+// skippedIn lists what a registration recorded as skipped, which a member left uncreated.
+func skippedIn(record *ledger.ManifestRegistration) []ledger.ManifestOutcome {
+	if record == nil {
+		return nil
+	}
+	return slices.DeleteFunc(slices.Clone(record.Repositories), func(one ledger.ManifestOutcome) bool { return one.Outcome != ledger.Skipped })
+}
+
+// leavingOut is the entries a run registers when a member skipped some: a skipped entry is neither registered nor created,
+// and takes no forge repository from an entry that creates the same one.
+func leavingOut(entries []planning.ManifestRepository, skipped []ledger.ManifestOutcome) []planning.ManifestRepository {
+	if len(skipped) == 0 {
+		return entries
+	}
+	return slices.DeleteFunc(slices.Clone(entries), func(entry planning.ManifestRepository) bool {
+		return slices.ContainsFunc(skipped, func(one ledger.ManifestOutcome) bool { return one.Name == entry.Name })
+	})
 }
 
 // withSkipped is what a run of the entries a member did not skip gave, with the entries they skipped among them as they

@@ -336,6 +336,17 @@ describe("the palette", () => {
     expect(sent.some((call) => call.method === "POST")).toBe(false);
   });
 
+  it("keys the entries of two projects' repositories of one name apart", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const inProject = (name: string): CreationItem => ({ ...stopped(), project: { id: `project-${name}`, name } });
+    serveViews((call) => (call.path === "/v1/needs-you" ? { status: 200, body: { ...golden<View>("repository-creation-needs-you"), items: [inProject("alpha"), inProject("beta")] } } : undefined));
+    const palette = await search("creating ghost");
+    expect(within(palette).getAllByRole("option").filter((option) => option.textContent?.includes("Retry creating ghost")).length).toBeGreaterThanOrEqual(2);
+    const duplicated = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((text) => text.includes("same key") && /(decide|retry-creation|skip-creation):/.test(text));
+    errors.mockRestore();
+    expect(duplicated).toEqual([]);
+  });
+
   it("goes to Skip, which opens its dialog only when pressed", async () => {
     const sent = served();
     const palette = await search("skip creating");

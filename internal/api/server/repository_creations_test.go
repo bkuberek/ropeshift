@@ -205,7 +205,7 @@ func TestACreationRefusedForAnExistingRepositoryCarriesItsRemedy(t *testing.T) {
 		t.Fatalf("Needs you holds %+v", items)
 	}
 	need := items[0].RepositoryCreation
-	const remedy = "clone acme/ghost to ../ghost, and write `remote` in place of `create` in the manifest's entry for ghost, or skip it"
+	const remedy = "clone acme/ghost to /work/ghost, and write `remote` in place of `create` in the manifest's entry for ghost, or skip it"
 	if need.State != api.RepositoryCreationRefused || !strings.Contains(need.Reason, "acme/ghost already exists on GitHub") || need.Remedy != remedy {
 		t.Errorf("the need reads %+v, want it refused with the remedy %q", need, remedy)
 	}

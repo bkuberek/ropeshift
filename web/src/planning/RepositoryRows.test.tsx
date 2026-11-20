@@ -2,9 +2,10 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ApprovalDecided, ManifestRegistration, PlanView, RepositoryOutcome } from "../api/types";
+import type { ApprovalDecided, CreationOutcome, ManifestRegistration, NeedsYou, PlanView, RepositoryOutcome } from "../api/types";
 import { CurrentProject } from "../app/route";
 import { golden, testProject } from "../testing";
+import { isWaiting, WaitingCreations, waitingIn, waitingKey } from "../needs/waitingCreations";
 import { createsLine, stepRows } from "./creation";
 import { RegistrationRows } from "./PlanParts";
 
@@ -14,10 +15,13 @@ import { RegistrationRows } from "./PlanParts";
 const preview = () => golden<PlanView>("plan-created").approval?.registration as ManifestRegistration;
 const decided = (): ManifestRegistration => ({ repositories: golden<ApprovalDecided>("approval-decided-created").repositories ?? [] });
 
-function show(registration: ManifestRegistration, approval = "ap-1") {
+// show renders the rows as the page does, where Needs you holds an item for each name in waiting.
+function show(registration: ManifestRegistration, approval = "ap-1", waiting: string[] = []) {
   return render(
     <CurrentProject.Provider value={testProject}>
-      <RegistrationRows registration={registration} approval={approval} />
+      <WaitingCreations.Provider value={new Set(waiting.map((name) => waitingKey(testProject, approval, name)))}>
+        <RegistrationRows registration={registration} approval={approval} />
+      </WaitingCreations.Provider>
     </CurrentProject.Provider>,
   );
 }
@@ -131,13 +135,74 @@ describe("a repository approving created or tried to create", () => {
   });
 
   it("says a creation that stopped is not created, at which step and why, and links its item in Needs you", () => {
-    show(decided(), "ap-1");
+    show(decided(), "ap-1", ["docs"]);
     const docs = row("docs");
     expect(docs.textContent).toContain("Not created");
     expect(docs.textContent).toContain("the push step failed: remote: Permission denied");
     const steps = within(docs).getByRole("list", { name: "Steps of docs" });
     expect(within(steps).getAllByRole("listitem").map((item) => item.textContent)).toContain("Push: Failedremote: Permission denied");
     expect(within(docs).getByRole("link", { name: "Retry or skip it in Needs you" }).getAttribute("href")).toContain("/needs-you?item=repository_creation%3Aap-1%2Fdocs");
+  });
+
+  it("links the item in Needs you of each row that has one, whatever the row says of its creation", () => {
+    const creation: CreationOutcome = { forge: "github", owner: "acme", forge_name: "web", visibility: "private" };
+    show(
+      {
+        repositories: [
+          { name: "web", manifest_path: "../web", path: "/work/web", outcome: "refused", refusal_code: "remote_exists", reason: "acme/web exists", creation },
+          // A run an error or its limit stopped, which the row reads as refused with no creation.
+          { name: "stopped", manifest_path: "../stopped", path: "/work/stopped", outcome: "refused", reason: "stopped is not registered: the run passed its limit of 10 minutes" },
+          // Two entries that create one forge repository: the second is refused before the creator is asked.
+          { name: "copy", manifest_path: "../copy", path: "/work/copy", outcome: "refused", reason: "copy is not registered: it would create acme/web, which the entry web of this version creates too" },
+          { name: "after", manifest_path: "../after", path: "/work/after", outcome: "not_attempted", reason: "after was not attempted: the run stopped at stopped" },
+          { name: "held", manifest_path: "../held", path: "/work/held", outcome: "refused", reason: "held is not registered: its name is held by another repository" },
+          { name: "api", manifest_path: "../api", path: "/work/api", outcome: "known" },
+        ],
+      },
+      "ap-1",
+      ["web", "stopped", "copy", "after"],
+    );
+    for (const name of ["web", "stopped", "copy", "after"]) {
+      expect(within(row(name)).getByRole("link", { name: "Retry or skip it in Needs you" }).getAttribute("href")).toContain(`/needs-you?item=repository_creation%3Aap-1%2F${name}`);
+    }
+    // Needs you holds none for a refusal of an entry that creates nothing, or for an entry it holds nothing of.
+    expect(within(row("held")).queryByRole("link")).toBeNull();
+    expect(within(row("api")).queryByRole("link")).toBeNull();
+  });
+
+  it("finds a creation among the items Needs you holds by its project, its approval, and its name", () => {
+    const view = golden<NeedsYou>("repository-creation-needs-you");
+    const item = view.items.find((one) => one.kind === "repository_creation");
+    if (item?.kind !== "repository_creation") {
+      throw new Error("the golden holds no repository creation");
+    }
+    const { approval, name } = item.repository_creation;
+    const here = waitingIn([{ ...item, project: { id: "p1", name: "shop" } }]);
+    expect(isWaiting(here, "shop", approval, name)).toBe(true);
+    expect(isWaiting(here, "other", approval, name)).toBe(false);
+    expect(isWaiting(here, "shop", approval, "another")).toBe(false);
+    const unlabelled = waitingIn([{ ...item, project: undefined }]);
+    expect(isWaiting(unlabelled, "shop", approval, name)).toBe(true);
+  });
+
+  it("links no row that Needs you holds no item for, whatever the row says", () => {
+    const rows: ManifestRegistration = { repositories: [{ name: "web", manifest_path: "../web", path: "/work/web", outcome: "create_failed", reason: "the push step failed" }] };
+    show(rows, "ap-1", []);
+    expect(within(row("web")).queryByRole("link")).toBeNull();
+  });
+
+  it("links no item before the decision, which has created nothing", () => {
+    render(
+      <CurrentProject.Provider value={testProject}>
+        <WaitingCreations.Provider value={new Set([waitingKey(testProject, "ap-1", "web")])}>
+          <RegistrationRows
+            registration={{ preview: true, repositories: [{ name: "web", manifest_path: "../web", path: "/work/web", outcome: "refused", refusal_code: "remote_exists", creation: { forge: "github", owner: "acme", forge_name: "web", visibility: "private" } }] }}
+            approval="ap-1"
+          />
+        </WaitingCreations.Provider>
+      </CurrentProject.Provider>,
+    );
+    expect(within(row("web")).queryByRole("link")).toBeNull();
   });
 
   it("reads Skipped for an entry a member skipped, with the member's reason, and no refusal line", () => {
