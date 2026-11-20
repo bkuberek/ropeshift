@@ -7,7 +7,7 @@ import { go } from "./route";
 // and the control whose name starts with Name takes focus. The palette never presses it. `primary` is a decision's
 // own parameter, which Needs you reads.
 
-const controls = "button, a[href], input, select, textarea, [role=tab], [role=switch], [role=menuitem]";
+const controls = ["button", "a[href]", "input", "select", "textarea", "[role=tab]", "[role=switch]", "[role=menuitem]"].map((one) => `#main ${one}`).join(", ");
 
 // nameOf is the name a control shows or announces: its label, or the words in it. A control that stands once for each
 // record of a list, and shows the same words on each, names itself with data-focus.
@@ -39,7 +39,7 @@ function nameOf(element: HTMLElement): string {
 const plain = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
 
 function find(wanted: string): HTMLElement | undefined {
-  return [...document.querySelectorAll<HTMLElement>(`#main ${controls}`)].find(
+  return [...document.querySelectorAll<HTMLElement>(controls)].find(
     (element) => !element.closest("[hidden]") && !element.hasAttribute("disabled") && plain(nameOf(element)).startsWith(wanted),
   );
 }
