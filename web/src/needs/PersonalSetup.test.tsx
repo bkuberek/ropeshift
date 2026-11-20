@@ -1,65 +1,81 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
-import type { Lane, WorkNeed, WorkOrder } from "../api/types";
+import type { NeedItem, PersonalSetupNeed } from "../api/types";
 import { CurrentProject } from "../app/route";
-import { testProject } from "../testing";
-import { kindOf } from "./kinds";
-import { WorkCard } from "./WorkCard";
+import { serveApi, testProject } from "../testing";
+import { cardKindOf, cardKinds, contextOf, filterOf, headingOf, kindOf } from "./kinds";
+import { PersonalSetupCard } from "./PersonalSetup";
 
-const lane = {
-  id: "lane-7",
-  work_order: "wo-7",
-  generation: 1,
-  actual_state: "working",
-  liveness: "alive",
-  model_reach: "reachable",
-  ledger_reach: "reachable",
-  as_of: Date.now(),
-  freshness: "observed",
-  reported_by_epoch: 1,
-} as Lane;
+function need(piece: PersonalSetupNeed["piece"], recommendation: PersonalSetupNeed["recommendation"]): PersonalSetupNeed {
+  return {
+    worker: "worker-a",
+    version: "2.1.330",
+    piece,
+    lanes: [
+      { id: "lane-1", work_order: "wo-1", title: "Add the retry budget" },
+      { id: "lane-2", work_order: "wo-2" },
+    ],
+    recommendation,
+    recommendation_rationale: "it adds context, and the lane's generated rules still bound every tool call it leads to",
+    actions: ["setup_accept"],
+  };
+}
 
-const leak: WorkNeed = {
-  reason: "personal_setup",
-  detail: "Your own MCP server github (user) and agent reviewer (~/.claude/agents/reviewer.md) loaded in lane lane-7.",
-  lane,
-  work_order: { id: "wo-7", title: "Leaky work", state: "running" } as WorkOrder,
-  personal: [
-    { kind: "mcp_server", name: "github", from: "user" },
-    { kind: "agent", name: "reviewer", from: "~/.claude/agents/reviewer.md" },
-  ],
-  recommendation: "ignore",
-  recommendation_rationale: "the lane's rules and hooks still hold every call it makes, but an MCP server or a plugin of yours can reach outside the lane",
-  actions: [],
-};
+const agent = need({ kind: "agent", name: "reviewer", from: "~/.claude/agents/reviewer.md" }, "accept");
+const server = need({ kind: "mcp_server", name: "github", from: "user" }, "separate_directory");
 
-function show(work: WorkNeed) {
+function show(setup: PersonalSetupNeed, after: () => Promise<void> = async () => {}) {
   return render(
     <CurrentProject.Provider value={testProject}>
-      <WorkCard id="lane-7" work={work} after={async () => {}} frame={{ title: "Leaky work" }} />
+      <PersonalSetupCard need={setup} after={after} frame={{ title: "Your agent reviewer reached lanes on worker-a" }} />
     </CurrentProject.Provider>,
   );
 }
 
-describe("a lane that loaded the member's own setup", () => {
-  it("names what leaked and in which lane, with the choices and the recommended one", () => {
-    show(leak);
-    expect(kindOf({ kind: "work", id: "lane-7", since: 0, work: leak }).name).toBe("Your CLI setup in a lane");
-    expect(screen.getByText(/loaded in lane lane-7/)).toBeTruthy();
-    const lines = within(screen.getByRole("list", { name: "Choices" }))
-      .getAllByRole("listitem")
-      .map((item) => item.textContent ?? "");
-    expect(lines[0]).toMatch(/^Ignore it this time: leave the lane running\. This card goes when its session ends\./);
-    expect(lines[1]).toMatch(/^Open the setting: /);
-    expect(lines[2]).toMatch(/^Stop the lane: only Cancel this work stops a running lane, and it ends the work for good\./);
-    expect(screen.getByText(/Recommended: ignore it this time and open the setting, because the lane's rules/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open the setting" }).getAttribute("href")).toMatch(/settings-and-agents\.md#your-own-agent-cli-setup$/);
-    expect(screen.getByRole("link", { name: "Cancel this work on work order wo-7" }).getAttribute("href")).toMatch(/\/work-order\?id=wo-7/);
+describe("a piece of the member's own setup that leaked", () => {
+  it("is a decision of its own kind, titled by the piece and the machine", () => {
+    const item: NeedItem = { kind: "personal_setup", id: "worker-a/2.1.330/agent/reviewer", since: 0, personal_setup: agent };
+    expect(cardKinds).toContain("personal-setup");
+    expect(cardKindOf(item)).toBe("personal-setup");
+    expect(filterOf(item)).toBe("decisions");
+    expect(kindOf(item).name).toBe("Your CLI setup in lanes");
+    expect(headingOf(item)).toBe("Your agent reviewer reached lanes on worker-a");
+    expect(contextOf(item)).toBe("Worker worker-a · version 2.1.330 · 2 lanes");
   });
 
-  it("offers no button: leaving the lane running is ignoring it, and cancelling the work is too much for a leak", () => {
-    show(leak);
-    expect(screen.queryAllByRole("button")).toEqual([]);
+  it("names where the piece comes from and the lanes it reached, with the three choices", () => {
+    show(agent);
+    expect(screen.getByText("~/.claude/agents/reviewer.md")).toBeTruthy();
+    const reached = within(screen.getByRole("list", { name: "Lanes it reached" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
+    expect(reached).toEqual(["lane-1 · Add the retry budget", "lane-2 · wo-2"]);
+    const choices = within(screen.getByRole("list", { name: "Choices" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent ?? "");
+    expect(choices[0]).toMatch(/^Accept it for this machine's lanes: /);
+    expect(choices[1]).toMatch(/^Run this machine's lanes in a separate configuration directory: not available yet, a follow-up adds it\./);
+    expect(choices[2]).toMatch(/^Remove it from my own setup: /);
+    expect(screen.getByText(/Lanes keep running while this waits/)).toBeTruthy();
+  });
+
+  it("leads with Accept when the card recommends accepting, and records it for the machine and version", async () => {
+    const sent = serveApi((call) => (call.method === "POST" && call.path === "/v1/workers/worker-a/personal-setup/acceptances" ? { status: 204 } : undefined));
+    const after = vi.fn(async () => {});
+    show(agent, after);
+    expect(screen.getByText(/Recommended: accept it for this machine's lanes, because it adds context/)).toBeTruthy();
+    const accept = screen.getByRole("button", { name: "Accept it for this machine's lanes" });
+    expect(accept.className).toMatch(/primary/);
+    await userEvent.click(accept);
+    await waitFor(() => expect(after).toHaveBeenCalled());
+    expect(sent.find((call) => call.method === "POST")?.body).toEqual({ version: "2.1.330", kind: "agent", name: "reviewer" });
+  });
+
+  it("recommends the separate directory for an MCP server, so Accept does not lead", () => {
+    show(server);
+    expect(screen.getByText(/Recommended: run this machine's lanes in a separate configuration directory, because/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept it for this machine's lanes" }).className).not.toMatch(/primary/);
   });
 });

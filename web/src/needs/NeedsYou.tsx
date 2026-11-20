@@ -25,6 +25,7 @@ import { contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, 
 import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { PlanRevisionCard } from "./PlanRevisionCard";
 import { QuestionBatch } from "./QuestionBatch";
+import { PersonalSetupCard } from "./PersonalSetup";
 import { RepositoryCreationCard } from "./RepositoryCreationCard";
 import type { Answered } from "./QuestionBatch";
 import { SpendCard } from "./SpendCard";
@@ -75,6 +76,8 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
       return <SpendCard need={item.spend} after={after} frame={frame} />;
     case "repository_creation":
       return <RepositoryCreationCard need={item.repository_creation} after={after} frame={frame} onResolved={settled.onResolved} />;
+    case "personal_setup":
+      return <PersonalSetupCard need={item.personal_setup} after={after} frame={frame} />;
     case "confirm":
       return <ConfirmCard need={item.card} after={after} frame={frame} {...assistant} />;
   }

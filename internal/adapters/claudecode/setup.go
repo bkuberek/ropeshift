@@ -18,6 +18,7 @@ import (
 //
 // [TypeScript SDK]: https://code.claude.com/docs/en/agent-sdk/typescript
 type initReport struct {
+	Version    string   `json:"claude_code_version"`
 	Model      string   `json:"model"`
 	Tools      []string `json:"tools"`
 	MCPServers []struct {
@@ -160,7 +161,7 @@ func (c setupContext) shown(path string) string {
 
 // of turns a session's init into what it loaded, with where each MCP server came from and the member's own pieces.
 func (c setupContext) of(init initReport) *lanes.Setup {
-	out := &lanes.Setup{Model: init.Model, Tools: init.Tools, Agents: init.Agents, Skills: init.Skills}
+	out := &lanes.Setup{Version: init.Version, Model: init.Model, Tools: init.Tools, Agents: init.Agents, Skills: init.Skills}
 	for _, server := range init.MCPServers {
 		from := server.Source
 		switch {

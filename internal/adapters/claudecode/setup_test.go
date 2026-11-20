@@ -29,7 +29,7 @@ func TestTheInitNamesWhatTheSessionLoadedAndWhatOfItIsTheMembers(t *testing.T) {
 	writeFile(t, filepath.Join(spec.Dir, ".claude", "settings.json"), `{"enabledPlugins":{"team-tools@market":true}}`)
 	spec.Base = committed(t, spec.Dir, map[string]string{".mcp.json": `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}`})
 	s := &session{events: make(chan ports.DriverEvent, 4), setup: setupContextOf(spec)}
-	s.take([]byte(`{"type":"system","subtype":"init","session_id":"s-1","model":"claude-opus-5-5",
+	s.take([]byte(`{"type":"system","subtype":"init","session_id":"s-1","model":"claude-opus-5-5","claude_code_version":"2.1.330",
 		"tools":["Read","Bash","mcp__github__issues"],
 		"mcp_servers":[{"name":"ropeshift","status":"connected","source":"dynamic"},{"name":"docs","status":"connected","source":"dynamic"},
 			{"name":"github","status":"connected","source":"user"},{"name":"claude.ai Gmail","status":"connected","source":"claudeai"}],
@@ -45,7 +45,7 @@ func TestTheInitNamesWhatTheSessionLoadedAndWhatOfItIsTheMembers(t *testing.T) {
 		{Name: "ropeshift", From: lanes.FromRopeshift}, {Name: "docs", From: lanes.FromRepository},
 		{Name: "github", From: "user"}, {Name: "claude.ai Gmail", From: "claudeai"},
 	}
-	if got.Model != "claude-opus-5-5" || !slices.Equal(got.MCPServers, wantServers) || !slices.Equal(got.Plugins, []string{"formatter", "team-tools"}) ||
+	if got.Model != "claude-opus-5-5" || got.Version != "2.1.330" || !slices.Equal(got.MCPServers, wantServers) || !slices.Equal(got.Plugins, []string{"formatter", "team-tools"}) ||
 		!slices.Equal(got.Tools, []string{"Read", "Bash", "mcp__github__issues"}) || len(got.Agents) != 4 || len(got.Skills) != 2 {
 		t.Errorf("the session loaded %+v", got)
 	}

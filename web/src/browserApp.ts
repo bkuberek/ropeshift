@@ -131,24 +131,23 @@ function otherCards(): NeedItem[] {
     },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
-    // A lane whose session loaded the member's own setup is an item of its own, named by the lane.
+    // A piece of the member's own setup that leaked is an item of its own for its machine, version, and piece.
     {
-      ...stalled,
-      id: "lane-wo-leaky",
-      work: {
-        ...stalled.work,
-        reason: "personal_setup",
-        detail: "Your own MCP server github (user) and agent reviewer (~/.claude/agents/reviewer.md) loaded in lane lane-wo-leaky.",
-        work_order: stalled.work.work_order && { ...stalled.work.work_order, id: "wo-leaky", title: "Work order wo-leaky" },
-        lane: stalled.work.lane && { ...stalled.work.lane, id: "lane-wo-leaky", work_order: "wo-leaky", conditions: [] },
-        personal: [
-          { kind: "mcp_server", name: "github", from: "user" },
-          { kind: "agent", name: "reviewer", from: "~/.claude/agents/reviewer.md" },
+      kind: "personal_setup",
+      id: "worker-a/2.1.330/mcp_server/github",
+      since: lapsed.since,
+      personal_setup: {
+        worker: "worker-a",
+        version: "2.1.330",
+        piece: { kind: "mcp_server", name: "github", from: "user" },
+        lanes: [
+          { id: "lane-wo-stalled", work_order: "wo-stalled", title: stalled.work.work_order?.title },
+          { id: "lane-wo-leaky", work_order: "wo-leaky" },
         ],
-        recommendation: "ignore",
+        recommendation: "separate_directory",
         recommendation_rationale:
-          "the lane's rules and hooks still hold every call it makes, but an MCP server or a plugin of yours can reach outside the lane with your own access, so keep it out of the next lanes",
-        actions: [],
+          "it can run commands or reach data outside the project with no person watching, and a separate configuration directory keeps it out of unattended lanes without changing your own sessions",
+        actions: ["setup_accept"],
       },
     },
     history(

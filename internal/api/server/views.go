@@ -288,9 +288,6 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 	if err := stuckOrchestrators(tx, add); err != nil {
 		return nil, err
 	}
-	if err := personalSetups(tx, f, add); err != nil {
-		return nil, err
-	}
 	slices.SortStableFunc(items, func(a, b api.StuckItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
 }
@@ -568,6 +565,11 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	items = append(items, history...)
+	setups, err := personalSetupNeeds(tx, f)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, setups...)
 	slices.SortStableFunc(items, func(a, b api.NeedItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
 }

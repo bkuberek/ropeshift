@@ -183,6 +183,7 @@ type handler struct {
 	sessions     *control.Sessions
 	approvals    *control.Approvals
 	autonomy     *control.Autonomy
+	setups       *control.PersonalSetups
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
@@ -286,6 +287,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.paneRoutes(mux)
 	h.projectRosterRoutes(mux)
 	h.conversationRoutes(mux)
+	h.personalSetupRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
 	mux.HandleFunc("POST "+api.BackupDownloadPath, h.member(h.downloadBackup))
 	mux.HandleFunc("GET "+api.AuditPath, h.projectAudit)
@@ -341,6 +343,7 @@ func newHandler(config Config) *handler {
 		sessions:      control.NewSessions(config.Store, config.Identity),
 		approvals:     control.NewApprovals(config.Store),
 		autonomy:      control.NewAutonomy(config.Store),
+		setups:        control.NewPersonalSetups(config.Store),
 		effects:       control.NewEffects(config.Store),
 		repositories:  repositories,
 		practices:     practices,
