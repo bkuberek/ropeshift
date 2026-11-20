@@ -749,6 +749,33 @@ describe("the floor", () => {
     expect(cell(tr, "Generation")?.textContent).toBe("1");
   });
 
+  it("lists live lanes first, working before waiting on a person before parked before the rest, and holds ended lanes in a collapsed group", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const waiting = view.lanes.find((lane) => lane.id === "lane-wo-effect");
+      if (!waiting) {
+        throw new Error("the golden floor holds no lane-wo-effect");
+      }
+      waiting.actual_state = "needs_decision";
+    });
+    openPage("/floor");
+    await row("lane-wo-running");
+    const lanes = [...document.querySelectorAll<HTMLElement>("tr[data-lane]")];
+    const live = lanes.filter((tr) => !tr.closest("details")).map((tr) => tr.dataset.lane);
+    expect(live).toEqual(["lane-wo-approval", "lane-wo-lapsed", "lane-wo-running", "lane-wo-stalled", "lane-wo-effect", "lane-wo-parked", "lane-wo-tripped"]);
+    const ended = document.querySelector<HTMLDetailsElement>("details.ended-lanes");
+    expect(ended).not.toBeNull();
+    expect(ended?.querySelector("summary")?.textContent).toBe("Ended (7)");
+    expect(ended?.open).toBe(false);
+    expect(
+      lanes
+        .filter((tr) => tr.closest("details"))
+        .map((tr) => tr.dataset.lane)
+        .sort(),
+    ).toEqual(["lane-generated-2", "lane-generated-3", "lane-generated-4", "lane-wo-accept", "lane-wo-blocked", "lane-wo-done", "lane-wo-failed"]);
+    await userEvent.click(within(ended as HTMLElement).getByText("Ended (7)"));
+    expect(ended?.open).toBe(true);
+  });
+
   it("shows a lane's CPU and memory as its worker's last report measured its session", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
       for (const line of view.workers) {

@@ -22,6 +22,7 @@ import { ReviewOf } from "./ReviewOf";
 import { HeldTag } from "./StartHeld";
 import { StartWork, startOf } from "./StartWork";
 import { OpenRunWindow } from "./RunWindow";
+import { splitLanes } from "./laneOrder";
 import { counting, laneLabel, orchestratorLabel } from "./states";
 import { WorkActionDialog } from "./WorkActions";
 import type { RecoverAction } from "./recoverSpecs";
@@ -179,6 +180,23 @@ function LaneTable({ rows, label, report, after }: { rows: Row[]; label: string;
   );
 }
 
+// Lanes lists the live lanes of a machine, working first, then those that wait on a person, then parked ones, and
+// holds the ended lanes in a group that is closed until a member opens it.
+function Lanes({ rows, label, report, after }: { rows: Row[]; label: string; report?: ResourceReport; after: () => Promise<void> }) {
+  const { live, ended } = splitLanes(rows);
+  return (
+    <>
+      {live.length ? <LaneTable rows={live} label={label} report={report} after={after} /> : null}
+      {ended.length ? (
+        <details className="disclosure ended-lanes">
+          <summary>Ended ({ended.length})</summary>
+          <LaneTable rows={ended} label={`Ended lanes: ${label}`} report={report} after={after} />
+        </details>
+      ) : null}
+    </>
+  );
+}
+
 // Machine is one worker's panel: its name, its orchestrator, its lanes against its cap, what its worker last
 // measured of the machine, how fresh its word is, and its lanes.
 function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: () => Promise<void> }) {
@@ -244,7 +262,7 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
           ) : null}
         </Freshness>
       </div>
-      {rows.length ? <LaneTable rows={rows} label={`Lanes on ${name}`} report={worker.report} after={after} /> : <p className="panel-body muted">No lane runs on {name}.</p>}
+      {rows.length ? <Lanes rows={rows} label={`Lanes on ${name}`} report={worker.report} after={after} /> : <p className="panel-body muted">No lane runs on {name}.</p>}
     </section>
   );
 }
@@ -344,7 +362,7 @@ function FloorBody({
           <div className="worker-head">
             <h2 className="worker-name">On no machine yet</h2>
           </div>
-          <LaneTable rows={loose} label="Lanes on no machine" after={after} />
+          <Lanes rows={loose} label="Lanes on no machine" after={after} />
         </section>
       ) : null}
     </div>
