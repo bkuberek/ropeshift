@@ -1,8 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
-import { ApiError, followPane, paneKeys, paneRefusal, pressPaneKey, typeIntoPane } from "../api/client";
-import type { PaneKey } from "../api/client";
+import { followPane, paneRefusal } from "../api/client";
 import { readView } from "../api/client";
 import type { PaneLane, PaneScreen, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
@@ -13,11 +12,15 @@ import { SpendPanel } from "../floor/SpendPanel";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
 import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
+import type { TargetKind } from "../ui/display";
 import { AskedQuestions } from "../planning/AskedQuestions";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
+import { chordOf, isRelease, releaseKey } from "./chords";
+import { KeyCaps, KeyComposer } from "./KeyComposer";
 import { LaneMessages } from "./Messages";
 import { parseScreen, trimScreen } from "./screen";
+import { PaneSender } from "./sender";
 import { startingMs } from "./starting";
 
 // retryMs is how long the page waits before it opens a pane's stream again: after the stream closed
@@ -36,7 +39,22 @@ function neverStarted(lane: string): string {
 }
 
 // The keys an empty field sends to the session, so a person can answer a menu without leaving it.
-const fieldKeys: Record<string, PaneKey> = { Enter: "Enter", Escape: "Escape", ArrowUp: "Up", ArrowDown: "Down" };
+const fieldKeys: Record<string, string> = { Enter: "Enter", Escape: "Escape", ArrowUp: "Up", ArrowDown: "Down" };
+
+// The keys the key row holds: the label it shows, its name where the label is a glyph, and the key sequence
+// it sends. Keys... sends any other combination or sequence.
+const rowKeys: { label: string; name?: string; keys: string }[] = [
+  { label: "Esc", keys: "Escape" },
+  { label: "Tab", keys: "Tab" },
+  { label: "Shift-Tab", keys: "Shift-Tab" },
+  { label: "Enter", keys: "Enter" },
+  { label: "Ctrl-C", keys: "Ctrl-C" },
+  { label: "Ctrl-O", keys: "Ctrl-O" },
+  { label: "↑", name: "Up", keys: "Up" },
+  { label: "↓", name: "Down", keys: "Down" },
+  { label: "←", name: "Left", keys: "Left" },
+  { label: "→", name: "Right", keys: "Right" },
+];
 
 type Shown =
   | { kind: "opening" }
@@ -141,46 +159,123 @@ function statusOf(shown: Shown): string {
   }
 }
 
-function Screen({ lane, text }: { lane: string; text: string }) {
+// ScreenKeys is how a screen that holds the keyboard sends each key, or null while the pane takes no keys:
+// the person is detached, or the lane has no live pane.
+type ScreenKeys = { send: (chord: string) => void } | null;
+
+// Sends is what the pane's parts send through: keys, and lines of text.
+type Sends = Pick<PaneSender, "keys" | "text">;
+
+const plainKey = (event: KeyboardEvent) => !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+
+// Screen is the pane's screen. A click on it, or Enter while it has focus, captures the keys: every key then
+// goes to the session, Tab, Shift-Tab, Escape, and Ctrl combinations included, and single-key shortcuts are
+// off. The release key, a click outside the pane, or Release gives the keys back and leaves focus on the
+// screen, so Tab moves on from there (WCAG 2.1.2, https://www.w3.org/TR/WCAG21/#no-keyboard-trap). Command
+// shortcuts on a Mac stay with the browser and the page. Opening a page never captures keys.
+function Screen({ lane, text, keys }: { lane: string; text: string; keys: ScreenKeys }) {
+  const screen = useRef<HTMLPreElement>(null);
+  const [captured, setCaptured] = useState(false);
+  useEffect(() => {
+    if (!keys) {
+      setCaptured(false);
+    }
+  }, [keys]);
+  const holding = captured && keys !== null;
+
+  const release = () => {
+    setCaptured(false);
+    screen.current?.focus();
+  };
+  // A click that ends a selection leaves the keys with the page, so the selection can be copied.
+  const click = () => {
+    const selection = window.getSelection();
+    if (keys && (!selection || selection.isCollapsed)) {
+      setCaptured(true);
+    }
+  };
+  const keyDown = (event: KeyboardEvent<HTMLPreElement>) => {
+    if (!keys) {
+      return;
+    }
+    if (!holding) {
+      if (event.key === "Enter" && plainKey(event)) {
+        event.preventDefault();
+        setCaptured(true);
+      }
+      return;
+    }
+    if (isRelease(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setCaptured(false);
+      return;
+    }
+    const chord = chordOf(event);
+    if (chord === null) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    keys.send(chord);
+  };
+
   return (
-    // The whole screen changes at once, so a screen reader reads it when asked and the status line says
-    // what changed.
-    <pre className="pane-screen" role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0}>
-      {parseScreen(trimScreen(text)).map((run, at) => (
-        <span key={at} className={run.className || undefined}>
-          {run.text}
-        </span>
-      ))}
-    </pre>
+    <div className={holding ? "pane-frame is-captured" : "pane-frame"}>
+      {holding ? (
+        <div className="pane-capture">
+          <span>
+            Keys go to the session. <KeyCaps sequence={releaseKey} /> releases.
+          </span>
+          <span className="spacer" />
+          <button className="btn btn-sm" type="button" onMouseDown={(event) => event.preventDefault()} onClick={release}>
+            Release
+          </button>
+        </div>
+      ) : null}
+      {/* The whole screen changes at once, so a screen reader reads it when asked and the status line says
+          what changed. While it holds the keys it is an application, so a screen reader passes them on, and
+          its name says how to leave. */}
+      <pre
+        ref={screen}
+        className="pane-screen"
+        role={holding ? "application" : "log"}
+        aria-label={holding ? `Screen of lane ${lane}. Keys go to the session; ${releaseKey} releases them.` : `Screen of lane ${lane}`}
+        aria-live="off"
+        tabIndex={0}
+        title={keys ? `Click, or press Enter, to send keys to the session. ${releaseKey} releases them.` : undefined}
+        onClick={click}
+        onKeyDown={keyDown}
+        onBlur={() => setCaptured(false)}
+      >
+        {parseScreen(trimScreen(text)).map((run, at) => (
+          <span key={at} className={run.className || undefined}>
+            {run.text}
+          </span>
+        ))}
+      </pre>
+    </div>
   );
 }
 
-// Typing sends one input after another, in order, so no key overtakes the text before it.
-function Typing({ lane, live }: { lane: string; live: boolean }) {
+// Typing is the key row, the composer it opens, and the line field. Everything goes through the pane's one
+// sender, so no key overtakes the text before it.
+function Typing({ lane, live, sender }: { lane: string; live: boolean; sender: Sends }) {
   const field = useRef<HTMLInputElement>(null);
+  const keysButton = useRef<HTMLButtonElement>(null);
   const hint = useId();
+  const composer = useId();
   const [text, setText] = useState("");
   const [enter, setEnter] = useState(true);
-  const [failure, setFailure] = useState("");
-  const queue = useRef<Promise<void>>(Promise.resolve());
+  const [composing, setComposing] = useState(false);
   // The command palette puts the keyboard in the field, and sends nothing.
   usePageActions(live ? [{ key: `action:pane-keys:${lane}`, group: "Actions", id: lane, title: `Send keys to the pane of lane ${lane}`, icon: "terminal", keywords: "type input session", run: () => field.current?.focus() }] : []);
 
-  const send = (input: () => Promise<unknown>) => {
-    setFailure("");
-    queue.current = queue.current.then(async () => {
-      try {
-        await input();
-      } catch (error) {
-        setFailure(error instanceof ApiError ? error.message : String(error));
-      }
-    });
-    field.current?.focus();
-  };
-  const press = (key: PaneKey) => {
+  const press = (keys: string) => {
     if (live) {
-      send(() => pressPaneKey(lane, key));
+      sender.keys(...keys.split(" "));
     }
+    field.current?.focus();
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -189,65 +284,79 @@ function Typing({ lane, live }: { lane: string; live: boolean }) {
     }
     const line = text;
     setText("");
-    send(() => typeIntoPane(lane, line, enter));
+    sender.text(line, enter);
+    field.current?.focus();
   };
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     const key = fieldKeys[event.key];
-    if (key && text === "" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (key && text === "" && plainKey(event)) {
       event.preventDefault();
       press(key);
     }
   };
 
   return (
-    <form className="pane-input" onSubmit={submit} data-keys="own">
-      <label className="field">
-        <span className="label">Type into the session</span>
-        <input
-          ref={field}
-          className="input mono"
-          type="text"
-          value={text}
-          autoComplete="off"
-          spellCheck={false}
-          aria-describedby={hint}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={keyDown}
-        />
-      </label>
-      <p className="muted" id={hint}>
-        With the field empty, Enter, Escape, and the up and down arrows go to the session.
-      </p>
-      <label className="pane-check check-row">
-        <input type="checkbox" checked={enter} onChange={(event) => setEnter(event.target.checked)} />
-        Press Enter after the text
-      </label>
-      <div className="row">
-        <button className="btn btn-primary" type="submit" disabled={!live || text === ""}>
-          Send
-        </button>
-      </div>
+    <div className="pane-input">
       <div className="row-tight pane-keys" role="group" aria-label="Press a key">
-        {paneKeys.map((key) => (
+        {rowKeys.map((key) => (
           <button
-            key={key}
+            key={key.keys}
             className="btn btn-sm"
             type="button"
+            aria-label={key.name}
             disabled={!live}
             // A press with the pointer leaves the keyboard in the field.
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => press(key)}
+            onClick={() => press(key.keys)}
           >
-            {key}
+            {key.label}
           </button>
         ))}
+        <button ref={keysButton} className="btn btn-sm" type="button" aria-expanded={composing} aria-controls={composer} onClick={() => setComposing((was) => !was)}>
+          Keys…
+        </button>
       </div>
-      {failure ? (
-        <p className="msg msg-error refusal" role="alert">
-          {failure}
+      <div id={composer}>
+        {composing ? (
+          <KeyComposer
+            live={live}
+            onSend={(chords) => sender.keys(...chords)}
+            onClose={() => {
+              setComposing(false);
+              keysButton.current?.focus();
+            }}
+          />
+        ) : null}
+      </div>
+      <form className="pane-line" onSubmit={submit} data-keys="own">
+        <label className="field">
+          <span className="label">Type into the session</span>
+          <input
+            ref={field}
+            className="input mono"
+            type="text"
+            value={text}
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby={hint}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={keyDown}
+          />
+        </label>
+        <p className="muted" id={hint}>
+          With the field empty, Enter, Escape, and the up and down arrows go to the session.
         </p>
-      ) : null}
-    </form>
+        <label className="pane-check check-row">
+          <input type="checkbox" checked={enter} onChange={(event) => setEnter(event.target.checked)} />
+          Press Enter after the text
+        </label>
+        <div className="row">
+          <button className="btn btn-primary" type="submit" disabled={!live || text === ""}>
+            Send
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -255,12 +364,44 @@ function Typing({ lane, live }: { lane: string; live: boolean }) {
 // typing away and leaves the screen, and the state the ledger gives the lane, which labels the last screen
 // received when the lane is parked and has no process to show. A page sent to a lane that was just started
 // gives the time of the start, so the pane waits for the ledger to hold it; 0 says the lane was not just started.
-export function LanePane({ lane, live, attached = true, state = "", startedAt = 0 }: { lane: string; live: Live; attached?: boolean; state?: string; startedAt?: number }) {
+// The target colours the ring the screen takes while it holds the keys.
+export function LanePane({
+  lane,
+  live,
+  attached = true,
+  state = "",
+  startedAt = 0,
+  target = "lane",
+}: {
+  lane: string;
+  live: Live;
+  attached?: boolean;
+  state?: string;
+  startedAt?: number;
+  target?: TargetKind;
+}) {
   const shown = usePane(lane, live, startedAt);
+  const [failure, setFailure] = useState("");
+  // Each input clears the last refusal, and a refusal of this one shows in its place.
+  const sender = useMemo<Sends>(() => {
+    const pane = new PaneSender(lane, setFailure);
+    return {
+      keys: (...chords) => {
+        setFailure("");
+        pane.keys(...chords);
+      },
+      text: (text, enter) => {
+        setFailure("");
+        pane.text(text, enter);
+      },
+    };
+  }, [lane]);
+  const typing = attached && shown.kind === "screen";
+  const keys = useMemo<ScreenKeys>(() => (typing ? { send: (chord) => sender.keys(chord) } : null), [typing, sender]);
   const screen = shown.kind === "screen" || shown.kind === "away" || shown.kind === "refused" ? shown.screen : "";
   const parked = shown.kind !== "screen" && (state === "parked" || (shown.kind === "away" && shown.state === "parked"));
   return (
-    <section className="pane" aria-label={`Pane of lane ${lane}`} data-keys="own">
+    <section className={`pane t-${target}`} aria-label={`Pane of lane ${lane}`} data-keys="own">
       <p className="pane-status" role="status">
         {statusOf(shown)}
       </p>
@@ -277,8 +418,13 @@ export function LanePane({ lane, live, attached = true, state = "", startedAt = 
           <span className="small muted">The last screen this page received.</span>
         </p>
       ) : null}
-      {screen ? <Screen lane={lane} text={screen} /> : null}
-      {attached ? <Typing lane={lane} live={shown.kind === "screen"} /> : null}
+      {screen ? <Screen lane={lane} text={screen} keys={keys} /> : null}
+      {attached ? <Typing lane={lane} live={typing} sender={sender} /> : null}
+      {failure ? (
+        <p className="msg msg-error refusal" role="alert">
+          {failure}
+        </p>
+      ) : null}
     </section>
   );
 }

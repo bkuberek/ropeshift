@@ -1073,6 +1073,68 @@ details.older[open] > summary {
   gap: var(--s-4);
 }
 
+.pane-line {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+.pane-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: var(--r-6);
+}
+
+/* While the screen holds the keys, the pane's frame takes a ring in its target's colour, and a strip above
+   the screen names the release key. */
+.pane-frame.is-captured {
+  outline: 2px solid var(--t);
+  outline-offset: 2px;
+}
+
+.pane-frame.is-captured .pane-screen {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.pane-frame.is-captured .pane-screen:focus-visible {
+  outline: none;
+}
+
+.pane-capture {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  padding: var(--s-4) var(--s-12);
+  font-size: var(--fs-12);
+  background: var(--t-bg);
+  color: var(--t);
+  border-radius: var(--r-6) var(--r-6) 0 0;
+}
+
+.pane-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+  padding: var(--s-8) var(--s-12);
+  border: 1px solid var(--border);
+  border-radius: var(--r-6);
+  background: var(--surface-2);
+}
+
+.pane-caps {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-8);
+}
+
+.pane-chord {
+  display: inline-flex;
+  gap: 2px;
+}
+
 /* The shortcut sheet */
 .sheet {
   display: flex;

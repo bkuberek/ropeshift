@@ -112,4 +112,10 @@ describe("the shortcut sheet", () => {
     const other = shortcutList(false).flatMap((group) => group.rows.map((row) => row.keys.join(" ")));
     expect(other).toContain("Ctrl K");
   });
+
+  it("says how a lane's pane takes the keys and how to give them back (WCAG 2.1.2)", () => {
+    const pane = shortcutList(false).find((group) => group.name === "Lane pane");
+    expect(pane?.rows.map((row) => row.keys.join(" "))).toEqual(["Enter", "Ctrl ]"]);
+    expect(pane?.rows[1]?.does).toMatch(/gives the keys back/i);
+  });
 });
