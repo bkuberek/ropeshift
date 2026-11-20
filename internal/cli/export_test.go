@@ -48,6 +48,9 @@ var (
 	LaneDetail     = laneDetail
 )
 
+// ApprovalSubject is what an approval row says it is about.
+var ApprovalSubject = approvalSubject
+
 // TalkLine is what a stream's entry reads as in a terminal, and Plain a word from an agent or a member made safe
 // to print.
 var (

@@ -234,3 +234,37 @@ func TestAChangedRepositoryRecordReachesDeliveriesAfterAHeartbeat(t *testing.T) 
 		t.Errorf("after a heartbeat the lookup finds %+v", found)
 	}
 }
+
+// A repository registered before branch names grew stricter, whose stored base branch holds a no-break space, still
+// takes a change that keeps that base branch, and refuses a new base branch that holds one.
+func TestAStoredBaseBranchWithANoBreakSpaceStillTakesAChangeThatKeepsIt(t *testing.T) {
+	t.Parallel()
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	err := r.stores["pa"].Write(t.Context(), "pa", "test.register", func(tx ports.WriteTx) error {
+		record := ledger.NewRepository("repository-1")
+		record.BaseBranch = "release\u00a0one"
+		if _, err := tx.Repositories().Insert(record); err != nil {
+			return err
+		}
+		if err := tx.Repositories().Settings(record); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventRepositoryRegistered, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"},
+			Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: "repository-1"}, Data: []byte(`{}`),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositories := control.NewRepositories(r.stores["pa"])
+	method := ledger.MergeSquash
+	if _, err := repositories.Change(t.Context(), "pa", "repository-1", control.RepositoryChange{MergeMethod: &method}, projectMember); err != nil {
+		t.Errorf("a change that keeps the stored base branch is refused: %v", err)
+	}
+	next := "next\u00a0one"
+	if _, err := repositories.Change(t.Context(), "pa", "repository-1", control.RepositoryChange{Base: &next}, projectMember); err == nil {
+		t.Error("a new base branch with a no-break space was taken")
+	}
+}

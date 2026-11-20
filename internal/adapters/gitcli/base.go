@@ -24,6 +24,8 @@ func (w Worktrees) BaseTip(ctx context.Context, repository, branch string) (port
 	unavailable := func(format string, args ...any) (ports.BaseTip, error) {
 		return ports.BaseTip{}, fmt.Errorf("%w: "+format, append([]any{ports.ErrBaseUnavailable}, args...)...)
 	}
+	// A base branch that holds a character git or the forge reads differently from what a person sees starts no lane,
+	// however it was stored.
 	if err := ledger.CheckBranch(branch); err != nil {
 		return unavailable("%v", err)
 	}
@@ -35,7 +37,7 @@ func (w Worktrees) BaseTip(ctx context.Context, repository, branch string) (port
 	if remote == "" {
 		commit, err := git.Commit(ctx, "refs/heads/"+branch)
 		if err != nil {
-			return unavailable("this repository has no branch %s", branch)
+			return unavailable("this repository has no branch %s", ledger.PlainText(branch))
 		}
 		return ports.BaseTip{Ref: branch, Commit: commit}, nil
 	}
@@ -43,11 +45,11 @@ func (w Worktrees) BaseTip(ctx context.Context, repository, branch string) (port
 	fetching, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	if err := git.Fetch(fetching, "--quiet", "--no-tags", remote, "+refs/heads/"+branch+":"+tracking); err != nil {
-		return unavailable("fetching %s from %s: %v", branch, remote, err)
+		return unavailable("fetching %s from %s: %v", ledger.PlainText(branch), remote, err)
 	}
 	commit, err := git.Commit(ctx, tracking)
 	if err != nil {
-		return unavailable("%s holds no branch %s", remote, branch)
+		return unavailable("%s holds no branch %s", remote, ledger.PlainText(branch))
 	}
 	return ports.BaseTip{Ref: remote + "/" + branch, Commit: commit}, nil
 }

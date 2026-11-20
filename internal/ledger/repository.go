@@ -245,8 +245,21 @@ func (r Repository) Base() string {
 	return r.DefaultBranch
 }
 
-// Validate refuses a record that holds a setting nobody offers, or settings that cannot hold together.
-func (r Repository) Validate() error {
+// Validate refuses a record that holds a setting nobody offers, or settings that cannot hold together. Its base branch
+// is checked as a new name, with CheckBranch.
+func (r Repository) Validate() error { return r.validate(CheckBranch) }
+
+// ValidateChange refuses a change to a repository as Validate does, except that a base branch the change keeps is read
+// as a stored name, with CheckStoredBranch, so a repository registered before branch names grew stricter can still be
+// changed. A base branch the change sets is a new name, checked with CheckBranch.
+func (r Repository) ValidateChange(before Repository) error {
+	if r.BaseBranch == before.BaseBranch {
+		return r.validate(CheckStoredBranch)
+	}
+	return r.validate(CheckBranch)
+}
+
+func (r Repository) validate(checkBase func(string) error) error {
 	if r.CI.Custom {
 		if err := r.CI.Check(); err != nil {
 			return err
@@ -283,7 +296,7 @@ func (r Repository) Validate() error {
 		return fmt.Errorf("%w: state %q", ErrInvalidRepository, r.State)
 	}
 	if r.BaseBranch != "" {
-		if err := CheckBranch(r.BaseBranch); err != nil {
+		if err := checkBase(r.BaseBranch); err != nil {
 			return err
 		}
 	}
@@ -305,10 +318,32 @@ func (r Repository) Validate() error {
 // and spaces.
 const forbiddenInBranch = "~^:?*[\\"
 
-// CheckBranch refuses a name git would not take as a branch, because it goes to git as an argument. It also refuses
-// names git takes but reads as something else where a branch is pushed or resolved: HEAD and FETCH_HEAD, which name
-// git's own refs, a leading plus, which a push reads as a forced refspec, and a refs/ prefix, which names a full ref.
+// CheckBranch refuses a branch name ropeshift takes for git, a new one or one it reads to run git with: one
+// CheckStoredBranch refuses, one that holds a character that is not seen, and one that holds whitespace of any kind.
 func CheckBranch(name string) error {
+	if err := CheckStoredBranch(name); err != nil {
+		return err
+	}
+	bad := func(why string) error { return fmt.Errorf("%w: branch %q %s", ErrInvalidRepository, name, why) }
+	for _, r := range name {
+		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
+		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
+		if ControlOrFormatRune(r) {
+			return bad("holds a character that is not seen")
+		}
+		if unicode.IsSpace(r) {
+			return bad("holds whitespace")
+		}
+	}
+	return nil
+}
+
+// CheckStoredBranch refuses a branch name that is empty or @; that is HEAD or FETCH_HEAD; that starts with a dash, a
+// plus, or refs/; that starts or ends with a slash or holds two; that holds .., @{, an ASCII control character, DEL,
+// an ASCII space, or one of ~^:?*[\; that ends with a dot; or that has a part that starts with a dot or ends with
+// .lock. It keeps a character that is not seen and whitespace other than an ASCII space, which CheckBranch refuses,
+// so a base branch a repository kept from before CheckBranch refused them passes a change that keeps it.
+func CheckStoredBranch(name string) error {
 	bad := func(why string) error { return fmt.Errorf("%w: branch %q %s", ErrInvalidRepository, name, why) }
 	switch {
 	case name == "":
@@ -333,14 +368,6 @@ func CheckBranch(name string) error {
 	for _, r := range name {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(forbiddenInBranch, r) {
 			return bad("holds a character git refuses")
-		}
-		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
-		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
-		if ControlOrFormatRune(r) {
-			return bad("holds a character that is not seen")
-		}
-		if unicode.IsSpace(r) {
-			return bad("holds whitespace")
 		}
 	}
 	for part := range strings.SplitSeq(name, "/") {

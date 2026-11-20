@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -674,19 +675,20 @@ func TestARepositoryCreationCheckSaysWhereThePathLeads(t *testing.T) {
 	}
 }
 
-// slowSignIn holds the first read of the sign-in until the test lets it go, and says when it began.
+// slowSignIn holds the first read of the sign-in until the test lets it go, and says when it began. Every later read
+// answers at once.
 type slowSignIn struct {
 	*fake.ForgeAccounts
-	once    sync.Once
+	first   atomic.Bool
 	began   chan struct{}
 	release chan struct{}
 }
 
 func (f *slowSignIn) Account(ctx context.Context, host string) (ports.ForgeAccount, error) {
-	f.once.Do(func() {
+	if f.first.CompareAndSwap(false, true) {
 		close(f.began)
 		<-f.release
-	})
+	}
 	return f.ForgeAccounts.Account(ctx, host)
 }
 
@@ -723,5 +725,101 @@ func TestARealRunsCheckWaitsForAPreviewsCheck(t *testing.T) {
 	}
 	if checked := <-runDone; checked.Refusal != nil || checked.URL == "" {
 		t.Errorf("the real run's check is %+v, want it to pass once the preview is done", checked)
+	}
+}
+
+// A real run's check that waits for a folder a preview holds, and whose context ends first, returns without taking the
+// folder, so a check after the preview takes it.
+func TestAWaitingCheckWhoseContextEndsTakesNoFolder(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	forge := &slowSignIn{ForgeAccounts: r.forge, began: make(chan struct{}), release: make(chan struct{})}
+	creator := r.creator(forge)
+	preview := creation("/work/tt/repos/api")
+	previewDone := make(chan struct{})
+	go func() {
+		defer close(previewDone)
+		_, _ = creator.Check(context.Background(), preview)
+	}()
+	<-forge.began
+	run := preview
+	run.Key, run.Wait = ledger.CreationKey("approval-2", "api"), true
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if checked, err := creator.Check(ctx, run); !errors.Is(err, context.DeadlineExceeded) || checked.Refusal != nil {
+		t.Errorf("the waiting check whose context ended answers %+v (%v), want its context's error", checked, err)
+	}
+	close(forge.release)
+	<-previewDone
+	if checked, err := creator.Check(t.Context(), preview); err != nil || checked.Refusal != nil {
+		t.Errorf("a check after the preview is %+v (%v), want it to take the folder and pass", checked, err)
+	}
+}
+
+// wroteFolders stops the run once it wrote the shape's files and before it journaled the folder it wrote them in, as
+// a worker that dies there does.
+type wroteFolders struct{ *fake.ProjectFolders }
+
+func (f wroteFolders) Write(ctx context.Context, folder string, files []ports.FolderFile, want ports.FolderID) (ports.FolderID, error) {
+	id, err := f.ProjectFolders.Write(ctx, folder, files, want)
+	if len(files) > 0 {
+		runtime.Goexit()
+	}
+	return id, err
+}
+
+// A creation that stopped between writing its files and journaling the folder cannot tell its files from anyone
+// else's, so it is refused, and the refusal says to clear the folder and retry or to skip the creation.
+func TestACreationThatCannotTellItsFilesSaysToClearTheFolderOrSkip(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	job := creation("/work/tt/repos/api")
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		_, _ = r.creatorWith(wroteFolders{r.folders}, r.forge).Create(context.Background(), job)
+	}()
+	<-stopped
+	report := refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedNotEmpty)
+	if !strings.Contains(report.Detail, "clear "+job.Path+" and retry") || !strings.Contains(report.Detail, "skip") {
+		t.Errorf("the refusal says %q, which does not say to clear the folder or skip", report.Detail)
+	}
+}
+
+// unreadableCase answers no read of whether a folder's name in the other case names it.
+type unreadableCase struct{ *fake.Checkouts }
+
+func (c unreadableCase) SameFile(ctx context.Context, a, b string) (bool, error) {
+	if a != b && strings.EqualFold(a, b) {
+		return false, errors.New("permission denied")
+	}
+	return c.Checkouts.SameFile(ctx, a, b)
+}
+
+// When the disk cannot say whether it ignores case, the lock folds the case all the same, so two spellings that differ
+// only in case take turns rather than both writing.
+func TestAFolderWhoseCaseCannotBeReadSharesTheLockAcrossCase(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	forge := &slowSignIn{ForgeAccounts: r.forge, began: make(chan struct{}), release: make(chan struct{})}
+	creator := worker.New(nil, nil, clock.System{}, worker.Config{Name: "atlas", Templates: &worker.TemplateRuntime{
+		Folders: r.folders, Checkouts: unreadableCase{r.kept}, Forge: forge, Render: render, StateDir: r.state,
+	}}).RepositoryCreator()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = creator.Check(context.Background(), creation("/work/tt/repos/api"))
+	}()
+	<-forge.began
+	defer func() {
+		close(forge.release)
+		<-done
+	}()
+	checked, err := creator.Check(t.Context(), creation("/work/tt/repos/API"))
+	if err != nil || checked.Refusal == nil || checked.Refusal.Reason != ledger.TemplateRefusedBusy {
+		t.Errorf("the check of another case is %+v (%v), want refused as path_busy", checked, err)
 	}
 }

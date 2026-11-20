@@ -134,7 +134,7 @@ func (i *Intake) keepRepository(ctx context.Context, scope ledger.WorkspaceID, d
 		if known.Removed() {
 			return errRemoved(known)
 		}
-		if known.Remote == description.Remote && known.DefaultBranch == description.DefaultBranch && known.Name != "" {
+		if known.Remote == description.Remote && known.DefaultBranch == storedDefaultBranch(description.DefaultBranch) && known.Name != "" {
 			return nil
 		}
 	}

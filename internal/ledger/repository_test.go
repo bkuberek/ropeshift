@@ -103,6 +103,42 @@ func TestABranchNameHoldsNoWhitespace(t *testing.T) {
 	}
 }
 
+// A branch name already stored, such as a base branch registered before names grew stricter, keeps a character that
+// is not seen or a Unicode space, and is refused when git refuses it or reads it as an option, one of its own refs, a
+// forced refspec, or a full ref.
+func TestAStoredBranchNameKeepsHiddenCharactersAndRefusesTheRest(t *testing.T) {
+	for _, name := range []string{"main", "release\u00a0one", "ma\u202ein", "ma\u200bin"} {
+		if err := CheckStoredBranch(name); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "-x", "a b", "a..b", "a//b", "a.lock", "a~1", "HEAD", "FETCH_HEAD", "+main", "refs/heads/main"} {
+		if err := CheckStoredBranch(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+// A change to a repository whose stored base branch holds a no-break space keeps it and goes through; a change that
+// sets such a base branch is a new name and is refused.
+func TestAChangeKeepsAStoredBaseBranchAndRefusesANewOneThatIsNotPlain(t *testing.T) {
+	before := NewRepository("r")
+	before.BaseBranch = "release\u00a0one"
+	renamed := before
+	renamed.Name = "renamed"
+	if err := renamed.ValidateChange(before); err != nil {
+		t.Errorf("a change that keeps the stored base branch: %v", err)
+	}
+	moved := NewRepository("r")
+	moved.BaseBranch = "next\u00a0one"
+	if err := moved.ValidateChange(NewRepository("r")); !errors.Is(err, ErrInvalidRepository) {
+		t.Errorf("a change that sets a base branch with a no-break space: %v", err)
+	}
+	if err := renamed.Validate(); !errors.Is(err, ErrInvalidRepository) {
+		t.Errorf("Validate of a base branch with a no-break space: %v", err)
+	}
+}
+
 func TestANewRepositoryLeavesEveryMergeToThePerson(t *testing.T) {
 	r := NewRepository("r")
 	if r.MergeAuthority != PersonMerges {

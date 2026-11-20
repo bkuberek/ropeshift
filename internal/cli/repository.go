@@ -37,7 +37,7 @@ func repositoryLine(view api.RepositoryView) string {
 		name += " (planning)"
 	}
 	return fmt.Sprintf("%s\t%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
-		name, shortRepository(plainLine(view.ID)), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
+		name, shortRepository(plainLine(view.ID)), dashIfEmpty(plainLine(view.Base)), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(plainLine(view.Remote)))
 }
 
 func repositoryText(view api.RepositoryView) string {
@@ -46,12 +46,12 @@ func repositoryText(view api.RepositoryView) string {
 	fmt.Fprintf(&out, "name\t%s\n", dashIfEmpty(view.Name))
 	fmt.Fprintf(&out, "state\t%s\n", cmp.Or(view.State, ledger.RepositoryActive))
 	fmt.Fprintf(&out, "planning repository\t%s\n", planningText(view))
-	fmt.Fprintf(&out, "remote\t%s\n", dashIfEmpty(view.Remote))
-	fmt.Fprintf(&out, "default branch\t%s\n", dashIfEmpty(view.DefaultBranch))
+	fmt.Fprintf(&out, "remote\t%s\n", dashIfEmpty(plainLine(view.Remote)))
+	fmt.Fprintf(&out, "default branch\t%s\n", dashIfEmpty(plainLine(view.DefaultBranch)))
 	if view.BaseBranch == "" {
-		fmt.Fprintf(&out, "base\t%s\t(the default branch)\n", dashIfEmpty(view.Base))
+		fmt.Fprintf(&out, "base\t%s\t(the default branch)\n", dashIfEmpty(plainLine(view.Base)))
 	} else {
-		fmt.Fprintf(&out, "base\t%s\n", view.Base)
+		fmt.Fprintf(&out, "base\t%s\n", plainLine(view.Base))
 	}
 	fmt.Fprintf(&out, "forge binding\t%s\n", dashIfEmpty(view.ForgeBinding))
 	fmt.Fprintf(&out, "merge method\t%s\n", view.MergeMethod)

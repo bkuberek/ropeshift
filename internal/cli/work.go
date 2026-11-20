@@ -299,7 +299,7 @@ func workOrderText(row workorders.WorkOrder) string {
 	out.WriteString(orderLine(row))
 	fmt.Fprintf(&out, "fence\t%d\nworker\t%s\ncontract\t%s@%d\n", row.Fence, row.LeaseWorker, row.ContractID, row.ContractVersion)
 	if row.Base != "" {
-		fmt.Fprintf(&out, "base\t%s\n", row.Base)
+		fmt.Fprintf(&out, "base\t%s\n", plainLine(row.Base))
 	}
 	if hold := row.StartHeld; hold != nil {
 		fmt.Fprintf(&out, "waiting\t%s\t%s\t%s\n", hold.Reason, dashIfEmpty(hold.Dependency), dashIfEmpty(hold.Detail))
