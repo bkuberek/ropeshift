@@ -8,6 +8,7 @@ import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
 import { useView } from "../api/useView";
 import { settingsList } from "../admin/Settings";
+import { RunWindows } from "../floor/ReadyWait";
 import { plainLine } from "../planning/creation";
 import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
@@ -442,6 +443,7 @@ export function App() {
 
   return (
     <ToastProvider>
+      <RunWindows>
       <PageActionsProvider value={setPageEntries}>
       <CurrentProject.Provider value={project}>
         <WaitingCreations.Provider value={waitingCreations}>
@@ -553,6 +555,7 @@ export function App() {
         </WaitingCreations.Provider>
       </CurrentProject.Provider>
       </PageActionsProvider>
+      </RunWindows>
     </ToastProvider>
   );
 }

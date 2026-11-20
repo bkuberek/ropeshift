@@ -181,6 +181,7 @@ export const dialogStates: DialogState[] = [
   { file: "floor/Installation.tsx", title: /^Create join token$/ },
   { file: "floor/Installation.tsx", title: /^Revoke join token$/ },
   { file: "floor/StartWork.tsx", title: /^Start / },
+  { file: "floor/StartAll.tsx", title: /^Start all ready work$/ },
   { file: "floor/WorkActions.tsx", title: /^Cancel this work: / },
   { file: "floor/WorkActions.tsx", title: /^Release the claim: / },
   { file: "floor/WorkActions.tsx", title: /^Archive the worktree: / },

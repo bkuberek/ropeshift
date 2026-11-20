@@ -1061,6 +1061,18 @@
       ]
     }
   ],
+  "ready_waits": {
+    "generated-28": {
+      "reason": "run_window",
+      "worker": "worker-a",
+      "worker_name": "solo"
+    },
+    "review-1": {
+      "reason": "run_window",
+      "worker": "worker-a",
+      "worker_name": "solo"
+    }
+  },
   "reviews": [],
   "revision": 345,
   "unplanned": [

@@ -42,7 +42,7 @@ export function startOf(order: WorkOrder, allowed: Allowance | undefined): Start
 // its cap, and the level that says whether it claims on its own.
 type Choice = { id: string; name: string; connected: boolean | null; lanes: number | null; cap?: number; level?: string };
 
-function labelOf(choice: Choice): string {
+export function labelOf(choice: Choice): string {
   const parts = [choice.name];
   if (choice.connected !== null) {
     parts.push(choice.connected ? "connected" : "last reported");
@@ -62,7 +62,7 @@ type Choices = { choices: Choice[]; group: boolean } | { failure: string } | nul
 // useChoices reads the workers the installation holds, with what the floor and each worker's autonomy say
 // of it, once the dialog opens. A worker the floor or its autonomy cannot be read for is still offered,
 // with less said of it, because the API refuses what a worker may not do.
-function useChoices(): Choices {
+export function useChoices(): Choices {
   const [read, setRead] = useState<Choices>(null);
   useEffect(() => {
     let current = true;

@@ -528,16 +528,59 @@ type WorkAllowance struct {
 	ExtraAttempt bool `json:"extra_attempt,omitempty"`
 }
 
+// Why no worker's orchestrator claims a ready work order (FR-UI-13), as ReadyWait.Reason names it.
+const (
+	// ReadyWaitsForFleet is a fleet a member paused or set to drain, which takes no claim.
+	ReadyWaitsForFleet = "fleet"
+	// ReadyWaitsForSpend is a project past its daily or weekly spend limit.
+	ReadyWaitsForSpend = "spend_limit"
+	// ReadyWaitsForCap is a cap on work in progress, on lanes in the work's repository, or on the lanes of the
+	// worker nearest to claiming it, which ReadyWait.Cap names.
+	ReadyWaitsForCap = "cap"
+	// ReadyWaitsForRunWindow is an attended worker with no run window open.
+	ReadyWaitsForRunWindow = "run_window"
+	// ReadyWaitsForOrchestrator is a worker whose orchestrator no member wants running.
+	ReadyWaitsForOrchestrator = "no_orchestrator"
+	// ReadyWaitsForManual is a manual worker, whose orchestrator claims nothing.
+	ReadyWaitsForManual = "manual"
+	// ReadyWaitsForWorker is work whose needs or lane no worker meets.
+	ReadyWaitsForWorker = "no_worker"
+)
+
+// The caps ReadyWait.Cap names, by the name a fleet's caps or the autonomy policy carry.
+const (
+	CapWorkInProgress     = "wip_limit"
+	CapLanesPerRepository = "lanes_per_repository"
+	CapLanesPerWorker     = "lanes_per_worker"
+	// CapRespawnsPerDay is the bound on the generations a day of a woken lane on a worker below unattended.
+	CapRespawnsPerDay = "attended_max_respawns_per_day"
+)
+
+// ReadyWait says why no worker's orchestrator claims a ready work order now: what the fleet, the caps, and each
+// worker's level, run window, and orchestrator say, read at the time of the read and held by no event. Worker and
+// WorkerName name the worker nearest to claiming it, for a reason that is one worker's, so a page can offer what
+// would let that worker claim it. A member's own Start passes the level and the window, and is held to the caps.
+type ReadyWait struct {
+	Reason     string           `json:"reason"`
+	Worker     string           `json:"worker,omitempty"`
+	WorkerName string           `json:"worker_name,omitempty"`
+	Cap        string           `json:"cap,omitempty"`
+	Fleet      ledger.FleetMode `json:"fleet,omitempty"`
+}
+
 // Plans is the plans and contracts view. Unplanned is work no plan holds, which stands nowhere else
 // until it starts. Reviews are the reviews of lane work that have not ended: a review is no part of the plan
 // its contract belongs to, so no plan lists it, and a ready one waits for a member to start it as any ready
-// work does. WorkActions says what a member can do to each work order of the project, by its ID.
+// work does. WorkActions says what a member can do to each work order of the project, by its ID. ReadyWaits
+// says, for each ready work order no worker's orchestrator will claim, why not, and holds nothing for work one
+// will claim.
 type Plans struct {
 	Stamp
 	Plans       []PlanDetail             `json:"plans"`
 	Unplanned   []workorders.WorkOrder   `json:"unplanned"`
 	Reviews     []workorders.WorkOrder   `json:"reviews"`
 	WorkActions map[string]WorkAllowance `json:"work_actions"`
+	ReadyWaits  map[string]ReadyWait     `json:"ready_waits,omitempty"`
 }
 
 // Documents is requirements, specs, and designs: the files of every source as they stand, each
