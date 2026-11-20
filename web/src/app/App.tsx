@@ -11,6 +11,7 @@ import { settingsList } from "../admin/Settings";
 import { plainLine } from "../planning/creation";
 import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
+import { WaitingCreations, waitingIn } from "../needs/waitingCreations";
 import { useClock } from "../parts/parts";
 import { TalkProvider, useTalk } from "../talk/state";
 import type { Talk } from "../talk/state";
@@ -245,6 +246,7 @@ export function App() {
   const current = list.find((row) => row.name === project);
   const label = projectName(current, project);
   const items = needs.view?.items ?? [];
+  const waitingCreations = useMemo(() => waitingIn(needs.view?.items ?? []), [needs.view]);
   const sources = useMemo(() => {
     // Each card that waits has a Decide action, and the first few stand in the list with nothing typed.
     const decide = items.map(
@@ -439,6 +441,7 @@ export function App() {
     <ToastProvider>
       <PageActionsProvider value={setPageEntries}>
       <CurrentProject.Provider value={project}>
+        <WaitingCreations.Provider value={waitingCreations}>
         <ArrivalsProvider value={route.moves - opened.current}>
           <TalkProvider project={project} openDock={openDock}>
           <TalkBridge into={talkRef} />
@@ -542,6 +545,7 @@ export function App() {
           <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} singleKeys={singleKeys} onSingleKeys={setSingleKeys} />
           </TalkProvider>
         </ArrivalsProvider>
+        </WaitingCreations.Provider>
       </CurrentProject.Provider>
       </PageActionsProvider>
     </ToastProvider>

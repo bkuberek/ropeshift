@@ -1,10 +1,12 @@
+import { useContext } from "react";
 import type { ReactNode } from "react";
 
 import { readRecorded, readView } from "../api/client";
 import type { Adoption, ApprovalDecided, Consolidation, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, ReplacedDraft, RepositoryOutcome, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
-import { addressOf, Link } from "../app/route";
+import { addressOf, CurrentProject, ItemProject, Link } from "../app/route";
+import { isWaiting, WaitingCreations } from "../needs/waitingCreations";
 import { Badge, Banner, Refusal, StateBadge } from "../ui/display";
 import { Icon } from "../ui/Icon";
 import { CommandLine, creationLine, plainLine, PublicWarning, StepList, stateOf, registrationStates } from "./creation";
@@ -476,9 +478,12 @@ function Refused({ one, preview }: { one: RepositoryOutcome; preview: boolean })
 // remote, and why it is refused, was not reached, or is planned, so a member reads what approving consents to. An
 // entry approving creates adds where it makes the repository, and its steps once it has them. A planned entry's path
 // leads nowhere yet, so its row names only the path. The plan page and the plan approval's card in Needs you show the
-// same rows. A creation that stopped links its item in Needs you, which the approval's ID names.
+// same rows. A row whose creation Needs you lists links that item, which the approval's ID names.
 export function RegistrationRows({ registration, approval }: { registration: ManifestRegistration; approval?: string }) {
   const preview = Boolean(registration.preview);
+  const waiting = useContext(WaitingCreations);
+  const itemProject = useContext(ItemProject);
+  const project = useContext(CurrentProject);
   return (
     <>
       {registration.preview ? <p className="small muted">Read now from the clones on the daemon's worker's machine. Reading it registers nothing.</p> : null}
@@ -514,7 +519,7 @@ export function RegistrationRows({ registration, approval }: { registration: Man
               ) : one.reason ? (
                 <span className="small muted">{plainLine(one.reason)}</span>
               ) : null}
-              {one.outcome === "create_failed" && approval && one.name ? (
+              {!preview && approval && one.name && isWaiting(waiting, itemProject || project, approval, one.name) ? (
                 <span className="small">
                   <Link to={addressOf("/needs-you", { item: `repository_creation:${approval}/${one.name}` })}>Retry or skip it in Needs you</Link>
                 </span>
