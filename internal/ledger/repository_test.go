@@ -196,3 +196,12 @@ func TestARecordAlreadyHeldUnderAHiddenCharacterNameStillValidates(t *testing.T)
 		t.Errorf("an existing name %q: %v", r.Name, err)
 	}
 }
+
+func TestANewRepositoryNameIsValidUTF8(t *testing.T) {
+	if err := CheckRepositoryName("api\xff"); !errors.Is(err, ErrInvalidRepository) {
+		t.Errorf("a name that is not valid UTF-8: %v", err)
+	}
+	if err := CheckExistingRepositoryName("api\xff"); err != nil {
+		t.Errorf("a stored name that is not valid UTF-8 stays readable: %v", err)
+	}
+}

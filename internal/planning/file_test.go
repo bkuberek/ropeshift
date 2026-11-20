@@ -210,10 +210,19 @@ func TestEntriesThatCreateDifferentRepositoriesAreAccepted(t *testing.T) {
 }
 
 func TestAManifestPathHoldsNoHiddenCharacter(t *testing.T) {
-	for _, path := range []string{"../api\u200b", "../a\u2028pi", "../a\u2029pi", "../api\u202e"} {
+	for _, path := range []string{"../api\u200b", "../a\u2028pi", "../a\u2029pi", "../api\u202e", "../api\xff"} {
 		manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "api", Path: path}}}
 		if _, err := manifest.Normalize(); !errors.Is(err, planning.ErrBadFile) {
 			t.Errorf("path %q reads %v, want a bad file", path, err)
+		}
+	}
+}
+
+func TestAContractReadsARepositoryAlreadyNamedWithAHiddenCharacter(t *testing.T) {
+	for _, name := range []string{"api\u200b", "api\u3164", "api\xff"} {
+		contract := planning.ContractFile{ID: "c", Title: "C", Reads: []string{name}}
+		if _, err := contract.Normalize(); err != nil {
+			t.Errorf("a contract that reads %q: %v", name, err)
 		}
 	}
 }

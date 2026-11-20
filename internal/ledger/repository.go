@@ -362,6 +362,9 @@ func CheckRepositoryName(name string) error {
 	if err := CheckExistingRepositoryName(name); err != nil {
 		return err
 	}
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("%w: name %q is not valid UTF-8", ErrInvalidRepository, name)
+	}
 	if strings.IndexFunc(name, HiddenText) >= 0 {
 		return fmt.Errorf("%w: name %q holds a character that is not seen", ErrInvalidRepository, name)
 	}
