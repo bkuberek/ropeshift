@@ -11,7 +11,8 @@ import { Field } from "../ui/forms";
 import { Dialog, Menu, useToast } from "../ui/overlays";
 import { workStates } from "./states";
 import type { RecoverAction } from "./recoverSpecs";
-import { actionOfSlug, labelOf, recoveries, specs } from "./recoverSpecs";
+import { actionOfSlug, labelOf, recoveries, retryNote, specs } from "./recoverSpecs";
+import { RetryNote } from "./RetryNote";
 
 // The recovery actions of a work order, besides starting it: retry failed work, give a claim back, send work
 // back to planning, end a lapsed claim, take blocked work out of `blocked`, cancel work, and ask for the
@@ -82,15 +83,17 @@ const done: Record<RecoverAction, (title: string) => string> = {
 
 type Choice = { action: RecoverAction; lane?: FloorLane };
 
-// WorkActionDialog asks a member to confirm one recovery action on a work order, and sends it. Retrying, sending
-// back, reassigning, resolving, replanning, and canceling ask why. Giving a claim back names the worker that
-// holds it. Archiving a worktree asks first as the worker would, and when the worktree holds work no remote
-// has, it says so and offers to archive anyway.
+// WorkActionDialog asks a member to confirm one recovery action on a work order, and sends it. Sending back,
+// reassigning, resolving, replanning, and canceling ask why, and a retry takes a note the member may leave empty.
+// Giving a claim back names the worker that holds it. Archiving a worktree asks first as the worker would, and when
+// the worktree holds work no remote has, it says so and offers to archive anyway. cause is what the last lane's end
+// recorded, which a retry quotes above its note as the lane's words.
 export function WorkActionDialog({
   order,
   action,
   allowance,
   lane,
+  cause,
   onClose,
   after,
 }: {
@@ -98,6 +101,7 @@ export function WorkActionDialog({
   action: RecoverAction;
   allowance?: Allowance;
   lane?: FloorLane;
+  cause?: string;
   onClose: () => void;
   after?: () => Promise<void>;
 }) {
@@ -111,7 +115,8 @@ export function WorkActionDialog({
   const [unpushed, setUnpushed] = useState("");
   const holder = useHolder(action === "release" ? order.lease_worker : undefined);
   const missing = action === "release" && (!order.claim_id || !order.fence) ? "This page does not know the claim, so it cannot name it. Read the page again." : "";
-  const lacking = spec.reason && reason.trim() === "";
+  // A retry's note may stay empty: it then sends the member's fixed words.
+  const lacking = spec.reason && action !== "retry" && reason.trim() === "";
   const forcing = unpushed !== "";
   const label = forcing ? "Archive anyway" : name;
 
@@ -124,6 +129,8 @@ export function WorkActionDialog({
           return archiveLane(order.id, lane?.id ?? "", forcing);
         case "send_back":
           return sendBack(order.id, reason.trim());
+        case "retry":
+          return actOnWork(order.id, action, retryNote(reason));
         default:
           return actOnWork(order.id, action as WorkAction, reason.trim());
       }
@@ -210,7 +217,9 @@ export function WorkActionDialog({
             </p>
           </>
         ) : null}
-        {spec.reason ? (
+        {action === "retry" ? (
+          <RetryNote cause={cause} label="Reason" note={reason} onChange={setReason} />
+        ) : spec.reason ? (
           <Field label="Reason (required)">
             <textarea className="textarea" rows={2} autoComplete="off" value={reason} onChange={(event) => setReason(event.target.value)} />
           </Field>
@@ -225,14 +234,15 @@ export function WorkActionDialog({
 // WorkActions are a work order's recovery actions, as a page's header offers them: Retry as a button when the
 // work failed, and every other action in a menu of its own. A decision card the page shows beside it offers some
 // of them already, which omit lists, so the same action is not on the page twice. The command palette lists them
-// all while the page stands. opened names the action an address asks to start on, and lanes are the lanes of
-// this work order that a worktree may be removed for.
+// all while the page stands. opened names the action an address asks to start on, lanes are the lanes of this
+// work order that a worktree may be removed for, and cause is what its last lane's end recorded.
 export function WorkActions({
   order,
   allowance,
   lanes = [],
   omit = [],
   opened = "",
+  cause,
   onClosed,
   after,
 }: {
@@ -241,6 +251,7 @@ export function WorkActions({
   lanes?: FloorLane[];
   omit?: string[];
   opened?: string;
+  cause?: string;
   onClosed?: () => void;
   after?: () => Promise<void>;
 }) {
@@ -295,7 +306,7 @@ export function WorkActions({
           items={menu.map((choice) => ({ label: `${nameOf(choice)}…`, icon: specs[choice.action].icon, onSelect: () => setOpen(choice) }))}
         />
       ) : null}
-      {open ? <WorkActionDialog order={order} action={open.action} allowance={allowance} lane={open.lane} onClose={close} after={after} /> : null}
+      {open ? <WorkActionDialog order={order} action={open.action} allowance={allowance} lane={open.lane} cause={cause} onClose={close} after={after} /> : null}
     </>
   );
 }

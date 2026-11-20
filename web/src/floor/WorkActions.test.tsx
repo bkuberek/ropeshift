@@ -198,11 +198,14 @@ describe("failed work", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Retry with an extra attempt" }));
     expect(changes(sent)).toHaveLength(0);
     const confirm = within(card).getByRole("button", { name: "Retry with an extra attempt" });
-    expect((confirm as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.type(within(card).getByRole("textbox", { name: "Why (required)" }), "The network came back.");
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    const why = within(card).getByRole("textbox", { name: "Why (optional)" }) as HTMLTextAreaElement;
+    expect(why.value).toBe("");
+    await userEvent.type(why, "The network came back.");
     await userEvent.click(confirm);
     await waitFor(() => expect(changes(sent)).toHaveLength(1));
     expect(changes(sent)[0]).toMatchObject({ path: "/v1/work-orders/wo-failed/retry", body: { reason: "The network came back." } });
+    expect(JSON.stringify(changes(sent)[0]?.body)).not.toContain("It gave up on");
   });
 
   it("names the plain retry when an attempt is left", async () => {
@@ -233,10 +236,31 @@ describe("failed work", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Retry with an extra attempt" }));
     const box = await dialog("Retry with an extra attempt: Try the impossible");
     expect(box.textContent).toContain("used every attempt it was given, 1 of 1, so this adds one");
-    await userEvent.type(within(box).getByRole("textbox", { name: "Reason (required)" }), "Again.");
+    // No read says what the last attempt's lane recorded, so nothing is quoted above the note.
+    expect(within(box).queryByRole("figure", { name: "The lane recorded" })).toBeNull();
+    const reason = within(box).getByRole("textbox", { name: "Reason (optional)" }) as HTMLTextAreaElement;
+    expect(reason.value).toBe("");
+    await userEvent.type(reason, "Again.");
     await userEvent.click(within(box).getByRole("button", { name: "Retry with an extra attempt" }));
     await waitFor(() => expect(changes(sent)).toHaveLength(1));
     expect(changes(sent)[0]).toMatchObject({ path: "/v1/work-orders/wo-failed/retry", body: { reason: "Again." } });
+  });
+
+  it("quotes what the lane recorded above the header's Retry note, and sends the fixed words for an empty note", async () => {
+    // The card beside the page offers Retry, so the header's dialog opens from the work order's address.
+    const sent = serving();
+    openPage("/work-order?id=wo-failed&dialog=retry");
+    await heading("wo-failed");
+    const box = await dialog("Retry with an extra attempt: Try the impossible");
+    const quoted = within(box).getByRole("figure", { name: "The lane recorded" });
+    expect(quoted.textContent).toContain("It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>");
+    expect(box.querySelector("img, script")).toBeNull();
+    const reason = within(box).getByRole("textbox", { name: "Reason (optional)" }) as HTMLTextAreaElement;
+    expect(reason.value).toBe("");
+    await userEvent.click(within(box).getByRole("button", { name: "Retry with an extra attempt" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]).toMatchObject({ path: "/v1/work-orders/wo-failed/retry", body: { reason: "Retried after the recorded failure" } });
+    expect(JSON.stringify(changes(sent)[0]?.body)).not.toContain("It gave up on");
   });
 });
 

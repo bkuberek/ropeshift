@@ -645,7 +645,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await ready(page);
         const card = page.getByRole("article", { name: /Try the impossible/ });
         await card.getByRole("button", { name: "Retry with an extra attempt" }).click();
-        await card.getByRole("textbox", { name: "Why (required)" }).waitFor();
+        await card.getByRole("textbox", { name: "Why (optional)" }).waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `failed work card asking why ${violation}`));
         // Work a worker holds: giving the claim back names the worker and asks nothing else.
