@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { NeedItem, NeedsYou as View, ShopFloor } from "../api/types";
 import { CurrentProject } from "../app/route";
@@ -60,6 +60,10 @@ const serveFloor = (floor: ShopFloor, start: () => { status: number; body?: unkn
     }
     return undefined;
   });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("a question no orchestrator judged", () => {
   it("says so on its item, lists what was found by text, and shows its ladder trace", async () => {
@@ -182,5 +186,28 @@ describe("the starts the notice offers", () => {
     openPage("/questions");
     expect(await screen.findByText(/no worker is registered to start one on/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Start orchestrator/ })).toBeNull();
+  });
+
+  it("goes away on its own once the orchestrator starts, with no reload, because the worker reports its state after the start", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let floor = floorWith();
+    serveViews((call) => (call.path.startsWith("/v1/views/shop-floor") ? { status: 200, body: floor } : undefined));
+    openPage("/questions");
+    expect(await screen.findByText(/No orchestrator is judging the questions that wait/)).toBeTruthy();
+    floor = floorWith("working");
+    await vi.advanceTimersByTimeAsync(6_000);
+    await waitFor(() => expect(screen.queryByText(/No orchestrator is judging/)).toBeNull());
+  });
+
+  it("comes back when the orchestrator that ran stops", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let floor = floorWith("working");
+    serveViews((call) => (call.path.startsWith("/v1/views/shop-floor") ? { status: 200, body: floor } : undefined));
+    openPage("/questions");
+    await screen.findByRole("article", { name: "Should the budget hold across restarts?" });
+    expect(screen.queryByText(/No orchestrator is judging/)).toBeNull();
+    floor = floorWith();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await screen.findByText(/No orchestrator is judging the questions that wait/)).toBeTruthy();
   });
 });

@@ -15,10 +15,17 @@ const judging = new Set([...running].filter((state) => state !== "backoff"));
 export const runsOrchestrator = (line: WorkerLine) =>
   line.freshness === "observed" && line.orchestrator?.desired_state === "running" && judging.has(line.orchestrator.actual_state ?? "");
 
+// While the notice stands, it reads the floor again this often. A worker reports its orchestrator's state a moment after
+// a start, and no ledger event announces that, so a notice that read once would stand after the orchestrator runs. While
+// no notice stands, it still looks, more seldom, so one comes back when the orchestrator stops.
+const noticeRecheckMs = 3_000;
+const quietRecheckMs = 15_000;
+
 // NoOrchestrator tells a member that no orchestrator is judging the questions that wait, and offers both ways on:
 // answer them here as the orchestrator would, or start an orchestrator on a worker, with what keeps each from starting
 // beside its control. It reads the floor, and says nothing while any worker's orchestrator judges, because that one
-// takes what is still open. With no worker at all, it says there is none to start one on.
+// takes what is still open. With no worker at all, it says there is none to start one on. It keeps reading the floor, so
+// the notice goes away once an orchestrator starts, and a read that fails leaves what it last read standing.
 export function NoOrchestrator({ what }: { what: string }) {
   const [floor, setFloor] = useState<ShopFloor>();
   const [readAt, setReadAt] = useState(0);
@@ -28,14 +35,19 @@ export function NoOrchestrator({ what }: { what: string }) {
       setFloor(await readView<ShopFloor>("shop-floor"));
       setReadAt(Date.now());
     } catch {
-      setFloor(undefined);
+      // The notice keeps what it last read until a read answers.
     }
   }, []);
   useEffect(() => {
     void read();
   }, [read]);
   const lines = floor?.workers ?? [];
-  if (!floor || lines.some(runsOrchestrator)) {
+  const standing = floor !== undefined && !lines.some(runsOrchestrator);
+  useEffect(() => {
+    const timer = setInterval(() => void read(), standing ? noticeRecheckMs : quietRecheckMs);
+    return () => clearInterval(timer);
+  }, [read, standing]);
+  if (!floor || !standing) {
     return null;
   }
   if (lines.length === 0) {
