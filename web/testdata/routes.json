@@ -296,6 +296,16 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/approvals/{id}/repositories/{name}/retry",
+    "command": "plan retry"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/approvals/{id}/repositories/{name}/skip",
+    "command": "plan skip"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/effects/{id}/decide",
     "command": "effect decide"
   },
