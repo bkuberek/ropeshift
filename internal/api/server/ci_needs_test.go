@@ -350,3 +350,44 @@ func TestEachFindingOfTheClassificationIsAnItemAndANotice(t *testing.T) {
 		}
 	}
 }
+
+// A pull request with no head commit on record offers no Rerun, whichever item it raises, and keeps Wait longer and
+// the run's page.
+func TestCIOffersNoRerunWhileThePullRequestHasNoHead(t *testing.T) {
+	t.Parallel()
+	d, _ := aCIWorld(t, ledger.CIRunInProgress, 3*time.Hour)
+	err := d.Store.Write(t.Context(), apitest.Scope, "test.no_head", func(tx ports.WriteTx) error {
+		pr, err := tx.Forge().PullRequest("wo-ci")
+		if err != nil {
+			return err
+		}
+		pr.HeadCommit = ""
+		if err := tx.Forge().SavePullRequest(pr); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventPullRequestUpdated, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}, Subject: ledger.Subject{Kind: ledger.SubjectPullRequest, ID: "wo-ci"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: "", Kind: ledger.CIItemInfrastructure, Check: "CI", Conclusion: "timed_out", URL: ciRunPage}
+	if raised, err := control.NewCIAttention(d.Store).Raise(t.Context(), apitest.Scope, finding); err != nil || !raised {
+		t.Fatalf("the finding raised %v: %v", raised, err)
+	}
+	want := map[string][]string{
+		ledger.CIItemNotFinished:    {api.ActCIWait, api.ActCIOpen},
+		ledger.CIItemInfrastructure: {api.ActCIOpen},
+	}
+	items := ciItems(t, d)
+	if len(items) != len(want) {
+		t.Fatalf("a pull request with no head raises %+v", items)
+	}
+	for _, item := range items {
+		if !slices.Equal(item.CI.Actions, want[item.CI.Kind]) {
+			t.Errorf("%s offers %v, want %v", item.CI.Kind, item.CI.Actions, want[item.CI.Kind])
+		}
+	}
+}
