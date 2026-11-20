@@ -787,3 +787,39 @@ func TestACreationThatCannotTellItsFilesSaysToClearTheFolderOrSkip(t *testing.T)
 		t.Errorf("the refusal says %q, which does not say to clear the folder or skip", report.Detail)
 	}
 }
+
+// unreadableCase answers no read of whether a folder's name in the other case names it.
+type unreadableCase struct{ *fake.Checkouts }
+
+func (c unreadableCase) SameFile(ctx context.Context, a, b string) (bool, error) {
+	if a != b && strings.EqualFold(a, b) {
+		return false, errors.New("permission denied")
+	}
+	return c.Checkouts.SameFile(ctx, a, b)
+}
+
+// When the disk cannot say whether it ignores case, the lock folds the case all the same, so two spellings that differ
+// only in case take turns rather than both writing.
+func TestAFolderWhoseCaseCannotBeReadSharesTheLockAcrossCase(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	forge := &slowSignIn{ForgeAccounts: r.forge, began: make(chan struct{}), release: make(chan struct{})}
+	creator := worker.New(nil, nil, clock.System{}, worker.Config{Name: "atlas", Templates: &worker.TemplateRuntime{
+		Folders: r.folders, Checkouts: unreadableCase{r.kept}, Forge: forge, Render: render, StateDir: r.state,
+	}}).RepositoryCreator()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = creator.Check(context.Background(), creation("/work/tt/repos/api"))
+	}()
+	<-forge.began
+	defer func() {
+		close(forge.release)
+		<-done
+	}()
+	checked, err := creator.Check(t.Context(), creation("/work/tt/repos/API"))
+	if err != nil || checked.Refusal == nil || checked.Refusal.Reason != ledger.TemplateRefusedBusy {
+		t.Errorf("the check of another case is %+v (%v), want refused as path_busy", checked, err)
+	}
+}

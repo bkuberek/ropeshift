@@ -566,7 +566,8 @@ type creationFolders struct {
 
 // ignoresCase says the disk that holds a path ignores case. It probes the nearest folder at or above the path whose
 // name has a letter: its name in the other case names the same folder only on such a disk. Each folder is probed
-// once. A worker that keeps no checkouts cannot ask the disk, and reads every disk as keeping case apart.
+// once. A probe the disk does not answer reads as a disk that ignores case, and is not kept. A worker that keeps no
+// checkouts cannot ask the disk, and reads every disk as keeping case apart.
 func (l *creationFolders) ignoresCase(ctx context.Context, rt *TemplateRuntime, real string) bool {
 	if rt.Checkouts == nil {
 		return false
@@ -588,7 +589,8 @@ func (l *creationFolders) ignoresCase(ctx context.Context, rt *TemplateRuntime, 
 		}
 		same, err := rt.Checkouts.SameFile(ctx, dir, path.Join(path.Dir(dir), swapped))
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
-			return false
+			// A disk that cannot say reads as one that ignores case, so two spellings of one folder never both write.
+			return true
 		}
 		l.mu.Lock()
 		if l.cases == nil {
