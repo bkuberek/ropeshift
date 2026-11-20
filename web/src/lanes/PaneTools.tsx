@@ -54,8 +54,8 @@ export function PaneTools({
       <button className="btn btn-sm" type="button" aria-pressed={searching} onClick={onSearch}>
         Search
       </button>
-      <button className="btn btn-sm" type="button" aria-pressed={full} onClick={onFull}>
-        Full view
+      <button className="btn btn-sm" type="button" onClick={onFull}>
+        {full ? "Exit full view" : "Full view"}
       </button>
       <span className="pane-said small muted" aria-live="polite">
         {said}
