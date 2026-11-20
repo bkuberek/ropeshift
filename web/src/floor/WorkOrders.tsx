@@ -29,6 +29,7 @@ import { ReviewOf } from "./ReviewOf";
 import { HeldFact, HeldTag } from "./StartHeld";
 import { StartAllReady } from "./StartAll";
 import { startOf, StartWork } from "./StartWork";
+import { WaitsOnWords } from "./WaitsOn";
 import { WakeWords } from "./WakeWords";
 import { SpendPanel } from "./SpendPanel";
 import { WorkEstimatePanel } from "./WorkEstimatePanel";
@@ -82,6 +83,13 @@ function Under({ row }: { row: WorkRow }) {
   }
   if (row.waits) {
     return <ReadyWaitNote wait={row.waits} subject={titleOf(row)} />;
+  }
+  if (row.waitsOn) {
+    return (
+      <span className="cell-note">
+        <WaitsOnWords waits={row.waitsOn} />
+      </span>
+    );
   }
   const wake = row.held?.wakes[0];
   if (wake) {
@@ -611,6 +619,11 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 ) : null}
                 <Fact name="Held by">{order.lease_worker ? <Id value={order.lease_worker} /> : <Absent>nobody</Absent>}</Fact>
                 <Fact name="In state">{row.since ? <Lasted at={row.since} ended={groupOf(row) === "completed"} /> : <Absent>not read</Absent>}</Fact>
+                {row.waitsOn ? (
+                  <Fact name="Waits on">
+                    <WaitsOnWords waits={row.waitsOn} />
+                  </Fact>
+                ) : null}
                 <Fact name="Merge authority">{standing?.authority ? <span className="mono">{standing.authority}</span> : <Absent>not set</Absent>}</Fact>
               </Facts>
             </Panel>

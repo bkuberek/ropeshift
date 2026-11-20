@@ -1,7 +1,7 @@
 import { readRepositories } from "../api/admin";
 import type { RepositoryList } from "../api/admin";
 import { readView } from "../api/client";
-import type { Allowance, Completed, CompletedWork, HeldLane, InProgress, Lane, MilestoneProgress, OnHold, PlanDetail, Plans, ReadyWait, Stamp, Stuck, StuckItem, WorkOrder } from "../api/types";
+import type { Allowance, Completed, CompletedWork, HeldLane, InProgress, Lane, MilestoneProgress, OnHold, PlanDetail, Plans, ReadyWait, Stamp, Stuck, StuckItem, WaitsOn, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import type { WorkGroup } from "./states";
@@ -17,6 +17,7 @@ export type WorkRow = {
   since?: number;
   lane?: Lane;
   held?: HeldLane;
+  waitsOn?: WaitsOn;
   stuck?: StuckItem;
   completed?: CompletedWork;
   plan?: PlanDetail;
@@ -66,10 +67,10 @@ export function index(plans: Plans, running: InProgress, held: OnHold, stuck: St
     row(order);
   }
   for (const line of running.items) {
-    Object.assign(row(line.work_order), { since: line.since, lane: line.lane });
+    Object.assign(row(line.work_order), { since: line.since, lane: line.lane, waitsOn: line.waits_on });
   }
   for (const line of held.items) {
-    Object.assign(row(line.work_order), { since: line.since, lane: line.lane, held: line });
+    Object.assign(row(line.work_order), { since: line.since, lane: line.lane, held: line, waitsOn: line.waits_on });
   }
   for (const line of completed.items) {
     Object.assign(row(line.work_order), { since: line.since, completed: line });
