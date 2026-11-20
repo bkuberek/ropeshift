@@ -792,13 +792,23 @@ func (s *paneSession) typeInput(ctx context.Context, in ports.Input) (ports.Send
 		in.ID = id
 	}
 	if err := s.terminal.Type(ctx, s.name, strings.ReplaceAll(in.Text, "\r", "")); err != nil {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
+		return ports.SendReceipt{}, s.typingFailed(err)
 	}
 	pause(ctx, compactPause)
 	if err := s.terminal.Keys(ctx, s.name, keyEnter); err != nil {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
+		return ports.SendReceipt{}, s.typingFailed(err)
 	}
 	return ports.SendReceipt{ID: in.ID, Path: ports.SendKeys}, nil
+}
+
+// typingFailed is what a terminal's failure to take keys means for the input. A pane that is not there
+// took nothing, so the input is for no session. Any other failure may have passed some of the text on, so
+// it comes back as the terminal said it, and the caller does not take the input for one nobody got.
+func (s *paneSession) typingFailed(err error) error {
+	if errors.Is(err, ports.ErrNotFound) {
+		return fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
+	}
+	return fmt.Errorf("%s: %w", s.handle.ID, err)
 }
 
 // refused reports what a receipt said.

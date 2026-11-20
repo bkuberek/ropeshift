@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CurrentProject } from "../app/route";
 import { golden, goldenNeedsYou, here, mergeRequest, refusal, reviewedCommit, serveApi, testProject } from "../testing";
-import type { ManifestRegistration, MergeDetail, NeedItem, NeedsYou as View, PlanView, QuestionItem } from "../api/types";
+import type { ManifestRegistration, MergeDetail, NeedItem, NeedsYou as View, PlanView, Plans, QuestionItem, WorkOrder } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
 
@@ -835,6 +835,59 @@ describe("waiting work", () => {
     await userEvent.click(confirm);
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-failed/retry", body: { reason: "The network came back." } });
+  });
+
+  // After a retry, what the plans view says the work allows is what the page offers: Start with the hold that keeps
+  // the work from a lane, or a link to the work order when the work is not claimable.
+  describe("after a retry", () => {
+    const failed = (row: NeedItem) => row.kind === "work" && row.id === "wo-failed";
+
+    // retried retries wo-failed, and answers the plans view with the work as the change leaves it.
+    async function retried(change: (order: WorkOrder, allowed: { actions: string[] }) => void) {
+      const view = goldenNeedsYou();
+      const plans = golden<Plans>("plans");
+      const order = plans.plans.flatMap((plan) => plan.work_orders).find((row) => row.id === "wo-failed") as WorkOrder;
+      const allowed = { actions: ["retry"] };
+      change(order, allowed);
+      plans.work_actions["wo-failed"] = allowed as Plans["work_actions"][string];
+      const without = (
+        <CurrentProject.Provider value={testProject}>
+          <NeedsYou view={{ ...view, items: view.items.filter((row) => !failed(row)) }} readAt={Date.now()} after={async () => {}} />
+        </CurrentProject.Provider>
+      );
+      let rerender: ReturnType<typeof show>["rerender"] = () => {};
+      ({ rerender } = show(view, async () => rerender(without), failed));
+      const sent = serveApi((call) => {
+        if (call.method === "POST") {
+          return { status: 200, body: { work_order: "wo-failed", state: "ready" } };
+        }
+        return call.path.startsWith("/v1/views/plans") ? { status: 200, body: plans } : undefined;
+      });
+      await userEvent.click(await screen.findByRole("button", { name: "Retry with an extra attempt" }));
+      await userEvent.type(screen.getByRole("textbox", { name: "Why (required)" }), "The network came back.");
+      await userEvent.click(screen.getByRole("button", { name: "Retry with an extra attempt" }));
+      await waitFor(() => expect(sent.some((call) => call.path === "/v1/work-orders/wo-failed/retry")).toBe(true));
+      return screen.findByText(/no longer waits/);
+    }
+
+    it("says the work is ready and no lane has started, and offers Start with the hold the ledger records", async () => {
+      const note = await retried((order, allowed) => {
+        order.state = "ready";
+        order.start_held = { reason: "no_checkout" };
+        allowed.actions = ["claim", "cancel"];
+      });
+      expect(note.textContent).toContain("you retried it");
+      expect(note.textContent).toContain("no lane has started");
+      expect(await screen.findByText("Held: No clone on the worker")).toBeTruthy();
+      await userEvent.click(screen.getByRole("button", { name: "Start" }));
+      expect((await screen.findByRole("dialog")).textContent).toContain("Start Try the impossible");
+    });
+
+    it("offers no Start for work the plans view does not allow a claim of, and leads to the work order", async () => {
+      await retried(() => {});
+      expect(await screen.findByRole("link", { name: "Open work order wo-failed" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    });
   });
 
   it("names a plain retry when the failed work has an attempt left", async () => {

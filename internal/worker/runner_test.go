@@ -492,6 +492,126 @@ func TestLaneFailuresBeforeASession(t *testing.T) {
 	}
 }
 
+// A lane that fails before its session says why in its outcome, so the card of its failed work shows the
+// cause and not only the reason. The cause is what an error says, which a repository or a terminal wrote, so
+// it reaches the ledger as plain text on one line, and cut.
+func TestAFailedStartCarriesItsCauseInItsOutcome(t *testing.T) {
+	t.Parallel()
+	const capped = 500
+	cause := "lane/4: no such session: tmux send-keys: command too long\x1b[31m\nsecond line\x1b[0m " + strings.Repeat("x", 3000)
+	r := newLaneRig(t)
+	r.config.Repository = func(context.Context, string, string) (string, error) { return "", errors.New(cause) }
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	change := r.outcome()
+	if change.Reason != workorders.ReasonNoRepository {
+		t.Fatalf("outcome %+v", change)
+	}
+	if !strings.HasPrefix(change.Detail, "lane/4: no such session: tmux send-keys: command too long second line xxx") {
+		t.Errorf("the outcome's detail is %q", change.Detail)
+	}
+	if strings.ContainsAny(change.Detail, "\x1b\n") {
+		t.Errorf("the detail kept an escape or a line break: %q", change.Detail)
+	}
+	if len(change.Detail) > capped || len(change.Detail) < capped-4 {
+		t.Errorf("the detail is %d bytes, want it cut at %d", len(change.Detail), capped)
+	}
+}
+
+// What a failed start prints can carry a credential: a hook's output can hold an npm token, and a git error can
+// echo a remote's URL with its password. The cause reaches every member who reads the ledger, so the worker
+// redacts it before it cuts it, because a token cut in two no longer matches the shape of one.
+func TestAFailedStartRedactsItsCauseBeforeItCutsIt(t *testing.T) {
+	t.Parallel()
+	const npmToken = "npm_0123456789abcdefghijklmnopqrstuvwxyz"
+	tests := []struct {
+		name   string
+		cause  string
+		change func(*laneRig, string)
+		reason string
+		secret string
+		marker string
+	}{
+		{
+			name:  "a hook that printed an npm token",
+			cause: "npm error //registry.npmjs.org/:_authToken=" + npmToken + " was refused",
+			change: func(r *laneRig, cause string) {
+				r.config.Provisioner.Hooks.(*fake.HookRunner).Fail(errors.New(cause))
+			},
+			reason: workorders.ReasonHookFailed, secret: npmToken, marker: "[redacted: npm_token]",
+		},
+		{
+			name:  "a git error that echoes a remote's password",
+			cause: "fatal: unable to access 'https://oauth2:hunter2-secret@github.com/acme/app.git/': the requested URL returned error: 403",
+			change: func(r *laneRig, cause string) {
+				r.config.Repository = func(context.Context, string, string) (string, error) { return "", errors.New(cause) }
+			},
+			reason: workorders.ReasonNoRepository, secret: "hunter2-secret", marker: "[redacted: url_credentials]",
+		},
+		{
+			name:  "a token that stands where the cut falls",
+			cause: strings.Repeat("y", 480) + " " + npmToken + " tail",
+			change: func(r *laneRig, cause string) {
+				r.config.Repository = func(context.Context, string, string) (string, error) { return "", errors.New(cause) }
+			},
+			reason: workorders.ReasonNoRepository, secret: "npm_0123", marker: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var r *laneRig
+			if tt.reason == workorders.ReasonHookFailed {
+				r = laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n")
+			} else {
+				r = newLaneRig(t)
+			}
+			tt.change(r, tt.cause)
+			if err := r.subject.Converge(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			change := r.outcome()
+			if change.Reason != tt.reason {
+				t.Fatalf("outcome %+v", change)
+			}
+			if strings.Contains(change.Detail, tt.secret) {
+				t.Errorf("the detail kept the credential: %q", change.Detail)
+			}
+			if tt.marker != "" && !strings.Contains(change.Detail, tt.marker) {
+				t.Errorf("the detail %q does not say a credential stood there", change.Detail)
+			}
+		})
+	}
+}
+
+// A report's detail is the worker's word, but the ledger keeps it for every member to read, so the control plane
+// redacts it too: a worker that did not, or an older one, leaves no credential in the event or its payload.
+func TestALaneEndsWithADetailTheLedgerKeepsRedacted(t *testing.T) {
+	t.Parallel()
+	const npmToken = "npm_0123456789abcdefghijklmnopqrstuvwxyz"
+	r := laneRigWith(t, profileAt)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	r.start()
+	t.Cleanup(r.driver.StopEverySession)
+	r.eventuallyUp()
+	holder := workorders.Holder{Lease: r.grant.Lease, Lane: "lane-1", Generation: 1}
+	raw := "npm error //registry.npmjs.org/:_authToken=" + npmToken + " at https://oauth2:hunter2-secret@github.com/acme/app.git\x1b[31m"
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonSpawnFailed, Detail: raw}}
+	if err := control.NewLeases(r.store).EndLane(t.Context(), scope, holder, result, member); err != nil {
+		t.Fatal(err)
+	}
+	change := r.outcome()
+	for _, secret := range []string{npmToken, "hunter2-secret", "\x1b"} {
+		if strings.Contains(change.Detail, secret) || strings.Contains(string(change.Payload), secret) {
+			t.Errorf("the event keeps %q: detail %q payload %s", secret, change.Detail, change.Payload)
+		}
+	}
+	if !strings.Contains(change.Detail, "[redacted: npm_token]") || !strings.Contains(change.Detail, "[redacted: url_credentials]") {
+		t.Errorf("the detail %q does not say what it redacted", change.Detail)
+	}
+}
+
 type badProfile struct{}
 
 func (badProfile) Load(context.Context, string, string, string) (lanes.Profile, error) {

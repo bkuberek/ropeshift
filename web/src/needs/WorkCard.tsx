@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 
 import { actOnWork, startOrchestrator, workActions } from "../api/client";
-import type { OrchestratorAction, WorkAction, WorkNeed } from "../api/types";
+import type { OrchestratorAction, WorkAction, WorkNeed, WorkOrder } from "../api/types";
 import { Link } from "../app/route";
 import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
 import { Verdicts } from "../parts/Verdicts";
@@ -94,16 +94,41 @@ function Lead({ work }: { work: WorkNeed }) {
 // Some answers change who owns work, so they say why. Those ask only after the press, and an action
 // that needs no words goes in one press.
 // inPage is a card on its own work order's page, which shows the review in a tab and needs no link to itself.
-export function WorkCard({ id, work, after, frame, inPage = false }: { id: string; work: WorkNeed; after: () => Promise<void>; frame: Frame; inPage?: boolean }) {
+// onRetried is told when a member's retry returned the work to ready, with the work order as it now stands, so the
+// page can say that no lane has started and offer Start.
+export function WorkCard({
+  id,
+  work,
+  after,
+  frame,
+  inPage = false,
+  onRetried,
+}: {
+  id: string;
+  work: WorkNeed;
+  after: () => Promise<void>;
+  frame: Frame;
+  inPage?: boolean;
+  onRetried?: (order: WorkOrder) => void;
+}) {
   const [asking, setAsking] = useState<WorkAction | null>(null);
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const form = useId();
   const workOrder = work.work_order?.id ?? id;
   const send = async (action: WorkAction, words: string) => {
-    if (await act(() => actOnWork(workOrder, action, words))) {
+    let reply: unknown;
+    if (
+      await act(async () => {
+        reply = await actOnWork(workOrder, action, words);
+      })
+    ) {
       setAsking(null);
       setReason("");
+      const state = (reply as { state?: string } | undefined)?.state;
+      if (action === "retry" && state === "ready" && work.work_order) {
+        onRetried?.({ ...work.work_order, state });
+      }
     }
   };
   const press = (action: WorkAction | OrchestratorAction) => {

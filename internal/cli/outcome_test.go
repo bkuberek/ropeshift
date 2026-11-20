@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -26,7 +28,7 @@ func TestWorkShowSaysAWorktreeRootInsideACloneAndHowToFixIt(t *testing.T) {
 // `work show` prints the reason its outcome gave, and what the worker said of it, such as the delegate policy
 // version that refused the start (FR-AUTH-16). The event stream carries no record's content, so the work's own
 // page is where the command line says why. Work whose lane still runs, or that ended with no reason, says
-// nothing of one, and what a lane wrote is made safe for a terminal.
+// nothing of one, and what a lane wrote is made safe for a terminal: the ledger keeps its detail as plain text, and the command line escapes what it is handed raw.
 func TestWorkShowSaysWhyAWorksLaneEnded(t *testing.T) {
 	s := newSession(t)
 	w := apitest.NewWorld(t, s.daemon)
@@ -47,7 +49,8 @@ func TestWorkShowSaysWhyAWorksLaneEnded(t *testing.T) {
 		t.Errorf("a lane that crashed says nothing of why:\n%s", text)
 	}
 	text := show("wo-hostile")
-	if strings.Contains(text, "\x1b") || !strings.Contains(text, "outcome\tgave up second line\tcleared ?[2J the screen\n") {
+	// The control plane keeps a lane's detail as plain text, so the escape is gone before the command line reads it.
+	if strings.Contains(text, "\x1b") || !strings.Contains(text, "outcome\tgave up second line\tcleared the screen\n") {
 		t.Errorf("what a lane wrote reaches the terminal as it is:\n%q", text)
 	}
 	if text := show("wo-live"); strings.Contains(text, "outcome") {
@@ -60,5 +63,23 @@ func TestWorkShowSaysWhyAWorksLaneEnded(t *testing.T) {
 	}
 	if detailJSON["reason"] != workorders.ReasonDelegatePolicy || detailJSON["detail"] != detail {
 		t.Errorf("the JSON says %v and %v", detailJSON["reason"], detailJSON["detail"])
+	}
+}
+
+// What a lane wrote reaches the command line made safe for a terminal, whatever the ledger kept. The control plane
+// stores a lane's detail as plain text with no credential, so a detail that went through it holds no escape, but the
+// command line does not rely on that: it prints an outcome it was handed raw, such as one an older ledger stored, as
+// text with no escape and no line break.
+func TestWorkShowEscapesAnOutcomeTheLedgerStoredRaw(t *testing.T) {
+	text := cli.WorkDetailText(api.WorkDetail{
+		WorkOrder: workorders.WorkOrder{ID: "wo-hostile", Title: "Tidy the logs", State: workorders.Failed},
+		Reason:    "gave up\nsecond line",
+		Detail:    "cleared \x1b[2J the screen\x07\nand a second line",
+	})
+	if strings.ContainsAny(text, "\x1b\x07") {
+		t.Errorf("a stored outcome reaches the terminal with a control character:\n%q", text)
+	}
+	if !strings.Contains(text, "outcome\tgave up second line\tcleared ?[2J the screen? and a second line\n") {
+		t.Errorf("a stored outcome is not printed on one line, made safe:\n%q", text)
 	}
 }

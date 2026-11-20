@@ -332,6 +332,21 @@ describe("a work order", () => {
     expect(within(card).getByRole("button", { name: "Retry with an extra attempt" })).toBeTruthy();
   });
 
+  it("says on its Lanes tab why the lane of failed work failed, with the cause its worker reported", async () => {
+    const said = "spawn_failed: lane-wo-failed/1: no such session: tmux send-keys: command too long";
+    serving<Stuck>("stuck", (view) => {
+      const failed = view.items.find((item) => item.id === "wo-failed");
+      if (!failed) {
+        throw new Error("the golden stuck view holds no wo-failed");
+      }
+      failed.detail = said;
+    });
+    openPage("/work-order?id=wo-failed&tab=lanes");
+    const panel = await screen.findByRole("heading", { name: /^Lane lane-wo-failed/ }).then((heading) => heading.closest("section") as HTMLElement);
+    expect(within(panel).getByText("Lane said")).toBeTruthy();
+    expect(within(panel).getByText(said)).toBeTruthy();
+  });
+
   // Work in integrating waits on a merge request, which has its own card beside the work order's tabs.
   it("shows the merge request the work waits on as its own card, bound to the reviewed commit", async () => {
     const request = mergeRequest("approve", { work_order_id: "wo-running", pull_request: 12, url: "https://github.com/acme/harbor-web/pull/12" });
@@ -747,6 +762,33 @@ describe("the floor", () => {
     expect(tr.textContent).toContain("wo-running");
     expect(cell(tr, "Freshness")?.textContent).toMatch(/^Last reported.*4m ago/);
     expect(cell(tr, "Generation")?.textContent).toBe("1");
+  });
+
+  it("lists live lanes first, working before waiting on a person before parked before the rest, and holds ended lanes in a collapsed group", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const waiting = view.lanes.find((lane) => lane.id === "lane-wo-effect");
+      if (!waiting) {
+        throw new Error("the golden floor holds no lane-wo-effect");
+      }
+      waiting.actual_state = "needs_decision";
+    });
+    openPage("/floor");
+    await row("lane-wo-running");
+    const lanes = [...document.querySelectorAll<HTMLElement>("tr[data-lane]")];
+    const live = lanes.filter((tr) => !tr.closest("details")).map((tr) => tr.dataset.lane);
+    expect(live).toEqual(["lane-wo-approval", "lane-wo-lapsed", "lane-wo-running", "lane-wo-stalled", "lane-wo-effect", "lane-wo-parked", "lane-wo-tripped"]);
+    const ended = document.querySelector<HTMLDetailsElement>("details.ended-lanes");
+    expect(ended).not.toBeNull();
+    expect(ended?.querySelector("summary")?.textContent).toBe("Ended (7)");
+    expect(ended?.open).toBe(false);
+    expect(
+      lanes
+        .filter((tr) => tr.closest("details"))
+        .map((tr) => tr.dataset.lane)
+        .sort(),
+    ).toEqual(["lane-generated-2", "lane-generated-3", "lane-generated-4", "lane-wo-accept", "lane-wo-blocked", "lane-wo-done", "lane-wo-failed"]);
+    await userEvent.click(within(ended as HTMLElement).getByText("Ended (7)"));
+    expect(ended?.open).toBe(true);
   });
 
   it("shows a lane's CPU and memory as its worker's last report measured its session", async () => {

@@ -44,6 +44,13 @@ function find(wanted: string): HTMLElement | undefined {
   );
 }
 
+// reveal opens each closed group that holds a control, because a browser cannot focus a control inside one.
+function reveal(element: HTMLElement): void {
+  for (let group = element.closest("details"); group; group = group.parentElement?.closest("details") ?? null) {
+    group.open = true;
+  }
+}
+
 // A view reads before its controls stand, so the search waits for them, and gives up after this long.
 const waitMs = 6000;
 
@@ -64,6 +71,7 @@ export function useFocusParam(route: Route, signedIn: boolean): void {
     };
     const found = find(wanted);
     if (found) {
+      reveal(found);
       found.focus();
       leave();
       return;
@@ -77,6 +85,7 @@ export function useFocusParam(route: Route, signedIn: boolean): void {
       if (control) {
         watch.disconnect();
         clearTimeout(giveUp);
+        reveal(control);
         control.focus();
         leave();
       }

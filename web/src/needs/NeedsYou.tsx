@@ -1,13 +1,16 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { Ref } from "react";
 
-import type { ManifestRegistration, NeedItem, NeedsYou as View } from "../api/types";
+import { readView } from "../api/client";
+import type { Allowance, ManifestRegistration, NeedItem, NeedsYou as View, Plans, WorkOrder } from "../api/types";
 import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
 import { useTalk } from "../talk/state";
 import { useClock, ViewTime } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
+import { HeldTag } from "../floor/StartHeld";
+import { StartWork, startOf } from "../floor/StartWork";
 import { Select } from "../ui/forms";
 import { useNarrow } from "../ui/narrow";
 import { ApprovalDecision } from "./ApprovalDecision";
@@ -47,7 +50,7 @@ function useAssistantCard(item: NeedItem | undefined) {
 
 type Registered = { registration?: ManifestRegistration; onRegistered: (registration: ManifestRegistration) => void };
 
-type Settled = { onAnswered: (answered: Answered) => void; onDecided: (decided: Decided) => void; onResolved: (words: string) => void };
+type Settled = { onAnswered: (answered: Answered) => void; onDecided: (decided: Decided) => void; onResolved: (words: string) => void; onRetried: (order: WorkOrder) => void };
 
 function Card({ item, after, frame, registered, settled }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered; settled: Settled }) {
   const assistant = useAssistantCard(item);
@@ -59,7 +62,7 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
     case "effect":
       return <EffectCard effect={item.effect} after={after} frame={frame} />;
     case "work":
-      return <WorkCard id={item.id} work={item.work} after={after} frame={frame} />;
+      return <WorkCard id={item.id} work={item.work} after={after} frame={frame} onRetried={settled.onRetried} />;
     case "plan_approval":
       return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} onDecided={settled.onDecided} />;
     case "plan_revision":
@@ -123,6 +126,48 @@ function ResolvedNote({ heading, answered, decided, resolved, noteRef }: { headi
   );
 }
 
+// StartRetried offers Start for work a retry returned to ready, as the plans view says the work stands now: its
+// state, the hold the ledger keeps it in, and what a member may do to it. Work the view does not offer a claim or a
+// lane start of, or a view that cannot be read, leads to the work order's page instead. The dialog works in the
+// project the page shows, so work of another project leads to its page as well.
+function StartRetried({ order, project, after }: { order: WorkOrder; project?: string; after: () => Promise<void> }) {
+  const current = useContext(CurrentProject);
+  const elsewhere = Boolean(project && project !== current);
+  const [now, setNow] = useState<{ order: WorkOrder; allowed?: Allowance } | null>(null);
+  useEffect(() => {
+    if (elsewhere) {
+      return;
+    }
+    let live = true;
+    readView<Plans>("plans")
+      .then((plans) => {
+        const found = [...plans.plans.flatMap((plan) => plan.work_orders), ...plans.unplanned].find((row) => row.id === order.id);
+        if (live && found) {
+          setNow({ order: found, allowed: plans.work_actions?.[found.id] });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [order.id, elsewhere]);
+  if (!elsewhere && now && ["claim", "lane"].includes(startOf(now.order, now.allowed)?.kind ?? "")) {
+    return (
+      <p className="row-tight">
+        <StartWork order={now.order} allowed={now.allowed} after={after} />
+        <HeldTag hold={now.order.start_held} />
+      </p>
+    );
+  }
+  return (
+    <ItemProject.Provider value={project ?? ""}>
+      <p className="small">
+        <Link to={addressOf("/work-order", { id: order.id })}>Open work order {order.id}</Link>
+      </p>
+    </ItemProject.Provider>
+  );
+}
+
 type Props = { view: View; readAt: number; after: () => Promise<void>; active?: boolean };
 
 // NeedsYou lists what waits on a member in every active project, the longest wait first (FR-UI-2,
@@ -154,6 +199,8 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   // resolved holds, in words, how the person settled an item that has no answer or decision of its own, such as a repository they
   // retried or skipped.
   const [resolved, setResolved] = useState<Record<string, string>>({});
+  // retried holds the work a member returned to ready from its card, by item, which has no lane until someone starts one.
+  const [retried, setRetried] = useState<Record<string, WorkOrder>>({});
 
   // gone holds the selected item after the server stopped listing it, at the place it stood.
   const [gone, setGone] = useState<{ item: NeedItem; at: number } | null>(null);
@@ -369,6 +416,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
             <div className="decision is-resolved">
               <div className="decision-body">
                 <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} decided={decided[keyOf(selected)]} resolved={resolved[keyOf(selected)]} noteRef={resolvedNote} />
+                {retried[keyOf(selected)] ? <StartRetried order={retried[keyOf(selected)] as WorkOrder} project={selected.project?.name} after={after} /> : null}
                 {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} approval={selected.id} /> : null}
               </div>
             </div>
@@ -389,6 +437,10 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                     onAnswered: (done) => setAnswered((was) => ({ ...was, [keyOf(item)]: done })),
                     onDecided: (done) => setDecided((was) => ({ ...was, [keyOf(item)]: done })),
                     onResolved: (words) => setResolved((was) => ({ ...was, [keyOf(item)]: words })),
+                    onRetried: (order) => {
+                      setResolved((was) => ({ ...was, [keyOf(item)]: "you retried it, and the work is ready, but no lane has started. Start it to choose the worker that runs it" }));
+                      setRetried((was) => ({ ...was, [keyOf(item)]: order }));
+                    },
                   }}
                 />
               </ItemProject.Provider>

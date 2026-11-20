@@ -856,6 +856,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	// notes, the event, and the comment.
 	result.Verdicts = redactedVerdicts(result.Verdicts)
 	result.Notes = redactedNotes(result.Notes)
+	// A detail is the worker's word on a reason, and it can carry what a hook or git printed, so the event, which every
+	// member reads, keeps it as plain text with no credential.
+	result.Detail = ledger.SanitizeCIText(result.Detail)
 	current, err := tx.WorkOrders().Get(holder.WorkOrder)
 	if err != nil {
 		return err
