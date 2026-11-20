@@ -52,9 +52,13 @@ type HookEvent struct {
 	Message string `json:"message,omitempty"`
 	// WaitRule is the ID of the wait rule that denied the call, on a denial. It is the only part of a denied
 	// command a hook forwards, and the worker records it as a `wait_denied` event (FR-SPEND-2).
-	WaitRule  string `json:"wait_rule,omitempty"`
-	AtMs      int64  `json:"at_ms"`
-	Malformed bool   `json:"malformed,omitempty"`
+	WaitRule string `json:"wait_rule,omitempty"`
+	// Background counts the background tasks a session's Stop says still run, such as a subagent or a command
+	// it started in the background. Each one wakes the session with a turn of its own when it ends, so a turn
+	// that stops with one is no end of the session's work. A task's description and command stay in the session.
+	Background int   `json:"background,omitempty"`
+	AtMs       int64 `json:"at_ms"`
+	Malformed  bool  `json:"malformed,omitempty"`
 }
 
 // EventStatusLine names a status line's report among hook events. The CLI has no hook of
@@ -98,7 +102,11 @@ type hookPayload struct {
 	Error            string `json:"error"`
 	Model            string `json:"model"`
 	Prompt           string `json:"prompt"`
-	ToolInput        struct {
+	// BackgroundTasks are a Stop's tasks in flight (https://code.claude.com/docs/en/hooks#stop-input), which are
+	// counted and never read: a task's description and command say what the session asked of it. It is kept raw, so
+	// a value in a shape this build does not know counts nothing and costs nothing else of the Stop.
+	BackgroundTasks json.RawMessage `json:"background_tasks"`
+	ToolInput       struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		Questions    []struct {
@@ -196,6 +204,9 @@ func NewHookEvent(event string, input []byte) HookEvent {
 	if event == EventPreToolUse {
 		out.Path = WrittenPath(payload.ToolName, payload.ToolInput.FilePath, payload.ToolInput.NotebookPath)
 	}
+	if event == EventStop {
+		out.Background = countTasks(payload.BackgroundTasks)
+	}
 	if payload.ToolName == ToolQuestion {
 		for _, question := range payload.ToolInput.Questions {
 			asked := AskedQuestion{Text: question.Question}
@@ -206,6 +217,15 @@ func NewHookEvent(event string, input []byte) HookEvent {
 		}
 	}
 	return out
+}
+
+// countTasks counts the entries of a Stop's `background_tasks`, and finds none in a value that is no list.
+func countTasks(raw json.RawMessage) int {
+	var tasks []json.RawMessage
+	if json.Unmarshal(raw, &tasks) != nil {
+		return 0
+	}
+	return len(tasks)
 }
 
 // HookRecord is one event after merging: repeats add to Count and move LastMs.

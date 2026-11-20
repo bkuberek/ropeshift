@@ -36,7 +36,20 @@ const Binary = "claude"
 const (
 	envSessionState = "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1"
 	envTempDir      = "CLAUDE_CODE_TMPDIR="
+	// envNoBackgroundTasks removes `run_in_background` from the shell and subagent tools and stops the CLI moving a
+	// subagent, a long MCP call, or a timed-out command to the background, so a turn's end is the session's answer
+	// (https://code.claude.com/docs/en/env-vars). A watch and an MCP task still run in the background, and a Stop
+	// hook counts what is left in flight.
+	envNoBackgroundTasks = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1"
+	// envBashMaxTimeout raises the longest a foreground command may be given from ten minutes to thirty, the default
+	// time limit of a background command in an unattended session, because a long build no longer moves to the
+	// background at its timeout (https://code.claude.com/docs/en/tools-reference#timeout-and-output-limits,
+	// https://code.claude.com/docs/en/tools-reference#time-limit-for-background-commands).
+	envBashMaxTimeout = "BASH_MAX_TIMEOUT_MS=1800000"
 )
+
+// foregroundEnv keeps a session's helpers inside the turn that starts them, for every session the driver starts.
+func foregroundEnv() []string { return []string{envNoBackgroundTasks, envBashMaxTimeout} }
 
 // A session's socket lands at <TempDir>/cc-socks/<pid>.sock, and a sockaddr_un holds 104
 // bytes on macOS with its terminating NUL.
@@ -695,6 +708,7 @@ func sessionEnv(spec ports.SessionSpec, use Use) []string {
 		env = append(env, envTempDir+spec.TempDir)
 	}
 	env = append(env, agentEnv(spec)...)
+	env = append(env, foregroundEnv()...)
 	return append(env, TelemetryEnv(spec)...)
 }
 

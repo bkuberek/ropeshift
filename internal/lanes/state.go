@@ -244,12 +244,15 @@ const (
 	// AwaitingWake says an orchestrator's generation is held until there is something for it to judge, before
 	// it prepares a session, so the state it stands in is a wait and not a preparation.
 	AwaitingWake Condition = "awaiting_wake"
+	// WaitingBackground says a lane at rest waits on background work its own last turn left running, such as a
+	// watch, which starts its next turn when it ends. The wait lasts no longer than the lane may wait live.
+	WaitingBackground Condition = "waiting_background"
 )
 
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
-	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted, DayCapped,
-	WaitingForPerson, AwaitingWake,
+	Stalled, Overdue, WaitingExternal, WaitingBackground, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode,
+	UnpushedWork, Drifted, DayCapped, WaitingForPerson, AwaitingWake,
 }
 
 // Facts is what a lane's conditions derive from.
@@ -264,6 +267,9 @@ type Facts struct {
 	// and has not finished. A quiet lane is not always a stuck one.
 	WaitDeclared bool
 	ToolInFlight bool
+	// BackgroundInFlight says a lane at rest waits on background work its last turn left running, which
+	// starts its next turn when it ends. It raises `waiting_background` and no other condition.
+	BackgroundInFlight bool
 	// ContextTokens is the last call's context, and WarnTokens the profile's warning.
 	ContextTokens int64
 	WarnTokens    int64
@@ -298,6 +304,7 @@ func Conditions(f Facts) []Condition {
 	raise(Stalled, quiet && ((f.State == Working && !waiting) || (f.State == Compacting && !f.WaitDeclared)))
 	raise(Overdue, f.PastDeadline)
 	raise(WaitingExternal, waiting)
+	raise(WaitingBackground, f.BackgroundInFlight)
 	raise(NearBudget, f.WarnTokens > 0 && f.ContextTokens >= f.WarnTokens)
 	raise(BriefUnconfirmed, f.BriefUnconfirmed)
 	raise(PackOversized, f.PackOversized)

@@ -177,6 +177,9 @@ type laneRun struct {
 	// spendCheck carries a hook's word that a tool call is starting to the goroutine that reads this run's stream, which
 	// then holds the lane to its limits as a usage report does. It holds one word, so a burst of calls is one check.
 	spendCheck chan struct{}
+	// backgroundDue carries the end of a rest on background work to the same goroutine, which decides what the lane
+	// does next.
+	backgroundDue chan struct{}
 	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
 	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
 	projectReportedAt  time.Time
@@ -263,7 +266,8 @@ func newOnce() *sync.Once { return &sync.Once{} }
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
 		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(), spendCheck: make(chan struct{}, 1),
-		state: newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
+		backgroundDue: make(chan struct{}, 1),
+		state:         newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
 	}
 }
 
@@ -1095,6 +1099,9 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next
+		case <-r.backgroundDue:
+			r.backgroundBound(ctx)
+			continue
 		case <-r.spendCheck:
 			// A tool call is starting, and no cost report may come to show the limit passed: a call that cannot be
 			// priced, or a pane whose cost does not move, reports none.
@@ -1237,7 +1244,8 @@ func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
 }
 
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
-// it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended.
+// it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended, nor one
+// that left the lane's own background work running.
 // A planning lane is a conversation, so a turn it ends with no report waits for its person instead
 // (ADR-0018).
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
@@ -1298,20 +1306,85 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		r.awaitPerson(ctx)
 		return
 	}
+	// A turn that stopped with the lane's own background work still running ended none of the lane's work: the work
+	// starts the session's next turn when it ends. The lane rests on it, unnudged, for as long as it may wait live.
+	if since, _, resting := r.state.backgroundRest(); resting {
+		r.restOnBackground(ctx, since)
+		return
+	}
+	r.nudgeOrEnd(ctx, lanes.Nudge, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome})
+}
+
+// nudgeOrEnd sends the lane its one nudge, or ends it with report once the nudge is spent or cannot be sent.
+func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders.Report) {
 	if r.nudged.CompareAndSwap(false, true) {
 		ran, err := r.w.bracket(ctx, r.nudge(), func() error {
-			_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: lanes.Nudge})
+			_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: text})
 			return err
 		})
 		if ran && err == nil {
-			r.setInstruction(lanes.Nudge)
+			r.setInstruction(text)
 			r.signal(ctx, lanes.OnInputHanded)
 			return
 		}
 	}
-	r.decided = &workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome}
+	r.decided = &report
 	r.signal(ctx, lanes.OnOutcomeReported)
 	r.stop(ctx, ports.StopAtRest)
+}
+
+// restOnBackground holds a lane at rest on its own background work until the longest it may wait live has passed
+// since its turn stopped (max_live_wait, FR-SPEND-1), then hands what comes next to the goroutine that reads the
+// stream. A turn the work starts, a later stop, or the session's end ends the rest first.
+func (r *laneRun) restOnBackground(ctx context.Context, since time.Time) {
+	deadline := since.Add(lanes.MaxLiveWait(r.lease.Spend))
+	r.sequence.Go(func() {
+		for r.w.clock.Now().Before(deadline) {
+			if !r.restsOnBackground(ctx, since) {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(superviseEvery):
+			}
+		}
+		if r.restsOnBackground(ctx, since) {
+			select {
+			case r.backgroundDue <- struct{}{}:
+			default:
+			}
+		}
+	})
+}
+
+// restsOnBackground says the rest that began with the stop the worker heard at since goes on.
+func (r *laneRun) restsOnBackground(ctx context.Context, since time.Time) bool {
+	at, _, resting := r.state.backgroundRest()
+	return resting && at.Equal(since) && r.restsOn(ctx)
+}
+
+// backgroundBound ends a rest on background work that outlasted the live wait, where the stream is read: the lane is
+// nudged with words that name the work it waits on, or, its nudge spent, ends blocked with a reason that names the
+// wait and a detail that says since when, what still ran, and the bound that ended it.
+func (r *laneRun) backgroundBound(ctx context.Context) {
+	since, tasks, resting := r.state.backgroundRest()
+	bound := lanes.MaxLiveWait(r.lease.Spend)
+	if !resting || r.w.clock.Now().Before(since.Add(bound)) || !r.restsOn(ctx) || r.currentFlight() != nil {
+		return
+	}
+	detail := fmt.Sprintf("Its turn ended at %s with %s still running, and none reported within max_live_wait, %s.",
+		since.UTC().Format(time.RFC3339), backgroundTasks(tasks), bound)
+	report := workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonBackgroundUnreported, Detail: detail}
+	r.nudgeOrEnd(ctx, lanes.BackgroundNudge, report)
+}
+
+// backgroundTasks counts tasks in words.
+func backgroundTasks(n int) string {
+	if n == 1 {
+		return "1 background task"
+	}
+	return fmt.Sprintf("%d background tasks", n)
 }
 
 // nudge is the one input a worker sends a lane on its own.
