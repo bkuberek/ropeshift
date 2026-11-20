@@ -170,6 +170,10 @@ A lane reads the built-in layer, then your profile over it, then the repository'
 
 A key the profile does not know refuses the whole profile, and no lane starts until it is fixed, so a misspelled setting never keeps its default in silence. A lane reads the files when it starts. The policies have a command too: `ropeshift policy publish --file F` publishes a version from a file, as Review change does ([the command line](cli.md)).
 
+## Your own agent CLI setup
+
+Lanes load none of your own Claude Code setup: no settings, hooks, status line, plugins, skills, commands, or subagents from `~/.claude`, no `~/.claude/CLAUDE.md` or `~/.claude/rules/`, no MCP server or connector of yours, and no auto memory. They keep your sign-in. A lane reads the repository's own `.claude/` settings, skills, and subagents, its `CLAUDE.md` or `AGENTS.md`, the agent roster above, and ropeshift's own MCP server, so put what a project's lanes need in the repository or in its lane profile. A repository's `.mcp.json` does not reach lanes either. [Your own agent CLI setup](authorization.md#your-own-agent-cli-setup) names the switch that keeps out each piece.
+
 ## On the command line
 
 [The CLI for power users](cli-for-power-users.md#settings-and-agents) gives the command for each step of this guide.

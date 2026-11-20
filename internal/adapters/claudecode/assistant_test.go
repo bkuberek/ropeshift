@@ -188,7 +188,7 @@ func TestAnAssistantHoldsOnlyItsOwnToolsAndServers(t *testing.T) {
 	}
 	lane := spec
 	lane.Assistant, lane.Commands = false, nil
-	if slices.Contains(StartArgs(lane), "--strict-mcp-config") || len(compilePolicy(lane).Tools) != 0 {
+	if slices.Contains(StartArgs(lane), "--tools") || len(compilePolicy(lane).Tools) != 0 {
 		t.Error("a lane is held as an assistant")
 	}
 }

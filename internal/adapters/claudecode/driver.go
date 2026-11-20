@@ -392,11 +392,11 @@ func args(spec ports.SessionSpec) []string {
 	return append(append(out, packArgs(spec)...), spec.Override.Args()...)
 }
 
-// packArgs states what every start and every resume says of a session beyond its files: its pack,
-// which sits in its system prompt, so generations of one version share a cache, and the vendor tools
-// it holds, which an MCP server's tools outlast.
+// packArgs states what every start and every resume says of a session beyond its files: that it runs
+// clean of the person's own setup, its pack, which sits in its system prompt, so generations of one
+// version share a cache, and the vendor tools it holds, which an MCP server's tools outlast.
 func packArgs(spec ports.SessionSpec) []string {
-	var out []string
+	out := isolationArgs(spec)
 	if spec.OnlyTools {
 		out = append(out, "--tools", "")
 	}
@@ -409,16 +409,10 @@ func packArgs(spec ports.SessionSpec) []string {
 	return append(out, agentArgs(spec)...)
 }
 
-// assistantArgs hold an assistant's session to what ropeshift gives it, whatever the person who signed the
-// CLI in has set up for themselves: its built-in tools alone, ropeshift's MCP server alone, which leaves out
-// the person's own servers and connectors, and no settings of the person's, so none of their plugins,
-// hooks, or permissions load. Its CLI keeps the person's home, where its sign-in lives, so a configuration
-// directory of its own, which would hold no sign-in, is not how it is held.
+// assistantArgs hold an assistant's session to its built-in tools alone. Like every session, it already
+// runs with ropeshift's MCP server alone and none of the person's own settings (isolationArgs).
 func assistantArgs() []string {
-	return []string{
-		"--tools", strings.Join(assistantBuiltIns, ","), "--strict-mcp-config",
-		flagSettingSources, sourceProject + "," + sourceLocal,
-	}
+	return []string{"--tools", strings.Join(assistantBuiltIns, ",")}
 }
 
 // flagMaxBudget is the client's own cap on a print-mode run's estimated spend ([CLI reference]); it counts one process,
@@ -694,6 +688,7 @@ func sessionEnv(spec ports.SessionSpec, use Use) []string {
 	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
+	env = append(env, isolationEnv()...)
 	env = append(env, agentEnv(spec)...)
 	return append(env, TelemetryEnv(spec)...)
 }

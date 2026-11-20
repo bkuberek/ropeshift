@@ -11,9 +11,9 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-// The setting sources, as the CLI names them, from the lowest precedence up.
+// The setting sources a session reads, as the CLI names them, from the lowest precedence up. The person's
+// own `user` source is never one of them (isolationArgs).
 const (
-	sourceUser    = "user"
 	sourceProject = "project"
 	sourceLocal   = "local"
 )
@@ -31,9 +31,10 @@ type statusLine struct {
 	RefreshInterval *int   `json:"refreshInterval,omitempty"`
 }
 
-// settingSources are the sources a session reads, from the lowest precedence up.
+// settingSources are the sources a session reads, from the lowest precedence up: the lane's own, which a
+// real-session suite's list can narrow.
 func settingSources(spec ports.SessionSpec) []string {
-	sources := []string{sourceUser, sourceProject, sourceLocal}
+	sources := slices.Clone(laneSources)
 	extra := spec.Override.Args()
 	for i := 0; i+1 < len(extra); i++ {
 		if extra[i] == flagSettingSources {
@@ -44,36 +45,21 @@ func settingSources(spec ports.SessionSpec) []string {
 	return sources
 }
 
-func settingsPath(source, dir, home string) string {
-	switch source {
-	case sourceUser:
-		if home == "" {
-			return ""
-		}
-		return filepath.Join(home, ".claude", "settings.json")
-	case sourceProject:
+func settingsPath(source, dir string) string {
+	if source == sourceProject {
 		return filepath.Join(dir, ".claude", "settings.json")
 	}
 	return filepath.Join(dir, ".claude", "settings.local.json")
 }
 
-// existingStatusLine finds the line a person configured, in the CLI's precedence, because
-// `--settings` replaces it and a person keeps the status line they set. A file that does
-// not parse holds no line.
+// existingStatusLine finds the line the repository's settings configure, in the CLI's precedence,
+// because `--settings` replaces it and a repository keeps the status line it set. The person's own
+// line is in their user settings, which a session does not read. A file that does not parse holds
+// no line.
 func existingStatusLine(spec ports.SessionSpec) *statusLine {
-	home := ""
-	for _, entry := range spec.Env {
-		if value, ok := strings.CutPrefix(entry, "HOME="); ok {
-			home = value
-		}
-	}
 	var found *statusLine
 	for _, source := range settingSources(spec) {
-		path := settingsPath(source, spec.Dir, home)
-		if path == "" {
-			continue
-		}
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(settingsPath(source, spec.Dir))
 		if err != nil {
 			continue
 		}
@@ -87,10 +73,10 @@ func existingStatusLine(spec ports.SessionSpec) *statusLine {
 	return found
 }
 
-// composedStatusLine forwards the input to the worker and then runs a person's own command
-// on the same input, so it prints what they configured. The CLI runs the command through
-// a shell, so a pipe composes the two and this binary starts no shell. The newline keeps
-// a comment at the end of their command from closing the group.
+// composedStatusLine forwards the input to the worker and then runs the repository's own
+// command on the same input, so it prints what the repository configured. The CLI runs the
+// command through a shell, so a pipe composes the two and this binary starts no shell. The
+// newline keeps a comment at the end of that command from closing the group.
 func composedStatusLine(spec ports.SessionSpec) *statusLine {
 	forward := lanes.ShellQuote(spec.Binary) + " statusline"
 	out := &statusLine{Type: "command", Command: forward}
