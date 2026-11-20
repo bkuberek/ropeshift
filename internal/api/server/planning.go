@@ -110,7 +110,10 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 		if wanted != 0 && !slices.ContainsFunc(view.Versions, func(line api.PlanVersionLine) bool { return line.Version == wanted }) {
 			return fmt.Errorf("plan %s has no version %d: %w", plan.ID, wanted, ports.ErrNotFound)
 		}
-		if view.Approval, err = planApprovalView(tx, plan.ID, wanted); err != nil || view.Approval == nil || !view.Approval.Approval.Open() {
+		if view.Approval, err = planApprovalView(tx, plan.ID, wanted); err != nil {
+			return err
+		}
+		if err := fillPlanText(tx, &view, wanted); err != nil || view.Approval == nil || !view.Approval.Approval.Open() {
 			return err
 		}
 		listed, err = control.VersionManifest(tx, view.Approval.Approval)
@@ -224,6 +227,32 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 		return nil, err
 	}
 	return view, nil
+}
+
+// fillPlanText adds the text of the plan's file at the version shown: the version the request names, or else the
+// one asked for, or else the newest. A version the ledger holds kept its own, and a branch's version has the
+// one its request carries.
+func fillPlanText(tx ports.ReadTx, view *api.PlanView, wanted int64) error {
+	shown := wanted
+	if view.Approval != nil {
+		shown = view.Approval.Approval.PlanVersion
+	}
+	var version planning.PlanVersion
+	var err error
+	if shown == 0 {
+		version, err = tx.Planning().LatestPlanVersion(view.Plan.ID)
+	} else {
+		version, err = tx.Planning().PlanVersion(view.Plan.ID, shown)
+	}
+	switch {
+	case err == nil:
+		view.Body, view.BodyCut = version.Body, version.BodyCut
+	case !errors.Is(err, ports.ErrNotFound):
+		return err
+	case view.Approval != nil:
+		view.Body, view.BodyCut = view.Approval.Detail.Body, view.Approval.Detail.BodyCut
+	}
+	return nil
 }
 
 // milestoneTitles names each milestone a plan version holds by the ID its file gives, which is the one a

@@ -164,7 +164,11 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 	if err != nil {
 		return itemOutcome{}, err
 	}
-	read := planFileRead{digest: r.digest(string(fields)), source: r.item.Source, documents: file.Documents, decisions: file.Decisions, leftOut: file.LeftOut}
+	body, cut := planning.ClipBody(r.item.Statement)
+	read := planFileRead{
+		digest: r.digest(string(fields)), source: r.item.Source, documents: file.Documents, decisions: file.Decisions, leftOut: file.LeftOut,
+		body: body, bodyCut: cut,
+	}
 	id, known, err := r.recordID(planning.SubjectPlan, r.item.Key)
 	if err != nil {
 		return itemOutcome{}, err

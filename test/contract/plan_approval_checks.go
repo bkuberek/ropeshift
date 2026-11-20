@@ -48,6 +48,8 @@ var PlanApprovalChecks = []Check{
 	{"PA21", "a decision whose content names the member but whose recording event is a delegate's is another writer's, so approval refuses it", checkApprovalRefusesADelegateRecordedMemberDecision},
 	{"PA22", "a draft whose earlier decision a decision outside the plan replaced or overturned is not decided again while its text is unchanged, and the approval lists it as replaced", checkReplacedDraftIsNotDecidedAgain},
 	{"PA23", "a draft whose text changed after its earlier decision was replaced or overturned is decided under the new version's ID, superseding the decision in force", checkChangedDraftSupersedesTheDecisionInForce},
+	{"PA24", "a plan version keeps the text of the plan's file, cut at a bound, and a version a spec made keeps the text the plan's file had", checkPlanVersionKeepsThePlansText},
+	{"PA25", "a branch's request carries its plan's text, its goal, and each contract with its criteria, because the ledger holds none of them", checkBranchRequestCarriesWhatMemberReads},
 }
 
 const approvalPlan = "retry"
@@ -1484,4 +1486,91 @@ func checkOnlyPlanApprovalNamesItsDecisions(r *Rig) error {
 		return Violatedf("approving version 2 decided %+v: %v", decided, err)
 	}
 	return r.CheckProjection(s)
+}
+
+func checkPlanVersionKeepsThePlansText(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	versionAt := func(want int, note string) (planning.PlanVersion, error) {
+		versions, err := r.planVersionsOf(s, plan)
+		if err != nil || len(versions) != want {
+			return planning.PlanVersion{}, Violatedf("%s: versions %+v: %v", note, versions, err)
+		}
+		return versions[want-1], nil
+	}
+	first, err := versionAt(1, "the plan file")
+	if err != nil {
+		return err
+	}
+	if first.Body != "How.\n" || first.BodyCut {
+		return Violatedf("version 1 keeps %q (cut %v), want the text after the front matter", first.Body, first.BodyCut)
+	}
+
+	files.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", approvalPlan, "The second draft.")))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	if second, err := versionAt(2, "a spec"); err != nil {
+		return err
+	} else if second.Body != first.Body {
+		return Violatedf("a version a spec made keeps %q, want the plan file's %q", second.Body, first.Body)
+	}
+
+	files.source.Write("plan.md", []byte(strings.Replace(planWith(approvalPlan, "Retry budget", nil, "Stripe"), "How.", "Changed.", 1)))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	if third, err := versionAt(3, "the plan's text"); err != nil {
+		return err
+	} else if third.Body != "Changed.\n" {
+		return Violatedf("version 3 keeps %q", third.Body)
+	}
+
+	files.source.Write("plan.md", []byte(strings.Replace(planWith(approvalPlan, "Retry budget", nil, "Stripe"), "How.", strings.Repeat("x", planning.MaxPlanBody+10), 1)))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	if fourth, err := versionAt(4, "a long text"); err != nil {
+		return err
+	} else if len(fourth.Body) != planning.MaxPlanBody || !fourth.BodyCut {
+		return Violatedf("version 4 keeps %d bytes (cut %v), want %d, cut", len(fourth.Body), fourth.BodyCut, planning.MaxPlanBody)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkBranchRequestCarriesWhatMemberReads(r *Rig) error {
+	s := r.Store()
+	files := map[string]string{
+		"goal.md":   GoalText("shore", "Reach the shore"),
+		"plan.md":   PlanText(approvalPlan, "Retry budget", "shore"),
+		"budget.md": placedContract{ID: "budget", Plan: approvalPlan}.text(),
+	}
+	_, pending, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	var detail planning.PlanDetail
+	if err := json.Unmarshal([]byte(pending.Detail), &detail); err != nil {
+		return err
+	}
+	if detail.Body != "How.\n" || detail.BodyCut {
+		return Violatedf("the request carries the plan's text %q (cut %v)", detail.Body, detail.BodyCut)
+	}
+	if goal := detail.Goal; goal == nil || goal.Title != "Reach the shore" || goal.Statement != "Why.\n" || !slices.Equal(goal.SuccessMeasures, []string{"It holds"}) {
+		return Violatedf("the request carries the goal %+v", detail.Goal)
+	}
+	if len(detail.Contracts) != 1 {
+		return Violatedf("the request carries contracts %+v", detail.Contracts)
+	}
+	if c := detail.Contracts[0]; c.ID != "budget" || c.Title != "The contract budget" || len(c.Criteria) != 1 || c.Criteria[0].Text != "It works" {
+		return Violatedf("the request carries the contract %+v", c)
+	}
+	return nil
 }

@@ -222,6 +222,26 @@ func TestShowingAPlanCarriesItsApprovalAndTheDifference(t *testing.T) {
 	}
 }
 
+// A member reads the text of the plan's file, as the version the ledger holds kept it, in the plan's view.
+func TestShowingAPlanCarriesTheTextOfTheVersion(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	w.Planned(retrySource("The first draft."))
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	for name, read := range map[string]func() (api.PlanView, error){
+		"with no version": func() (api.PlanView, error) { return d.Client.Plan(t.Context(), need.Approval.Plan) },
+		"by its version":  func() (api.PlanView, error) { return d.Client.PlanVersion(t.Context(), need.Approval.Plan, 1) },
+	} {
+		view, err := read()
+		if err != nil {
+			t.Fatalf("the plan %s: %v", name, err)
+		}
+		if view.Body != "How.\n" || view.BodyCut {
+			t.Errorf("the plan %s carries the text %q (cut %v)", name, view.Body, view.BodyCut)
+		}
+	}
+}
+
 // The forecasts of a plan version name milestones by ID, so its approval carries each milestone's title for the
 // page to read them by.
 func TestAPlanApprovalNamesItsMilestonesByTitle(t *testing.T) {
@@ -419,6 +439,53 @@ func TestShowingAPlanReadsTheSecondVersionOfABranchTheLedgerHoldsNoRecordOf(t *t
 		if len(view.Versions) != 2 || view.Versions[0].Version != 2 || view.Versions[0].Approval != "branch-v2" {
 			t.Errorf("the plan %s lists %+v", name, view.Versions)
 		}
+	}
+}
+
+// A branch's version is read from its request, which carries the text of the plan's file, and the plan's view
+// shows that text and not the text of the version the ledger holds.
+func TestShowingAPlanReadsTheTextOfABranchFromItsRequest(t *testing.T) {
+	d, w, _ := aWorld(t)
+	w.Planned(retrySource("The first draft."))
+	first := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), first.Approval.ID, api.DecideApproval{Digest: first.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Retry budget", Ref: "retry", Source: laneHead, Body: "Retry three times.\n", BodyCut: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raiseBranchRequest(t, d, authority.Approval{
+		ID: "branch-v2", Kind: authority.KindPlan, Plan: first.Approval.Plan, WorkOrder: "plan-1", Subject: "retry@2", SubjectDigest: "sha256:second",
+		Summary: "Plan retry, version 2", RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 2, PlanVersion: 2, Detail: string(detail),
+	})
+	view, err := d.Client.PlanVersion(t.Context(), first.Approval.Plan, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Body != "Retry three times.\n" || !view.BodyCut {
+		t.Errorf("the branch's version carries the text %q (cut %v)", view.Body, view.BodyCut)
+	}
+	if view.Approval == nil || view.Approval.Detail.Body != "Retry three times.\n" {
+		t.Errorf("the request carries %+v", view.Approval)
+	}
+}
+
+// A text the version holds beyond what a member can read in the page is cut where the version kept it, and the
+// view says so.
+func TestShowingAPlanSaysWhenItsTextWasCut(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	source := retrySource("The first draft.")
+	source.Write("plan.md", []byte(strings.Replace(retryPlan, "How.", strings.Repeat("y", planning.MaxPlanBody+1), 1)))
+	w.Planned(source)
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	view, err := d.Client.Plan(t.Context(), need.Approval.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Body) != planning.MaxPlanBody || !view.BodyCut {
+		t.Errorf("the plan carries %d bytes of text (cut %v)", len(view.Body), view.BodyCut)
 	}
 }
 

@@ -1245,6 +1245,12 @@ export type PlanApprovalDetail = {
   // source is the commit of the planning branch the version was read from.
   source?: string;
   adoption?: Adoption;
+  // body is the text of the plan's file, cut at a bound with body_cut set, and goal and contracts are what a branch's
+  // version names. A branch's request carries them because the ledger holds none of its records.
+  body?: string;
+  body_cut?: boolean;
+  goal?: { title: string; statement?: string; success_measures?: string[] };
+  contracts?: { id: string; title: string; statement?: string; criteria?: Criterion[] }[];
 };
 
 // CreationStep is one step of a repository's creation on the forge: create, origin, or push, and whether it is done,
@@ -1329,6 +1335,9 @@ export type PlanView = {
   versions: PlanVersionLine[];
   // The plan's open revision, which keeps its unstarted work in contract review.
   revision?: PlanRevisionView;
+  // The text of the plan's file at the version shown, and whether the ledger kept only the start of it.
+  body?: string;
+  body_cut?: boolean;
 };
 
 // A request as the approvals list and show routes answer, with who decided it and when once it is decided. A plan approval

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -135,10 +136,30 @@ type PlanVersion struct {
 	Decisions []DraftDecision `json:"decisions,omitempty"`
 	// LeftOut is what the plan's file records an adoption did not carry, each with its reason (ADR-0023).
 	LeftOut []LeftOut `json:"left_out,omitempty"`
+	// Body is the Markdown after the plan file's front matter, which a member reads to know what the version
+	// plans, cut at MaxPlanBody bytes, and BodyCut says it was cut.
+	Body    string `json:"body,omitempty"`
+	BodyCut bool   `json:"body_cut,omitempty"`
 	// Records are the records the digest covers, and WorkOrder is the `plan` work order whose accepted
 	// branch held the plan file, when the version came from a planning lane.
 	Records   []Entry `json:"records,omitempty"`
 	WorkOrder string  `json:"work_order,omitempty"`
+}
+
+// MaxPlanBody is the most bytes of a plan file's text a version keeps.
+const MaxPlanBody = 256 << 10
+
+// ClipBody keeps at most MaxPlanBody bytes of a plan file's text, ending at a character boundary, and says
+// whether it cut any.
+func ClipBody(text string) (string, bool) {
+	if len(text) <= MaxPlanBody {
+		return text, false
+	}
+	end := MaxPlanBody
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end], true
 }
 
 // DocumentRecord is a document, which stays the same across its versions. Its ID is its reference,

@@ -529,6 +529,116 @@ describe("a first version from a planning branch", () => {
   });
 });
 
+describe("what a member reads of the plan before deciding", () => {
+  it("shows the goal, the text of the version, and each contract with its criteria, with a link to the plan", async () => {
+    serve();
+    openPage(page());
+    await heading();
+    const goal = screen.getByRole("region", { name: "Goal" });
+    expect(within(goal).getByText("Run the factory")).toBeTruthy();
+    expect(within(goal).getByText("One person plans, and the factory builds.")).toBeTruthy();
+    expect(within(goal).getByRole("list", { name: "Success measures" }).textContent).toContain("A plan is approved in one step");
+    const text = screen.getByRole("region", { name: "Plan text" });
+    expect(within(text).getByText("How the factory floor is built.")).toBeTruthy();
+    const contracts = screen.getByRole("region", { name: "Contracts in this version" });
+    expect(within(contracts).getByText("The API client")).toBeTruthy();
+    expect(within(contracts).getByText("What The API client is for.")).toBeTruthy();
+    expect(within(contracts).getByText("Every call retries once")).toBeTruthy();
+    expect(within(contracts).getByRole("link", { name: "Open the plan" }).getAttribute("href")).toBe(here(`/plans?plan=${encodeURIComponent(planId)}`));
+  });
+
+  it("says plainly what the version does not hold", async () => {
+    serve((view) => {
+      view.contracts = [];
+      view.goal = undefined;
+      view.body = undefined;
+    });
+    openPage(page());
+    await heading();
+    expect(within(screen.getByRole("region", { name: "Goal" })).getByText("This plan names no goal.")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Plan text" })).getByText("This version recorded no plan text.")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Contracts in this version" })).getByText("This version holds no contract.")).toBeTruthy();
+  });
+
+  it("says when the version kept only the start of its text", async () => {
+    serve((view) => {
+      view.body_cut = true;
+    });
+    openPage(page());
+    await heading();
+    expect(within(screen.getByRole("region", { name: "Plan text" })).getByText(/Only the start of the text is kept/)).toBeTruthy();
+  });
+
+  it("shows text lanes and repositories wrote as text, and nothing in it runs or links", async () => {
+    const hostile = "<script>window.hit = 1</script>\n\n[open it](javascript:window.hit=2)\n\n<img src=x onerror=\"window.hit=3\">\n";
+    serve((view) => {
+      view.body = hostile;
+      if (view.goal) {
+        view.goal.statement = hostile;
+      }
+      view.contracts[0]!.statement = hostile;
+    });
+    openPage(page());
+    await heading();
+    const text = screen.getByRole("region", { name: "Plan text" });
+    expect(text.textContent).toContain("<script>window.hit = 1</script>");
+    expect(text.textContent).toContain("javascript:window.hit=2");
+    for (const name of ["Goal", "Plan text", "Contracts in this version"]) {
+      const region = screen.getByRole("region", { name });
+      expect(region.querySelector("script, img, iframe, object, embed")).toBeNull();
+      expect(region.querySelector("[onerror], [onclick]")).toBeNull();
+      for (const link of Array.from(region.querySelectorAll("a"))) {
+        expect(link.getAttribute("href") ?? "").not.toMatch(/^\s*javascript:/i);
+      }
+    }
+    expect((window as unknown as { hit?: number }).hit).toBeUndefined();
+  });
+});
+
+// A branch's version is read from its request, which carries what the ledger does not hold yet.
+describe("the text of a version a planning branch holds", () => {
+  const request = golden<ApprovalRecord>("approval-adopted");
+
+  it("reads the text, the goal, and the contracts from its request", async () => {
+    const approval = structuredClone(request) as ApprovalRecord;
+    const detail = JSON.parse(approval.detail ?? "{}") as Record<string, unknown>;
+    delete detail.adoption;
+    detail.body = "Berths come first.\n";
+    detail.goal = { title: "Open the harbor", statement: "Boats dock.\n", success_measures: ["A boat docks"] };
+    detail.contracts = [{ id: "berths", title: "The berths", statement: "Build two berths.\n", criteria: [{ id: "c1", text: "Two berths hold a boat" }] }];
+    approval.detail = JSON.stringify(detail);
+    serveViews((call) => {
+      if (call.method === "GET" && call.path.startsWith("/v1/plans/")) {
+        return refusal(404, "not_found", "plan: not found");
+      }
+      return call.method === "GET" && call.path === `/v1/approvals/${request.id}` ? { status: 200, body: approval } : undefined;
+    });
+    openPage(here(`/plan?id=${request.id}&version=1`));
+    await screen.findByRole("region", { name: "Plan text" });
+    expect(within(screen.getByRole("region", { name: "Plan text" })).getByText("Berths come first.")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Goal" })).getByText("Open the harbor")).toBeTruthy();
+    const contracts = screen.getByRole("region", { name: "Contracts in this version" });
+    expect(within(contracts).getByText("Two berths hold a boat")).toBeTruthy();
+    expect(within(contracts).queryByRole("link", { name: "Open the plan" })).toBeNull();
+  });
+
+  it("shows the contracts of a later version its request carries, and not the ones the ledger holds for the plan", async () => {
+    serve((view) => {
+      view.versions[0]!.digest = undefined;
+      view.body = undefined;
+      if (view.approval) {
+        view.approval.detail = { ...view.approval.detail, body: "Berths come first.\n", contracts: [{ id: "berths", title: "The berths", criteria: [{ id: "c1", text: "Two berths hold a boat" }] }] };
+      }
+    });
+    openPage(page());
+    await heading();
+    expect(within(screen.getByRole("region", { name: "Plan text" })).getByText("Berths come first.")).toBeTruthy();
+    const contracts = screen.getByRole("region", { name: "Contracts in this version" });
+    expect(within(contracts).getByText("The berths")).toBeTruthy();
+    expect(within(contracts).queryByText("The API client")).toBeNull();
+  });
+});
+
 describe("the repositories a version's manifest lists", () => {
   it("lists each one, where its path leads, and whether approving registers it", async () => {
     serve((view) => {

@@ -189,6 +189,11 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 			ref: item.Plan.ID, title: item.Plan.Title, version: 1, digest: planning.PlanDigest(entries), entries: entries,
 			decisions: len(item.Plan.Decisions), drafts: item.Plan.Decisions, source: branch.commit, workOrder: branch.order.ID,
 			manifest: branchManifest(batch, entries), targets: branchTargets(batch, item.Plan.ID),
+			contracts: branchContracts(batch, item.Plan.ID),
+		}
+		ask.body, ask.bodyCut = planning.ClipBody(item.Statement)
+		if ask.goal, err = branchGoal(tx, batch, item); err != nil {
+			return err
 		}
 		if branch.order.Adopt {
 			ask.adoption = adoptionOf(batch, *item.Plan, changes)
@@ -262,6 +267,47 @@ func branchTargets(batch ports.ChangeBatch, plan string) []string {
 	}
 	slices.Sort(out)
 	return slices.Compact(out)
+}
+
+// branchGoal reads the goal a plan file names, from the batch when the branch holds the goal's file and from the
+// ledger when it holds the goal already. A plan that names no goal, or one nobody holds, has none.
+func branchGoal(tx ports.WriteTx, batch ports.ChangeBatch, plan ports.RecordItem) (*planning.DetailGoal, error) {
+	if plan.Plan.Goal == "" {
+		return nil, nil
+	}
+	for _, item := range batch.Records {
+		if item.Goal != nil && item.Goal.ID == plan.Plan.Goal {
+			statement, _ := planning.ClipBody(item.Statement)
+			return &planning.DetailGoal{Title: item.Goal.Title, Statement: statement, SuccessMeasures: item.Goal.SuccessMeasures}, nil
+		}
+	}
+	key := plan.Key
+	key.NativeID = plan.Plan.Goal
+	link, err := tx.Planning().Link(planning.SubjectGoal, key)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	goal, err := tx.Planning().Goal(link.RecordID)
+	if err != nil {
+		return nil, err
+	}
+	return &planning.DetailGoal{Title: goal.Title, Statement: goal.Statement, SuccessMeasures: goal.SuccessMeasures}, nil
+}
+
+// branchContracts lists the contracts of a plan a branch holds, in the order the batch holds them.
+func branchContracts(batch ports.ChangeBatch, plan string) []planning.DetailContract {
+	var out []planning.DetailContract
+	for _, item := range batch.Items {
+		if item.Contract.Plan != plan {
+			continue
+		}
+		statement, _ := planning.ClipBody(item.Statement)
+		out = append(out, planning.DetailContract{ID: item.Contract.ID, Title: item.Contract.Title, Statement: statement, Criteria: item.Contract.Criteria})
+	}
+	return out
 }
 
 // candidateEntries gathers the records a batch holds that name a plan file, with the digests intake

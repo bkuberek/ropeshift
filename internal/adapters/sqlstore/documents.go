@@ -13,7 +13,7 @@ import (
 const (
 	documentColumns        = `id, kind, plan_id, title`
 	documentVersionColumns = `document_id, version, title, digest, source, body, fields`
-	planVersionColumns     = `plan_id, version, digest, source, documents, decisions, file_digest, records, work_order, left_out`
+	planVersionColumns     = `plan_id, version, digest, source, documents, decisions, file_digest, records, work_order, left_out, body, body_cut`
 )
 
 var (
@@ -51,8 +51,8 @@ VALUES (:workspace_id, :document_id, :version, :title, :digest, :source, :body, 
  ORDER BY document_id, version`)
 
 	stmtInsertPlanVersion = define("plan_version.insert",
-		`INSERT INTO plan_versions (workspace_id, plan_id, version, digest, source, documents, decisions, file_digest, records, work_order, left_out)
-VALUES (:workspace_id, :plan_id, :version, :digest, :source, :documents, :decisions, :file_digest, :records, :work_order, :left_out)`)
+		`INSERT INTO plan_versions (workspace_id, plan_id, version, digest, source, documents, decisions, file_digest, records, work_order, left_out, body, body_cut)
+VALUES (:workspace_id, :plan_id, :version, :digest, :source, :documents, :decisions, :file_digest, :records, :work_order, :left_out, :body, :body_cut)`)
 
 	stmtPlanVersion = define("plan_version.get",
 		`SELECT `+planVersionColumns+` FROM plan_versions
@@ -215,7 +215,7 @@ func (t planningTx) InsertPlanVersion(v planning.PlanVersion) error {
 	_, err = t.exec(stmtInsertPlanVersion, t.scoped(params{
 		"plan_id": v.PlanID, "version": v.Version, "digest": v.Digest, "source": nullText(v.Source),
 		"documents": string(documents), "decisions": string(decisions), "file_digest": v.FileDigest, "records": string(records),
-		"work_order": v.WorkOrder, "left_out": string(leftOut),
+		"work_order": v.WorkOrder, "left_out": string(leftOut), "body": v.Body, "body_cut": flag(v.BodyCut),
 	}))
 	return err
 }
@@ -224,10 +224,11 @@ func scanPlanVersion(row scanner) (planning.PlanVersion, error) {
 	var v planning.PlanVersion
 	var source sql.NullString
 	var documents, decisions, records, leftOut string
-	if err := row.Scan(&v.PlanID, &v.Version, &v.Digest, &source, &documents, &decisions, &v.FileDigest, &records, &v.WorkOrder, &leftOut); err != nil {
+	var cut int64
+	if err := row.Scan(&v.PlanID, &v.Version, &v.Digest, &source, &documents, &decisions, &v.FileDigest, &records, &v.WorkOrder, &leftOut, &v.Body, &cut); err != nil {
 		return planning.PlanVersion{}, err
 	}
-	v.Source = source.String
+	v.Source, v.BodyCut = source.String, cut != 0
 	for _, field := range []struct {
 		raw  string
 		into any

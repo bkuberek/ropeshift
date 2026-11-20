@@ -17,6 +17,8 @@ import { Dialog } from "../ui/overlays";
 import { createsLine } from "./creation";
 import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions, registrationTitle, RegistrationRows } from "./PlanParts";
 import { versionLinks } from "./planChanges";
+import { WhatThePlanSays } from "./PlanText";
+import type { ContractText, GoalText } from "./PlanText";
 import { RevisionSince } from "./RevisionSince";
 
 // Subject is what the page decides on: one version of a plan and the request to approve it. A plan the ledger
@@ -43,6 +45,12 @@ export type Subject = {
   // revision is the revision the request answers, read beside the difference: the decisions made since the approved
   // version, which approving a later version settles.
   revision?: PlanRevisionView;
+  // goal, body, and contracts are what the plan says: the goal it pursues, the text of its file at this version, cut
+  // when body_cut says so, and the contracts the version holds.
+  goal?: GoalText;
+  body?: string;
+  bodyCut?: boolean;
+  contracts: ContractText[];
 };
 
 const noDetail: PlanApprovalDetail = { title: "" };
@@ -60,6 +68,10 @@ export async function readSubject(id: string, version: string): Promise<Subject>
   try {
     const view = await readPlan(id, version);
     const held: PlanApprovalView | undefined = view.approval;
+    const shown = held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0);
+    // A version the ledger holds has a digest on its line. One without is a branch's, whose goal and contracts its
+    // request carries, because the ledger holds none of them yet.
+    const branch = held !== undefined && !view.versions.some((line) => line.version === shown && line.digest);
     return {
       plan: view.plan,
       address: id,
@@ -74,6 +86,10 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       registration: held?.registration,
       forecast: held?.forecast,
       revision: held?.revision,
+      goal: held?.detail.goal ?? view.goal,
+      body: view.body ?? held?.detail.body,
+      bodyCut: view.body_cut ?? held?.detail.body_cut,
+      contracts: branch ? (held?.detail.contracts ?? []) : view.contracts,
     };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") {
@@ -86,7 +102,10 @@ export async function readSubject(id: string, version: string): Promise<Subject>
   }
   // The ledger holds no record of a branch's version until it is approved, so its request carries its drafts.
   const detail = detailOf(approval);
-  return { address: id, versions: [], approval, detail, records: [], drafts: detail.drafts ?? [], version: approval.plan_version ?? 1, registration: approval.registration };
+  return {
+    address: id, versions: [], approval, detail, records: [], drafts: detail.drafts ?? [], version: approval.plan_version ?? 1, registration: approval.registration,
+    goal: detail.goal, body: detail.body, bodyCut: detail.body_cut, contracts: detail.contracts ?? [],
+  };
 }
 
 function DeclineDialog({ subject, onClose, onDone, after }: { subject: Subject; onClose: () => void; onDone: () => void; after: () => Promise<void> }) {
@@ -266,9 +285,13 @@ function Versions({ subject }: { subject: Subject }) {
 export function PlanApprovalBody({ subject, live, after, reload }: { subject: Subject; live: Live; after: () => Promise<void>; reload: () => void }) {
   const approval = subject.approval;
   const links = versionLinks(subject.versions, subject.version);
+  const says = (
+    <WhatThePlanSays title={subject.plan?.title ?? subject.detail.title} goal={subject.goal} body={subject.body} cut={subject.bodyCut} contracts={subject.contracts} plan={subject.plan?.id} />
+  );
   if (!approval) {
     return (
       <>
+        {says}
         <div className="panel">
           <EmptyState icon="plan" title={`No request asks about version ${subject.version}`}>
             Nobody was asked to approve this version, so there is nothing to decide here.
@@ -288,6 +311,7 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
       ) : null}
       <div className="grid grid-main-side">
         <div className="stack">
+          {says}
           <Panel title={subject.detail.difference?.base ? `Difference from version ${subject.detail.difference.base}` : "Difference from the approved version"}>
             <DifferenceBlock difference={subject.detail.difference ?? {}} live={live} />
           </Panel>

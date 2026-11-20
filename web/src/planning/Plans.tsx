@@ -3,7 +3,7 @@ import { Fragment, useId } from "react";
 import { readPlan } from "../api/client";
 import { readPlanForecast } from "../api/measures";
 import type { PlanForecast } from "../api/measures";
-import type { Contract, ContractHistory, PlanDetail, PlanReview, Plans as View, WorkOrder } from "../api/types";
+import type { Contract, ContractHistory, PlanDetail, PlanReview, PlanView, Plans as View, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
@@ -13,6 +13,7 @@ import { PlanForecastView } from "../measures/Forecast";
 import { Bar, Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
 import { Banner, EmptyState, ScopeName, SkeletonRows, StateBadge } from "../ui/display";
 import { DifferenceBlock, DraftDecisions } from "./PlanParts";
+import { GoalPanel, PlanTextPanel } from "./PlanText";
 import { RevisionSince } from "./RevisionSince";
 import { StateCounts } from "./Roadmap";
 import { StartSession } from "./StartSession";
@@ -378,6 +379,21 @@ function PlanForecasts({ detail, names, live }: { detail: PlanDetail; names: Nam
   );
 }
 
+// PlanSays shows the goal the plan pursues, with its statement, and the text of the version in force, or else of the
+// newest version when none is approved.
+function PlanSays({ detail, live }: { detail: PlanDetail; live: Live }) {
+  const version = detail.approved_version ? String(detail.approved_version) : "";
+  const read = useView<PlanView>(() => readPlan(detail.plan.id, version), `plan-text:${detail.plan.id}:${version}`, live);
+  return (
+    <>
+      <GoalPanel goal={detail.goal} />
+      {read.failure ? <Banner tone="danger">{read.failure}</Banner> : null}
+      {read.view ? <PlanTextPanel title={detail.plan.title} body={read.view.body} cut={read.view.body_cut} /> : null}
+      {!read.view && !read.failure ? <SkeletonRows rows={3} /> : null}
+    </>
+  );
+}
+
 export function PlanPage({ detail, live }: { detail: PlanDetail; live: Live }) {
   const names = namesOf(detail);
   return (
@@ -388,7 +404,6 @@ export function PlanPage({ detail, live }: { detail: PlanDetail; live: Live }) {
       <dl className="kv facts-page">
         <Fact name="Status">{words(detail.plan.status)}</Fact>
         <Fact name="Version">{versionWords(detail)}</Fact>
-        {detail.goal ? <Fact name="Goal">{detail.goal.title}</Fact> : null}
       </dl>
       {detail.plan.source ? (
         <dl className="facts-long">
@@ -400,6 +415,7 @@ export function PlanPage({ detail, live }: { detail: PlanDetail; live: Live }) {
           <strong>Version {detail.pending_version} waits for your approval.</strong> It also waits in <Link to="/needs-you?kind=decisions">Needs you</Link>.
         </Banner>
       ) : null}
+      <PlanSays detail={detail} live={live} />
       <PlanVersions detail={detail} live={live} />
       <PlanForecasts detail={detail} names={names} live={live} />
       <Section title="Contracts">
