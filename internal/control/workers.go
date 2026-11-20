@@ -1175,6 +1175,9 @@ func reportGuard(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 			return err
 		}
 	}
+	if err := askLeftFiles(tx, worker, id, e, guard); err != nil {
+		return err
+	}
 	return appendLaneEvent(tx, worker, id, ledger.EventLaneGuarded, e)
 }
 
