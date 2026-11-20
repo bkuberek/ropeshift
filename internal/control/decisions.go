@@ -300,15 +300,20 @@ func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, 
 	if err := insertDecisionFrom(tx, record, actor, channel); err != nil {
 		return err
 	}
-	if err := q.applyBinding(tx, record, how, actor); err != nil {
-		return err
-	}
 	if record.Supersedes == "" {
-		return nil
+		return q.applyBinding(tx, record, how, actor)
 	}
 	old, err := tx.Questions().Decision(record.Supersedes)
 	if err != nil {
 		return err
+	}
+	// A decision that replaces one with the same content, as a member's Keep of an orchestrator's one-way decision does,
+	// binds nothing the decision it replaces did not bind already, so the work it reaches stands as it was: no hold, no
+	// park, no rework, and no plan revision (FR-QD-8).
+	if !record.SameContent(old) {
+		if err := q.applyBinding(tx, record, how, actor); err != nil {
+			return err
+		}
 	}
 	touched, err := reachOf(tx, old)
 	if err != nil {

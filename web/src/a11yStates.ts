@@ -20,6 +20,7 @@ export const views = [
   "/needs-you?item=effect%3Aworker-a%3A1%3A11",
   "/needs-you?item=contract_review%3Awo-review",
   "/needs-you?item=plan_revision%3Aplan-revise",
+  "/needs-you?item=one_way_review%3Ad-repositories",
   "/needs-you?item=work%3Aorchestrator-worker-a",
   "/needs-you?item=work%3Awo-lapsed",
   "/needs-you?item=work%3Awo-blocked",

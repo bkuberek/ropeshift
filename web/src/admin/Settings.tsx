@@ -539,13 +539,13 @@ function OneWayAcknowledgement({ worker, name, standing, act }: { worker: string
       </p>
       {accepted ? (
         <p className="small muted">
-          Accepted for this worker by {accepted.by}, <Ago at={accepted.at} />.
+          Accepted for this worker by {accepted.by}, <Ago at={accepted.at} />. Needs you shows each one-way decision its orchestrator makes, for you to keep or overturn.
         </p>
       ) : (
         <>
           <p className="help">
             Until a member accepts it, every one-way question on {name} reaches a member, at unattended too. Accepting it lets the orchestrator of an unattended worker decide a
-            one-way question outside the categories the decision policy keeps.
+            one-way question outside the categories the decision policy keeps, and Needs you shows each such decision for review. It blocks no work.
           </p>
           <div className="row-tight">
             <Button small onClick={() => void act(() => acknowledgeOneWay(worker, standing.digest), `You accepted the one-way acknowledgement for ${name}.`)}>

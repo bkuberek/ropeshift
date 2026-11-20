@@ -76,6 +76,16 @@ const (
 	// NeedRepositoryCreation is a repository an approved plan version creates whose creation was refused, failed, or was
 	// interrupted, or that runs now: one item for each, which a member retries or skips (ADR-0039).
 	NeedRepositoryCreation = "repository_creation"
+	// NeedOneWayReview is a one-way decision an orchestrator on an unattended worker made itself, which members review:
+	// one item for each decision, which blocks no work (FR-QD-8).
+	NeedOneWayReview = "one_way_review"
+)
+
+// What a member can do about an orchestrator's one-way decision. Keep records the same decision as the member's in its
+// place, through `decision record --supersedes`, and Overturn reverses it, through `decision overturn`.
+const (
+	ActDecisionKeep     = "decision_keep"
+	ActDecisionOverturn = "decision_overturn"
 )
 
 // Where a repository creation stands, as its Needs you item says.
@@ -248,6 +258,19 @@ type NeedItem struct {
 	// RepositoryCreation is set for a repository_creation item, whose ID is the approval and the entry's name, joined by a
 	// slash.
 	RepositoryCreation *RepositoryCreationNeed `json:"repository_creation,omitempty"`
+	// OneWayReview is set for a one_way_review item, whose ID is the decision's.
+	OneWayReview *OneWayReviewNeed `json:"one_way_review,omitempty"`
+}
+
+// OneWayReviewNeed is a one-way decision an orchestrator on an unattended worker made itself, which waits for a member's
+// review and blocks no work (FR-QD-8): the decision, the name of the worker whose orchestrator decided it, and the text
+// of the question it answered, when it answered one. Actions says what the member can do. The item leaves Needs you
+// once the decision no longer stands as the orchestrator's: a member kept it, overturned it, or replaced it.
+type OneWayReviewNeed struct {
+	Decision      questions.Decision `json:"decision"`
+	DecidedByName string             `json:"decided_by_name,omitempty"`
+	Question      string             `json:"question,omitempty"`
+	Actions       []string           `json:"actions"`
 }
 
 // RepositoryCreationNeed is a repository an approved plan version creates that waits for a member, or runs: the approval

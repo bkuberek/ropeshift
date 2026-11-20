@@ -24,6 +24,7 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
     case "repository_creation":
       return "cards";
     case "questions":
+    case "one_way_review":
     case "plan_approval":
     case "plan_revision":
     case "contract_review":
@@ -72,7 +73,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "one-way-review"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -113,6 +114,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "spend";
     case "repository_creation":
       return "repository-creation";
+    case "one_way_review":
+      return "one-way-review";
   }
 }
 
@@ -143,6 +146,9 @@ export function approvalHeading(approval: Approval): string {
 // creationKind is the overline of a repository a plan approval did not create.
 export const creationKind: { icon: IconName; name: string } = { icon: "repo", name: "Repository creation" };
 
+// oneWayReviewKind is the overline of a one-way decision an orchestrator made, which waits for a member's review.
+export const oneWayReviewKind: { icon: IconName; name: string } = { icon: "decision", name: "One-way decision to review" };
+
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   switch (item.kind) {
@@ -170,6 +176,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return spendKind;
     case "repository_creation":
       return creationKind;
+    case "one_way_review":
+      return oneWayReviewKind;
   }
 }
 
@@ -232,6 +240,8 @@ export function headingOf(item: NeedItem): string {
       return item.spend.work_order.title || item.spend.work_order.id;
     case "repository_creation":
       return `${plainLine(item.repository_creation.name)} ${item.repository_creation.state === "running" ? "is being created" : "was not created"}`;
+    case "one_way_review":
+      return questionTitle(item.one_way_review.decision.statement);
   }
 }
 
@@ -274,7 +284,15 @@ export function contextOf(item: NeedItem): string {
       return [item.spend.work_order.id, `${money(item.spend.spend.charged.charged_usd)} of ${money(item.spend.spend.hard_limit)}`].join(" · ");
     case "repository_creation":
       return [`Plan ${plainLine(item.repository_creation.plan)}`, `version ${item.repository_creation.plan_version}`].join(" · ");
+    case "one_way_review":
+      return [`Decided by the orchestrator on ${deciderOf(item.one_way_review)}`, plainLine(item.one_way_review.decision.id)].join(" · ");
   }
+}
+
+// deciderOf names the worker whose orchestrator made a one-way decision: its name, or its ID when the ledger no longer
+// holds the worker.
+export function deciderOf(need: { decided_by_name?: string; decision: { decided_by?: string } }): string {
+  return plainLine(need.decided_by_name || need.decision.decided_by || "its worker");
 }
 
 // preparerOf names the delegate that prepared a card: its credential's label, and the member it acts for.

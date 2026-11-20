@@ -544,7 +544,21 @@ export type NeedItem = {
   | { kind: "ci"; ci: CINeed }
   | { kind: "spend"; spend: SpendNeed }
   | { kind: "repository_creation"; repository_creation: RepositoryCreationNeed }
+  | { kind: "one_way_review"; one_way_review: OneWayReviewNeed }
 );
+
+// What a member can do about an orchestrator's one-way decision: keep it as their own, or overturn it.
+export type OneWayReviewAction = "decision_keep" | "decision_overturn";
+
+// OneWayReviewNeed is a one-way decision an orchestrator on an unattended worker made itself, which waits for a member's
+// review and blocks no work (FR-QD-8): the decision, the name of the worker whose orchestrator decided it, and the text of
+// the question it answered, when it answered one. It leaves Needs you once a member keeps it or overturns it.
+export type OneWayReviewNeed = {
+  decision: RecordedDecision;
+  decided_by_name?: string;
+  question?: string;
+  actions: OneWayReviewAction[];
+};
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
 export type NeedsProject = ProjectLabel & { revision: number; waiting: number };
