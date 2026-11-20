@@ -719,9 +719,12 @@ func (r *laneRun) failStart(reason string, err error) workorders.Report {
 	return report
 }
 
-// failureDetail writes what an error says as plain text on one line, cut at maxFailureDetail bytes.
+// failureDetail writes what an error says as plain text on one line, cut at maxFailureDetail bytes. A hook's output
+// or a git error can carry a credential, such as a token or a remote's URL with its password, and the ledger keeps
+// the detail for every member to read, so each credential is redacted before the cut: a token cut in two no longer
+// matches the shape of one.
 func failureDetail(err error) string {
-	text := strings.Join(strings.Fields(ledger.PlainText(err.Error())), " ")
+	text := strings.Join(strings.Fields(ledger.SanitizeCIText(err.Error())), " ")
 	if len(text) <= maxFailureDetail {
 		return text
 	}
