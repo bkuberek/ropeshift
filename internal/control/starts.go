@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -43,7 +44,9 @@ type startInput struct {
 	order workorders.WorkOrder
 	// base is the branch to start from: the work order's, else the repository's. Empty names neither,
 	// and git's default branch stands in.
-	base         string
+	base string
+	// repository names the repository in a command a person runs: its name, else its identity.
+	repository   string
 	startFrom    ledger.StartFrom
 	dependencies []dependencyWork
 	// reads are the other repositories of the project the lane reads, read-only (ADR-0022).
@@ -187,11 +190,12 @@ func mergedAs(tx ports.ReadTx, dependency workorders.WorkOrder) (string, error) 
 // is blocking, in the same repository, accepted, and left a commit: any other gates readiness as it
 // always did and moves nothing here.
 func startFacts(tx ports.ReadTx, order workorders.WorkOrder) (startInput, error) {
-	in := startInput{order: order, base: order.Base, startFrom: ledger.StartFromMerged}
+	in := startInput{order: order, base: order.Base, repository: order.RepositoryID, startFrom: ledger.StartFromMerged}
 	record, err := tx.Repositories().Repository(order.RepositoryID)
 	switch {
 	case err == nil:
 		in.startFrom = record.StartFrom
+		in.repository = cmp.Or(record.Name, record.ID)
 		if in.base == "" {
 			in.base = record.Base()
 		}
@@ -372,6 +376,12 @@ func (s *Starts) place(ctx context.Context, in startInput, seen *pass) (workorde
 		if base, err = s.Bases.DefaultBranch(ctx, path); err != nil || base == "" {
 			return workorders.Start{}, unavailable("the repository names no default branch: %v", err)
 		}
+	}
+	// A base branch kept from before branch names grew stricter, or a default branch git names, may hold a character
+	// git or the forge reads differently from what a person sees, so no lane starts from it.
+	if err := ledger.CheckBranch(base); err != nil {
+		return workorders.Start{}, unavailable("the base branch %s holds a character git or the forge reads differently; run `ropeshift repository set %s --base <branch>`",
+			strconv.QuoteToASCII(base), in.repository)
 	}
 	tip, err := seen.tip(ctx, s.Bases, path, base)
 	if err != nil {

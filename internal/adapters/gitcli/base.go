@@ -24,9 +24,9 @@ func (w Worktrees) BaseTip(ctx context.Context, repository, branch string) (port
 	unavailable := func(format string, args ...any) (ports.BaseTip, error) {
 		return ports.BaseTip{}, fmt.Errorf("%w: "+format, append([]any{ports.ErrBaseUnavailable}, args...)...)
 	}
-	// A base branch is a stored name, registered perhaps before branch names grew stricter, so it is read with git's
-	// rules alone, and printed only as plain text.
-	if err := ledger.CheckStoredBranch(branch); err != nil {
+	// A base branch that holds a character git or the forge reads differently from what a person sees starts no lane,
+	// however it was stored.
+	if err := ledger.CheckBranch(branch); err != nil {
 		return unavailable("%v", err)
 	}
 	git := w.git(repository)

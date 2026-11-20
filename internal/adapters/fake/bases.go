@@ -139,7 +139,7 @@ func (w *Worktrees) Created() []ports.WorktreeSpec {
 func (w *Worktrees) BaseTip(_ context.Context, repository, branch string) (ports.BaseTip, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if err := ledger.CheckStoredBranch(branch); err != nil {
+	if err := ledger.CheckBranch(branch); err != nil {
 		return ports.BaseTip{}, fmt.Errorf("%w: %v", ports.ErrBaseUnavailable, err)
 	}
 	ref := branch

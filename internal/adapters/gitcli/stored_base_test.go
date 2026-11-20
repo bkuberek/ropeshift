@@ -2,6 +2,7 @@ package gitcli_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
@@ -9,17 +10,18 @@ import (
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
-// A base branch a repository was registered with before branch names grew stricter, one that holds a no-break space,
-// is still read: git takes the name, and a lane starts from it. A name git reads as an option is still refused.
-func TestBaseTipReadsAStoredBranchThatHoldsANoBreakSpace(t *testing.T) {
+// A base branch that holds a no-break space, which git takes and a person reads as a plain space, starts no lane,
+// however it was stored: its tip is unavailable, naming the branch with an escape in place of the space. A name git
+// reads as an option is refused too.
+func TestBaseTipRefusesABaseBranchThatHoldsANoBreakSpace(t *testing.T) {
 	repo := gittest.New(t)
 	repo.Commit("README.md", "one\n")
-	branch := "release one"
+	branch := "release\u00a0one"
 	repo.Git("branch", branch)
 	worktrees := gitcli.Worktrees{Env: repo.Env()}
-	tip, err := worktrees.BaseTip(t.Context(), repo.Dir, branch)
-	if err != nil || tip.Ref != branch || tip.Commit == "" {
-		t.Fatalf("the tip of %q is %+v (%v)", branch, tip, err)
+	_, err := worktrees.BaseTip(t.Context(), repo.Dir, branch)
+	if !errors.Is(err, ports.ErrBaseUnavailable) || !strings.Contains(err.Error(), `release\u00a0one`) {
+		t.Errorf("the tip of %q answers %v, want unavailable with the branch escaped", branch, err)
 	}
 	if _, err := worktrees.BaseTip(t.Context(), repo.Dir, "-x"); !errors.Is(err, ports.ErrBaseUnavailable) {
 		t.Errorf("a branch that reads as an option answers %v", err)

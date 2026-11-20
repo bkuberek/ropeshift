@@ -2,10 +2,12 @@ package control
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // A lane reads another repository at the commit its dependency there merged as. With several dependencies
@@ -40,5 +42,30 @@ func TestAReadStandsAtTheMergeThatHoldsTheOthers(t *testing.T) {
 				t.Errorf("the lane reads %+v, want %+v", reads, want)
 			}
 		})
+	}
+}
+
+// A base branch a repository kept from before branch names grew stricter, one that holds a character git or the forge
+// reads differently, starts no lane: the work holds as base_unavailable, naming the branch with escapes in place of
+// those characters and the command that names a base branch in its place.
+func TestABaseBranchWithAHiddenCharacterHoldsTheLaneWithTheRemedy(t *testing.T) {
+	t.Parallel()
+	git := fake.NewWorktrees()
+	const path = "/work/api"
+	base := "ma\u200bin"
+	git.Grow(path, base)
+	s := &Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return path, nil }}
+	in := startInput{order: workorders.WorkOrder{ID: "wo-1", RepositoryID: "repo-api"}, repository: "api", base: base, startFrom: ledger.StartFromMerged}
+	start, hold := s.place(t.Context(), in, newPass("project"))
+	if hold == nil || hold.Reason != workorders.HoldBaseUnavailable {
+		t.Fatalf("the lane starts at %+v (hold %+v), want it held as base_unavailable", start, hold)
+	}
+	for _, want := range []string{`"ma\u200bin"`, "holds a character git or the forge reads differently", "`ropeshift repository set api --base <branch>`"} {
+		if !strings.Contains(hold.Detail, want) {
+			t.Errorf("the hold says %q, which does not hold %q", hold.Detail, want)
+		}
+	}
+	if strings.ContainsRune(hold.Detail, '\u200b') {
+		t.Errorf("the hold says %q, which holds the hidden character itself", hold.Detail)
 	}
 }
