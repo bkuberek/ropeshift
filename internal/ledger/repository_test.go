@@ -103,16 +103,16 @@ func TestABranchNameHoldsNoWhitespace(t *testing.T) {
 	}
 }
 
-// A branch name already stored, such as a base branch registered before names grew stricter, is read with the git
-// rules alone: a character that is not seen or a Unicode space is kept, and a name git refuses or reads as an option
-// is still refused.
-func TestAStoredBranchNameIsReadWithGitsRules(t *testing.T) {
+// A branch name already stored, such as a base branch registered before names grew stricter, keeps a character that
+// is not seen or a Unicode space, and is refused when git refuses it or reads it as an option, one of its own refs, a
+// forced refspec, or a full ref.
+func TestAStoredBranchNameKeepsHiddenCharactersAndRefusesTheRest(t *testing.T) {
 	for _, name := range []string{"main", "release\u00a0one", "ma\u202ein", "ma\u200bin"} {
 		if err := CheckStoredBranch(name); err != nil {
 			t.Errorf("%q: %v", name, err)
 		}
 	}
-	for _, name := range []string{"", "-x", "a b", "a..b", "a//b", "a.lock", "a~1"} {
+	for _, name := range []string{"", "-x", "a b", "a..b", "a//b", "a.lock", "a~1", "HEAD", "FETCH_HEAD", "+main", "refs/heads/main"} {
 		if err := CheckStoredBranch(name); !errors.Is(err, ErrInvalidRepository) {
 			t.Errorf("%q: %v", name, err)
 		}
