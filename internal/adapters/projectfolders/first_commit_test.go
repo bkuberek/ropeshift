@@ -325,6 +325,10 @@ func TestFirstCommitRefusesABranchGitRefusesBeforeAnyInit(t *testing.T) {
 		"a reflog":      "@{-1}",
 		"an at sign":    "@",
 		"an empty part": "a//b",
+		"HEAD":          "HEAD",
+		"FETCH_HEAD":    "FETCH_HEAD",
+		"a plus":        "+main",
+		"a ref":         "refs/heads/main",
 	} {
 		t.Run(name, func(t *testing.T) {
 			folder := filepath.Join(t.TempDir(), "harbor")

@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -198,44 +196,18 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 	if err != nil {
 		return ledger.TemplateWriteReport{}, journal, err
 	}
-	switch {
-	case !strings.HasPrefix(request.Path, "/"):
-		return refused(ledger.TemplateRefusedNotAbsolute, "the folder is not an absolute path")
-	case ledger.HasParentElement(request.Path):
-		return refused(ledger.TemplateRefusedParentElement, "the folder holds a .. element")
-	case request.Path != path.Clean(request.Path):
-		return refused(ledger.TemplateRefusedNotClean, "the folder is not written in its clean form, with no trailing slash, //, or /./")
+	if refusal := spellingRefusal(request.Path); refusal != nil {
+		return *refusal, journal, nil
 	}
 	found, err := rt.Folders.Inspect(ctx, request.Path)
 	if err != nil {
 		return ledger.TemplateWriteReport{}, journal, err
 	}
-	switch {
-	case !found.ParentDirectory:
-		return refused(ledger.TemplateRefusedNoParent, "the folder's parent does not exist, and a write makes no parent")
-	case found.Link:
-		return refused(ledger.TemplateRefusedLink, "the folder is a symbolic link")
-	case found.Exists && !found.Directory:
-		return refused(ledger.TemplateRefusedNotDirectory, "something that is not a folder is there")
-	}
-	if reserved, err := w.insideReserved(ctx, rt, found.Real); err != nil {
-		return ledger.TemplateWriteReport{}, journal, err
-	} else if reserved {
-		return refused(ledger.TemplateRefusedReserved, "the folder is at or inside a folder ropeshift keeps for itself")
-	}
-	if found.Exists && !found.Empty {
-		foreign, repositories, err := w.foreignEntries(ctx, rt, request.Path, files, started)
+	if refusal, err := w.checkFolder(ctx, rt, request.Path, found, folderRules{files: files, started: started}); err != nil || refusal != nil {
 		if err != nil {
 			return ledger.TemplateWriteReport{}, journal, err
 		}
-		if len(foreign) > 0 || len(repositories) > 0 {
-			return refused(ledger.TemplateRefusedNotEmpty, refusalDetail(foreign, repositories))
-		}
-	}
-	if detail, inside, err := w.insideKeptClone(ctx, rt, found.Real); err != nil {
-		return ledger.TemplateWriteReport{}, journal, err
-	} else if inside {
-		return refused(ledger.TemplateRefusedInsideClone, detail)
+		return *refusal, journal, nil
 	}
 	if !started {
 		needs, err := w.needsRepository(ctx, rt, found)

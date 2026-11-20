@@ -38,6 +38,9 @@ const (
 	TemplateRefusedGHScope      = "gh_scope_missing"
 	TemplateRefusedOwner        = "owner_not_available"
 	TemplateRefusedRemoteExists = "remote_exists"
+	// TemplateRefusedGHTimeout is a check of a repository a plan approval creates that GitHub did not answer within
+	// the check's limit.
+	TemplateRefusedGHTimeout = "gh_timeout"
 	// TemplateRefusedNoOwnRepository is a request for a remote on a folder that is no repository of its own: a clone
 	// that is not the worker's to change holds it.
 	TemplateRefusedNoOwnRepository = "remote_needs_repository"

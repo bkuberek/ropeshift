@@ -138,6 +138,22 @@ func (p *Progress) KeepEarlierRecord(folder string, initialized bool) {
 	own.Initialized = own.Initialized || initialized
 }
 
+// Retry clears what failed, so the next Finish runs it again: each first commit that failed, each step that failed,
+// and each step skipped after it or for want of a commit. A step done, or one a crash left started, which Finish
+// checks before it runs it again, stays as it is.
+func (p *Progress) Retry() {
+	for _, u := range p.Units {
+		if u.Committed && u.Commit == "" {
+			u.Committed, u.CommitError = false, ""
+		}
+		for _, sp := range u.Steps {
+			if sp.State == ledger.RemoteStepFailed || sp.State == ledger.RemoteStepSkipped {
+				sp.State, sp.Detail = "", ""
+			}
+		}
+	}
+}
+
 // Folder is the identity of the folder the run wrote, or empty before it wrote it.
 func (p *Progress) Folder() string { return p.unit(ownPath).Folder }
 

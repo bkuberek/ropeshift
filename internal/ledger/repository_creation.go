@@ -23,12 +23,18 @@ type RepositoryCreation struct {
 	Create        RemoteCreate `json:"create"`
 	ForgeName     string       `json:"forge_name"`
 	DefaultBranch string       `json:"default_branch,omitempty"`
+	// Wait says the check waits, until its context ends, for another creation or check on the worker that holds the
+	// folder the path leads to, as a real run's check does. A preview's check leaves it false and is refused at once.
+	Wait bool `json:"wait,omitempty"`
 }
 
 // CreationCheck is what the checks that come before a creation's first write found.
 type CreationCheck struct {
 	// Refusal is the report of the check that failed, or nil when every check passed.
 	Refusal *TemplateWriteReport
+	// Leads is where the path leads, every link followed: the folder the creation writes, which the preview shows.
+	// It is empty only when the check refused before it read the path.
+	Leads string
 	// URL is the origin the creation adds, as gh's git protocol names it.
 	URL   string
 	Login string

@@ -959,3 +959,85 @@ func TestAJobBranchThatReadsAsAnOptionNeverReachesGit(t *testing.T) {
 		}
 	}
 }
+
+// A retry runs again each step that failed and the steps skipped after it, and nothing done: a failed push is pushed
+// once more from the same progress, and the repository is not created twice.
+func TestARetryRunsAFailedStepAgainAndNothingDone(t *testing.T) {
+	m := newMachine()
+	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
+	progress := &projectremote.Progress{}
+	if got := steps(m.run(t, monorepo(create("test")), progress).Repositories[0]); got != "create=done origin=done push=failed" {
+		t.Fatalf("steps = %s", got)
+	}
+	m.folders.FailPush("/srv/acme", nil)
+	progress.Retry()
+	report := m.run(t, monorepo(create("test")), progress)
+	if got := steps(report.Repositories[0]); got != "create=done origin=done push=done" {
+		t.Errorf("steps after the retry = %s", got)
+	}
+	if len(m.forge.Repositories()) != 1 || len(m.folders.Pushes()) != 2 || len(report.Remaining) != 0 {
+		t.Errorf("the retry created %v and pushed %v, leaving %q", m.forge.Repositories(), m.folders.Pushes(), report.Remaining)
+	}
+}
+
+// A retry makes again a first commit that failed, and then the steps it skipped.
+func TestARetryMakesAFailedFirstCommitAgain(t *testing.T) {
+	m := newMachine()
+	m.folders.CommitError = errors.New("Author identity unknown")
+	progress := &projectremote.Progress{}
+	if report := m.run(t, monorepo(create("test")), progress); report.CommitError == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	m.folders.CommitError = nil
+	progress.Retry()
+	report := m.run(t, monorepo(create("test")), progress)
+	if report.Commit == "" || report.CommitError != "" {
+		t.Fatalf("the retried commit reports %+v", report)
+	}
+	if got := steps(report.Repositories[0]); got != "create=done origin=done push=done" {
+		t.Errorf("steps after the retry = %s", got)
+	}
+}
+
+// A job branch that holds whitespace git takes in a name, such as a no-break space, is passed over as a branch git
+// gives no ref a person can type: the commands left name the default branch instead.
+func TestAJobBranchWithWhitespaceIsPassedOver(t *testing.T) {
+	m := newMachine()
+	m.folders.SetDefaultBranch("devel")
+	m.folders.CommitError = errors.New("Author identity unknown")
+	branch := "ma\u00a0in"
+	job := projectremote.Job{Request: monorepo(create("test")), NeedsRepository: true, Branch: branch}
+	progress := &projectremote.Progress{}
+	if _, err := projectremote.Start(t.Context(), m.runtime, job, progress); err != nil {
+		t.Fatal(err)
+	}
+	report, err := projectremote.Finish(t.Context(), m.runtime, job, progress, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range append(slices.Clone(report.Commands), report.Remaining...) {
+		if strings.Contains(line, branch) {
+			t.Errorf("the branch with a no-break space reaches %q", line)
+		}
+	}
+	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin -- devel") {
+		t.Errorf("remaining is %v, want a push of the default branch devel", report.Remaining)
+	}
+}
+
+// When neither HEAD, the job, nor the default branch names a branch git takes, no push is left for a person, since it
+// would name no branch, and the push step says no branch was found. The other steps' commands are still left.
+func TestNoPushIsLeftWhenNoBranchIsFound(t *testing.T) {
+	m := newMachine()
+	m.folders.SetDefaultBranch("+main")
+	m.folders.CommitError = errors.New("Author identity unknown")
+	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	want := []string{"gh repo create test/acme --private", "git -C /srv/acme remote add origin https://github.com/test/acme.git"}
+	if !slices.Equal(report.Remaining, want) {
+		t.Errorf("remaining = %q, want %q", report.Remaining, want)
+	}
+	steps := report.Repositories[0].Steps
+	if push := steps[len(steps)-1]; push.Step != ledger.RemoteStepPush || !strings.Contains(push.Detail, "no branch was found") {
+		t.Errorf("the push step reports %+v, want it to say no branch was found", push)
+	}
+}

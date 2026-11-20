@@ -59,13 +59,34 @@ func TestARepositoryRefusesWhatIsNotAMethodOrAStart(t *testing.T) {
 
 func TestABranchNameIsAGitRefName(t *testing.T) {
 	good := []string{"main", "release/1.2", "feature/a-b_c.d", "v2"}
-	bad := []string{"", "-rf", "a b", "a..b", "/a", "a/", "a//b", "a.lock", "a~1", "a^", "a:b", "a?b", "a*b", "a[b", "a\\b", "@", "a@{b", ".hidden", "a/.hidden", "a."}
+	bad := []string{"", "-rf", "a b", "a..b", "/a", "a/", "a//b", "a.lock", "a~1", "a^", "a:b", "a?b", "a*b", "a[b", "a\\b", "@", "a@{b", ".hidden", "a/.hidden", "a.",
+		"HEAD", "FETCH_HEAD", "+main", "refs/heads/main", "refs/x"}
 	for _, name := range good {
 		if err := CheckBranch(name); err != nil {
 			t.Errorf("%q: %v", name, err)
 		}
 	}
 	for _, name := range bad {
+		if err := CheckBranch(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+// A branch name that holds a character a reader does not see, such as a bidirectional override or a zero-width space,
+// reads as another name in what ropeshift prints, so it is refused.
+func TestABranchNameHoldsNoHiddenCharacter(t *testing.T) {
+	for _, name := range []string{"ma\u202ein", "ma\u200bin", "\u202emain", "main\u200b"} {
+		if err := CheckBranch(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+// A branch name that holds whitespace of any kind, a no-break or an ideographic space as much as an ASCII one, splits
+// or reads as another name in a command a person copies, so it is refused.
+func TestABranchNameHoldsNoWhitespace(t *testing.T) {
+	for _, name := range []string{"ma in", "ma\u00a0in", "ma\u2003in", "main\u3000"} {
 		if err := CheckBranch(name); !errors.Is(err, ErrInvalidRepository) {
 			t.Errorf("%q: %v", name, err)
 		}

@@ -45,6 +45,12 @@ const (
 	TemplateRefusedNotDirectory = "path_not_a_directory"
 	TemplateRefusedNotEmpty     = "path_not_empty"
 	TemplateRefusedInsideClone  = "path_inside_clone"
+	// TemplateRefusedOutsideBound is a folder of a repository a plan approval creates that leads, every link followed,
+	// outside the folder that holds the planning repository's clone.
+	TemplateRefusedOutsideBound = "path_outside_bound"
+	// TemplateRefusedBusy is a check of a repository a plan approval creates at a folder another creation on the
+	// worker writes now.
+	TemplateRefusedBusy = "path_busy"
 	// TemplateRefusedInvalid is a request the control plane should have refused: a shape or repositories no
 	// folder can be written for.
 	TemplateRefusedInvalid = "request_invalid"

@@ -299,7 +299,9 @@ func (r Repository) Validate() error {
 // and spaces.
 const forbiddenInBranch = "~^:?*[\\"
 
-// CheckBranch refuses a name git would not take as a branch, because it goes to git as an argument.
+// CheckBranch refuses a name git would not take as a branch, because it goes to git as an argument. It also refuses
+// names git takes but reads as something else where a branch is pushed or resolved: HEAD and FETCH_HEAD, which name
+// git's own refs, a leading plus, which a push reads as a forced refspec, and a refs/ prefix, which names a full ref.
 func CheckBranch(name string) error {
 	bad := func(why string) error { return fmt.Errorf("%w: branch %q %s", ErrInvalidRepository, name, why) }
 	switch {
@@ -307,8 +309,14 @@ func CheckBranch(name string) error {
 		return bad("is empty")
 	case name == "@":
 		return bad("is not a name")
+	case name == "HEAD" || name == "FETCH_HEAD":
+		return bad("names one of git's own refs")
 	case strings.HasPrefix(name, "-"):
 		return bad("starts with a dash")
+	case strings.HasPrefix(name, "+"):
+		return bad("starts with a plus, which a push reads as a forced update")
+	case strings.HasPrefix(name, "refs/"):
+		return bad("starts with refs/, which names a full ref")
 	case strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//"):
 		return bad("has an empty part")
 	case strings.Contains(name, "..") || strings.Contains(name, "@{"):
@@ -319,6 +327,14 @@ func CheckBranch(name string) error {
 	for _, r := range name {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(forbiddenInBranch, r) {
 			return bad("holds a character git refuses")
+		}
+		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
+		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
+		if HiddenRune(r) {
+			return bad("holds a character that is not seen")
+		}
+		if unicode.IsSpace(r) {
+			return bad("holds whitespace")
 		}
 	}
 	for part := range strings.SplitSeq(name, "/") {
