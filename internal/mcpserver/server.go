@@ -117,6 +117,8 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 			tools = orchestratorTools()
 		case OwnerAssistant:
 			tools = []any{contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool}
+		case OwnerConsultant:
+			tools = []any{contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool, consultReportTool}
 		}
 		out.Result = map[string]any{"tools": tools}
 	case "tools/call":
@@ -130,6 +132,10 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 // OwnerAssistant is who an assistant's token stands for: a member's assistant, which reads the context tools
 // and nothing a lane or an orchestrator does.
 const OwnerAssistant = "assistant"
+
+// OwnerConsultant is who a consultation's token stands for: a stronger agent an orchestrator consults, which reads the
+// context tools and reports what it found, and does nothing a lane or an orchestrator does (FR-ORCH-9).
+const OwnerConsultant = "consultant"
 
 // orchestrating asks the worker who this session's token stands for. A session that cannot reach
 // it gets a lane's tools, which decide nothing, and the worker reads the token again on any decision.
@@ -394,7 +400,7 @@ func orchestratorTools() []any {
 	all := []map[string]any{
 		contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 		workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
-		questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
+		questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool, consultTool,
 		laneRestartTool, laneResetTool, workRetryTool, workReplanTool,
 		workDeclineTool, approvalDecideTool, replyTool,
 	}
@@ -564,6 +570,16 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline,
 		lanes.ToolLaneRestart, lanes.ToolLaneReset, lanes.ToolWorkRetry, lanes.ToolWorkReplan:
 		if !orchestrating(call) {
+			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
+		}
+		return callWork(request.Name, request.Arguments, call), nil
+	case lanes.ToolConsult:
+		if !orchestrating(call) {
+			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
+		}
+		return callWork(request.Name, request.Arguments, call), nil
+	case lanes.ToolConsultReport:
+		if ownerOf(call) != OwnerConsultant {
 			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 		}
 		return callWork(request.Name, request.Arguments, call), nil

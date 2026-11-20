@@ -157,6 +157,9 @@ type Worker struct {
 	// its making.
 	toOrchestrator *orchestratorMessages
 
+	// consults are the consultations this process runs for its orchestrator, by their sessions' tokens (FR-ORCH-9).
+	consults consultationRuns
+
 	// resources is what this worker measures of its machine and its sessions, and the peaks of the lanes
 	// it ran.
 	resources resources

@@ -259,7 +259,7 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		if facts.standing.MayClaim() {
 			gather = append(gather, func(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) { return wakeWork(tx, worker, facts) })
 		}
-		gather = append(gather, wakeQuestions, wakeMessages)
+		gather = append(gather, wakeQuestions, wakeConsultations, wakeMessages)
 		if facts.standing.MayWork() {
 			gather = append(gather, wakeFinished, wakeLanes)
 		}

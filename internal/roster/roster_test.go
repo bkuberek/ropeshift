@@ -275,3 +275,36 @@ func mustApply(t *testing.T, layer Layer, below Resolved, change Change) Layer {
 	}
 	return out
 }
+
+// TestAConsultationRunsTheStrongestReadOnlyAgentOrTheOneNamed is FR-ORCH-9: with no agent named, a consultation runs
+// the enabled read-only agent of the highest tier, the first of its tier in roster order. A named agent must be known,
+// enabled, read-only, and need no approval per use, and either must be of a class above the orchestrator's.
+func TestAConsultationRunsTheStrongestReadOnlyAgentOrTheOneNamed(t *testing.T) {
+	resolved := Resolve(Layer{}, Layer{})
+	if got, err := resolved.ConsultAgent("", ClassStandard); err != nil || got.Name != "analysis" {
+		t.Errorf("with none named: %q, %v", got.Name, err)
+	}
+	if got, err := resolved.ConsultAgent("review", ClassStandard); err != nil || got.Name != "review" {
+		t.Errorf("review named: %q, %v", got.Name, err)
+	}
+	noAnalysis := Resolve(mustApply(t, Layer{}, resolved, Change{Op: OpDisable, Agent: "analysis"}), Layer{})
+	if got, err := noAnalysis.ConsultAgent("", ClassStandard); err != nil || got.Name != "review" {
+		t.Errorf("with analysis disabled: %q, %v", got.Name, err)
+	}
+	for _, tt := range []struct {
+		named, above string
+		is           error
+	}{
+		{"implementation", ClassStandard, ErrNotReadOnly},
+		{"ghost", ClassStandard, ErrUnknownAgent},
+		{"explore", ClassStandard, ErrNotStronger},
+		{"", ClassLarge, ErrNotStronger},
+	} {
+		if _, err := resolved.ConsultAgent(tt.named, tt.above); !errors.Is(err, tt.is) {
+			t.Errorf("%q above %s: %v, want %v", tt.named, tt.above, err, tt.is)
+		}
+	}
+	if _, err := noAnalysis.ConsultAgent("analysis", ClassStandard); !errors.Is(err, ErrDisabledAgent) {
+		t.Errorf("a disabled agent named: %v", err)
+	}
+}

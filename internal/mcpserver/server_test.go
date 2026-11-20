@@ -113,8 +113,9 @@ func TestToolsDependOnWhoTheTokenStandsFor(t *testing.T) {
 		want   []string
 	}{
 		{name: "a lane", want: lanes.Tools},
-		{name: "an orchestrator", worker: worker{owner: lanes.OwnerOrchestrator}, want: append(slices.Clone(lanes.OrchestratorTools), lanes.ToolReply)},
+		{name: "an orchestrator", worker: worker{owner: lanes.OwnerOrchestrator}, want: orchestratorListing()},
 		{name: "an assistant", worker: worker{owner: mcpserver.OwnerAssistant}, want: []string{"context_get", "decision_search", "requirement_get", "question_search"}},
+		{name: "a consultant", worker: worker{owner: mcpserver.OwnerConsultant}, want: []string{"context_get", "decision_search", "requirement_get", "question_search", "consult_report"}},
 		{name: "a worker out of reach", worker: worker{owner: lanes.OwnerOrchestrator, down: true}, want: lanes.Tools},
 	}
 	for _, tt := range tests {
@@ -126,20 +127,28 @@ func TestToolsDependOnWhoTheTokenStandsFor(t *testing.T) {
 	}
 }
 
+// orchestratorListing is what an orchestrator's token lists: the orchestrator's tools, `consult` after the ladder
+// it serves, and `reply`.
+func orchestratorListing() []string {
+	out := slices.Clone(lanes.OrchestratorTools)
+	at := slices.Index(out, lanes.ToolQuestionEscalate) + 1
+	return append(slices.Insert(out, at, lanes.ToolConsult), lanes.ToolReply)
+}
+
 // The numbers are the decision's (ADR-0014): more tools raise prompt cost and widen authority, so a
 // new one has to change this test. The Recovery group added four to the orchestrator's 14 (FR-ORCH-8),
-// and `reply` answers a member's message to it (FR-ORCH-7).
+// `reply` answers a member's message to it (FR-ORCH-7), and `consult` asks a stronger agent (FR-ORCH-9).
 func TestEachCallerSeesExactlyItsTools(t *testing.T) {
 	lane := []string{"lane_report", "lane_wait", "ask", "lane_handoff", "reply", "context_get", "decision_search", "requirement_get", "question_search"}
 	orchestrator := []string{
 		"context_get", "decision_search", "requirement_get", "question_search",
 		"work_candidates", "work_claim", "lane_start", "lane_stop",
-		"question_next", "question_attach", "decision_record", "question_escalate",
+		"question_next", "question_attach", "decision_record", "question_escalate", "consult",
 		"lane_restart", "lane_reset", "work_retry", "work_replan",
 		"work_decline", "approval_decide", "reply",
 	}
-	if len(orchestrator) != 19 {
-		t.Fatalf("the decision names 19 orchestrator tools, and this lists %d", len(orchestrator))
+	if len(orchestrator) != 20 {
+		t.Fatalf("the decision names 20 orchestrator tools, and this lists %d", len(orchestrator))
 	}
 	if got := listed(t, &worker{}); !slices.Equal(got, lane) {
 		t.Errorf("a lane sees %d: %v", len(got), got)
