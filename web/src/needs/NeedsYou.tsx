@@ -22,7 +22,7 @@ import type { Decided } from "./decided";
 import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
-import { contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
+import { approvalHeading, contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { nextStepOf } from "./next";
 import type { NextStep } from "./next";
 import { arrange, flatten, gateRequests, orderOf, orders, permissionRequests, tierNames } from "./order";
@@ -197,14 +197,16 @@ function StartRetried({ order, project, after }: { order: WorkOrder; project?: s
   );
 }
 
-// LaneGroupHead stands over a lane's items: the lane, its work order, how many wait, and Approve all for its
-// permission requests. Approve all decides each request bound to the digest this page read, so a request that
-// changed or went void is refused, skipped, and named, and the rest are approved.
+// LaneGroupHead stands over a lane's items: the lane, its work order, how many wait, the gates Approve all leaves out,
+// and Approve all for its permission requests. Approve all decides each request bound to the digest this page read, so
+// a request that changed or went void is refused, skipped, and named, and the rest are approved.
 function LaneGroupHead({ entry, after, onActed }: { entry: Entry; after: () => Promise<void>; onActed: (keys: string[]) => void }) {
   const { act, busy, failure } = useAct(after);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const said = useId();
   const requests = permissionRequests(entry.items);
-  const gates = gateRequests(entry.items).length;
+  const gated = gateRequests(entry.items);
+  const gates = gated.length;
   const [first] = entry.items;
   const project = first?.project?.name ?? "";
   const workOrder = requests[0]?.work_order_id ?? "";
@@ -222,22 +224,36 @@ function LaneGroupHead({ entry, after, onActed }: { entry: Entry; after: () => P
       setSkipped(missed);
     });
   const lane = addressOf("/lane", { id: entry.lane });
+  // The gates stand above Approve all, each by what it asks, so a person sees what it leaves out before pressing it.
   return (
     <div className="lane-group-head">
       <div className="lane-group-title">
         <strong>Lane {entry.lane}</strong>
-        {requests.length > 1 ? (
-          <Button small loading={busy} disabled={busy} onClick={() => void approveAll()} aria-describedby={`group-${entry.lane}-says`}>
-            Approve all {requests.length}
-          </Button>
-        ) : null}
       </div>
-      <p className="subtle" id={`group-${entry.lane}-says`}>
+      <p className="subtle" id={`${said}-says`}>
         {[workOrder, `${entry.items.length} waiting`].filter(Boolean).join(" · ")}
-        {requests.length > 1 ? `. Approve all allows each of its ${requests.length} requests as its card shows it, bound to the digest this page read.` : ""}
-        {gates > 0 ? ` ${gates === 1 ? "1 gate waits" : `${gates} gates wait`} to be reviewed one by one, and Approve all leaves ${gates === 1 ? "it" : "them"} out.` : ""}{" "}
+        {requests.length > 1 ? `. Approve all allows each of its ${requests.length} requests as its card shows it, bound to the digest this page read.` : ""}{" "}
         <Link to={project ? inProject(project, lane) : lane}>Open lane</Link>
       </p>
+      {gates > 0 ? (
+        <>
+          <p className="subtle" id={`${said}-gates`}>
+            {gates === 1 ? "1 gate waits" : `${gates} gates wait`} to be reviewed one by one, and Approve all leaves {gates === 1 ? "it" : "them"} out:
+          </p>
+          <ul className="lane-group-gates" aria-labelledby={`${said}-gates`}>
+            {gated.map((request) => (
+              <li key={request.id}>{approvalHeading(request)}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {requests.length > 1 ? (
+        <div className="row-tight">
+          <Button small loading={busy} disabled={busy} onClick={() => void approveAll()} aria-describedby={gates > 0 ? `${said}-says ${said}-gates` : `${said}-says`}>
+            Approve all {requests.length}
+          </Button>
+        </div>
+      ) : null}
       {skipped.length > 0 ? (
         <Refusal>
           {skipped.length === 1 ? "One request was skipped" : `${skipped.length} requests were skipped`}, because it changed or went void: {skipped.join("; ")}
