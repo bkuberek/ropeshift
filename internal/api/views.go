@@ -192,6 +192,11 @@ type WorkNeed struct {
 	// ExtraAttempt says the retry that failed work waits for adds an attempt, because the work used every one
 	// it was given. Only a member can add one, so the card says so.
 	ExtraAttempt bool `json:"extra_attempt,omitempty"`
+	// Unfinished lists what a planning branch's plan still lacks, when ropeshift held the plan back from approval
+	// after it had already sent the work back once. SendBackReason is the reason the card's Send back offers, which
+	// says the same.
+	Unfinished     []string `json:"unfinished,omitempty"`
+	SendBackReason string   `json:"send_back_reason,omitempty"`
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,

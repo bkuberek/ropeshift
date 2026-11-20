@@ -219,9 +219,12 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 				return err
 			}
 		}
-		if len(planning.Unfinished(branchFinish(batch, item, ask.goal))) != 0 {
-			// A plan that is still a placeholder is never offered for approval. The branch is read again at its next
-			// commit, and asked about then if it is finished.
+		if missing := planning.Unfinished(branchFinish(batch, item, ask.goal)); len(missing) != 0 {
+			// A plan that is still a placeholder is never offered for approval. Ropeshift sends its work order back
+			// once itself, and then calls a member with what is missing.
+			if err := holdPlanBack(tx, branch.order.ID, missing); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := askForPlanApproval(tx, ask); err != nil {

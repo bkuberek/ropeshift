@@ -537,6 +537,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 				return nil, err
 			}
 			need.Standing = &standing
+			if need.Unfinished, need.SendBackReason, err = control.UnfinishedOf(tx.Evidence(), *order); err != nil {
+				return nil, err
+			}
 		case order.State == workorders.Parked && need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) && !seen[order.ID]:
 			need.Reason, need.Actions, need.Wakes = api.ReasonResume, []string{api.ActResume}, wakeViews(wakes[need.Lane.ID])
 		default:

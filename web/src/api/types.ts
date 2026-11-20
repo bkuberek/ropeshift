@@ -235,6 +235,10 @@ export type WorkNeed = {
   actions: (WorkAction | OrchestratorAction)[];
   // extra_attempt says the retry that failed work waits for adds an attempt, which only a member can give.
   extra_attempt?: boolean;
+  // unfinished lists what a planning branch's plan lacks, when ropeshift held it back from approval and sent it back once.
+  // send_back_reason is the reason Send back offers, which says the same.
+  unfinished?: string[];
+  send_back_reason?: string;
 };
 
 export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
