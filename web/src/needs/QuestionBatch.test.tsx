@@ -105,6 +105,33 @@ describe("a question's card", () => {
     expect(answersOf(sent)).toEqual([{ question: "q-sailings", id: "answer-q-sailings", accepted: true, expect_reversibility: "one_way" }]);
   });
 
+  it("asks for the confirm of a one-way question alone on its card after a person chooses its recommendation", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(one(sailings));
+    await userEvent.click(screen.getByRole("button", { name: "Choose another" }));
+    await userEvent.click(screen.getByRole("radio", { name: /^Archive them, then delete/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with recommendation" }));
+    expect(screen.getByRole("group", { name: /^Record a one-way decision\?/ })).toBeTruthy();
+    expect(posts(sent)).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Record one-way decision" }));
+    await waitFor(() => expect(posts(sent)).toHaveLength(1));
+    expect(answersOf(sent)).toEqual([{ question: "q-sailings", id: "answer-q-sailings", accepted: true, expect_reversibility: "one_way" }]);
+  });
+
+  it("asks for the confirm of a one-way answer of a person's own alone on its card, and sends it with their reason", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(one(sailings));
+    await userEvent.click(screen.getByRole("button", { name: "Choose another" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Delete them" }));
+    expect((screen.getByRole("button", { name: "Send this answer" }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(screen.getByRole("textbox", { name: "Why" }), "Nothing reads them.");
+    await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+    expect(posts(sent)).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Record one-way decision" }));
+    await waitFor(() => expect(posts(sent)).toHaveLength(1));
+    expect(answersOf(sent)).toEqual([{ question: "q-sailings", id: "answer-q-sailings", answer: "Delete them", rationale: "Nothing reads them." }]);
+  });
+
   it("agrees with every reversible recommendation of a batch in one press, and gives each one-way question its own Agree", async () => {
     const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
     show({ ...one(berths), items: [berths, sailings, { ...berths, id: "q-third", text: "A third question?" }] });
@@ -387,7 +414,7 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
       expect(within(group).getByText("One-way: choose for yourself")).toBeTruthy();
       expect(within(group).getByText("Nothing is chosen: a one-way answer is always your own choice.")).toBeTruthy();
     }
-    expect(screen.getByRole("status").textContent).toBe("4 one-way questions wait for your own choice, and are not sent until you choose.");
+    expect(screen.getByRole("status").textContent).toBe("4 one-way questions wait for your own choice, and each is recorded on its own once you confirm it.");
     expect(screen.getByRole("button", { name: "Agree with 14 recommendations" })).toBeTruthy();
   });
 
@@ -404,23 +431,51 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     expect(answers[0]?.id).toBe("answer-q5");
   });
 
-  it("sends a one-way item once a person chooses it, and an answer of their own with their reason", async () => {
+  it("keeps a one-way item a person chose out of the card's send, and sends an answer of their own with their reason", async () => {
     const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
     show(midPlanBatch());
     await unfold("Question 2", "Question 7");
     await userEvent.click(radio("Question 2", "A"));
     await userEvent.click(radio("Question 7", "B"));
-    expect(screen.getByRole("button", { name: "Agree with 14 recommendations" })).toBeTruthy();
     expect(screen.getByText("Say why, or this answer is not sent.")).toBeTruthy();
     await userEvent.type(screen.getByRole("textbox", { name: "Why" }), "B fits the schema.");
-    expect(screen.getByRole("status").textContent).toBe("3 one-way questions wait for your own choice, and are not sent until you choose.");
-    await userEvent.click(screen.getByRole("button", { name: "Send 15 of 18 answers" }));
+    expect(screen.getByRole("status").textContent).toBe("3 one-way questions wait for your own choice, and each is recorded on its own once you confirm it.");
+    await userEvent.click(screen.getByRole("button", { name: "Send 14 of 18 answers" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     const answers = sentAnswers(sent);
-    expect(answers).toHaveLength(15);
-    expect(answers.find((answer) => answer.question === "q2")).toMatchObject({ accepted: true });
+    expect(answers).toHaveLength(14);
+    expect(answers.map((answer) => answer.question)).not.toContain("q2");
     expect(answers.find((answer) => answer.question === "q7")).toMatchObject({ answer: "B", rationale: "B fits the schema." });
     expect(answers.find((answer) => answer.question === "q7")).not.toHaveProperty("accepted");
+  });
+
+  it("records a one-way item a person chose the recommendation of only through its confirm", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(midPlanBatch());
+    await unfold("Question 2");
+    await userEvent.click(radio("Question 2", "A"));
+    expect(screen.getByRole("button", { name: "Agree with 14 recommendations" })).toBeTruthy();
+    await userEvent.click(within(screen.getByRole("group", { name: "Question 2" })).getByRole("button", { name: "Agree with recommendation" }));
+    expect(screen.getByRole("group", { name: /Record a one-way decision\?/ })).toBeTruthy();
+    expect(sent).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Record one-way decision" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sentAnswers(sent)).toEqual([{ question: "q2", id: "answer-q2", accepted: true, expect_reversibility: "one_way" }]);
+  });
+
+  it("records a one-way answer of a person's own, with their reason, only through its confirm", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(midPlanBatch());
+    await unfold("Question 3");
+    const group = screen.getByRole("group", { name: "Question 3" });
+    await userEvent.click(radio("Question 3", "B"));
+    expect(within(group).queryByRole("button", { name: "Send this answer" })).toBeNull();
+    await userEvent.type(within(group).getByRole("textbox", { name: "Why" }), "B keeps the old rows.");
+    await userEvent.click(within(group).getByRole("button", { name: "Send this answer" }));
+    expect(sent).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Record one-way decision" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sentAnswers(sent)).toEqual([{ question: "q3", id: "answer-q3", answer: "B", rationale: "B keeps the old rows." }]);
   });
 
   it("holds back an answer of a person's own that says no why, and counts the rest", async () => {
@@ -442,19 +497,25 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it("answers a one-way item through the keyboard alone", async () => {
+  it("answers a one-way item through the keyboard alone, and through its confirm", async () => {
     const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
     show(midPlanBatch());
-    within(screen.getByRole("group", { name: "Question 4" })).getByRole("button", { name: "Choose another" }).focus();
+    const group = screen.getByRole("group", { name: "Question 4" });
+    within(group).getByRole("button", { name: "Choose another" }).focus();
     await userEvent.keyboard("{Enter}");
     radio("Question 4", "A").focus();
     await userEvent.keyboard(" ");
     expect((radio("Question 4", "A") as HTMLInputElement).checked).toBe(true);
-    const send = screen.getByRole("button", { name: "Agree with 15 recommendations" });
-    send.focus();
+    expect(screen.getByRole("button", { name: "Agree with 14 recommendations" })).toBeTruthy();
+    within(group).getByRole("button", { name: "Agree with recommendation" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(document.activeElement?.getAttribute("role")).toBe("group");
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(document.activeElement?.textContent).toBe("Record one-way decision");
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect(sentAnswers(sent).find((answer) => answer.question === "q4")).toMatchObject({ accepted: true });
+    expect(sentAnswers(sent)).toEqual([{ question: "q4", id: "answer-q4", accepted: true, expect_reversibility: "one_way" }]);
   });
 
   it("records a one-way item's recommendation through its own Agree and confirm, by keyboard, and nothing else", async () => {
@@ -487,7 +548,7 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     for (const oneWay of [1, 3, 4]) {
       expect(checkedIn(`Question ${oneWay}`)).toHaveLength(0);
     }
-    expect(screen.getByRole("status").textContent).toBe("3 one-way questions wait for your own choice, and are not sent until you choose.");
+    expect(screen.getByRole("status").textContent).toBe("3 one-way questions wait for your own choice, and each is recorded on its own once you confirm it.");
   });
 
   it("says one one-way question waits in the singular, and nothing when none does", async () => {
@@ -495,11 +556,11 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     batch.items = batch.items.slice(3, 6);
     show(batch);
     await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
-    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is recorded on its own once you confirm it.");
     await unfold("Question 4");
     await userEvent.click(radio("Question 4", "A"));
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByRole("button", { name: "Agree with 3 recommendations" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agree with 2 recommendations" })).toBeTruthy();
   });
 
   it("sends only the reversible recommendations after Accept all, and reaches the button by keyboard", async () => {
@@ -517,18 +578,18 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     expect(sentAnswers(sent).every((answer) => answer.accepted === true)).toBe(true);
   });
 
-  it("sends the reversibility each accepted answer was read with, after Accept all and for a recommendation left chosen", async () => {
+  it("sends the reversibility each accepted answer was read with after Accept all, and leaves a one-way recommendation left chosen to its confirm", async () => {
     const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
     show(midPlanBatch());
     await unfold("Question 2");
     await userEvent.click(radio("Question 2", "A"));
     await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
-    await userEvent.click(screen.getByRole("button", { name: "Agree with 15 recommendations" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 14 recommendations" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     const answers = sentAnswers(sent) as (Sent & { expect_reversibility?: string })[];
-    expect(answers).toHaveLength(15);
+    expect(answers).toHaveLength(14);
     for (const answer of answers) {
-      expect(answer.expect_reversibility, answer.question).toBe(answer.question === "q2" ? "one_way" : "reversible");
+      expect(answer.expect_reversibility, answer.question).toBe("reversible");
     }
   });
 

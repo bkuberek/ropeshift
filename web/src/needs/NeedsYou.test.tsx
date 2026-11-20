@@ -656,7 +656,7 @@ describe("a batch of questions", () => {
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
     }
-    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is recorded on its own once you confirm it.");
     await userEvent.click(screen.getByRole("button", { name: "Agree with 1 recommendation" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect((sent[0]?.body as Posted).answers.map((answer) => answer.question)).not.toContain(first.id);
@@ -664,7 +664,7 @@ describe("a batch of questions", () => {
 
   // The golden's batch holds a question whose category the decision policy keeps from an orchestrator, so its
   // answer is one-way though its reason says nothing of it.
-  it("holds the golden's one-way question back until a person chooses it", async () => {
+  it("holds the golden's one-way question back from the card's send, and records it through its confirm once chosen", async () => {
     const view = goldenNeedsYou();
     const { batch } = itemOf(view, "questions");
     const oneWay = batch.items.find((question) => question.reversibility === "one_way");
@@ -672,11 +672,15 @@ describe("a batch of questions", () => {
     const sent = serveApi(() => ({ status: 201 }));
     show(view, undefined, "questions");
     expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
-    await unfold(screen.getByRole("group", { name: oneWay?.text }));
-    await userEvent.click(within(screen.getByRole("group", { name: oneWay?.text })).getByRole("radio", { name: /^Keep the budget/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
+    const group = screen.getByRole("group", { name: oneWay?.text });
+    await unfold(group);
+    await userEvent.click(within(group).getByRole("radio", { name: /^Keep the budget/ }));
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
+    await userEvent.click(within(group).getByRole("button", { name: "Agree with recommendation" }));
+    expect(sent).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Record one-way decision" }));
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect((sent[0]?.body as Posted).answers.find((answer) => answer.question === oneWay?.id)).toMatchObject({ accepted: true });
+    expect((sent[0]?.body as Posted).answers).toEqual([expect.objectContaining({ question: oneWay?.id, accepted: true, expect_reversibility: "one_way" })]);
   });
 
   // A send counts what it sends, so each question it counts must show what it will send.
@@ -746,10 +750,25 @@ describe("a batch of questions", () => {
     expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
     await userEvent.click(within(group).getByRole("radio", { name: /^Something else/ }));
     expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
-    expect(screen.getByRole("button", { name: "Agree with 2 recommendations" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
+    expect(within(group).getByRole("button", { name: "Agree with recommendation" })).toBeTruthy();
   });
 
   it("says one answer in the singular", async () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.reversibility = "reversible";
+    first.escalation_reason = undefined;
+    first.recommendation = undefined;
+    item.batch.items = [first];
+    show(view, undefined, "questions");
+    expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();
+  });
+
+  it("offers a one-way question alone with no recommendation nothing to agree with, and its own send once it is chosen", async () => {
     const { view, item } = batchView();
     const first = item.batch.items[0];
     if (!first) {
@@ -759,7 +778,8 @@ describe("a batch of questions", () => {
     first.recommendation = undefined;
     item.batch.items = [first];
     show(view, undefined, "questions");
-    expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Agree with recommendation" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Send this answer" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("marks what is recommended and what blocks work", async () => {

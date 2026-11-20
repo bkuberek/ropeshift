@@ -273,16 +273,24 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
   const { act, busy, failure } = useAct(after);
   const discuss = useDiscuss(place);
   const draftOf = (item: QuestionItem) => drafts[item.id] ?? startingDraft(item);
-  const ready = batch.items.filter((item) => sendable(item, draftOf(item)));
+  // The card's own send covers only answers that can be taken back: a one-way answer, chosen or not, is recorded on
+  // its own through its confirm (FR-UI-16).
+  const ready = batch.items.filter((item) => !isOneWay(item) && sendable(item, draftOf(item)));
   const count = batch.items.length;
   // A one-way answer is never chosen for a person, so it waits here until they choose it themselves.
   const waiting = batch.items.filter((item) => isOneWay(item) && answerOf(draftOf(item)) === "").length;
   const [lone] = count === 1 ? batch.items : [];
   const agreeing = ready.length > 0 && ready.every((item) => accepts(item, draftOf(item)));
-  // canAgree says a question's Agree opens its confirm: a one-way question with a recommendation nobody chose yet.
-  const canAgree = (item: QuestionItem) => isOneWay(item) && hasRecommendation(item) && answerOf(draftOf(item)) === "";
-  // A one-way question alone on its card has nothing ready, so its primary is Agree, which asks for the confirm.
-  const confirmFirst = lone !== undefined && ready.length === 0 && canAgree(lone);
+  // agreesWith says a one-way question's confirm records its recommendation: it has one and nothing else is chosen, or
+  // the recommendation is chosen.
+  const agreesWith = (item: QuestionItem) => (answerOf(draftOf(item)) === "" ? hasRecommendation(item) : accepts(item, draftOf(item)));
+  // confirmable says a one-way question's own button opens its confirm: it has a recommendation to agree with and
+  // nothing else chosen, or an answer ready to send.
+  const confirmable = (item: QuestionItem) =>
+    isOneWay(item) && (answerOf(draftOf(item)) === "" ? hasRecommendation(item) : sendable(item, draftOf(item)));
+  const oneWayLabel = (item: QuestionItem) => (agreesWith(item) ? "Agree with recommendation" : "Send this answer");
+  // A one-way question alone on its card has its confirm behind the primary button.
+  const loneOneWay = lone !== undefined && isOneWay(lone);
   const fieldOf = (item: QuestionItem) => `${form}-question-${item.id}`;
 
   const askConfirm = (item: QuestionItem) => {
@@ -333,8 +341,11 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
       onAnswered?.({ by: recorded[0]?.decided_by ?? "", answers: rows.map((row) => ({ id: row.item.id, question: row.item.text, answer: row.words })) });
     });
   const replacing = (draft: Draft) => (draft.replaces ? { supersedes: draft.replaces } : {});
-  const send = () =>
-    record(
+  const send = () => {
+    if (ready.length === 0) {
+      return Promise.resolve(false);
+    }
+    return record(
       ready.map((item) => {
         const draft = draftOf(item);
         const answer: BatchAnswer = accepts(item, draft)
@@ -343,21 +354,24 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
         return { item, answer, words: answerOf(draft) };
       }),
     );
-  // A one-way question a person confirmed is recorded on its own, at once, as the recommendation it was read with.
-  const recordOneWay = (item: QuestionItem) =>
-    record([
-      {
-        item,
-        answer: { question: item.id, accepted: true, expect_reversibility: item.reversibility ?? "one_way", ...replacing(draftOf(item)) },
-        words: (item.recommendation ?? "").trim(),
-      },
-    ]);
+  };
+  // A one-way question a person confirmed is recorded on its own, at once: the recommendation it was read with, when
+  // nothing else is chosen or the recommendation is, and otherwise the person's own answer with their reason.
+  const recordOneWay = (item: QuestionItem) => {
+    const draft = draftOf(item);
+    const answer: BatchAnswer = agreesWith(item)
+      ? { question: item.id, accepted: true, expect_reversibility: item.reversibility ?? "one_way", ...replacing(draft) }
+      : { question: item.id, answer: answerOf(draft), rationale: draft.rationale.trim(), ...replacing(draft) };
+    return record([{ item, answer, words: agreesWith(item) ? (item.recommendation ?? "").trim() : answerOf(draft) }]);
+  };
 
   const sendLabel = ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answer${count === 1 ? "" : "s"}`;
-  const label = confirmFirst || (agreeing && count === 1) ? "Agree with recommendation" : agreeing ? `Agree with ${plural(ready.length, "recommendation")}` : sendLabel;
+  const label = loneOneWay ? oneWayLabel(lone) : agreeing && count === 1 ? "Agree with recommendation" : agreeing ? `Agree with ${plural(ready.length, "recommendation")}` : sendLabel;
+  const recordsRecommendation = loneOneWay ? agreesWith(lone) : agreeing;
 
   // buttonsOf are what a person does with one question besides agreeing: discuss it, and choose another answer. A
-  // one-way question in a batch of several has its own Agree too, since the card's covers only reversible ones.
+  // one-way question in a batch of several has its own Agree, or Send this answer once another answer is chosen, since
+  // the card's send covers only answers that can be taken back. Each opens the question's confirm.
   const buttonsOf = (item: QuestionItem, own: boolean) => (
     <>
       {discuss ? (
@@ -370,9 +384,9 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
           Choose another
         </Button>
       ) : null}
-      {own && canAgree(item) ? (
+      {own && confirmable(item) ? (
         <Button disabled={busy || confirming !== ""} onClick={() => askConfirm(item)}>
-          Agree with recommendation
+          {oneWayLabel(item)}
         </Button>
       ) : null}
     </>
@@ -384,18 +398,18 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
       project={frame.project}
       title={frame.title}
       provenance={frame.provenance}
-      binding={agreeing || confirmFirst ? "Agreeing records the recommendation, its rationale, and its citations as your decision." : "Each answer is recorded once, as yours."}
+      binding={recordsRecommendation ? "Agreeing records the recommendation, its rationale, and its citations as your decision." : "Each answer is recorded once, as yours."}
       actions={
         <>
           {lone ? buttonsOf(lone, false) : null}
           <Button
             variant="primary"
             shortcut="A"
-            type={confirmFirst ? "button" : "submit"}
-            form={confirmFirst ? undefined : form}
+            type={loneOneWay ? "button" : "submit"}
+            form={loneOneWay ? undefined : form}
             loading={busy}
-            disabled={busy || confirming !== "" || (ready.length === 0 && !confirmFirst)}
-            onClick={confirmFirst && lone ? () => askConfirm(lone) : undefined}
+            disabled={busy || confirming !== "" || (loneOneWay ? !confirmable(lone) : ready.length === 0)}
+            onClick={loneOneWay ? () => askConfirm(lone) : undefined}
           >
             {label}
           </Button>
@@ -420,7 +434,7 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
         {batch.items.some((item) => item.no_orchestrator) ? <NoOrchestrator what="these questions" /> : null}
         {waiting > 0 ? (
           <p className="small muted" role="status">
-            {waiting === 1 ? "1 one-way question waits" : `${waiting} one-way questions wait`} for your own choice, and {waiting === 1 ? "is" : "are"} not sent until you choose.
+            {waiting === 1 ? "1 one-way question waits for your own choice, and is" : `${waiting} one-way questions wait for your own choice, and each is`} recorded on its own once you confirm it.
           </p>
         ) : null}
         {batch.items.map((item) => (
