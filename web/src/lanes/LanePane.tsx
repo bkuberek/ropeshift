@@ -170,6 +170,9 @@ const followScrollbackMs = 1000;
 
 type History = { lines: string; size: number; limit: number; asked: number };
 
+// resetStyle ends any colour or emphasis the scrollback left open, so none of it reaches the screen.
+const resetStyle = "\x1b[0m";
+
 const plainOf = (text: string) =>
   parseScreen(text)
     .map((run) => run.text)
@@ -251,7 +254,8 @@ function Screen({
   const [matchCase, setMatchCase] = useState(false);
   const [current, setCurrent] = useState(0);
   const [history, setHistory] = useState<History | null>(null);
-  const runs = parseScreen((history?.lines ?? "") + trimScreen(text));
+  const [unread, setUnread] = useState("");
+  const runs = parseScreen(history?.lines ? history.lines + resetStyle + trimScreen(text) : trimScreen(text));
   const plain = runs.map((run) => run.text).join("");
   const starts = searching ? findIn(plain, query, matchCase) : [];
   const at = starts.length === 0 ? 0 : Math.min(current, starts.length - 1);
@@ -313,7 +317,7 @@ function Screen({
     following.current = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - bottomSlack;
     setAway(!following.current);
     if (history && pre.scrollTop <= topSlack && countLines(history.lines) < history.size && history.asked < history.limit) {
-      read(Math.min(history.asked * 2, history.limit), "place");
+      read(Math.min(history.asked * 2, history.limit, maxPaneScrollback), "place");
     }
   };
   // Jump to latest goes once it has jumped, so it leaves focus on the screen.
@@ -336,9 +340,10 @@ function Screen({
       .then((got) => {
         const pre = screen.current;
         place.current = keep === "bottom" || !pre ? "bottom" : { fromBottom: pre.scrollHeight - pre.scrollTop };
+        setUnread("");
         setHistory({ lines: got.lines, size: got.size, limit: got.limit, asked });
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => setUnread(error instanceof ApiError ? error.message : String(error)))
       .finally(() => {
         reading.current = false;
       });
@@ -370,7 +375,7 @@ function Screen({
   }, [text]);
 
   const copyAll = () => {
-    readPaneScrollback(lane, history?.limit ?? maxPaneScrollback)
+    readPaneScrollback(lane, Math.min(history?.limit ?? maxPaneScrollback, maxPaneScrollback))
       .then((got) => copyText(plainOf(got.lines) + plainOf(trimScreen(text)), "the scrollback and the screen"))
       .then(setSaid, (error: unknown) => setSaid(error instanceof ApiError ? error.message : String(error)));
   };
@@ -466,7 +471,11 @@ function Screen({
       ) : null}
       <div className="pane-history row-tight">
         <span className="small muted">
-          {history ? `Scrollback: ${number(countLines(history.lines))} of ${number(history.size)} lines. tmux keeps ${number(history.limit)}.` : "Reading the scrollback."}
+          {unread
+            ? `The scrollback could not be read: ${unread}`
+            : history
+              ? `Showing ${number(countLines(history.lines))} of the ${number(history.limit)} lines tmux keeps`
+              : "Reading the scrollback."}
         </span>
         <button className="btn btn-sm" type="button" onClick={copyAll}>
           Copy all
