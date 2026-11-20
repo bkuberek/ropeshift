@@ -436,6 +436,12 @@
       "exemptable": false
     },
     {
+      "id": "question.decide_now",
+      "label": "Decide a question now, off the ladder",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "decision.assume",
       "label": "Record a decision within policy",
       "class": "consent",

@@ -167,6 +167,27 @@ func (c *invocation) questionMerge(args []string) int {
 	}{positional[0], request.Into}, func() string { return positional[0] + "\tmerged into " + request.Into + "\n" })
 }
 
+// questionDecideNow takes a question off the ladder into the member's Needs you, and says the batch it waits in.
+func (c *invocation) questionDecideNow(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one question ID")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	record, err := client.DecideNow(c.ctx, positional[0])
+	return c.finish(err, record, func() string {
+		return fmt.Sprintf("%s\t%s\t%s\twaits for you in Needs you\n", record.ID, record.Status, record.BatchID)
+	})
+}
+
 func (c *invocation) questionAnswer(args []string) int {
 	set := c.flags()
 	var request api.AnswerQuestion

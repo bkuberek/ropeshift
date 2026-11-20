@@ -9,6 +9,7 @@ import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field } from "../ui/forms";
 import { useToast } from "../ui/overlays";
+import { DecideNowButton, onTheLadder, useDecideNow } from "./DecideNow";
 import { DismissQuestion, waiting } from "./DismissQuestion";
 import { MergeQuestion, mergeTargets } from "./MergeQuestion";
 
@@ -109,6 +110,7 @@ export function QuestionActions({ question, others = [] }: { question: Question;
   // A merge needs a question that stays, so the palette lists Merge only while one waits, and a request for the dialog
   // ends when the last one goes, rather than opening it by itself when another arrives.
   const mergeable = mergeTargets(question, others).length > 0;
+  const decideNow = useDecideNow(question);
   useEffect(() => {
     if (!mergeable) {
       setMerging(false);
@@ -130,6 +132,9 @@ export function QuestionActions({ question, others = [] }: { question: Question;
           { key: `action:assume-question:${question.id}`, group: "Actions", id: question.id, title: `Assume an answer: ${question.text}`, icon: "pencil", keywords: "assumption orchestrator", run: assume },
           ...(mergeable ? [{ key: `action:merge-question:${question.id}`, group: "Actions" as const, id: question.id, title: `Merge question: ${question.text}`, icon: "link" as const, keywords: "duplicate same", run: () => setMerging(true) }] : []),
           { key: `action:dismiss-question:${question.id}`, group: "Actions", id: question.id, title: `Dismiss question: ${question.text}`, icon: "x", keywords: "close", run: () => setDismissing(true) },
+          ...(onTheLadder(question)
+            ? [{ key: `action:decide-question-now:${question.id}`, group: "Actions" as const, id: question.id, title: `Decide now: ${question.text}`, icon: "inbox" as const, keywords: "needs you ladder", run: decideNow.decide }]
+            : []),
         ]
       : [],
   );
@@ -147,6 +152,7 @@ export function QuestionActions({ question, others = [] }: { question: Question;
         </Button>
         <MergeQuestion question={question} others={others} asked={merging} onClosed={() => setMerging(false)} />
         <DismissQuestion question={question} asked={dismissing} onClosed={() => setDismissing(false)} />
+        <DecideNowButton question={question} now={decideNow} />
       </div>
       {refused ? <Refusal>{oneWayRefusal}</Refusal> : null}
       {working ? <AnswerForm key={working} question={question} id={form} assume={working === "assume"} onDone={() => setWorking("")} /> : null}

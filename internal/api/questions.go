@@ -298,6 +298,13 @@ func (c *ProjectClient) DismissQuestion(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/dismiss", struct{}{}, nil)
 }
 
+// DecideNow takes a question off the ladder into the member's Needs you, and answers with it as it waits there.
+func (c *ProjectClient) DecideNow(ctx context.Context, id string) (questions.Question, error) {
+	var out questions.Question
+	err := c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/decide-now", struct{}{}, &out)
+	return out, err
+}
+
 // MergeQuestion closes a question in favor of the one that stays, which takes its lanes.
 func (c *ProjectClient) MergeQuestion(ctx context.Context, id string, in MergeQuestion) error {
 	return c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/merge", in, nil)
