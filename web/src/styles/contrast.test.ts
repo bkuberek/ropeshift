@@ -73,6 +73,8 @@ describe.each([
   it("keeps the terminal pane dark in both themes, with its text readable on it", () => {
     expect(theme["terminal-bg"]).toBe("#0b0d10");
     expect(contrast(theme["terminal-text"] ?? "", theme["terminal-bg"] ?? "")).toBeGreaterThanOrEqual(text);
+    expect(contrast(theme["terminal-text"] ?? "", theme["terminal-match"] ?? "")).toBeGreaterThanOrEqual(text);
+    expect(contrast(theme["terminal-bg"] ?? "", theme["terminal-match-current"] ?? "")).toBeGreaterThanOrEqual(text);
   });
 });
 

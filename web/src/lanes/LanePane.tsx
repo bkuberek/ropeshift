@@ -7,6 +7,7 @@ import { readView } from "../api/client";
 import type { PaneLane, PaneScreen, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { onMac } from "../app/keys";
 import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
 import { SpendPanel } from "../floor/SpendPanel";
@@ -17,6 +18,8 @@ import { AskedQuestions } from "../planning/AskedQuestions";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
 import { LaneMessages } from "./Messages";
+import { findIn, markRuns } from "./find";
+import { copyText, FindBar, PaneTools, selectContents } from "./PaneTools";
 import { parseScreen, trimScreen } from "./screen";
 import { startingMs } from "./starting";
 
@@ -141,17 +144,91 @@ function statusOf(shown: Shown): string {
   }
 }
 
+// Screen is the pane's screen, with the toolbar above it. Select all, and the select-all shortcut while the
+// screen has focus, select the pane's text and nothing else on the page; Search, and the find shortcut
+// while the screen has focus, search it.
 function Screen({ lane, text }: { lane: string; text: string }) {
+  const screen = useRef<HTMLPreElement>(null);
+  const [said, setSaid] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const runs = parseScreen(trimScreen(text));
+  const plain = runs.map((run) => run.text).join("");
+  const starts = searching ? findIn(plain, query, matchCase) : [];
+  const at = starts.length === 0 ? 0 : Math.min(current, starts.length - 1);
+  useEffect(() => {
+    screen.current?.querySelector(".pane-match.is-current")?.scrollIntoView?.({ block: "nearest" });
+  }, [at, query, matchCase, searching]);
+
+  const selectAll = () => {
+    screen.current?.focus();
+    selectContents(screen.current);
+  };
+  const closeSearch = () => {
+    setSearching(false);
+    screen.current?.focus();
+  };
+  const move = (by: number) => setCurrent(starts.length === 0 ? 0 : (at + by + starts.length) % starts.length);
+  const keyDown = (event: KeyboardEvent<HTMLPreElement>) => {
+    const mod = onMac() ? event.metaKey : event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (!mod || event.altKey || event.shiftKey) {
+      return;
+    }
+    if (key === "a") {
+      event.preventDefault();
+      selectContents(screen.current);
+    } else if (key === "f") {
+      event.preventDefault();
+      setSearching(true);
+    }
+  };
+
   return (
-    // The whole screen changes at once, so a screen reader reads it when asked and the status line says
-    // what changed.
-    <pre className="pane-screen" role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0}>
-      {parseScreen(trimScreen(text)).map((run, at) => (
-        <span key={at} className={run.className || undefined}>
-          {run.text}
-        </span>
-      ))}
-    </pre>
+    <div className="pane-frame">
+      <PaneTools
+        onCopyScreen={() => void copyText(plain, "the screen").then(setSaid)}
+        onSelectAll={selectAll}
+        onSearch={() => (searching ? closeSearch() : setSearching(true))}
+        searching={searching}
+        said={said}
+      />
+      {searching ? (
+        <FindBar
+          words={query}
+          matchCase={matchCase}
+          current={at}
+          count={starts.length}
+          onWords={(next) => {
+            setQuery(next);
+            setCurrent(0);
+          }}
+          onMatchCase={(next) => {
+            setMatchCase(next);
+            setCurrent(0);
+          }}
+          onMove={move}
+          onClose={closeSearch}
+        />
+      ) : null}
+      {/* The whole screen changes at once, so a screen reader reads it when asked and the status line says
+          what changed. */}
+      <pre ref={screen} className="pane-screen" role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0} onKeyDown={keyDown}>
+        {markRuns(runs, starts, query.length).map((run, place) =>
+          run.match === null ? (
+            <span key={place} className={run.className || undefined}>
+              {run.text}
+            </span>
+          ) : (
+            <mark key={place} className={run.match === at ? "pane-match is-current" : "pane-match"}>
+              <span className={run.className || undefined}>{run.text}</span>
+            </mark>
+          ),
+        )}
+      </pre>
+    </div>
   );
 }
 
