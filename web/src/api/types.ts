@@ -866,13 +866,17 @@ export type Decisions = Stamp & { decisions: Decision[] };
 
 export type Questions = Stamp & { categories: string[]; questions: Question[] };
 
-export type WorkLine = { work_order: WorkOrder; lane?: Lane; since: number };
+// WaitsOn is who a lane waits on while it waits on a blocking question: the orchestrator while the question climbs the
+// ladder, and a member once it reached one.
+export type WaitsOn = { who: "orchestrator" | "member"; question: string; since: number };
+
+export type WorkLine = { work_order: WorkOrder; lane?: Lane; since: number; waits_on?: WaitsOn };
 
 export type InProgress = Stamp & { items: WorkLine[] };
 
 export type Wake = { id: string; expression: string; next_eval_at?: number };
 
-export type HeldLane = { work_order: WorkOrder; lane?: Lane; wakes: Wake[]; since: number };
+export type HeldLane = { work_order: WorkOrder; lane?: Lane; wakes: Wake[]; since: number; waits_on?: WaitsOn };
 
 export type OnHold = Stamp & { items: HeldLane[] };
 

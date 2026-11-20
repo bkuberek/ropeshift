@@ -577,11 +577,30 @@ type Questions struct {
 	Questions  []QuestionView `json:"questions"`
 }
 
-// WorkLine is a work order, the lane on it, and when it reached the state it stands in.
+// Who a lane waits on, as WaitsOn names it.
+const (
+	// WaitsOnOrchestrator is a blocking question of the lane's that climbs the question ladder, which the
+	// orchestrator works.
+	WaitsOnOrchestrator = "orchestrator"
+	// WaitsOnMember is a blocking question of the lane's that reached a member.
+	WaitsOnMember = "member"
+)
+
+// WaitsOn is who a lane waits on to go on, the blocking question it waits on, and since when the lane asked it
+// (FR-ORCH-1). A lane with several waits on the one it asked first.
+type WaitsOn struct {
+	Who      string `json:"who"`
+	Question string `json:"question"`
+	Since    int64  `json:"since"`
+}
+
+// WorkLine is a work order, the lane on it, and when it reached the state it stands in. WaitsOn is set while its
+// lane waits on a blocking question.
 type WorkLine struct {
 	WorkOrder workorders.WorkOrder `json:"work_order"`
 	Lane      *ledger.LaneView     `json:"lane,omitempty"`
 	Since     int64                `json:"since"`
+	WaitsOn   *WaitsOn             `json:"waits_on,omitempty"`
 }
 
 // InProgress is claimed and running work.
@@ -597,12 +616,13 @@ type WakeView struct {
 	NextEvalAt int64  `json:"next_eval_at,omitempty"`
 }
 
-// HeldLane is a parked lane and what it waits for.
+// HeldLane is a parked lane and what it waits for. WaitsOn is set while it waits on a blocking question.
 type HeldLane struct {
 	WorkOrder workorders.WorkOrder `json:"work_order"`
 	Lane      *ledger.LaneView     `json:"lane,omitempty"`
 	Wakes     []WakeView           `json:"wakes"`
 	Since     int64                `json:"since"`
+	WaitsOn   *WaitsOn             `json:"waits_on,omitempty"`
 }
 
 // OnHold is parked lanes and what each waits for.

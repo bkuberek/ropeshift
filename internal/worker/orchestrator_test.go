@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -259,6 +260,32 @@ func TestASecondBatchIsOneWakeUnderTheFloor(t *testing.T) {
 	}
 }
 
+// A lane that cannot go on without an answer waits on the orchestrator, so its blocking question wakes the
+// orchestrator once the debounce passes, inside the minimum interval that bounds every other wake (FR-ORCH-1).
+func TestABlockingQuestionWakesTheOrchestratorUnderTheFloor(t *testing.T) {
+	o := newOrchestratorRig(t, aSession([]fake.DriverStep{completed(0.02)}))
+	o.wokenOnce(t)
+	_, err := control.NewQuestions(o.store, questions.BatchPolicy{}).Ask(t.Context(), scope, questions.Ask{ID: "q2", Text: "Which log level?", Blocking: true}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.tick(t)
+	o.clock.Advance(10 * time.Second)
+	o.tick(t)
+	if got := len(o.driver.Sent()); got != 0 {
+		t.Fatalf("a wake inside the debounce: %d", got)
+	}
+	o.clock.Advance(21 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	for len(o.driver.Sent()) == 0 && time.Now().Before(deadline) {
+		o.tick(t)
+	}
+	sent := o.driver.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Which log level?") {
+		t.Fatalf("31s after a blocking question, under the 2m floor, the wakes sent are %+v", sent)
+	}
+}
+
 // It has no work order and no outcome, so a turn that ends leaves it waiting: nothing nudges it,
 // and nothing ends it.
 func TestARestingOrchestratorIsNotALaneWithNoOutcome(t *testing.T) {
@@ -368,6 +395,79 @@ func TestACrashedOrchestratorStopsNoLane(t *testing.T) {
 	if row := o.laneRig.row(); row.State != workorders.Running {
 		t.Errorf("the work order reads %s", row.State)
 	}
+}
+
+// An orchestrator whose breaker tripped starts again by itself once the breaker cools down: the restarts that
+// tripped it leave its restart window, and no member resets it (FR-ORCH-1). Until then it stays tripped.
+func TestATrippedOrchestratorStartsAgainOnceItsBreakerCools(t *testing.T) {
+	crash := script([]fake.DriverStep{{Bound: true}, {Crash: true}})
+	o := newOrchestratorRig(t, crash, crash, crash, aSession())
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	o.await(t, "the first backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+	o.await(t, "the second backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(61 * time.Second)
+	o.awaitSessions(t, 3)
+	o.await(t, "a trip", func(row ledger.Orchestrator) bool { return row.Tripped() })
+	resumed := len(o.driver.Resumed())
+	o.clock.Advance(5 * time.Minute)
+	for range 5 {
+		o.tick(t)
+	}
+	if got := len(o.specs()); got != 3 {
+		t.Fatalf("%d sessions inside the restart window of a tripped breaker, want 3", got)
+	}
+	o.clock.Advance(6 * time.Minute)
+	o.awaitSessions(t, 4)
+	if next := o.specs()[3]; next.Generation != 4 {
+		t.Errorf("the session after the breaker cooled is generation %d, want 4", next.Generation)
+	}
+	// Nobody reset the breaker, so the generation is a crash restart, which resumes the session, and not a reset,
+	// which starts one from the brief.
+	if got := len(o.driver.Resumed()); got != resumed+1 {
+		t.Errorf("%d resumes after the breaker cooled, want %d: the generation started as a reset", got, resumed+1)
+	}
+}
+
+// dayCapProfile trips an orchestrator's breaker on its day, at its third generation, before its window could.
+const dayCapProfile = "[lifecycle]\nwake_debounce = \"30s\"\nwake_min_interval = \"2m\"\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\nmax_restarts = 10\nrestart_window = \"10m\"\nmax_generations_per_day = 3\nrestart_backoff = \"30s\"\n"
+
+// A breaker its day tripped does not cool when the day rolls past the generations that filled it: a crash loop would
+// then run max_generations_per_day sessions every day. Only a member's reset starts it again (ADR-0014).
+func TestADayCappedOrchestratorWaitsForAMembersReset(t *testing.T) {
+	crash := script([]fake.DriverStep{{Bound: true}, {Crash: true}})
+	o := newOrchestratorRig(t, crash, crash, crash, aSession())
+	o.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser(dayCapProfile)
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	o.await(t, "the first backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+	o.await(t, "the second backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(61 * time.Second)
+	o.awaitSessions(t, 3)
+	o.await(t, "a trip on the day", func(row ledger.Orchestrator) bool {
+		return row.Tripped() && slices.Contains(row.Conditions, string(lanes.DayCapped))
+	})
+	o.clock.Advance(25 * time.Hour)
+	for range 20 {
+		o.tick(t)
+	}
+	if got := len(o.specs()); got != 3 {
+		t.Fatalf("%d sessions a day after a breaker its day tripped, with no member's reset, want 3", got)
+	}
+	o.start(t)
+	o.awaitSessions(t, 4)
 }
 
 // A member's stop ends the session and leaves the lanes alone.
@@ -531,6 +631,58 @@ func TestATurnThatEndsHoldingAQuestionLetsItGo(t *testing.T) {
 	sent := o.driver.Sent()
 	if len(sent) != 1 || !strings.Contains(sent[0].Text, "q1") {
 		t.Fatalf("the next wake reads %+v", sent)
+	}
+}
+
+// A blocking question skips the floor once, when the orchestrator was never told of it. A turn that takes it and ends
+// with no record lets it go with a new stamp, and its next wake keeps the floor: otherwise the same question wakes the
+// orchestrator at every debounce, with no bound (FR-ORCH-7).
+func TestABlockingQuestionLetGoKeepsTheFloor(t *testing.T) {
+	var o *orchestratorRig
+	taken := make(chan lanes.Reply, 1)
+	o = newOrchestratorRig(t, aSession())
+	o.scripts = []fake.DriverScript{script(
+		[]fake.DriverStep{{Bound: true}, {Do: func(spec ports.SessionSpec) {
+			taken <- callTool(t, o.subject, tokenIn(spec), lanes.ToolQuestionNext, nil)
+		}}, completed(0.01)},
+		[]fake.DriverStep{completed(0.02)},
+	)}
+	o.start(t)
+	o.tick(t)
+	_, err := control.NewQuestions(o.store, questions.BatchPolicy{}).Ask(t.Context(), scope, questions.Ask{ID: "q1", Text: "Which retry budget?", Blocking: true}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	select {
+	case reply := <-taken:
+		if !reply.OK {
+			t.Fatalf("the session took nothing: %+v", reply)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the session never took the question")
+	}
+	o.awaitRest(t)
+	if row := o.question(t, "q1"); row.ClaimedBy != "" || !row.Status.Unresolved() {
+		t.Fatalf("a turn that ended still holds %+v", row)
+	}
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	for range 10 {
+		o.tick(t)
+	}
+	if got := len(o.driver.Sent()); got != 0 {
+		t.Fatalf("%d wakes 31s after the orchestrator let go of a blocking question it was told of, under the 2m floor", got)
+	}
+	o.clock.Advance(90 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	for len(o.driver.Sent()) == 0 && time.Now().Before(deadline) {
+		o.tick(t)
+	}
+	if sent := o.driver.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "q1") {
+		t.Fatalf("at the floor, the wakes sent are %+v", sent)
 	}
 }
 

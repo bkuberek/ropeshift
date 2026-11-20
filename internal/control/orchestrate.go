@@ -276,8 +276,10 @@ var recoveryActs = map[string]authority.RecoveryAct{
 // recover takes one recovery act for this worker's orchestrator, which is held to its level as a stop is,
 // and to the recovery policy in force. The record names the generation its session is in.
 func (w *Workers) recover(ctx context.Context, act authority.RecoveryAct, call ledger.OrchestratorCall, actor ledger.Actor) (RecoveryResult, error) {
-	if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayWork); err != nil {
-		return RecoveryResult{}, err
+	if !reclaimsNothing(act) {
+		if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayWork); err != nil {
+			return RecoveryResult{}, err
+		}
 	}
 	var generation int64
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
@@ -289,6 +291,13 @@ func (w *Workers) recover(ctx context.Context, act authority.RecoveryAct, call l
 		return RecoveryResult{}, err
 	}
 	return w.recoveries.Recover(ctx, w.scope, RecoveryCall{Act: act, WorkOrder: call.WorkOrder, Reason: call.Reason}, actor, generation)
+}
+
+// reclaimsNothing says a recovery act starts no lane: a retry returns failed work to ready, and a replan sends blocked
+// work back to planning, where a claim or a member takes it next. Either is open to an orchestrator at every level,
+// and a restart or a reset, which runs a lane's next generation, is held to the level (ADR-0014).
+func reclaimsNothing(act authority.RecoveryAct) bool {
+	return act == authority.RecoverRetry || act == authority.RecoverReplan
 }
 
 // heldToStanding refuses an act this worker's level does not leave its orchestrator. A start reads

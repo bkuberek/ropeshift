@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -260,7 +261,13 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		}
 		gather = append(gather, wakeQuestions, wakeMessages)
 		if facts.standing.MayWork() {
-			gather = append(gather, wakeFinished, wakeLanes, wakeStuckWork, wakeApprovals)
+			gather = append(gather, wakeFinished, wakeLanes)
+		}
+		// Recovering failed or blocked work claims nothing and starts no lane, so it wakes an orchestrator at every
+		// level: recovery is a judged act, and the orchestrator is its judge (ADR-0014).
+		gather = append(gather, wakeStuckWork)
+		if facts.standing.MayWork() {
+			gather = append(gather, wakeApprovals)
 		}
 		for _, read := range gather {
 			items, err := read(tx, worker)
@@ -449,7 +456,7 @@ func wakeQuestions(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 		if by {
 			text = lanes.DelegateText(text)
 		}
-		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: text})
+		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: text, Waiting: row.Blocking})
 	}
 	return out, nil
 }
@@ -560,18 +567,52 @@ func wakeStuckWork(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 		if err != nil {
 			return nil, err
 		}
+		said, err := laneReported(tx, row.ID)
+		if err != nil {
+			return nil, err
+		}
 		switch row.State {
 		case workorders.Failed:
 			text := fmt.Sprintf("%s failed, with %d of %d attempts used", title, row.Attempts, row.AttemptBound(byDefault))
 			if !row.AttemptsLeft(byDefault) {
 				text += ", so a retry needs a member"
 			}
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text})
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text + said})
 		case workorders.Blocked:
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: title + " is blocked"})
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: title + " is blocked" + said})
 		}
 	}
 	return out, nil
+}
+
+// laneReportLimit bounds what a wake quotes of a lane's report, so one long report does not fill a wake.
+const laneReportLimit = 600
+
+// stuckEnds are the ends of a lane that leave its work failed or blocked.
+var stuckEnds = []workorders.Trigger{workorders.TriggerLaneFailed, workorders.TriggerLaneBlocked, workorders.TriggerAttemptsExhausted}
+
+// laneReported states what the lane said when it ended the work it failed or blocked, which an orchestrator reads to
+// judge a retry and can give as its reason. It reads how the work's last lane ended, and says nothing when that lane
+// did not fail or block it, so a later lane's end never leaves an earlier lane's report standing, or when its end
+// carries no reason. A lane wrote the text, so it is a claim the orchestrator weighs, as a question's text is, and it
+// reads as text a stranger wrote: plain, with each credential's shape redacted before the cut (ADR-0037).
+func laneReported(tx ports.ReadTx, order string) (string, error) {
+	ended, err := lastLaneEnd(tx, order)
+	if err != nil || !slices.Contains(stuckEnds, ended.Trigger) {
+		return "", err
+	}
+	reason := strings.TrimSpace(ended.Reason)
+	if detail := strings.TrimSpace(ended.Detail); detail != "" {
+		reason = strings.TrimSpace(reason + " " + detail)
+	}
+	reason = strings.TrimSpace(ledger.SanitizeCIText(reason))
+	if reason == "" {
+		return "", nil
+	}
+	if runes := []rune(reason); len(runes) > laneReportLimit {
+		reason = string(runes[:laneReportLimit]) + "…"
+	}
+	return ". Its lane reported: " + reason, nil
 }
 
 // wakeApprovals is how an orchestrator reads a request: only what a member delegated reaches it, with
@@ -600,7 +641,7 @@ func wakeApprovals(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 		}
 		out = append(out, ledger.WakeItem{
 			Kind: ledger.WakeApproval, ID: row.ID, Stamp: row.RaisedAt, Digest: row.SubjectDigest,
-			Text: row.Subject + ": " + row.Summary,
+			Text: row.Subject + ": " + row.Summary, Waiting: row.Lane != "",
 		})
 	}
 	return out, nil
