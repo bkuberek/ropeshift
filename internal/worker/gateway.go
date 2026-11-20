@@ -90,6 +90,9 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 	if err := json.Unmarshal(line, &request); err != nil || request.Version != lanes.SocketProtocol {
 		return refused(lanes.CodeInvalid, "this is not a line of the lane protocol")
 	}
+	if run, ok := w.consults.of(lanes.TokenDigest(request.Token)); ok {
+		return w.answerConsultant(ctx, run, request)
+	}
 	lane, err := w.journal.LaneByToken(ctx, lanes.TokenDigest(request.Token))
 	if errors.Is(err, ports.ErrNotFound) {
 		return refused(lanes.CodeBadToken, "this token is not a running lane's")

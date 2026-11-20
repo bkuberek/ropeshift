@@ -73,6 +73,8 @@ func (w *Worker) takeWork(ctx context.Context, lane lanes.Record, request lanes.
 		return refused(lanes.CodeForbidden, err.Error())
 	case errors.Is(err, authority.ErrRecoveryMoved):
 		return refused(lanes.CodeConflict, err.Error())
+	case errors.Is(err, errNoConsultation):
+		return refused(lanes.CodeUnavailable, err.Error())
 	}
 	return refused(lanes.CodeInvalid, err.Error())
 }
@@ -131,6 +133,8 @@ func (w *Worker) workTool(ctx context.Context, lane lanes.Record, tool string, a
 		return w.record(ctx, call, args, act)
 	case lanes.ToolQuestionEscalate:
 		return w.escalate(ctx, call, args, act)
+	case lanes.ToolConsult:
+		return w.consult(ctx, lane, call, args)
 	}
 	return nil, fmt.Errorf("%w: no such tool: %q", workorders.ErrInvalid, tool)
 }

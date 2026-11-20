@@ -78,8 +78,8 @@ func (r *laneRun) tools() []string {
 		return assistantTools
 	}
 	if r.orchestrating() {
-		// It answers a member's message as a lane does.
-		return append(slices.Clone(lanes.OrchestratorTools), lanes.ToolReply)
+		// It answers a member's message as a lane does, and consults a stronger agent on a hard decision (FR-ORCH-9).
+		return append(slices.Clone(lanes.OrchestratorTools), lanes.ToolConsult, lanes.ToolReply)
 	}
 	return lanes.Tools
 }
