@@ -264,6 +264,9 @@ type Facts struct {
 	// and has not finished. A quiet lane is not always a stuck one.
 	WaitDeclared bool
 	ToolInFlight bool
+	// BackgroundInFlight says a lane at rest waits on background work its last turn left running, which
+	// starts its next turn when it ends.
+	BackgroundInFlight bool
 	// ContextTokens is the last call's context, and WarnTokens the profile's warning.
 	ContextTokens int64
 	WarnTokens    int64
@@ -288,7 +291,7 @@ type Facts struct {
 // excuses nothing.
 func Conditions(f Facts) []Condition {
 	var out []Condition
-	waiting := f.WaitDeclared || f.ToolInFlight
+	waiting := f.WaitDeclared || f.ToolInFlight || f.BackgroundInFlight
 	raise := func(condition Condition, on bool) {
 		if on {
 			out = append(out, condition)

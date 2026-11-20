@@ -55,6 +55,8 @@ Work becomes `ready` only when it passes a definition of ready: its contract is 
 
 **A lane that cannot go on parks.** It saves its work, stops its process so it uses no quota, and resumes when its answer arrives.
 
+**A lane's turn ends its work only when nothing it started still runs.** A lane runs its helper agents and its commands in the foreground and waits for their reports before it reports. When a turn still ends with some of its own background work running, such as a watch, the worker neither nudges the lane nor ends it: the lane rests, reads `waiting_external`, and goes on in the turn that work's end starts ([Agents](authorization.md#agents)).
+
 **The orchestrator** is one agent per machine that keeps the work moving. It claims ready work, starts lanes, starts a review when a lane finishes, and settles questions within the decision policy you set. A worker that runs on a Claude subscription starts at `attended`: its orchestrator claims work only inside a run window you open ([Claude subscriptions and automated use](onboarding.md#claude-subscriptions-and-automated-use)). You can also claim and start any work order by hand.
 
 **A deterministic daemon** keeps each session healthy, starts a lane again after a crash, and fences out a lane that lost its claim, so two writers never write the same work.

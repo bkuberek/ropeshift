@@ -1211,7 +1211,8 @@ func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
 }
 
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
-// it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended.
+// it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended, nor one
+// that left the lane's own background work running.
 // A planning lane is a conversation, so a turn it ends with no report waits for its person instead
 // (ADR-0018).
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
@@ -1250,6 +1251,12 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		return
 	}
 	if clears || r.owesBrief.Load() {
+		return
+	}
+	// A turn that stopped with the lane's own background work still running ended none of the lane's work: each
+	// task starts the session's next turn when it ends, and that turn's end is the one read. A nudge now would
+	// interrupt work the lane is still waiting on.
+	if r.state.backgroundInFlight() {
 		return
 	}
 	if len(r.blockingQuestions()) != 0 {
