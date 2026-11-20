@@ -145,6 +145,27 @@ func commitsAhead(ctx context.Context, git Git, remote, branch string) (int64, e
 // Snapshot builds a commit from the worktree in an index of its own, because `git stash
 // create` omits untracked files and the lane's own index belongs to the session.
 func (w Worktrees) Snapshot(ctx context.Context, path, ref string) (string, error) {
+	return w.snapshot(ctx, path, ref, func(index Git) error {
+		_, err := index.Output(ctx, snapshotAdd()...)
+		return err
+	})
+}
+
+// SnapshotPaths builds the same commit from only the named paths, read literally and fed on standard input, so
+// no name is taken for an option or a pattern and no list is too long for one command.
+func (w Worktrees) SnapshotPaths(ctx context.Context, path, ref string, paths []string) (string, error) {
+	return w.snapshot(ctx, path, ref, func(index Git) error {
+		if len(paths) == 0 {
+			return nil
+		}
+		names := []byte(strings.Join(paths, "\x00") + "\x00")
+		_, err := index.Feed(ctx, names, "--literal-pathspecs", "add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul")
+		return err
+	})
+}
+
+// snapshot builds a snapshot whose index add fills from HEAD's tree.
+func (w Worktrees) snapshot(ctx context.Context, path, ref string, add func(index Git) error) (string, error) {
 	git := w.git(path)
 	file, err := git.Text(ctx, "rev-parse", "--path-format=absolute", "--git-path", snapshotIndex)
 	if err != nil {
@@ -162,7 +183,7 @@ func (w Worktrees) Snapshot(ctx context.Context, path, ref string) (string, erro
 		return "", err
 	}
 	crashpoint.Hit("worktree.snapshot", "read")
-	if _, err := index.Output(ctx, snapshotAdd()...); err != nil {
+	if err := add(index); err != nil {
 		return "", err
 	}
 	crashpoint.Hit("worktree.snapshot", "added")
