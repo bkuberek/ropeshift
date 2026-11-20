@@ -67,6 +67,6 @@ describe("a question in a conversation", () => {
     }
     // Agree on a one-way question asks for a confirm before it records anything.
     expect((screen.getByRole("button", { name: "Agree with recommendation" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is recorded on its own once you confirm it.");
   });
 });
