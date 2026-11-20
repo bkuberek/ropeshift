@@ -135,6 +135,12 @@ type DesiredForge struct {
 	Body       string      `json:"body,omitempty"`
 	Method     MergeMethod `json:"method,omitempty"`
 	Attempt    int64       `json:"attempt"`
+	// Lane and BaseCommit name, on a publish, the lane whose branch it pushes and where that branch began, and Files
+	// what the orchestrator decided of paths in the repository, which the worker reads the branch's commits against
+	// before it pushes (FR-LANE-20).
+	Lane       string        `json:"lane,omitempty"`
+	BaseCommit string        `json:"base_commit,omitempty"`
+	Files      *DesiredFiles `json:"files,omitempty"`
 }
 
 // DesiredPullRequest is a pull request a worker watches for the ledger, as the ledger last heard of it. The
