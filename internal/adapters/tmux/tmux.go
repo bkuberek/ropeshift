@@ -256,6 +256,33 @@ func (t *Terminal) Screen(ctx context.Context, name string) (string, error) {
 	return t.run(ctx, "capture-pane", "-p", "-e", "-t", target(name))
 }
 
+// historyFormat asks how many lines a pane's history holds now, and how many it keeps.
+const historyFormat = "#{history_size} #{history_limit}"
+
+// History reads the newest lines of a pane's scrollback, with their colour and emphasis, and the size and
+// limit of the history, in one call, so they read one moment of the pane. Negative lines of capture-pane
+// are the history, and -1 is its newest line (https://man.openbsd.org/tmux.1#capture-pane). With no
+// history, tmux answers the first line of the screen for that range, so an empty history reads as none.
+func (t *Terminal) History(ctx context.Context, name string, lines int) (ports.Scrollback, error) {
+	if lines < 1 {
+		return ports.Scrollback{}, fmt.Errorf("a read of the history asks for at least one line, not %d", lines)
+	}
+	out, err := t.run(ctx, "display-message", "-p", "-t", target(name), historyFormat, ";",
+		"capture-pane", "-p", "-e", "-S", strconv.Itoa(-lines), "-E", "-1", "-t", target(name))
+	if err != nil {
+		return ports.Scrollback{}, err
+	}
+	counts, text, _ := strings.Cut(out, "\n")
+	var history ports.Scrollback
+	if _, err := fmt.Sscanf(counts, "%d %d", &history.Size, &history.Limit); err != nil {
+		return ports.Scrollback{}, fmt.Errorf("tmux answered %q for the history", counts)
+	}
+	if history.Size > 0 {
+		history.Lines = text
+	}
+	return history, nil
+}
+
 // Keys sends named keys, each looked up by its name. They follow `--`, so none reads as a flag. tmux's
 // command line reads an argument that ends in a semicolon as the end of a command, so a key that ends in
 // one, such as ; or M-;, is sent with the semicolon escaped

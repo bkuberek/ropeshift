@@ -24,14 +24,38 @@ const paneWait = 10 * time.Second
 
 // heldPanes stands for the worker's terminal: a screen for each generation's pane, and what each took.
 type heldPanes struct {
-	mu      sync.Mutex
-	screens map[string]string
-	sent    map[string][]server.PaneInput
-	reads   int
+	mu        sync.Mutex
+	screens   map[string]string
+	histories map[string][]string
+	sent      map[string][]server.PaneInput
+	reads     int
 }
 
 func newHeldPanes() *heldPanes {
-	return &heldPanes{screens: map[string]string{}, sent: map[string][]server.PaneInput{}}
+	return &heldPanes{screens: map[string]string{}, histories: map[string][]string{}, sent: map[string][]server.PaneInput{}}
+}
+
+// remember gives a generation's pane the lines that scrolled off its screen, oldest first.
+func (p *heldPanes) remember(lane string, generation int64, lines ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.histories[paneKey(lane, generation)] = lines
+}
+
+func (p *heldPanes) Scrollback(_ context.Context, lane string, generation int64, lines int) (ports.Scrollback, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	key := paneKey(lane, generation)
+	if _, ok := p.screens[key]; !ok {
+		return ports.Scrollback{}, fmt.Errorf("%s: %w", key, ports.ErrNotFound)
+	}
+	history := p.histories[key]
+	newest := history[max(0, len(history)-lines):]
+	text := ""
+	if len(newest) > 0 {
+		text = strings.Join(newest, "\n") + "\n"
+	}
+	return ports.Scrollback{Lines: text, Size: len(history), Limit: 2000}, nil
 }
 
 func paneKey(lane string, generation int64) string { return fmt.Sprintf("%s-g%d", lane, generation) }

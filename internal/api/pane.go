@@ -10,6 +10,8 @@ const (
 	PanePath = "/v1/panes/{id}"
 	// PaneInputPath types into a lane's pane.
 	PaneInputPath = "/v1/panes/{id}/input"
+	// PaneScrollbackPath reads the newest lines of the scrollback of a lane's pane.
+	PaneScrollbackPath = "/v1/panes/{id}/scrollback"
 )
 
 // The refusals of the web pane.
@@ -81,3 +83,21 @@ const MaxPaneKeys = 256
 
 // MaxPaneText bounds the text of one input, in bytes. A person types a line at a time.
 const MaxPaneText = 4096
+
+// PaneScrollback is a read of a pane's scrollback, the lines that scrolled off the top of its screen: the
+// newest of them the read asked for, oldest first, each ending in a newline, with the escape sequences that
+// set their colours and emphasis, and how many lines the history holds now and keeps at most.
+type PaneScrollback struct {
+	Lane       string `json:"lane_id"`
+	Generation int64  `json:"generation"`
+	Lines      string `json:"lines"`
+	Size       int    `json:"size"`
+	Limit      int    `json:"limit"`
+}
+
+// A read of a scrollback asks for DefaultPaneScrollback lines when it names no count, and for at most
+// MaxPaneScrollback.
+const (
+	DefaultPaneScrollback = 200
+	MaxPaneScrollback     = 10000
+)
