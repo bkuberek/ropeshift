@@ -200,6 +200,69 @@ func TestARequestSaysWhetherItsCallIsAGate(t *testing.T) {
 	}
 }
 
+// A push or a gated call anywhere in a shell command makes its request a gate, whatever stands before it, and so does
+// a command the worker cannot read with confidence, because a gate it missed would reach Approve all.
+func TestARequestIsAGateWhenAnyPartOfItsCommandIs(t *testing.T) {
+	t.Parallel()
+	r, _ := aLaneThatWaitsUnder(t, approvalProfile+"[agent]\ngates = [\"Bash(git tag *)\"]\n")
+	commands := map[string]bool{
+		"git commit -m x && git push":    true,
+		"cd wt && git push":              true,
+		"git -C . push":                  true,
+		"env X=1 git push":               true,
+		"npm test || git push":           true,
+		"npm test; git push":             true,
+		"npm test | git push":            true,
+		"npm test\ngit push":             true,
+		"(cd wt && git push)":            true,
+		"npm install && git -C . tag v1": true,
+		"git $(echo push)":               true,
+		`npm install "unterminated`:      true,
+		"npm install && npm test":        false,
+		"cd wt && git -C . status":       false,
+	}
+	inputs := map[string]string{}
+	i := 0
+	for command := range commands {
+		input, err := json.Marshal(map[string]string{"command": command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inputs[command] = string(input)
+		i++
+		if got := decisionIn(t, r.look(t, string(input), fmt.Sprintf("call-%d", i), false)); got != lanes.ApprovalWaiting {
+			t.Fatalf("decision %s for %q", got, command)
+		}
+	}
+	rows := r.requests(t)
+	for command, gate := range commands {
+		if got := requestOf(t, rows, digestOf(t, inputs[command])); got.Gate != gate {
+			t.Errorf("the request for %q says gate %v", command, got.Gate)
+		}
+	}
+}
+
+// A worker that adopts a lane after a restart reads the gates of its profile again, so a gated call the adopted lane
+// raises is still a gate.
+func TestAnAdoptedLaneKeepsItsGates(t *testing.T) {
+	t.Parallel()
+	g := newGate()
+	r := laneRigWith(t, approvalProfile+"[agent]\ngates = [\"Bash(git tag *)\"]\n")
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}))
+	r.start()
+	r.reach(t, g)
+	defer close(g.release)
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	driver := r.takeOver(t, script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	r.eventually("the session adopted", func(ledger.LaneView) bool { return len(driver.Adopted()) == 1 })
+	if got := decisionIn(t, r.look(t, gatedCall, "call-1", false)); got != lanes.ApprovalWaiting {
+		t.Fatalf("decision %s", got)
+	}
+	if a := r.onlyRequest(t); !a.Gate {
+		t.Errorf("the adopted lane's request for %s says no gate: %+v", gatedCall, a)
+	}
+}
+
 // A lane's own token reaches the decide path, and that path is refused, with the request untouched.
 func TestALaneCannotDecideWithItsOwnToken(t *testing.T) {
 	t.Parallel()
