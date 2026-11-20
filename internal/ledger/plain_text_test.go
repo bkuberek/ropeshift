@@ -72,3 +72,9 @@ func TestSanitizeCITextIsPlainTextWithCredentialsTakenOut(t *testing.T) {
 		t.Errorf("SanitizeCIText = %q, want %q", got, want)
 	}
 }
+
+func TestPlainTextReadsABlankBrailleCharacterAsASpace(t *testing.T) {
+	if got := ledger.PlainText("a\u2800b"); got != "a b" {
+		t.Errorf("got %q, want %q", got, "a b")
+	}
+}

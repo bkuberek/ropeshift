@@ -15,8 +15,9 @@ var ansiSequence = regexp.MustCompile(`(?:\x1b\[|\x{9b})[0-?]*[ -/]*[@-~]|(?:\x1
 // PlainText makes text a stranger wrote safe to show or to put before an agent: it is valid UTF-8, it drops escape
 // sequences and every character HiddenRune names, which is every control character, the C0 set, DEL, and the C1 set,
 // and every bidirectional override and zero-width character, and it keeps newline and tab. A line separator, U+2028,
-// and a paragraph separator, U+2029, become a newline, so the words around one stay apart. What git, `gh`, a CI log, or
-// a repository prints is untrusted, so every place that shows it shows it through this.
+// and a paragraph separator, U+2029, become a newline, and the blank braille pattern, U+2800, becomes a space, so the
+// words around one stay apart. What git, `gh`, a CI log, or a repository prints is untrusted, so every place that shows
+// it shows it through this.
 func PlainText(text string) string {
 	text = strings.ToValidUTF8(text, string(utf8.RuneError))
 	text = ansiSequence.ReplaceAllString(text, "")
@@ -26,6 +27,8 @@ func PlainText(text string) string {
 			return r
 		case r == '\u2028' || r == '\u2029':
 			return '\n'
+		case r == '\u2800':
+			return ' '
 		case HiddenRune(r):
 			return -1
 		}

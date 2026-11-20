@@ -83,6 +83,16 @@ func TestABranchNameHoldsNoHiddenCharacter(t *testing.T) {
 	}
 }
 
+// A branch an existing record names stays usable: a base branch with an invisible character that is neither a control
+// nor a format character was accepted before and still is.
+func TestABranchNameKeepsTheCharactersItAlwaysAccepted(t *testing.T) {
+	for _, name := range []string{"main\u034f", "\u1789\u17b4", "x\u2800y", "release\u3164"} {
+		if err := CheckBranch(name); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
 // A branch name that holds whitespace of any kind, a no-break or an ideographic space as much as an ASCII one, splits
 // or reads as another name in a command a person copies, so it is refused.
 func TestABranchNameHoldsNoWhitespace(t *testing.T) {
@@ -203,5 +213,18 @@ func TestANewRepositoryNameIsValidUTF8(t *testing.T) {
 	}
 	if err := CheckExistingRepositoryName("api\xff"); err != nil {
 		t.Errorf("a stored name that is not valid UTF-8 stays readable: %v", err)
+	}
+}
+
+func TestInvisibleCharactersAreHidden(t *testing.T) {
+	for _, r := range []rune{'\u3164', '\u034f', '\u2800', '\uffa0', '\u115f'} {
+		if !HiddenRune(r) {
+			t.Errorf("%U is not hidden", r)
+		}
+	}
+	for _, r := range []rune{'a', ' ', 'é', '\u0301'} {
+		if r != ' ' && HiddenRune(r) {
+			t.Errorf("%U is hidden", r)
+		}
 	}
 }

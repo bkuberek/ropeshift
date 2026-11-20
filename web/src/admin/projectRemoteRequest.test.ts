@@ -101,6 +101,10 @@ describe("plainText", () => {
     expect(plainText("<b>x</b> [a](https://e.example/)")).toBe("<b>x</b> [a](https://e.example/)");
   });
 
+  it("reads a blank braille character as a space", () => {
+    expect(plainText("a\u2800b")).toBe("a b");
+  });
+
   it("drops bidirectional overrides, isolates, marks, and zero-width characters", () => {
     expect(plainText("a\u202eb\u202cc\u2066d\u2069e\u200ef\u200fg\u061ch\u200bi\u200cj\u200dk\u2060l\ufeffm")).toBe("abcdefghijklm");
     expect(plainText("Réessayer — 日本語 😀 \u00a0x")).toBe("Réessayer — 日本語 😀 \u00a0x");

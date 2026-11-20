@@ -779,7 +779,7 @@ func (r *Repositories) SkipCreation(ctx context.Context, scope ledger.WorkspaceI
 	if length := utf8.RuneCountInString(reason); length == 0 || length > maxSkipReason {
 		return nil, fmt.Errorf("%w: a reason for skipping takes 1 to %d characters", workorders.ErrInvalid, maxSkipReason)
 	}
-	if strings.ContainsFunc(reason, func(r rune) bool { return ledger.HiddenRune(r) || r == '\u2028' || r == '\u2029' }) {
+	if strings.ContainsFunc(reason, ledger.HiddenText) {
 		return nil, fmt.Errorf("%w: a reason for skipping is one line of text, with no control character or line break", workorders.ErrInvalid)
 	}
 	// The reason is kept as one plain line, with each run of spaces as one.
