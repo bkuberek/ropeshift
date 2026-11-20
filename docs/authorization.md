@@ -14,7 +14,7 @@ Ropeshift's aim is that an agent cannot grant itself authority. This page says h
 
 A lane or orchestrator token works only on the worker's local socket. It ends when its process ends. A `clear` keeps the process, so the token goes on, and it acts as the lane's current generation.
 
-Only a member can start an orchestrator, and no session starts until there is something to judge. The first passphrase needs no session, which is safe only because no agent runs before a member asks for one: a lane through a dispatch, or an orchestrator through `ropeshift orchestrator start`. `ropeshift init` sets it as its first step, so on a machine set up that way it exists before any agent can run.
+An orchestrator starts with its worker, and only a member stops one, starts one a member stopped, or resets its breaker. No orchestrator session starts until there is something to judge, and only a member's act puts something there: a plan, a question from a lane a member's plan started, or a message. The first passphrase needs no session, which is safe only because no agent runs before a member acts: a lane runs through a dispatch, and an orchestrator's session through a wake, and it holds no vendor tools. `ropeshift init` sets the passphrase as its first step, so on a machine set up that way it exists before any agent can run.
 
 One orchestrator per machine serves every active project of the installation. Each of its tools that acts or reads names the project, and each list it reads labels every item with its project. A call reaches only the named project's ledger, so a record of another project does not resolve, and its ladder lookups find only the question's project's records. A lane's token reaches only its own project.
 

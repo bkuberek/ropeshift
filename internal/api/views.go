@@ -686,6 +686,8 @@ type FloorLane struct {
 	ledger.LaneView
 	WorkOrderTitle string `json:"work_order_title,omitempty"`
 	Archivable     bool   `json:"archivable,omitempty"`
+	// WaitsOn is set while the lane waits on a blocking question.
+	WaitsOn *WaitsOn `json:"waits_on,omitempty"`
 }
 
 // ShopFloor is workers, orchestrators, lanes, and their freshness.

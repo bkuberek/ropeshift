@@ -43,6 +43,9 @@ type Config struct {
 	Projects ports.Projects
 	// Installation holds the records every project shares. Nil reaches them through Store.
 	Installation ports.Installation
+	// HoldsOrchestrator keeps a worker's session from asking for its orchestrator, which a daemon's does, so that a
+	// test daemon starts one only when a test asks (FR-ORCH-1).
+	HoldsOrchestrator bool
 	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
 	// the first no candidates.
 	Matching func(ports.Store) ports.Matcher
@@ -226,7 +229,7 @@ func New(config Config) http.Handler {
 	home := newHandler(config)
 	home.plane = control.NewPlane(config.Projects, config.Installation, config.Scope, control.WorkerOptions{
 		Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-		PackTokens: config.PackTokens, Starts: config.Starts, Warn: config.Warn,
+		PackTokens: config.PackTokens, Starts: config.Starts, Warn: config.Warn, StartsOrchestrator: !config.HoldsOrchestrator,
 	}, matching(config))
 	home.ciWebhooks = control.NewCIWebhooks(home.plane, home.plane.CIHints(), config.Env, time.Now, config.Warn)
 	projects := newRouter(config, home)
@@ -349,6 +352,7 @@ func newHandler(config Config) *handler {
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts, Warn: config.Warn,
+			StartsOrchestrator: !config.HoldsOrchestrator,
 		}),
 		notices: control.NewNotices(config.Store, func(authority.NotifyPolicy) []ports.Notifier { return nil }),
 	}

@@ -9,6 +9,7 @@ import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
+import { WaitsOnWords } from "../floor/WaitsOn";
 import { SpendPanel } from "../floor/SpendPanel";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
@@ -375,6 +376,11 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                       ))}
                     </span>
                   </Fact>
+                  {lane.waits_on ? (
+                    <Fact name="Waits on">
+                      <WaitsOnWords waits={lane.waits_on} />
+                    </Fact>
+                  ) : null}
                   <Fact name="Seen">
                     <Freshness kind={freshnessOf(lane.freshness)} at={lane.as_of} source="the lane's worker" />
                   </Fact>
