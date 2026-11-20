@@ -89,6 +89,10 @@
         "value": "0"
       },
       {
+        "key": "consultation_limit",
+        "value": "2"
+      },
+      {
         "key": "budget_flag_headroom_share",
         "value": "0.1"
       },
