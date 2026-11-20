@@ -73,14 +73,8 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 				}
 				return err
 			}
-			if recorded != nil {
-				// The run registers anew, and leaves out each entry a member skipped: it stays as the member left it.
-				for _, one := range recorded.Repositories {
-					if one.Outcome == ledger.Skipped {
-						skipped = append(skipped, one)
-					}
-				}
-			}
+			// The run registers anew, and leaves out each entry a member skipped: it stays as the member left it.
+			skipped = skippedIn(recorded)
 			recorded = nil
 		}
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
@@ -112,12 +106,7 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 	for _, name := range targets {
 		targeted[name] = true
 	}
-	run := entries
-	if len(skipped) != 0 {
-		run = slices.DeleteFunc(slices.Clone(entries), func(entry planning.ManifestRepository) bool {
-			return slices.ContainsFunc(skipped, func(one ledger.ManifestOutcome) bool { return one.Name == entry.Name })
-		})
-	}
+	run := leavingOut(entries, skipped)
 	added, err := r.registerEntries(ctx, scope, run, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted, creator: creator, project: project}, actor)
 	err = limited(ctx, err)
 	if len(skipped) != 0 {
@@ -138,6 +127,25 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 		return added, errors.Join(err, failed)
 	}
 	return added, err
+}
+
+// skippedIn lists what a registration recorded as skipped, which a member left uncreated.
+func skippedIn(record *ledger.ManifestRegistration) []ledger.ManifestOutcome {
+	if record == nil {
+		return nil
+	}
+	return slices.DeleteFunc(slices.Clone(record.Repositories), func(one ledger.ManifestOutcome) bool { return one.Outcome != ledger.Skipped })
+}
+
+// leavingOut is the entries a run registers when a member skipped some: a skipped entry is neither registered nor created,
+// and takes no forge repository from an entry that creates the same one.
+func leavingOut(entries []planning.ManifestRepository, skipped []ledger.ManifestOutcome) []planning.ManifestRepository {
+	if len(skipped) == 0 {
+		return entries
+	}
+	return slices.DeleteFunc(slices.Clone(entries), func(entry planning.ManifestRepository) bool {
+		return slices.ContainsFunc(skipped, func(one ledger.ManifestOutcome) bool { return one.Name == entry.Name })
+	})
 }
 
 // withSkipped is what a run of the entries a member did not skip gave, with the entries they skipped among them as they

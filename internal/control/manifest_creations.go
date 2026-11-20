@@ -836,9 +836,9 @@ func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.Workspace
 	}
 	run := manifestRun{cause: registrationCause{Approval: target.row.ID, Plan: target.row.Plan, PlanVersion: target.row.PlanVersion}, targets: target.targets, creator: creator, project: project}
 	// The entries before this one in the version would have created their repositories first, so a repository one of them
-	// creates is refused to this one, as it was in the run that registered the version.
+	// creates is refused to this one, as it was in the run that registered the version, unless a member skipped that entry.
 	if at := slices.IndexFunc(target.entries, func(entry planning.ManifestRepository) bool { return entry.Name == name }); at > 0 {
-		run.before = target.entries[:at]
+		run.before = leavingOut(target.entries[:at], skippedIn(target.recorded))
 	}
 	added, runErr := r.registerEntries(runCtx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
 	runErr = limited(runCtx, runErr)
