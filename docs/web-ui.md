@@ -238,6 +238,16 @@ A member opens a lane's page with Open. Message talks to a lane that runs headle
 
 A lane's page shows its screen or its event stream, its facts, the spend of its work order against its limits, and under them Messages, which lists what was sent to the lane, oldest first, as `ropeshift message list` does. A row gives the message, its kind, the generation it was written for, its state, when it was sent, its body, and the lane's reply. A state claims only what its signal proves: a write to a session shows that bytes were handed over, and only a reply says the lane read the message. A message that ended without being injected says why, such as that it timed out or that its generation ended, and a body and a reply keep their line breaks and are never cut. A lane nobody wrote to says so. The [command reference](cli.md) lists each state `ropeshift message show` names. Under Messages, Questions lists every question the lane asked or waits on, at any status, with the fields Open questions shows and a link to each there, from the moment the lane asks it.
 
+## Lane panes
+
+The Lane page, the Planning page, and the conversation panel show an interactive lane's terminal pane: its screen as text, and Type into the session under it. A terminal attached with `ropeshift lane attach` shows the same session.
+
+On the Lane page and the Planning page the screen takes the height the page shows under its header, with the key row and Type into the session under it. The screen opens at the newest line and stays there as output arrives. Scroll up and it stays where you are while output goes on, with Jump to latest to go back; scrolling back to the bottom follows the newest line again. Full view on the toolbar gives the pane the whole view, and nothing it covers takes focus. Exit full view, in the same place on the toolbar, leaves it. Escape does not leave Full view, so it still reaches the session, as from an empty Type into the session.
+
+A toolbar above the screen holds Copy screen, which copies the screen as text and says how many lines it copied, Select all, which selects the pane's text and nothing else on the page, Search, and Full view. While the screen has focus, the select-all shortcut, `⌘ A` on macOS and `Ctrl A` elsewhere, selects the pane's text too, and the find shortcut, `⌘ F` or `Ctrl F`, opens the search.
+
+The search finds text in the pane, apart from case unless Match case is on, and says which match is current and how many there are, such as "1 of 3". Enter goes to the next match and Shift-Enter to the previous one, and each match keeps the colours of the text it spans. Escape or Close ends the search, with focus back on the screen.
+
 ## Import an existing project
 
 Import, at `/import`, adopts a project that already has code, documents, and branches, as `ropeshift adopt` does ([adopt an existing project](adopt.md)). The command palette lists it as Adopt a project, and the project switcher, Projects, Repositories, and an empty Overview open the same page. It has four steps: Worker and folders, Dry run, Planning repository, and Adopt session.

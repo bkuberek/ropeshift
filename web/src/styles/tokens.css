@@ -53,6 +53,9 @@
   /* The terminal pane renders an agent CLI's own output, so it stays dark in both themes. */
   --terminal-bg: #0b0d10;
   --terminal-text: #d9dde2;
+  /* A search match in the pane, and the current match, which takes the terminal's background as its text. */
+  --terminal-match: #3a4250;
+  --terminal-match-current: #e3ae4c;
 
   --shadow-1: 0 1px 2px rgb(16 20 26 / 0.06), 0 4px 12px rgb(16 20 26 / 0.08);
   --shadow-2: 0 2px 6px rgb(16 20 26 / 0.08), 0 16px 40px rgb(16 20 26 / 0.18);
