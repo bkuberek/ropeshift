@@ -43,6 +43,9 @@ const (
 	EventRiskAcknowledged = "autonomy.risk_acknowledged"
 	EventWindowOpened     = "autonomy.window_opened"
 	EventWindowClosed     = "autonomy.window_closed"
+	// EventOneWayAcknowledged records that a member accepted a worker's one-way acknowledgement. The event is the only
+	// record of it: no table holds it, and a reader finds it in the installation's log.
+	EventOneWayAcknowledged = "autonomy.one_way_acknowledged"
 	// SubjectAutonomy names the subject of those events: a worker.
 	SubjectAutonomy = "worker_autonomy"
 )
@@ -250,6 +253,59 @@ type AutonomyView struct {
 	MayClaim          bool       `json:"may_claim"`
 	MaxLanes          int64      `json:"max_lanes,omitempty"`
 	MaxRespawnsPerDay int64      `json:"max_respawns_per_day,omitempty"`
+	// OneWay is the worker's one-way acknowledgement, which stands apart from the stated risk and is asked of every
+	// worker, one on an API key too.
+	OneWay OneWayStanding `json:"one_way"`
+}
+
+// OneWayStatement is what a member accepts, once for each worker, before an orchestrator on that worker at
+// `unattended` decides a one-way question itself (FR-QD-8). Until then, every one-way question reaches a member. It is
+// asked of every worker, one on an API key included, and it is not the stated risk of running a subscription unattended.
+const OneWayStatement = "The orchestrator will make one-way decisions outside security, compliance and data for you."
+
+// OneWayDigest names the statement an acceptance covers.
+func OneWayDigest() string { return PolicyDigest(OneWayStatement) }
+
+// OneWayAcknowledgement is a member's acceptance of a worker's one-way acknowledgement: who accepted it, the digest of
+// the statement they read, and when.
+type OneWayAcknowledgement struct {
+	WorkerID string `json:"worker_id"`
+	By       string `json:"by"`
+	Digest   string `json:"digest"`
+	At       int64  `json:"at"`
+}
+
+// OneWayStanding is a worker's one-way acknowledgement as a person reads it: the statement, the digest a member names
+// to accept it, and the acceptance that stands, which is absent until a member accepts the statement as it reads now.
+type OneWayStanding struct {
+	Statement string                 `json:"statement"`
+	Digest    string                 `json:"digest"`
+	Accepted  *OneWayAcknowledgement `json:"accepted,omitempty"`
+}
+
+// OneWayEventID names the event of one worker's acceptance of one statement, so a second acceptance finds the first
+// and the acknowledgement is accepted once.
+func OneWayEventID(worker, digest string) string {
+	return EventOneWayAcknowledged + "/" + worker + "/" + digest
+}
+
+// OneWayAccepted finds a worker's acceptance of the current statement among events, or nil. Only a member's event
+// counts, because no other principal can write one, and an acceptance of an earlier statement asks again, because
+// nobody has read the new one.
+func OneWayAccepted(events []ledger.Event, worker string) (*OneWayAcknowledgement, error) {
+	for _, event := range events {
+		if event.Type != EventOneWayAcknowledged || event.Subject.Kind != SubjectAutonomy || event.Subject.ID != worker || event.Actor.Kind != ledger.ActorMember {
+			continue
+		}
+		var row OneWayAcknowledgement
+		if err := json.Unmarshal(event.Data, &row); err != nil {
+			return nil, err
+		}
+		if row.WorkerID == worker && row.Digest == OneWayDigest() {
+			return &row, nil
+		}
+	}
+	return nil, nil
 }
 
 // RiskStatement is what a member acknowledges before a subscription worker runs unattended. It states

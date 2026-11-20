@@ -33,6 +33,10 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 	if err != nil {
 		return questions.Decision{}, err
 	}
+	by, err := readParty(ctx, q.store, scope, actor)
+	if err != nil {
+		return questions.Decision{}, err
+	}
 	err = q.store.Write(ctx, scope, "question.rule", func(tx ports.WriteTx) error {
 		question, err := tx.Questions().Question(id)
 		if err != nil {
@@ -65,7 +69,7 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := checkCategories(tx.Questions(), record.Categories); err != nil {
 			return err
 		}
-		if err := admit(tx, &record, policy, actor); err != nil {
+		if err := admit(tx, &record, policy, by); err != nil {
 			return err
 		}
 		if err := q.recordAdmitted(tx, record, boundAnswered, actor, ""); err != nil {
@@ -116,21 +120,21 @@ func checkRung(tx ports.WriteTx, question questions.Question, record questions.D
 // decision is deciding its question again, so that decision's categories count too, and an
 // orchestrator replaces only what is recorded as reversible (FR-QD-8). A delegate's decision runs
 // outside those bounds only when the delegate policy exempted it, and never in a one-way category.
-func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, by party) error {
 	// A scope is in the grammar whoever records it, so a worker of an older build cannot store one outside it
 	// after the migration that rewrote the scopes stored before (ADR-0030).
 	if _, err := questions.ParseScope(record.Scope); err != nil && !acceptsAnyScope() {
 		return err
 	}
-	unattended, err := runsUnattended(tx.Policies(), tx.Workers(), actor, tx.Now())
+	unattended, err := runsUnattended(tx.Policies(), tx.Workers(), by, tx.Now())
 	if err != nil {
 		return err
 	}
-	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, recorder{actor: actor, unattended: unattended})
+	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, recorder{actor: by.Actor, unattended: unattended})
 }
 
-// recorder is who records a decision, and whether a member set its worker to unattended, which lets an orchestrator
-// decide a one-way choice the policy leaves it.
+// recorder is who records a decision, and whether a member set its worker to unattended and accepted its one-way
+// acknowledgement, which lets an orchestrator decide a one-way choice the policy leaves it.
 type recorder struct {
 	actor      ledger.Actor
 	unattended bool

@@ -9,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -87,11 +88,21 @@ func decideOneWay(r *planeRig, call ledger.OrchestratorCall) (questions.Decision
 	return recorded.Decision, nil
 }
 
+// acceptOneWay has a member accept worker-1's one-way acknowledgement, as Settings does.
+func acceptOneWay(t *testing.T, r *planeRig) {
+	t.Helper()
+	if err := control.NewAutonomy(r.stores["pa"]).AcknowledgeOneWay(t.Context(), "pa", "worker-1", authority.OneWayDigest(), projectMember); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestAnUnattendedOrchestratorDecidesAOneWayChoiceThePolicyLeavesIt holds the ladder of a worker a member set to
-// unattended: a one-way choice in a category the decision policy leaves open is the orchestrator's, so the gate refuses
-// to take it to a member, and the orchestrator records it as decided, with its rationale, for a member to overturn.
+// unattended and whose one-way acknowledgement a member accepted: a one-way choice in a category the decision policy
+// leaves open is the orchestrator's, so the gate refuses to take it to a member, and the orchestrator records it as
+// decided, with its rationale, for a member to overturn.
 func TestAnUnattendedOrchestratorDecidesAOneWayChoiceThePolicyLeavesIt(t *testing.T) {
 	r := newPlaneRig(t, ledger.ProtocolVersion)
+	acceptOneWay(t, r)
 	call, read := ladderAtRungThree(t, r, questions.CategoryArchitecture)
 	if !strings.Contains(read.Yours, "unattended") {
 		t.Errorf("question_next says %q of what the orchestrator decides, which does not say the worker is unattended", read.Yours)
@@ -109,10 +120,74 @@ func TestAnUnattendedOrchestratorDecidesAOneWayChoiceThePolicyLeavesIt(t *testin
 	}
 }
 
+// TestAnUnattendedOrchestratorEscalatesAOneWayChoiceUntilAMemberAcceptsTheAcknowledgement holds the acknowledgement
+// every worker needs, an API key's too: until a member accepts it, a one-way choice reaches a member at unattended as it
+// does at attended, and question_next says why (FR-QD-8).
+func TestAnUnattendedOrchestratorEscalatesAOneWayChoiceUntilAMemberAcceptsTheAcknowledgement(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	call, read := ladderAtRungThree(t, r, questions.CategoryArchitecture)
+	if !strings.Contains(read.Yours, "one-way acknowledgement") {
+		t.Errorf("question_next says %q, which does not say the one-way acknowledgement waits for a member", read.Yours)
+	}
+	if _, err := decideOneWay(r, call); !errors.Is(err, questions.ErrOneWay) {
+		t.Errorf("deciding a one-way choice before the acknowledgement: %v, want %v", err, questions.ErrOneWay)
+	}
+	if err := escalateOneWay(r, call); err != nil {
+		t.Errorf("escalating a one-way choice before the acknowledgement: %v", err)
+	}
+}
+
+// TestAMemberAcceptsTheOneWayAcknowledgementOnce records the acceptance as one event of the installation's log, which
+// names the statement it covers, and refuses anyone but a member and a statement other than the current one.
+func TestAMemberAcceptsTheOneWayAcknowledgementOnce(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	autonomy := control.NewAutonomy(r.stores["pa"])
+	if err := autonomy.AcknowledgeOneWay(ctx, "pa", "worker-1", "sha256:another", projectMember); !errors.Is(err, authority.ErrStaleStatement) {
+		t.Errorf("accepting another statement: %v, want %v", err, authority.ErrStaleStatement)
+	}
+	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "worker-1"}
+	if err := autonomy.AcknowledgeOneWay(ctx, "pa", "worker-1", authority.OneWayDigest(), orchestrator); !errors.Is(err, workorders.ErrForbidden) {
+		t.Errorf("an orchestrator accepting its own acknowledgement: %v, want %v", err, workorders.ErrForbidden)
+	}
+	view, err := autonomy.View(ctx, "pa", "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.OneWay.Accepted != nil || view.OneWay.Statement != authority.OneWayStatement || view.OneWay.Digest != authority.OneWayDigest() {
+		t.Errorf("before a member accepts it, the view reads %+v", view.OneWay)
+	}
+	acceptOneWay(t, r)
+	acceptOneWay(t, r)
+	if view, err = autonomy.View(ctx, "pa", "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	if view.OneWay.Accepted == nil || view.OneWay.Accepted.By != projectMember.ID || view.OneWay.Accepted.Digest != authority.OneWayDigest() {
+		t.Errorf("after a member accepts it, the view reads %+v", view.OneWay)
+	}
+	var accepted int
+	err = r.state.Installation.Read(ctx, func(tx ports.SharedReadTx) error {
+		events, err := tx.Events(0, 1000)
+		for _, event := range events {
+			if event.Type == authority.EventOneWayAcknowledged && event.Subject.ID == "worker-1" {
+				accepted++
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted != 1 {
+		t.Errorf("two acceptances recorded %d events, want 1", accepted)
+	}
+}
+
 // TestAnUnattendedOrchestratorEscalatesWhatThePolicyKeeps holds the rule an unattended worker keeps: a one-way choice
 // in a category the decision policy keeps for a member reaches a member, and the orchestrator cannot decide it.
 func TestAnUnattendedOrchestratorEscalatesWhatThePolicyKeeps(t *testing.T) {
 	r := newPlaneRig(t, ledger.ProtocolVersion)
+	acceptOneWay(t, r)
 	call, read := ladderAtRungThree(t, r, questions.CategoryArchitecture, questions.CategorySecurity)
 	if !strings.Contains(read.Yours, questions.CategorySecurity) {
 		t.Errorf("question_next says %q of what the orchestrator decides, which does not name the category the policy keeps", read.Yours)

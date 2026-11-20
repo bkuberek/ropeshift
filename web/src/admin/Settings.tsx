@@ -2,6 +2,7 @@ import { Fragment, useEffect, useId, useReducer, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
+  acknowledgeOneWay,
   acknowledgeRisk,
   closeWindow,
   downloadInstallationBackup,
@@ -20,7 +21,7 @@ import {
   setFleetMode,
   setLevel,
 } from "../api/admin";
-import type { Autonomy, Fleet, Level, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerCaps, WorkerList } from "../api/admin";
+import type { Autonomy, Fleet, Level, OneWayStanding, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerCaps, WorkerList } from "../api/admin";
 import { ApiError } from "../api/client";
 import { readOperations } from "../api/delegates";
 import type { Operation } from "../api/delegates";
@@ -28,7 +29,7 @@ import { useHealth } from "../api/useHealth";
 import type { Live } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
 import type { Theme } from "../app/theme";
-import { Until } from "../parts/parts";
+import { Ago, Until } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
 import { Banner, Fact, Facts, Panel, Refusal, SkeletonRows, TableRegion } from "../ui/display";
 import { Diff } from "../ui/Diff";
@@ -467,6 +468,7 @@ function WorkerAutonomy({ worker, name, live }: { worker: string; name: string; 
               ) : (
                 <p className="small muted">The stated risk is acknowledged for this worker.</p>
               )}
+              {view.one_way ? <OneWayAcknowledgement worker={worker} name={name} standing={view.one_way} act={act} /> : null}
             </div>
           </Panel>
           <Panel title="Run window">
@@ -522,6 +524,37 @@ function WorkerAutonomy({ worker, name, live }: { worker: string; name: string; 
         </div>
       ) : null}
     </Reading>
+  );
+}
+
+// OneWayAcknowledgement is what a member accepts, once for each worker, before the worker's orchestrator at unattended
+// decides a one-way question itself: its statement, which is apart from the stated risk, and who accepted it. Until a
+// member accepts it, every one-way question reaches a member at unattended too (FR-QD-8).
+function OneWayAcknowledgement({ worker, name, standing, act }: { worker: string; name: string; standing: OneWayStanding; act: (run: () => Promise<unknown>, text: string) => Promise<void> }) {
+  const accepted = standing.accepted;
+  return (
+    <div className="field-stack">
+      <p className="small">
+        <strong>One-way acknowledgement:</strong> {standing.statement}
+      </p>
+      {accepted ? (
+        <p className="small muted">
+          Accepted for this worker by {accepted.by}, <Ago at={accepted.at} />.
+        </p>
+      ) : (
+        <>
+          <p className="help">
+            Until a member accepts it, every one-way question on {name} reaches a member, at unattended too. Accepting it lets the orchestrator of an unattended worker decide a
+            one-way question outside the categories the decision policy keeps.
+          </p>
+          <div className="row-tight">
+            <Button small onClick={() => void act(() => acknowledgeOneWay(worker, standing.digest), `You accepted the one-way acknowledgement for ${name}.`)}>
+              Accept the one-way acknowledgement
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
