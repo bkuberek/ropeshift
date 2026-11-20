@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -414,6 +415,7 @@ func TestATrippedOrchestratorStartsAgainOnceItsBreakerCools(t *testing.T) {
 	o.clock.Advance(61 * time.Second)
 	o.awaitSessions(t, 3)
 	o.await(t, "a trip", func(row ledger.Orchestrator) bool { return row.Tripped() })
+	resumed := len(o.driver.Resumed())
 	o.clock.Advance(5 * time.Minute)
 	for range 5 {
 		o.tick(t)
@@ -426,6 +428,46 @@ func TestATrippedOrchestratorStartsAgainOnceItsBreakerCools(t *testing.T) {
 	if next := o.specs()[3]; next.Generation != 4 {
 		t.Errorf("the session after the breaker cooled is generation %d, want 4", next.Generation)
 	}
+	// Nobody reset the breaker, so the generation is a crash restart, which resumes the session, and not a reset,
+	// which starts one from the brief.
+	if got := len(o.driver.Resumed()); got != resumed+1 {
+		t.Errorf("%d resumes after the breaker cooled, want %d: the generation started as a reset", got, resumed+1)
+	}
+}
+
+// dayCapProfile trips an orchestrator's breaker on its day, at its third generation, before its window could.
+const dayCapProfile = "[lifecycle]\nwake_debounce = \"30s\"\nwake_min_interval = \"2m\"\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\nmax_restarts = 10\nrestart_window = \"10m\"\nmax_generations_per_day = 3\nrestart_backoff = \"30s\"\n"
+
+// A breaker its day tripped does not cool when the day rolls past the generations that filled it: a crash loop would
+// then run max_generations_per_day sessions every day. Only a member's reset starts it again (ADR-0014).
+func TestADayCappedOrchestratorWaitsForAMembersReset(t *testing.T) {
+	crash := script([]fake.DriverStep{{Bound: true}, {Crash: true}})
+	o := newOrchestratorRig(t, crash, crash, crash, aSession())
+	o.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser(dayCapProfile)
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	o.await(t, "the first backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+	o.await(t, "the second backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(61 * time.Second)
+	o.awaitSessions(t, 3)
+	o.await(t, "a trip on the day", func(row ledger.Orchestrator) bool {
+		return row.Tripped() && slices.Contains(row.Conditions, string(lanes.DayCapped))
+	})
+	o.clock.Advance(25 * time.Hour)
+	for range 20 {
+		o.tick(t)
+	}
+	if got := len(o.specs()); got != 3 {
+		t.Fatalf("%d sessions a day after a breaker its day tripped, with no member's reset, want 3", got)
+	}
+	o.start(t)
+	o.awaitSessions(t, 4)
 }
 
 // A member's stop ends the session and leaves the lanes alone.

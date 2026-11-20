@@ -198,13 +198,18 @@ func (r *laneRun) charged(ctx context.Context, key string, from time.Time, judge
 		r.state.setDayCapped(verdict.Tripped && breaker.OverDay(charges, from))
 		if !verdict.Tripped && reset != resetNone {
 			// A reset that a verdict lets through leaves `tripped`. One of an orchestrator's that finds the
-			// day full leaves the lane where it was, waiting for a member.
-			r.signal(ctx, lanes.OnHumanReset)
+			// day full leaves the lane where it was, waiting for a member. A breaker that cooled was reset by
+			// nobody, so it leaves on a signal of its own.
+			left := lanes.OnHumanReset
+			if reset == resetCooled {
+				left = lanes.OnBreakerCooled
+			}
+			r.signal(ctx, left)
 		}
 		if !verdict.Tripped {
 			charge := lanes.Restart{
 				Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli(),
-				Planned: verdict.Planned, Reset: reset != resetNone && !verdict.Planned,
+				Planned: verdict.Planned, Reset: reset.clears() && !verdict.Planned,
 			}
 			if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
@@ -234,12 +239,24 @@ const (
 	resetCooled
 )
 
+// clears says a person or an orchestrator reset the breaker, so the generation it leads to starts from the pinned
+// brief as a reset. A breaker that cooled was reset by nobody, and its next generation is a crash restart.
+func (k resetKind) clears() bool { return k == resetMember || k == resetWindow }
+
 // setDayCapped keeps whether the breaker's last verdict found the lane's day full, which a tripped lane
 // reports so that an orchestrator does not ask for a reset only a member can make.
 func (s *laneState) setDayCapped(capped bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.dayCapped = capped
+}
+
+// isDayCapped says the breaker's last verdict found the lane's day full. It holds until the next verdict, which a
+// tripped lane reaches only by a reset, never by the day rolling on (ADR-0014).
+func (s *laneState) isDayCapped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dayCapped
 }
 
 // respawnBound reads what this worker's autonomy holds a lane's generations to. A journal that cannot
@@ -273,6 +290,7 @@ func (r *laneRun) waitUntil(ctx context.Context, moment time.Time) bool {
 // member's reset clears every charge, and an orchestrator's leaves on the day what the window counted. An
 // orchestrator's own breaker also ends its wait when it cools down, because no orchestrator supervises it.
 func (r *laneRun) awaitReset(ctx context.Context) resetKind {
+	cooling := breakerCooling{run: r}
 	for {
 		if r.fenced.Load() {
 			return resetNone
@@ -283,7 +301,7 @@ func (r *laneRun) awaitReset(ctx context.Context) resetKind {
 		} else if kind := r.takeReset(ctx, counts); kind != resetNone {
 			return max(kind, resetNone)
 		}
-		if r.cooled(ctx) {
+		if cooling.cooled(ctx) {
 			return resetCooled
 		}
 		select {
@@ -294,19 +312,34 @@ func (r *laneRun) awaitReset(ctx context.Context) resetKind {
 	}
 }
 
-// cooled says an orchestrator's tripped breaker cooled down: the restarts that tripped it left its restart window, and
-// its day has room. The orchestrator is there to unblock lanes, so it starts again by itself then, with no member's
-// reset (FR-ORCH-1). A breaker its day tripped stays tripped until a member resets it (ADR-0014).
-func (r *laneRun) cooled(ctx context.Context) bool {
-	if !r.orchestrating() {
+// breakerCooling is what one wait of a tripped orchestrator reads to know its breaker cooled. It reads the breaker and
+// its charges once, because nothing charges a tripped lane while it waits: only time moves the verdict, and a reset
+// ends the wait. The next verdict reads them again, so a bound a member changed meanwhile still holds.
+type breakerCooling struct {
+	run     *laneRun
+	read    bool
+	breaker lanes.Breaker
+	charges []lanes.Restart
+}
+
+// cooled says an orchestrator's tripped breaker cooled down: the restarts that tripped it left its restart window. The
+// orchestrator is there to unblock lanes, so it starts again by itself then, with no member's reset (FR-ORCH-1). A
+// lane's breaker and an assistant's never cool, and neither does one its day tripped: the day's verdict holds until a
+// member resets it, however far the day rolls on (ADR-0014).
+func (c *breakerCooling) cooled(ctx context.Context) bool {
+	r := c.run
+	if !r.orchestrating() || r.assisting() || r.state.isDayCapped() {
 		return false
 	}
-	charges, err := r.w.journal.Restarts(ctx, r.lease.Lane)
-	if err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		return false
+	if !c.read {
+		charges, err := r.w.journal.Restarts(ctx, r.lease.Lane)
+		if err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+			return false
+		}
+		c.read, c.charges, c.breaker = true, charges, r.state.breaker().Bounded(r.w.respawnBound(ctx))
 	}
-	return !r.state.breaker().Bounded(r.w.respawnBound(ctx)).Judge(charges, r.w.clock.Now()).Tripped
+	return !c.breaker.Judge(c.charges, r.w.clock.Now()).Tripped
 }
 
 // resetTally is what the ledger asks of a lane's breaker, and what this worker has acted on.

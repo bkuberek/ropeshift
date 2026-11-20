@@ -73,6 +73,9 @@ const (
 	OnOutcomeReported  Signal = "outcome_reported"
 	OnStopRequested    Signal = "stop_requested"
 	OnSessionStopped   Signal = "session_stopped"
+	// OnBreakerCooled says a tripped orchestrator's breaker cooled down with nobody's reset: the restarts that tripped
+	// it left its restart window (FR-ORCH-1).
+	OnBreakerCooled Signal = "breaker_cooled"
 	// OnLaneEnding covers a lane with no next generation from a state the diagram gives
 	// no way out of: a start that failed, a session gone with no restart policy, or a
 	// stop from anywhere but `working`.
@@ -85,7 +88,7 @@ var Signals = []Signal{
 	OnBriefGrace, OnTurnFinished, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
 	OnCompactionStarted, OnCompactionFinished, OnFinishedInTurn, OnFinishedAtRest, OnCompactionFailed, OnHandoffThreshold,
 	OnHandoffWritten, OnNextGeneration, OnCannotProceed, OnParkRequested, OnProcessGone, OnWakeFired,
-	OnSessionGone, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnOutcomeReported, OnStopRequested,
+	OnSessionGone, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnBreakerCooled, OnOutcomeReported, OnStopRequested,
 	OnSessionStopped, OnLaneEnding,
 }
 
@@ -130,6 +133,7 @@ var transitions = map[edge]ActualState{
 	{Retiring, OnRestartLimit}:          Tripped,
 	{Parked, OnRestartLimit}:            Tripped,
 	{Tripped, OnHumanReset}:             Starting,
+	{Tripped, OnBreakerCooled}:          Starting,
 	{Idle, OnOutcomeReported}:           Retiring,
 	{Working, OnStopRequested}:          Retiring,
 	{Retiring, OnSessionStopped}:        Ended,
