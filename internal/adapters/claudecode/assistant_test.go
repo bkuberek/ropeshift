@@ -178,7 +178,7 @@ func TestAnAssistantHoldsOnlyItsOwnToolsAndServers(t *testing.T) {
 	}
 	_, mcp := generatedPaths(spec)
 	args := StartArgs(spec)
-	for _, want := range [][]string{{"--strict-mcp-config"}, {"--mcp-config", mcp}, {"--setting-sources", "project,local"}, {"--tools", "Read,Grep,Glob,Bash"}} {
+	for _, want := range [][]string{{"--strict-mcp-config"}, {"--mcp-config", mcp}, {"--setting-sources", "project"}, {"--tools", "Read,Grep,Glob,Bash"}} {
 		if at := slices.Index(args, want[0]); at < 0 || (len(want) == 2 && (at+1 >= len(args) || args[at+1] != want[1])) {
 			t.Errorf("an assistant starts with %v, lacking %v", args, want)
 		}

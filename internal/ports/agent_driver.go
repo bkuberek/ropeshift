@@ -145,6 +145,9 @@ type SessionSpec struct {
 	// Repository is the checkout the worktree came from, whose local settings a worktree
 	// session shares.
 	Repository string
+	// Base is the commit the lane's worktree began from, which a driver reads the repository's own files at, such as
+	// its `.mcp.json`, and never from the worktree a lane can edit (FR-PROF-5). Empty names none.
+	Base string
 	// Credential binds an API key to the CLI, for a lane that has one.
 	Credential SecretBinding
 	// TempDir is a short private directory for the session's sockets. Empty leaves

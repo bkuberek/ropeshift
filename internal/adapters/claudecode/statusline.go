@@ -11,12 +11,9 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-// The setting sources a session reads, as the CLI names them, from the lowest precedence up. The person's
-// own `user` source is never one of them (isolationArgs).
-const (
-	sourceProject = "project"
-	sourceLocal   = "local"
-)
+// sourceProject is the one setting source a session reads, as the CLI names it. The person's own `user` and
+// `local` sources are never read (laneSources).
+const sourceProject = "project"
 
 // flagSettingSources limits what a session reads, so the line it composes with must come
 // from those sources alone.
@@ -45,32 +42,25 @@ func settingSources(spec ports.SessionSpec) []string {
 	return sources
 }
 
-func settingsPath(source, dir string) string {
-	if source == sourceProject {
-		return filepath.Join(dir, ".claude", "settings.json")
-	}
-	return filepath.Join(dir, ".claude", "settings.local.json")
-}
-
-// existingStatusLine finds the line the repository's settings configure, in the CLI's precedence,
-// because `--settings` replaces it and a repository keeps the status line it set. The person's own
-// line is in their user settings, which a session does not read. A file that does not parse holds
-// no line.
+// existingStatusLine finds the line the repository's shared settings configure, because `--settings`
+// replaces it and a repository keeps the status line it set. The person's own line is in their user or
+// local settings, which a session does not read, and a suite that names no project source reads none. A file
+// that does not parse holds no line.
 func existingStatusLine(spec ports.SessionSpec) *statusLine {
-	var found *statusLine
-	for _, source := range settingSources(spec) {
-		raw, err := os.ReadFile(settingsPath(source, spec.Dir))
-		if err != nil {
-			continue
-		}
-		var file struct {
-			StatusLine *statusLine `json:"statusLine"`
-		}
-		if json.Unmarshal(raw, &file) == nil && file.StatusLine != nil && file.StatusLine.Command != "" {
-			found = file.StatusLine
-		}
+	if !slices.Contains(settingSources(spec), sourceProject) {
+		return nil
 	}
-	return found
+	raw, err := os.ReadFile(filepath.Join(spec.Dir, ".claude", "settings.json"))
+	if err != nil {
+		return nil
+	}
+	var file struct {
+		StatusLine *statusLine `json:"statusLine"`
+	}
+	if json.Unmarshal(raw, &file) != nil || file.StatusLine == nil || file.StatusLine.Command == "" {
+		return nil
+	}
+	return file.StatusLine
 }
 
 // composedStatusLine forwards the input to the worker and then runs the repository's own

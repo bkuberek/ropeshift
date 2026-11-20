@@ -16,6 +16,6 @@ opus
 /state/lanes/lane-1/mcp-2.json
 --strict-mcp-config
 --setting-sources
-project,local
+project
 --resume
 the-session
