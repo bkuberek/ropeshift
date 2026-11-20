@@ -9,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -70,6 +71,26 @@ func TestAPlanningLanesSessionIsToldItIsPlanning(t *testing.T) {
 	r.runWith()
 	if specs := r.driver.Specs(); len(specs) != 1 || !specs[0].Planning {
 		t.Errorf("sessions %+v, want one that is planning", specs)
+	}
+}
+
+// A planning lane must commit its plan on its branch. The agent it runs as narrows its rules by the
+// categories that agent denies (ADR-0025), so the default plan agent must deny no shell, or the lane and
+// every agent it starts would have no Bash.
+func TestAPlanningLanesSessionKeepsItsShell(t *testing.T) {
+	t.Parallel()
+	r := newPlanningRig(t, func(*fake.AgentDriver) {})
+	r.dispatched()
+	r.runWith()
+	specs := r.driver.Specs()
+	if len(specs) != 1 {
+		t.Fatalf("%d sessions", len(specs))
+	}
+	if specs[0].Effort == "" {
+		t.Fatalf("the planning lane runs as no roster agent: %+v", specs[0])
+	}
+	if slices.Contains(specs[0].Deny, roster.ToolShell) || slices.Contains(specs[0].Deny, roster.ToolEdit) {
+		t.Errorf("the planning lane's agent denies it %v", specs[0].Deny)
 	}
 }
 

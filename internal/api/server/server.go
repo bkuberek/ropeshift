@@ -455,7 +455,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeReversibilityChanged, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})
-	case errors.Is(err, roster.ErrInvalid), errors.Is(err, roster.ErrUnknownAgent), errors.Is(err, roster.ErrDisabledAgent):
+	case errors.Is(err, roster.ErrInvalid), errors.Is(err, roster.ErrUnknownAgent), errors.Is(err, roster.ErrDisabledAgent), errors.Is(err, roster.ErrUnfitAgent):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, roster.ErrExists), errors.Is(err, roster.ErrNothingToReset), errors.Is(err, roster.ErrInUse):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRosterConflict, Message: err.Error()})

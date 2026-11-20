@@ -193,13 +193,17 @@ func writeProject(ctx context.Context, target RosterTarget, summary string, acto
 		if err != nil {
 			return err
 		}
-		if err := stillUsable(roster.Resolve(installation, next), uses, ""); err != nil {
+		after := roster.Resolve(installation, next)
+		if err := stillUsable(after, uses, ""); err != nil {
 			return err
 		}
 		if out, err = nextVersion(roster.ScopeProject, version, next, summary, actor, tx.Now()); err != nil {
 			return err
 		}
-		return keepVersion(tx.Roster(), tx.Append, out, actor)
+		if err := keepVersion(tx.Roster(), tx.Append, out, actor); err != nil {
+			return err
+		}
+		return recheckReady(tx, after, actor)
 	})
 	return out, err
 }
@@ -234,12 +238,32 @@ func (r *Roster) writeInstallation(ctx context.Context, summary string, actor le
 		}
 		return keepVersion(tx.Roster(), tx.Append, out, actor)
 	})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	// Each project's work is in its own ledger, so its ready work is read again once the installation's version
+	// stands, each project in a transaction of its own.
+	for _, project := range projects {
+		err := project.store.Write(ctx, project.id, "roster.recheck", func(tx ports.WriteTx) error {
+			view, err := ResolveIn(tx.Roster())
+			if err != nil {
+				return err
+			}
+			return recheckReady(tx, view.Resolved, actor)
+		})
+		if err != nil {
+			return out, fmt.Errorf("the installation's roster changed to version %d, and the ready work of project %s could not be checked again: %w", out.Version, project.name, err)
+		}
+	}
+	return out, nil
 }
 
-// projectRoster is what one project holds of the roster: its layer and what names an agent.
+// projectRoster is what one project holds of the roster: its layer and what names an agent, and the ledger
+// that holds its work.
 type projectRoster struct {
 	name  string
+	id    ledger.WorkspaceID
+	store ports.Store
 	layer roster.Layer
 	uses  []roster.Use
 }
@@ -260,7 +284,7 @@ func (r *Roster) projectLayers(ctx context.Context) ([]projectRoster, error) {
 		if err != nil {
 			return nil, err
 		}
-		one := projectRoster{name: project.Name}
+		one := projectRoster{name: project.Name, id: project.ID, store: store}
 		err = store.Read(ctx, project.ID, func(tx ports.ReadTx) error {
 			var err error
 			if one.layer, _, err = layerOf(tx.Roster(), roster.ScopeProject); err != nil {
@@ -286,13 +310,15 @@ func openUses(orders ports.WorkOrderReader) ([]roster.Use, error) {
 	var out []roster.Use
 	for _, order := range list {
 		if order.Agent != "" && !workorders.Terminal(order.State) {
-			out = append(out, roster.Use{Agent: order.Agent, By: "work order " + order.ID})
+			out = append(out, roster.Use{Agent: order.Agent, By: "work order " + order.ID, Kind: string(order.Kind)})
 		}
 	}
 	return out, nil
 }
 
-// stillUsable refuses a roster that leaves the default mapping or open work without its agent.
+// stillUsable refuses a roster that leaves the default mapping or open work without its agent. The refusal
+// names each use and why the roster would not give it its agent, which may be open work that named an agent
+// unfit for it before this change.
 func stillUsable(after roster.Resolved, uses []roster.Use, project string) error {
 	missing := after.Missing(append(after.DefaultUses(), uses...))
 	if len(missing) == 0 {
@@ -300,13 +326,13 @@ func stillUsable(after roster.Resolved, uses []roster.Use, project string) error
 	}
 	var named []string
 	for _, use := range missing {
-		named = append(named, fmt.Sprintf("%s names %s", use.By, use.Agent))
+		named = append(named, fmt.Sprintf("%s names %s, and %v", use.By, use.Agent, after.Unusable(use)))
 	}
 	where := ""
 	if project != "" {
 		where = " in project " + project
 	}
-	return fmt.Errorf("%w: the change would leave an agent unusable that something still names%s: %s", roster.ErrInUse, where, strings.Join(named, "; "))
+	return fmt.Errorf("%w: after the change, something%s would still name an agent the roster cannot give it: %s", roster.ErrInUse, where, strings.Join(named, "; "))
 }
 
 func nextVersion(scope string, current int64, layer roster.Layer, summary string, actor ledger.Actor, now int64) (roster.Version, error) {
@@ -420,17 +446,89 @@ func pinnedRoster(reader ports.RosterReader, pin workorders.RosterPin) (*roster.
 }
 
 // agentProblem is why the definition of ready refuses a work order's agent, or empty when the roster gives
-// it: the agent it names, or the default mapping's for its kind and size, must be known and enabled.
+// it: the agent it names, or the default mapping's for its kind and size, must be known, enabled, and fit
+// for the work.
 func agentProblem(reader ports.RosterReader, order workorders.WorkOrder) (string, error) {
 	view, err := ResolveIn(reader)
 	if err != nil {
 		return "", err
 	}
 	_, err = view.Resolved.DefaultAgent(string(order.Kind), order.Size, order.Agent)
-	if errors.Is(err, roster.ErrUnknownAgent) || errors.Is(err, roster.ErrDisabledAgent) {
+	if refusedAgent(err) {
 		return err.Error(), nil
 	}
 	return "", err
+}
+
+// refusedAgent says the roster refuses a lane its agent: the agent is unknown, disabled, or unfit for the work.
+func refusedAgent(err error) bool {
+	return errors.Is(err, roster.ErrUnknownAgent) || errors.Is(err, roster.ErrDisabledAgent) || errors.Is(err, roster.ErrUnfitAgent)
+}
+
+// sendBackUnfit sends ready work whose lane the roster would refuse its agent back to contract review, the
+// state a failed definition of ready leaves work in, with that readiness failure as the reason of the move, so
+// the member and the orchestrator read why and can replan it. It returns the failure, or empty when the work
+// is not ready or its agent fits. It reads the agent the claim would pin: work that continues a woken lane
+// whose claim pinned an agent keeps that one, as the claim does.
+func sendBackUnfit(tx ports.WriteTx, resolved roster.Resolved, order workorders.WorkOrder, actor ledger.Actor) (string, error) {
+	if order.State != workorders.Ready {
+		return "", nil
+	}
+	var continued workorders.Claim
+	if err := continuesLane(tx, order, &continued); err != nil || continued.Agent != "" {
+		return "", err
+	}
+	reworks, err := reworkedAgent(tx, order, order.ClaimID)
+	if err != nil {
+		return "", err
+	}
+	_, err = resolved.LaneAgent(roster.LaneWork{Kind: string(order.Kind), Size: order.Size, Named: order.Agent, Reworks: reworks})
+	if !refusedAgent(err) {
+		return "", err
+	}
+	failure := workorders.ReadyFailure{Check: workorders.CheckAgent, Detail: err.Error()}
+	reason := string(failure.Check) + ": " + failure.Detail
+	return reason, moveBecause(tx, order.ID, workorders.TriggerBackToReview, reason, actor)
+}
+
+// recheckReady sends back every ready work order of a project whose agent the roster refuses it, after a
+// change of the roster it resolves to.
+func recheckReady(tx ports.WriteTx, resolved roster.Resolved, actor ledger.Actor) error {
+	list, err := tx.WorkOrders().List()
+	if err != nil {
+		return err
+	}
+	for _, order := range list {
+		if _, err := sendBackUnfit(tx, resolved, order, actor); err != nil {
+			return fmt.Errorf("work order %s: %w", order.ID, err)
+		}
+	}
+	return nil
+}
+
+// moveBecause takes one unleased edge inside a transaction, as takeEdge does, and records why on its event.
+func moveBecause(tx ports.WriteTx, id string, trigger workorders.Trigger, reason string, actor ledger.Actor) error {
+	current, err := tx.WorkOrders().Get(id)
+	if err != nil {
+		return err
+	}
+	edge, err := workorders.Move(current, trigger)
+	if err != nil {
+		return err
+	}
+	won, err := tx.WorkOrders().Move(id, edge.From, edge.To)
+	if err != nil {
+		return err
+	}
+	if !won {
+		return workorders.ErrIllegalMove
+	}
+	event, err := workorders.ChangeEvent(workorders.EventType(trigger), id, workorders.Change{Trigger: trigger, Reason: reason}, actor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
 }
 
 // Preview reads a project's layer as it stands and as a change, or a revert to a version, would leave it,

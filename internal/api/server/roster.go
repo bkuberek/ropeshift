@@ -124,7 +124,7 @@ func (h *handler) revertRoster(w http.ResponseWriter, r *http.Request, scope str
 // conflicts with what the roster holds is a conflict whose message names what.
 func failRoster(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, roster.ErrInvalid), errors.Is(err, roster.ErrUnknownAgent), errors.Is(err, roster.ErrDisabledAgent):
+	case errors.Is(err, roster.ErrInvalid), errors.Is(err, roster.ErrUnknownAgent), errors.Is(err, roster.ErrDisabledAgent), errors.Is(err, roster.ErrUnfitAgent):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, roster.ErrExists), errors.Is(err, roster.ErrNothingToReset), errors.Is(err, roster.ErrInUse):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRosterConflict, Message: err.Error()})
