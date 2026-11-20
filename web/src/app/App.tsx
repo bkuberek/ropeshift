@@ -248,10 +248,11 @@ export function App() {
   const items = needs.view?.items ?? [];
   const waitingCreations = useMemo(() => waitingIn(needs.view?.items ?? []), [needs.view]);
   const sources = useMemo(() => {
-    // Each card that waits has a Decide action, and the first few stand in the list with nothing typed.
+    // Each card that waits has a Decide action, and the first few stand in the list with nothing typed. A key names the item's
+    // project, because two projects can hold items of one ID.
     const decide = items.map(
       (item: NeedItem): Entry => ({
-        key: `decide:${item.kind}:${item.id}`,
+        key: `decide:${item.project?.id ?? ""}:${item.kind}:${item.id}`,
         group: "Actions",
         title: `Decide: ${headingOf(item)}`,
         icon: "inbox",
@@ -267,7 +268,7 @@ export function App() {
       const need = item.repository_creation;
       const to = (focus: string) => addressOf("/needs-you", { item: `${item.kind}:${item.id}`, focus: `${focus} creating ${plainLine(need.name)}` });
       const entry = (action: string, title: string, icon: Entry["icon"]): Entry => ({
-        key: `${action}:${item.id}`,
+        key: `${action}:${item.project?.id ?? ""}:${item.id}`,
         group: "Actions",
         title: `${title} ${plainLine(need.name)}`,
         icon,
