@@ -235,6 +235,8 @@ describe("a lane's pane's scrollback", () => {
 
   // The screen is the pane's scroller, held to a height, so it opens at the newest line and a scroll to its
   // top reads older lines.
+  // happy-dom reads the rules a page declares, not its layout, so this test holds the rules that bound the
+  // screen, and a browser makes the layout from them.
   it("scrolls in the screen itself on the lane page", async () => {
     withStyles();
     serveHistory(2);
