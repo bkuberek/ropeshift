@@ -391,3 +391,25 @@ func TestAPlanningBriefThatDoesNotAdoptSaysNothingOfIt(t *testing.T) {
 		}
 	}
 }
+
+// FR-PLAN-15: a planning lane, and an adopt lane with it, finds each repository's files that no commit should hold,
+// lists them in the plan, and plans their .gitignore patterns. A change is told none of it.
+func TestAPlanningBriefPlansEachRepositorysIgnoredFiles(t *testing.T) {
+	for _, adopt := range []bool{false, true} {
+		brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan, Adopt: adopt})
+		for _, want := range []string{
+			"no commit should hold", "`.atl/`", "`.claude/settings.local.json`", "`.idea/`", "`.vscode/`", "`node_modules/`",
+			"`dist/`", "`.env*`", "Files no commit holds", ".gitignore",
+		} {
+			if !strings.Contains(brief, want) {
+				t.Errorf("a planning brief (adopt %v) leaves out %q", adopt, want)
+			}
+		}
+		if adopt && !strings.Contains(brief, "hold in each repository too") {
+			t.Error("an adopt brief does not plan each repository's ignored files")
+		}
+	}
+	if change := Brief(BriefSpec{WorkOrder: "wo", Title: "Change it", Kind: workorders.KindChange}); strings.Contains(change, "no commit should hold") {
+		t.Error("a change's brief plans ignored files")
+	}
+}

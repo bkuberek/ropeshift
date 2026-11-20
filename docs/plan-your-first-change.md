@@ -111,6 +111,10 @@ In the sidebar, select Roadmap. It shows the goal with its plan and approved ver
 ![The Roadmap's two milestones in priority order, each with its progress, its forecast, and its state](assets/screenshots/plan-09-light.png#gh-light-mode-only)
 ![The Roadmap's two milestones in priority order, each with its progress, its forecast, and its state](assets/screenshots/plan-09-dark.png#gh-dark-mode-only)
 
+## Files no commit holds
+
+A plan lists, for each repository it works in, the files that tools, agents, editors, builds, and environments write there and no commit should hold: agent and tool caches such as `.atl/`, an agent CLI's local settings such as `.claude/settings.local.json`, editor folders such as `.idea/` and `.vscode/`, dependency folders such as `node_modules/`, build output such as `dist/`, and environment files such as `.env*`. The plan file's body holds them under `## Files no commit holds`, one line for each repository with each pattern and whether its `.gitignore` holds it already, and each repository whose `.gitignore` lacks a pattern gets a work order that adds it. The work that follows then never commits them.
+
 ## The planning branch
 
 The session's branch holds the plan, and merges like any change, at the planning repository's merge authority. At `person_merges`, the default, you merge it yourself when you choose. At `person_approves` and `review_approves`, ropeshift merges it at the approved commit. [A planning branch](onboarding.md#a-planning-branch) gives every case.

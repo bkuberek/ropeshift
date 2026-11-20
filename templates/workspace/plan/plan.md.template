@@ -59,3 +59,21 @@ documents = [
 
 How the work is planned, in prose: the order of the milestones, the shared contracts built first, and what
 the plan leaves for later.
+
+## Files no commit holds
+
+The files that tools, agents, editors, builds, and environments write in each repository and no commit
+should hold, with the pattern each needs in that repository's .gitignore: agent and tool caches such as
+`.atl/`, an agent CLI's local settings such as `.claude/settings.local.json`, editor folders such as
+`.idea/` and `.vscode/`, dependency folders such as `node_modules/`, build output such as `dist/`, and
+environment files such as `.env*`. A repository whose .gitignore lacks a pattern gets a work order that
+adds it.
+{{ if .Example }}
+- acme-web: `node_modules/` and `dist/`, which its .gitignore lacks; `.env` and `.env.*`, which it holds.
+{{ else }}
+{{- range .Repositories }}
+- {{ .Name }}: each pattern, and whether its .gitignore holds it already.
+{{- else }}
+- This repository: each pattern, and whether its .gitignore holds it already.
+{{- end }}
+{{ end -}}

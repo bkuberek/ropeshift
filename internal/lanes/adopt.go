@@ -86,7 +86,9 @@ written with existing = true and no work orders; mark an existing contract share
 approves each of these claims with the plan, and the approval lists every one with its evidence.
 
 5. Plan what remains, as any plan does: milestones in priority order, shared contracts first, then the contracts that use them,
-each with criteria that cite requirement IDs, and the work orders that do the work.
+each with criteria that cite requirement IDs, and the work orders that do the work. Plan the files no commit should
+hold in each repository too, as the rules above say: read each repository's .gitignore against what its build files, its package
+manager, and its tools say they write, and list what it lacks.
 
 6. Continue in-flight work. For each branch in the inventory, and for each open pull request in it, ask the person whether to keep
 it. A branch they keep becomes a work order with continues naming the branch as the person calls it, without a remote's prefix,
