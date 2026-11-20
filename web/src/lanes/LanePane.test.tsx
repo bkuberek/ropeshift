@@ -384,6 +384,74 @@ describe("a lane's facts", () => {
   });
 });
 
+describe("a lane's pane, copied, selected, and searched", () => {
+  const named = { name: `Screen of lane ${lane}` };
+  const text = "Should the berths page list berths that are \x1b[1mclosed\x1b[0m?\nA Closed berth has no sailings.\nclosed: 2 of 14";
+
+  it("copies the screen as text", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Copy screen" }));
+    expect(await navigator.clipboard.readText()).toBe("Should the berths page list berths that are closed?\nA Closed berth has no sailings.\nclosed: 2 of 14");
+    expect(within(screen.getByRole("toolbar", { name: "Pane tools" })).getByText("Copied the screen: 3 lines.")).toBeTruthy();
+  });
+
+  it("selects the pane's text and nothing else, from Select all and from the shortcut on the screen", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    const log = screen.getByRole("log", named);
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    expect(window.getSelection()?.toString()).toBe(log.textContent);
+    expect(document.activeElement).toBe(log);
+    window.getSelection()?.removeAllRanges();
+    await user.keyboard("{Control>}a{/Control}");
+    expect(window.getSelection()?.toString()).toBe(log.textContent);
+  });
+
+  it("searches the pane's text, one match after another, in case or apart from it", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    const search = screen.getByRole("search", { name: "Search the pane" });
+    const field = within(search).getByRole("searchbox", { name: "Find in the pane" });
+    expect(document.activeElement).toBe(field);
+    await user.type(field, "closed");
+    const log = screen.getByRole("log", named);
+    expect(log.querySelectorAll("mark")).toHaveLength(3);
+    expect(search.querySelector(".pane-count")?.textContent).toBe("1 of 3");
+    expect(log.querySelector("mark.is-current")?.textContent).toBe("closed");
+    await user.keyboard("{Enter}");
+    expect(search.querySelector(".pane-count")?.textContent).toBe("2 of 3");
+    expect(log.querySelector("mark.is-current")?.textContent).toBe("Closed");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(search.querySelector(".pane-count")?.textContent).toBe("1 of 3");
+    await user.click(within(search).getByRole("button", { name: "Match case" }));
+    expect(search.querySelector(".pane-count")?.textContent).toBe("1 of 2");
+    expect(log.textContent).toBe("Should the berths page list berths that are closed?\nA Closed berth has no sailings.\nclosed: 2 of 14");
+    await user.click(field);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("search", { name: "Search the pane" })).toBeNull();
+    expect(log.querySelectorAll("mark")).toHaveLength(0);
+    expect(document.activeElement).toBe(log);
+  });
+
+  it("opens the search from the find shortcut on the screen", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    act(() => screen.getByRole("log", named).focus());
+    await user.keyboard("{Control>}f{/Control}");
+    expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Find in the pane" }));
+  });
+});
+
 describe("a planning session's work order", () => {
   it("leads to its lane's pane from In progress and On hold", async () => {
     const running = golden<InProgress>("in-progress");

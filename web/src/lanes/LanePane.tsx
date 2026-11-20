@@ -6,6 +6,7 @@ import { readView } from "../api/client";
 import type { PaneLane, PaneScreen, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { onMac } from "../app/keys";
 import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
 import { SpendPanel } from "../floor/SpendPanel";
@@ -19,6 +20,8 @@ import { Button } from "../ui/controls";
 import { chordOf, isRelease, releaseKey } from "./chords";
 import { KeyCaps, KeyComposer } from "./KeyComposer";
 import { LaneMessages } from "./Messages";
+import { findIn, markRuns } from "./find";
+import { copyText, FindBar, PaneTools, selectContents } from "./PaneTools";
 import { parseScreen, trimScreen } from "./screen";
 import { PaneSender } from "./sender";
 import { startingMs } from "./starting";
@@ -168,25 +171,52 @@ type Sends = Pick<PaneSender, "keys" | "text">;
 
 const plainKey = (event: KeyboardEvent) => !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
 
-// Screen is the pane's screen. A click on it, or Enter while it has focus, captures the keys: every key then
-// goes to the session, Tab, Shift-Tab, Escape, and Ctrl combinations included, and single-key shortcuts are
-// off. The release key, a click outside the pane, or Release gives the keys back and leaves focus on the
-// screen, so Tab moves on from there (WCAG 2.1.2, https://www.w3.org/TR/WCAG21/#no-keyboard-trap). Command
-// shortcuts on a Mac stay with the browser and the page. Opening a page never captures keys.
+// Screen is the pane's screen, with the toolbar above it. A click on the screen, or Enter while it has
+// focus, captures the keys: every key then goes to the session, Tab, Shift-Tab, Escape, and Ctrl
+// combinations included, and single-key shortcuts are off. The release key, a click outside the pane, or
+// Release gives the keys back and leaves focus on the screen, so Tab moves on from there (WCAG 2.1.2,
+// https://www.w3.org/TR/WCAG21/#no-keyboard-trap). Command shortcuts on a Mac stay with the browser and the
+// page. Opening a page never captures keys.
+//
+// Select all, and the select-all shortcut while the screen has focus, select the pane's text and nothing
+// else on the page; Search, and the find shortcut while the screen has focus, search it. While the screen
+// holds the keys those shortcuts, written with Ctrl, go to the session, and the Command ones on a Mac stay
+// with the page.
 function Screen({ lane, text, keys }: { lane: string; text: string; keys: ScreenKeys }) {
   const screen = useRef<HTMLPreElement>(null);
   const [captured, setCaptured] = useState(false);
+  const [said, setSaid] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const runs = parseScreen(trimScreen(text));
+  const plain = runs.map((run) => run.text).join("");
+  const starts = searching ? findIn(plain, query, matchCase) : [];
+  const at = starts.length === 0 ? 0 : Math.min(current, starts.length - 1);
   useEffect(() => {
     if (!keys) {
       setCaptured(false);
     }
   }, [keys]);
   const holding = captured && keys !== null;
+  useEffect(() => {
+    screen.current?.querySelector(".pane-match.is-current")?.scrollIntoView?.({ block: "nearest" });
+  }, [at, query, matchCase, searching]);
 
   const release = () => {
     setCaptured(false);
     screen.current?.focus();
   };
+  const selectAll = () => {
+    screen.current?.focus();
+    selectContents(screen.current);
+  };
+  const closeSearch = () => {
+    setSearching(false);
+    screen.current?.focus();
+  };
+  const move = (by: number) => setCurrent(starts.length === 0 ? 0 : (at + by + starts.length) % starts.length);
   // A click that ends a selection leaves the keys with the page, so the selection can be copied.
   const click = () => {
     const selection = window.getSelection();
@@ -194,34 +224,72 @@ function Screen({ lane, text, keys }: { lane: string; text: string; keys: Screen
       setCaptured(true);
     }
   };
-  const keyDown = (event: KeyboardEvent<HTMLPreElement>) => {
-    if (!keys) {
+  // pageShortcut is select all and find, which the page keeps for the screen while the keys are not held,
+  // and, on a Mac, while they are.
+  const pageShortcut = (event: KeyboardEvent<HTMLPreElement>) => {
+    const mod = onMac() ? event.metaKey : event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (!mod || event.altKey || event.shiftKey) {
       return;
     }
-    if (!holding) {
-      if (event.key === "Enter" && plainKey(event)) {
-        event.preventDefault();
-        setCaptured(true);
-      }
-      return;
-    }
-    if (isRelease(event)) {
+    if (key === "a") {
       event.preventDefault();
-      event.stopPropagation();
-      setCaptured(false);
+      selectContents(screen.current);
+    } else if (key === "f") {
+      event.preventDefault();
+      setSearching(true);
+    }
+  };
+  const keyDown = (event: KeyboardEvent<HTMLPreElement>) => {
+    if (keys && holding) {
+      if (isRelease(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        setCaptured(false);
+        return;
+      }
+      const chord = chordOf(event);
+      if (chord !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        keys.send(chord);
+        return;
+      }
+    } else if (keys && event.key === "Enter" && plainKey(event)) {
+      event.preventDefault();
+      setCaptured(true);
       return;
     }
-    const chord = chordOf(event);
-    if (chord === null) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    keys.send(chord);
+    pageShortcut(event);
   };
 
   return (
     <div className={holding ? "pane-frame is-captured" : "pane-frame"}>
+      <PaneTools
+        onCopyScreen={() => void copyText(plain, "the screen").then(setSaid)}
+        onSelectAll={selectAll}
+        onSearch={() => (searching ? closeSearch() : setSearching(true))}
+        searching={searching}
+        said={said}
+      />
+      {searching ? (
+        <FindBar
+          words={query}
+          matchCase={matchCase}
+          current={at}
+          count={starts.length}
+          onWords={(next) => {
+            setQuery(next);
+            setCurrent(0);
+          }}
+          onMatchCase={(next) => {
+            setMatchCase(next);
+            setCurrent(0);
+          }}
+          onMove={move}
+          onClose={closeSearch}
+        />
+      ) : null}
       {holding ? (
         <div className="pane-capture">
           <span>
@@ -248,11 +316,17 @@ function Screen({ lane, text, keys }: { lane: string; text: string; keys: Screen
         onKeyDown={keyDown}
         onBlur={() => setCaptured(false)}
       >
-        {parseScreen(trimScreen(text)).map((run, at) => (
-          <span key={at} className={run.className || undefined}>
-            {run.text}
-          </span>
-        ))}
+        {markRuns(runs, starts, query.length).map((run, place) =>
+          run.match === null ? (
+            <span key={place} className={run.className || undefined}>
+              {run.text}
+            </span>
+          ) : (
+            <mark key={place} className={run.match === at ? "pane-match is-current" : "pane-match"}>
+              <span className={run.className || undefined}>{run.text}</span>
+            </mark>
+          ),
+        )}
       </pre>
     </div>
   );

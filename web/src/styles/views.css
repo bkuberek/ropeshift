@@ -1135,6 +1135,39 @@ details.older[open] > summary {
   gap: 2px;
 }
 
+/* The toolbar and the search sit above the screen, and the strip that names the release key joins the
+   screen, so they space themselves instead of the frame doing it. */
+.pane-toolbar,
+.pane-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
+}
+
+.pane-find-field {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.pane-said {
+  margin-left: auto;
+}
+
+/* A match keeps the colour of the text it spans; the current one is marked apart from the rest. */
+.pane-match {
+  background: var(--terminal-match);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.pane-match.is-current,
+.pane-match.is-current > span {
+  background: var(--terminal-match-current);
+  color: var(--terminal-bg);
+}
+
 /* The shortcut sheet */
 .sheet {
   display: flex;
