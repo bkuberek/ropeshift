@@ -240,7 +240,7 @@ A lane's page shows its screen or its event stream, its facts, the spend of its 
 
 ## Lane panes
 
-A lane's pane, on the Lane page, the Planning page, and in the conversation panel, shows the scrollback tmux keeps above the screen. The pane reads the newest 200 lines when it opens and shows the newest line, and the line above the screen says how much it holds, such as "Scrollback: 200 of 500 lines. tmux keeps 2,000." Scrolling up to the top reads twice as many older lines, up to all that tmux keeps, and keeps your place. While you read at the bottom, the scrollback follows the lines that scroll off the screen. Copy all copies the whole scrollback and the screen as text, and says how many lines it copied.
+A lane's pane, on the Lane page, the Planning page, and in the conversation panel, shows the scrollback tmux keeps above the screen. The pane reads the newest 200 lines when it opens and shows the newest line, and the line above the screen says how much it shows, such as "Showing 200 of the 2,000 lines tmux keeps". Scrolling up to the top reads twice as many older lines, up to all that tmux keeps, and keeps your place. While you read at the bottom, the scrollback follows the lines that scroll off the screen. Copy all copies the whole scrollback and the screen as text, and says how many lines it copied.
 
 ## Import an existing project
 

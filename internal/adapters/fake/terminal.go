@@ -221,8 +221,11 @@ func (t *Terminal) Screen(_ context.Context, name string) (string, error) {
 	return pane.script.Screen, nil
 }
 
-// History reads the newest lines of a pane's scrollback.
+// History reads the newest lines of a pane's scrollback. A read asks for at least one line, as tmux's does.
 func (t *Terminal) History(_ context.Context, name string, lines int) (ports.Scrollback, error) {
+	if lines < 1 {
+		return ports.Scrollback{}, fmt.Errorf("a read of the history asks for at least one line, not %d", lines)
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.failRead != nil {

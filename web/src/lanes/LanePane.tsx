@@ -151,6 +151,9 @@ const followScrollbackMs = 1000;
 
 type History = { lines: string; size: number; limit: number; asked: number };
 
+// resetStyle ends any colour or emphasis the scrollback left open, so none of it reaches the screen.
+const resetStyle = "\x1b[0m";
+
 const plainOf = (text: string) =>
   parseScreen(text)
     .map((run) => run.text)
@@ -167,6 +170,7 @@ const number = (n: number) => n.toLocaleString("en-US");
 function Screen({ lane, text }: { lane: string; text: string }) {
   const screen = useRef<HTMLPreElement>(null);
   const [history, setHistory] = useState<History | null>(null);
+  const [unread, setUnread] = useState("");
   const [said, setSaid] = useState("");
   const reading = useRef(false);
   const place = useRef<"bottom" | { fromBottom: number } | null>(null);
@@ -185,9 +189,10 @@ function Screen({ lane, text }: { lane: string; text: string }) {
       .then((got) => {
         const pre = screen.current;
         place.current = keep === "bottom" || !pre ? "bottom" : { fromBottom: pre.scrollHeight - pre.scrollTop };
+        setUnread("");
         setHistory({ lines: got.lines, size: got.size, limit: got.limit, asked });
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => setUnread(error instanceof ApiError ? error.message : String(error)))
       .finally(() => {
         reading.current = false;
       });
@@ -223,10 +228,10 @@ function Screen({ lane, text }: { lane: string; text: string }) {
     if (!pre || !history || pre.scrollTop > topSlack || countLines(history.lines) >= history.size || history.asked >= history.limit) {
       return;
     }
-    read(Math.min(history.asked * 2, history.limit), "place");
+    read(Math.min(history.asked * 2, history.limit, maxPaneScrollback), "place");
   };
   const copyAll = () => {
-    readPaneScrollback(lane, history?.limit ?? maxPaneScrollback)
+    readPaneScrollback(lane, Math.min(history?.limit ?? maxPaneScrollback, maxPaneScrollback))
       .then((got) => copyText(plainOf(got.lines) + plainOf(trimScreen(text)), "the scrollback and the screen"))
       .then(setSaid, (error: unknown) => setSaid(error instanceof ApiError ? error.message : String(error)));
   };
@@ -235,7 +240,11 @@ function Screen({ lane, text }: { lane: string; text: string }) {
     <div className="pane-frame">
       <div className="pane-history row-tight">
         <span className="small muted">
-          {history ? `Scrollback: ${number(countLines(history.lines))} of ${number(history.size)} lines. tmux keeps ${number(history.limit)}.` : "Reading the scrollback."}
+          {unread
+            ? `The scrollback could not be read: ${unread}`
+            : history
+              ? `Showing ${number(countLines(history.lines))} of the ${number(history.limit)} lines tmux keeps`
+              : "Reading the scrollback."}
         </span>
         <button className="btn btn-sm" type="button" onClick={copyAll}>
           Copy all
@@ -247,7 +256,7 @@ function Screen({ lane, text }: { lane: string; text: string }) {
       {/* The whole screen changes at once, so a screen reader reads it when asked and the status line says
           what changed. */}
       <pre ref={screen} className="pane-screen" role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0} onScroll={scrolled}>
-        {parseScreen((history?.lines ?? "") + trimScreen(text)).map((run, at) => (
+        {parseScreen(history?.lines ? history.lines + resetStyle + trimScreen(text) : trimScreen(text)).map((run, at) => (
           <span key={at} className={run.className || undefined}>
             {run.text}
           </span>

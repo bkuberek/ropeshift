@@ -343,10 +343,6 @@
   flex: 1;
 }
 
-.convo-term .pane {
-  overflow-y: auto;
-}
-
 /* ---------- Switch target ---------- */
 .target-menu {
   min-width: 300px;

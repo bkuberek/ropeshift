@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { paneKeys } from "../api/client";
 import type { InProgress, OnHold } from "../api/types";
 import { openPage } from "../opening";
-import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, refusal, serveViews, withStyles } from "../testing";
 import type { Sent } from "../testing";
 
 const lane = "lane:plan 1";
@@ -233,6 +233,19 @@ describe("a lane's pane's scrollback", () => {
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => 360);
   }
 
+  // The screen is the pane's scroller, held to a height, so it opens at the newest line and a scroll to its
+  // top reads older lines.
+  it("scrolls in the screen itself on the lane page", async () => {
+    withStyles();
+    serveHistory(2);
+    openPage(page);
+    show(await opened(), "the screen");
+    const log = screen.getByRole("log", named);
+    expect(getComputedStyle(log).overflow).toBe("auto");
+    expect(getComputedStyle(log).maxHeight).toMatch(/px$/);
+    expect(["auto", "scroll"]).not.toContain(getComputedStyle(screen.getByRole("region", { name: `Pane of lane ${lane}` })).overflowY);
+  });
+
   it("shows the scrollback above the screen, at the newest line, and says how much there is", async () => {
     lineHeights();
     const asked = serveHistory(2);
@@ -241,7 +254,7 @@ describe("a lane's pane's scrollback", () => {
     const log = screen.getByRole("log", named);
     await waitFor(() => expect(log.textContent).toBe("old 1\nold 2\nthe screen"));
     expect(asked).toEqual([200]);
-    expect(screen.getByText("Scrollback: 2 of 2 lines. tmux keeps 2,000.")).toBeTruthy();
+    expect(screen.getByText("Showing 2 of the 2,000 lines tmux keeps")).toBeTruthy();
     expect(log.scrollTop).toBe(3 * 18 - 360);
   });
 
@@ -251,18 +264,35 @@ describe("a lane's pane's scrollback", () => {
     openPage(page);
     show(await opened(), "the screen");
     const log = screen.getByRole("log", named);
-    await waitFor(() => expect(screen.getByText("Scrollback: 200 of 500 lines. tmux keeps 2,000.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Showing 200 of the 2,000 lines tmux keeps")).toBeTruthy());
     log.scrollTop = 0;
     fireEvent.scroll(log);
-    await waitFor(() => expect(screen.getByText("Scrollback: 400 of 500 lines. tmux keeps 2,000.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Showing 400 of the 2,000 lines tmux keeps")).toBeTruthy());
     expect(log.scrollTop).toBe(200 * 18);
     expect(log.textContent?.startsWith("old 101\n")).toBe(true);
     log.scrollTop = 0;
     fireEvent.scroll(log);
-    await waitFor(() => expect(screen.getByText("Scrollback: 500 of 500 lines. tmux keeps 2,000.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Showing 500 of the 2,000 lines tmux keeps")).toBeTruthy());
     log.scrollTop = 0;
     fireEvent.scroll(log);
     expect(asked).toEqual([200, 400, 800]);
+  });
+
+  it("keeps a colour the scrollback left open out of the screen", async () => {
+    serve((call) => (call.method === "GET" && call.path.startsWith(`${scrollbackPath}?`) ? { status: 200, body: { lane_id: lane, generation: 1, lines: "\x1b[31mred line\n", size: 1, limit: 2000 } } : undefined));
+    openPage(page);
+    show(await opened(), "the screen");
+    const log = screen.getByRole("log", named);
+    await waitFor(() => expect(log.textContent).toBe("red line\nthe screen"));
+    expect(within(log).getByText("the screen").className).toBe("");
+  });
+
+  it("says when the scrollback could not be read", async () => {
+    serve((call) => (call.method === "GET" && call.path.startsWith(`${scrollbackPath}?`) ? refusal(409, "no_pane", "lane x has no pane for generation 1") : undefined));
+    openPage(page);
+    show(await opened(), "the screen");
+    expect(await screen.findByText("The scrollback could not be read: lane x has no pane for generation 1")).toBeTruthy();
+    expect(screen.queryByText("Reading the scrollback.")).toBeNull();
   });
 
   it("copies the whole scrollback and the screen with Copy all", async () => {

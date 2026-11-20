@@ -7,7 +7,7 @@ import type { Completed, InProgress, OnHold, PlanOutline } from "../api/types";
 import { startedEntry } from "../lanes/starting";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
-import { FakeEvents, golden, here, openLedgerStream, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, openLedgerStream, refusal, serveViews, withStyles } from "../testing";
 
 const lane = "lane-wo-effect";
 const parkedLane = "lane-wo-parked";
@@ -323,6 +323,24 @@ describe("a planning session", () => {
     expect(screen.getByRole("region", { name: `Pane of lane ${lane}` })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     expect(screen.getByRole("textbox", { name: "Type into the session" })).toBeTruthy();
+  });
+
+  // Beside the outline, the pane fills its column and its screen is the scroller, so the screen opens at
+  // the newest line and a scroll to its top reads older lines.
+  it("scrolls the pane in its screen, which fills the column", async () => {
+    withStyles();
+    serve();
+    openPage(here(`/planning?lane=${lane}`));
+    await screen.findByRole("heading", { level: 1, name: "Saved searches v2" });
+    await waitFor(() => paneStream(lane));
+    act(() => paneStream(lane).send("screen", { lane_id: lane, generation: 1, screen: "What is the plan for?" }));
+    const log = await screen.findByRole("log", { name: `Screen of lane ${lane}` });
+    expect([getComputedStyle(log).overflow, getComputedStyle(log).flexGrow, getComputedStyle(log).minHeight]).toEqual(["auto", "1", "240px"]);
+    const pane = screen.getByRole("region", { name: `Pane of lane ${lane}` });
+    expect([getComputedStyle(pane).flexGrow, getComputedStyle(pane).minHeight]).toEqual(["1", "0"]);
+    expect(["auto", "scroll"]).not.toContain(getComputedStyle(pane).overflowY);
+    const frame = log.parentElement as HTMLElement;
+    expect([getComputedStyle(frame).flexGrow, getComputedStyle(frame).minHeight]).toEqual(["1", "0"]);
   });
 
   it("opens the lane's pane", async () => {
