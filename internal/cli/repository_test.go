@@ -641,3 +641,40 @@ func TestRepositoryShowSaysWhichWorkspaceDoesNotIgnoreItsWorktrees(t *testing.T)
 		t.Errorf("repository show names the workspace for a worker whose report names none:\n%s", text)
 	}
 }
+
+// A repository stored before names were checked can hold a base branch, a default branch, or a remote with a hidden
+// character in it. Each prints with that character dropped, so what a person reads is what they would type.
+func TestRepositoryShowAndListDropHiddenCharactersFromStoredNames(t *testing.T) {
+	s := newSession(t)
+	err := s.daemon.Store.Write(s.t.Context(), apitest.Scope, "test.register", func(tx ports.WriteTx) error {
+		record := ledger.NewRepository(aRepositoryID)
+		record.BaseBranch = "rel\u202eease"
+		record.DefaultBranch = "ma\u200bin"
+		record.Remote = "https://example.invalid/ac\u200bme/app.git"
+		if _, err := tx.Repositories().Insert(record); err != nil {
+			return err
+		}
+		if err := tx.Repositories().Settings(record); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventRepositoryRegistered, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"},
+			Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: aRepositoryID}, Data: []byte(`{}`),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"show": s.must("repository", "show", aRepositoryID[:8]),
+		"list": s.must("repository", "list"),
+	} {
+		if strings.ContainsAny(text, "\u202e\u200b") {
+			t.Errorf("%s prints a hidden character:\n%q", name, text)
+		}
+		if !strings.Contains(text, "release") {
+			t.Errorf("%s lacks the base branch with the character dropped:\n%q", name, text)
+		}
+	}
+}

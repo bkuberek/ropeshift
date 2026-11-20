@@ -146,7 +146,7 @@ func projectText(detail api.ProjectDetail) string {
 	fmt.Fprintf(&out, "state\t%s\n", detail.State)
 	fmt.Fprintf(&out, "database\t%s\n", detail.Database)
 	for _, record := range detail.Records {
-		fmt.Fprintf(&out, "repository\t%s\t%s\n", shortRepository(plainLine(record.ID)), dashIfEmpty(record.Remote))
+		fmt.Fprintf(&out, "repository\t%s\t%s\n", shortRepository(plainLine(record.ID)), dashIfEmpty(plainLine(record.Remote)))
 	}
 	return out.String()
 }
