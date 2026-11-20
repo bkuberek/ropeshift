@@ -58,7 +58,7 @@ type pieces struct {
 func setupContextOf(spec ports.SessionSpec) setupContext {
 	c := setupContext{
 		home: envValue(spec.Env, "HOME"), repository: map[string]bool{}, roster: map[string]bool{},
-		repo: piecesIn(filepath.Join(spec.Dir, ".claude"), "settings.json", "settings.local.json"),
+		repo: piecesIn(filepath.Join(spec.Dir, ".claude"), "settings.json"),
 	}
 	for name := range repositoryServers(spec) {
 		c.repository[name] = true
