@@ -102,7 +102,7 @@ func orderParts(file planning.ContractFile) []planning.Part {
 // newest version's is only read, so a poll that changes nothing appends nothing. A poll that stops
 // before it runs leaves the cursor where it was, and the next poll runs it (FR-PLAN-9, FR-PLAN-11).
 func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.WorkspaceID, files map[string]planFileRead, origin planOrigin) (int, error) {
-	var drifted []string
+	var drifted, retry []string
 	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		plans, err := tx.Planning().Plans()
 		if err != nil {
@@ -128,6 +128,11 @@ func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.Workspa
 			if err != nil {
 				return err
 			}
+			if _, held, err := unfinishedRequest(tx.Approvals(), plan.ID, latest.Version); err != nil {
+				return err
+			} else if held {
+				retry = append(retry, plan.ID)
+			}
 		}
 		return nil
 	})
@@ -135,6 +140,12 @@ func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.Workspa
 		return 0, err
 	}
 	made := 0
+	for _, plan := range retry {
+		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error { return offerHeldVersion(tx, plan) })
+		if err != nil {
+			return made, err
+		}
+	}
 	for _, plan := range drifted {
 		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error {
 			// The plan is read again under the revision, because another writer may have moved it since.
@@ -247,14 +258,12 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 	if err != nil {
 		return false, err
 	}
-	if len(planning.Unfinished(finish)) != 0 {
-		// A plan that is still a placeholder is never offered for approval. The version stands in the ledger, and
-		// the commit that finishes the plan makes the next one, which is asked about as any other.
-		return true, nil
-	}
+	// A plan that is still a placeholder is not offered for approval: its request stands only to say what is missing,
+	// which replaces any older request for the plan, so no request that can be approved is left behind. A commit that
+	// finishes the plan, or its goal, replaces it.
 	return true, askForPlanApproval(tx, planAsk{
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,
-		decisions: len(next.Decisions), source: next.Source, workOrder: next.WorkOrder,
+		decisions: len(next.Decisions), source: next.Source, workOrder: next.WorkOrder, unfinished: planning.Unfinished(finish),
 	})
 }
 
@@ -340,6 +349,8 @@ type planAsk struct {
 	contracts []planning.DetailContract
 	// adoption groups a plan that adopts a project, for a branch of an adopt lane.
 	adoption *planning.Adoption
+	// unfinished is what a placeholder version lacks. A request that holds it cannot be approved.
+	unfinished []string
 }
 
 // planDetailOf reads what a plan approval says of its version.
@@ -387,7 +398,7 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	detail, err := json.Marshal(planning.PlanDetail{
 		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Drafts: ask.drafts,
 		Manifest: ask.manifest, Targets: ask.targets, Difference: difference, Source: ask.source, Adoption: ask.adoption,
-		Body: ask.body, BodyCut: ask.bodyCut, Goal: ask.goal, Contracts: ask.contracts,
+		Body: ask.body, BodyCut: ask.bodyCut, Goal: ask.goal, Contracts: ask.contracts, Unfinished: ask.unfinished,
 	})
 	if err != nil {
 		return err

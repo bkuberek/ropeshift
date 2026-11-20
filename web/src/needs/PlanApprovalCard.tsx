@@ -292,6 +292,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const approval = need.approval;
+  const unfinished = need.unfinished ?? [];
   const preview = usePreview(approval.plan_id ?? "", need.version, approval.subject_digest, (need.counts.repositories ?? 0) > 0 && Boolean(approval.plan_id));
   const unseen = preview.state === "reading" || preview.state === "failed";
   const decide = (allow: boolean) =>
@@ -323,17 +324,31 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
           <Button disabled={busy} onClick={() => void decide(false)}>
             Deny
           </Button>
-          <Button variant="primary" loading={busy} disabled={busy || unseen} onClick={() => void decide(true)}>
-            Approve this plan
-          </Button>
+          {unfinished.length === 0 ? (
+            <Button variant="primary" loading={busy} disabled={busy || unseen} onClick={() => void decide(true)}>
+              Approve this plan
+            </Button>
+          ) : null}
         </>
       }
     >
+      {unfinished.length > 0 ? (
+        <>
+          <p>Ropeshift did not offer this plan version for approval, because it is not finished. Still missing:</p>
+          <ul>
+            {unfinished.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <p className="muted">A commit that finishes the plan replaces this request.</p>
+        </>
+      ) : (
       <p>
         Approving it decides each draft decision as yours, and passes the contract review of the work it covers, which then needs no
         review of its own.
         {creates ? ` Approving it also ${creates}.` : ""}
       </p>
+      )}
       <Facts>
         <Fact name="Requested by" mono>
           {need.requested_by}

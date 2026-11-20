@@ -12,9 +12,9 @@ const (
 	PlaceholderPlanTitle     = "State the plan in one line"
 	PlaceholderGoalTitle     = "State the goal in one line"
 	PlaceholderMeasure       = "State one measurable sign that the goal is met"
-	PlaceholderPlanProse     = "How the work is planned, in prose:"
+	PlaceholderPlanProse     = "How the work is planned, in prose: the order of the milestones, the shared contracts built first, and what the plan leaves for later."
 	PlaceholderGoalProse     = "Why this goal matters, who it serves, and what it leaves out, in prose."
-	PlaceholderContractProse = "What this work must deliver, in prose:"
+	PlaceholderContractProse = "What this work must deliver, in prose: the behavior, its boundaries, and what is out of scope. The lane reads this statement with the criteria, and the review judges the work against both."
 )
 
 // FinishContract is what a contract of a plan says that tells whether it is written: its text, the work orders
@@ -41,22 +41,22 @@ type Finish struct {
 	Contracts []FinishContract
 }
 
-// templateText says a text still starts with a sentence the templates write.
+// templateText says a text is the template's own text and nothing else, line breaks aside. A text that keeps a
+// template sentence and goes on to say more is written, so it is not a placeholder.
 func templateText(text, placeholder string) bool {
-	return strings.HasPrefix(strings.TrimSpace(text), placeholder)
+	return strings.Join(strings.Fields(text), " ") == strings.Join(strings.Fields(placeholder), " ")
 }
 
 // Unfinished lists what a plan version lacks to be one a member is asked to approve, each as a sentence that
 // says what is missing, and none for a version that is finished. A version is a placeholder when it
 //
-//   - holds the template's title, or the template's prose where the plan says how the work is planned;
-//   - holds a goal with the template's title, success measure, or prose;
-//   - holds a contract with the template's prose; or
+//   - holds the title the plan template starts with, or a goal with the template's title or success measure;
+//   - holds, as the whole of the text of its plan, its goal, or one of its contracts, the template's own text;
 //   - holds nothing at all: it names no goal, lists no document, drafts no decision, and lists no work order
 //     in any contract, unless a contract records code that exists already.
 //
-// Prose that is empty is not a placeholder, and a plan that names a goal or lists a document is not empty: a
-// member reads what is there and decides. The template's sentence is what a file left unwritten still says.
+// A text that keeps a template sentence and says more is written, so it is not a placeholder, and neither is an empty
+// text. A plan that names a goal or lists a document is not empty: a member reads what is there and decides.
 func Unfinished(in Finish) []string {
 	var out []string
 	if strings.TrimSpace(in.Title) == PlaceholderPlanTitle {

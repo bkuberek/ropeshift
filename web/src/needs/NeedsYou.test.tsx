@@ -1170,6 +1170,21 @@ describe("a plan approval", () => {
     expect(within(shown).getByRole("button", { name: "Approve this plan" })).toBeTruthy();
   });
 
+  it("lists what a placeholder plan lacks and offers no Approve, because ropeshift refuses to approve it", async () => {
+    const view = goldenNeedsYou();
+    const item = view.items.find((row) => row.kind === "plan_approval");
+    if (item?.kind !== "plan_approval") {
+      throw new Error("no plan approval in the golden view");
+    }
+    item.plan_approval.unfinished = ["The plan's title is still the template's, \"State the plan in one line\"."];
+    show(view, undefined, "plan_approval");
+    const shown = await card();
+    expect(within(shown).getByText(/Ropeshift did not offer this plan version for approval/)).toBeTruthy();
+    expect(within(shown).getByText(/title is still the template's/)).toBeTruthy();
+    expect(within(shown).queryByRole("button", { name: "Approve this plan" })).toBeNull();
+    expect(within(shown).getByRole("button", { name: "Deny" })).toBeTruthy();
+  });
+
   it("shows no decisions since when none moved past the approved version", async () => {
     show(undefined, undefined, "plan_approval");
     expect(within(await card()).queryByRole("list", { name: /^Decisions since version/ })).toBeNull();

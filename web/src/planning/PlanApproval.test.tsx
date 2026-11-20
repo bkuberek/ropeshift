@@ -230,6 +230,22 @@ describe("the plan approval page", () => {
   });
 });
 
+describe("a version that is a placeholder", () => {
+  it("lists what is missing and offers no Approve", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.detail.unfinished = ["The goal's title is still the template's, \"State the goal in one line\"."];
+      }
+    });
+    openPage(page());
+    await heading();
+    expect(screen.getByText(/Ropeshift did not offer this version for approval/)).toBeTruthy();
+    expect(screen.getByText(/goal's title is still the template's/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Approve version/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Decline/ })).toBeTruthy();
+  });
+});
+
 describe("deciding a version", () => {
   it("approves with the digest the page shows, bound to what it read", async () => {
     const sent = serve();

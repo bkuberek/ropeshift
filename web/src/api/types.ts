@@ -315,6 +315,8 @@ export type PlanApprovalNeed = {
   // The plan's open revision, which a member reads beside the difference: approving this version is the word on
   // the decisions made since the approved version.
   revision?: PlanRevisionView;
+  // unfinished lists what a placeholder version lacks. Its request cannot be approved.
+  unfinished?: string[];
 };
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
@@ -1255,6 +1257,8 @@ export type PlanApprovalDetail = {
   body_cut?: boolean;
   goal?: { title: string; statement?: string; success_measures?: string[] };
   contracts?: { id: string; title: string; statement?: string; criteria?: Criterion[] }[];
+  // unfinished lists what a placeholder version lacks. Its request cannot be approved.
+  unfinished?: string[];
 };
 
 // CreationStep is one step of a repository's creation on the forge: create, origin, or push, and whether it is done,

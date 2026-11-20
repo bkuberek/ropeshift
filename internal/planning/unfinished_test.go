@@ -36,9 +36,11 @@ func TestUnfinishedNamesWhatIsMissing(t *testing.T) {
 		{"template goal prose", func(f *planning.Finish) {
 			f.Goal.Statement = "Why this goal matters, who it serves, and what it leaves out, in prose."
 		}, "goal's text is still the template's"},
-		{"template plan prose", func(f *planning.Finish) { f.Body = "  How the work is planned, in prose: the order of the milestones." }, "plan's text is still the template's"},
+		{"template plan prose", func(f *planning.Finish) {
+			f.Body = "  How the work is planned, in prose: the order of the milestones, the shared contracts built first,\nand what the plan leaves for later.\n"
+		}, "plan's text is still the template's"},
 		{"template contract prose", func(f *planning.Finish) {
-			f.Contracts[0].Statement = "What this work must deliver, in prose: the behavior."
+			f.Contracts[0].Statement = planning.PlaceholderContractProse
 		}, "accounts-api's text is still the template's"},
 		{"nothing at all", func(f *planning.Finish) {
 			*f = planning.Finish{Title: "Retry budget"}
@@ -76,6 +78,17 @@ func TestUnfinishedLeavesAPartialPlanToTheMember(t *testing.T) {
 	}
 }
 
+// A plan copied from the example templates that keeps a template sentence and says more is written.
+func TestUnfinishedLeavesATextThatKeepsATemplateSentenceAndSaysMore(t *testing.T) {
+	in := finished()
+	in.Body = planning.PlaceholderPlanProse + " The API ships first, behind a flag."
+	in.Goal.Statement = planning.PlaceholderGoalProse + " Support asked for it twice."
+	in.Contracts[0].Statement = planning.PlaceholderContractProse + " The endpoint returns 404 for a missing account."
+	if got := planning.Unfinished(in); len(got) != 0 {
+		t.Fatalf("a written text reads as unfinished: %v", got)
+	}
+}
+
 // An adoption records code that exists already, so a contract marked existing is the plan's work.
 func TestUnfinishedCountsAnExistingContractAsWork(t *testing.T) {
 	in := finished()
@@ -90,7 +103,7 @@ func TestUnfinishedReportsEveryGapOfAFreshTemplate(t *testing.T) {
 		Title:     planning.PlaceholderPlanTitle,
 		GoalNamed: true,
 		Goal:      &planning.DetailGoal{Title: planning.PlaceholderGoalTitle, SuccessMeasures: []string{planning.PlaceholderMeasure}},
-		Body:      "How the work is planned, in prose: the order of the milestones.",
+		Body:      planning.PlaceholderPlanProse,
 	})
 	if len(got) < 4 {
 		t.Fatalf("a copied template reads as finished in parts: %v", got)
@@ -109,13 +122,14 @@ func TestPlaceholderWordsAreTheTemplates(t *testing.T) {
 	}
 	plan, goal := render("workspace/plan/plan.md"), render("workspace/plan/goal.md")
 	contract := render("workspace/plan/contract.md")
+	flat := func(text string) string { return strings.Join(strings.Fields(text), " ") }
 	for file, words := range map[string][]string{
 		plan:     {`"` + planning.PlaceholderPlanTitle + `"`, planning.PlaceholderPlanProse},
 		goal:     {`"` + planning.PlaceholderGoalTitle + `"`, `"` + planning.PlaceholderMeasure + `"`, planning.PlaceholderGoalProse},
 		contract: {planning.PlaceholderContractProse},
 	} {
 		for _, word := range words {
-			if !strings.Contains(file, word) {
+			if !strings.Contains(flat(file), flat(word)) {
 				t.Errorf("a template no longer holds %q", word)
 			}
 		}

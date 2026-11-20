@@ -18,7 +18,7 @@ func finishBatch(title, goalTitle, prose string, orders ...planning.WorkOrderSpe
 }
 
 func TestABranchPlanThatIsStillTheTemplateIsUnfinished(t *testing.T) {
-	batch, plan, goal := finishBatch(planning.PlaceholderPlanTitle, planning.PlaceholderGoalTitle, planning.PlaceholderPlanProse+" the order.")
+	batch, plan, goal := finishBatch(planning.PlaceholderPlanTitle, planning.PlaceholderGoalTitle, planning.PlaceholderPlanProse)
 	if got := planning.Unfinished(branchFinish(batch, plan, goal)); len(got) != 3 {
 		t.Fatalf("a template plan reads as %v", got)
 	}

@@ -20,7 +20,6 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
-	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -773,66 +772,5 @@ func TestAPlanApprovalKeepsADecisionThatSaysWhatItsDraftSays(t *testing.T) {
 		if order.Title == "Add the budget" && order.State != workorders.Ready {
 			t.Errorf("the plan's work is %s", order.State)
 		}
-	}
-}
-
-// templatePlanFiles are the plan a new project starts from, as `ropeshift new` writes it: a plan, a goal, and a
-// requirements file that still say what the templates say.
-func templatePlanFiles(t *testing.T) map[string]string {
-	t.Helper()
-	files := map[string]string{}
-	for path, name := range map[string]string{"plan/plan.md": "workspace/plan/plan.md", "plan/goal.md": "workspace/plan/goal.md", "plan/requirements.md": "workspace/plan/requirements.md"} {
-		text, err := templates.Render(name, templates.Data{Project: "harbor"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[path] = text
-	}
-	return files
-}
-
-func sourceOf(files map[string]string) *fake.WorkSource {
-	source := fake.NewWorkSource()
-	for path, text := range files {
-		source.Write(path, []byte(text))
-	}
-	return source
-}
-
-// A plan nobody has written is never offered for approval: the owner was asked to approve the template, which
-// said nothing, and approving it would have approved no work.
-func TestAPlanThatIsStillTheTemplateIsNotOfferedForApproval(t *testing.T) {
-	t.Parallel()
-	d, w, _ := aWorld(t)
-	w.Planned(sourceOf(templatePlanFiles(t)))
-	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
-	for _, item := range view.Items {
-		if item.Kind == api.NeedPlanApproval {
-			t.Fatalf("the template plan is offered for approval: %+v", item.PlanApproval)
-		}
-	}
-}
-
-// The commit that writes the plan is read as any other, and asks for approval of the version it makes.
-func TestAPlanThatWasTheTemplateIsOfferedOnceItIsWritten(t *testing.T) {
-	t.Parallel()
-	d, w, _ := aWorld(t)
-	files := templatePlanFiles(t)
-	source := sourceOf(files)
-	w.Planned(source)
-	written := strings.NewReplacer(
-		planning.PlaceholderPlanTitle, "Harbor berth booking",
-		planning.PlaceholderGoalTitle, "Boats book a berth online",
-		planning.PlaceholderMeasure, "A boat books a berth without calling the office",
-		planning.PlaceholderPlanProse, "The API first, then the page.",
-		planning.PlaceholderGoalProse, "Berths are booked by phone today.",
-	)
-	for path, text := range files {
-		source.Write(path, []byte(written.Replace(text)))
-	}
-	w.Planned(source)
-	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
-	if need := planApprovalNeed(t, view); need.Title != "Harbor berth booking" || need.Version != 2 {
-		t.Errorf("the written plan is offered as %+v", need)
 	}
 }
