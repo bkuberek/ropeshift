@@ -48,12 +48,12 @@ With the field empty, Enter, Escape, and the up and down arrows go straight to t
 
 A session you start from the web UI has no terminal attached, so it asks its questions in Needs you, as product questions that no orchestrator can answer for you. The Planning page does not count as an attached terminal. Each question waits there as an item, and questions the session asks together wait as one item.
 
-In the sidebar, select Needs you. It opens on the oldest item, here the session's first question, with its options, Something else for an answer in your own words, and Blocks work on a question the plan cannot go on without.
+In the sidebar, select Needs you. It opens on the most important item, here the session's first question: Blocks work marks a question the plan cannot go on without, and the card leads with the answer the session recommends and why.
 
 ![Needs you, with the first question from the planning session, its options, and Something else](assets/screenshots/plan-04-light.png#gh-light-mode-only)
 ![Needs you, with the first question from the planning session, its options, and Something else](assets/screenshots/plan-04-dark.png#gh-dark-mode-only)
 
-Choose an option, or choose Something else and write your answer. The button counts the answers that are ready, `Send 0 of 1 answer` until you choose. Select Send this answer. The answer is recorded once, as your decision, and the session hears it. The item stays on the page, saying you answered it, until you move on. Then select the next question, and answer it the same way.
+Select Agree with recommendation to take it. To answer otherwise, select Choose another, choose an option or Something else for an answer in your own words, say why, and select Send this answer. A one-way question starts with nothing chosen, and its Agree asks you to confirm first. The answer is recorded once, as your decision, and the session hears it. The next question then opens with focus on its Agree, and you answer it the same way. To talk a question over first, Discuss opens the conversation with the session, with the question pinned.
 
 ### 5. Follow the plan in the Outline
 

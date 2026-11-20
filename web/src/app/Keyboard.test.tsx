@@ -49,6 +49,7 @@ describe("the keyboard", () => {
     serveViews();
     openPage("/needs-you");
     await userEvent.click(await screen.findByRole("link", { name: /2 questions/ }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Choose another" })[0] as HTMLElement);
     await userEvent.click(screen.getAllByRole("radio", { name: "Something else" })[0] as HTMLElement);
     await userEvent.click(screen.getByRole("textbox", { name: "Your answer" }));
     await userEvent.keyboard("/");
@@ -80,7 +81,7 @@ describe("the keyboard", () => {
 
   it("moves through Needs you with J and K, and A only moves focus to the primary button", async () => {
     const sent = serveViews();
-    openPage("/needs-you");
+    openPage("/needs-you?order=oldest");
     const items = within(await screen.findByRole("list", { name: "Waiting items" })).getAllByRole("link");
     expect(items[0]?.getAttribute("aria-current")).toBe("true");
     await userEvent.keyboard("j");
@@ -114,6 +115,18 @@ describe("the keyboard", () => {
       await userEvent.keyboard("j");
     }
     expect(document.activeElement?.closest("details")).not.toBeNull();
+  });
+
+  it("unfolds a question's other answers with C, and decides nothing", async () => {
+    const sent = serveViews();
+    openPage("/needs-you");
+    await userEvent.click(await screen.findByRole("link", { name: /2 questions/ }));
+    const [choose] = screen.getAllByRole("button", { name: "Choose another" });
+    expect(choose?.getAttribute("aria-expanded")).toBe("false");
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("c");
+    await waitFor(() => expect(choose?.getAttribute("aria-expanded")).toBe("true"));
+    expect(sent.some((call) => call.method === "POST")).toBe(false);
   });
 
   it("opens the conversation panel with a period, the cursor in its message box, and closes it with one from outside the box", async () => {

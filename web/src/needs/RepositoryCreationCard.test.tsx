@@ -155,6 +155,7 @@ describe("Retry", () => {
   };
 
   it("runs the creation in the item's project, shows Creating ghost while it runs, and says who created it once the item is gone", async () => {
+    localStorage.setItem("ropeshift-advance", "off");
     let finish: () => void = () => {};
     const pending = new Promise<void>((resolve) => (finish = resolve));
     const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: created } : { status: 200, body: {} }));
@@ -259,6 +260,7 @@ describe("Skip", () => {
   };
 
   it("asks why, in a dialog that says what happens to its work, and sends the reason trimmed", async () => {
+    localStorage.setItem("ropeshift-advance", "off");
     const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { id: "generated-1", repositories: [] } } : { status: 200, body: {} }));
     const later = vi.fn(async () => {});
     const view = show(stopped(), later);

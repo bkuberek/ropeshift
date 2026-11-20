@@ -21,7 +21,7 @@ Press `P`, or select the project's name at the top of the page. The switcher lis
 
 ### 2. Read what waits in every project
 
-In the sidebar, select Needs you. It lists what waits on you in every active project, oldest first, and says how many items wait in how many projects. Each item carries its project's name, and its card acts in that project. The Project menu, below the kinds, narrows the list to one project, and All active projects shows every project again. An archived project waits on nobody, so it is not listed.
+In the sidebar, select Needs you. It lists what waits on you in every active project, the most important first and then the oldest, and says how many items wait in how many projects. Each item carries its project's name, and its card acts in that project. The Project menu, below the kinds, narrows the list to one project, and All active projects shows every project again. An archived project waits on nobody, so it is not listed.
 
 ![Needs you, with items from Default and Catalog, each labeled with its project](assets/screenshots/several-02-light.png#gh-light-mode-only)
 ![Needs you, with items from Default and Catalog, each labeled with its project](assets/screenshots/several-02-dark.png#gh-dark-mode-only)

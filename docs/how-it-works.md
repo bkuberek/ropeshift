@@ -201,7 +201,7 @@ A reversible decision does not rework finished work by itself, because that woul
 
 **The ledger** is ropeshift's record of execution: a local database for each project that holds claims, lanes, outcomes, reviews, questions, decisions, approvals, and merges, each with who did it. The plan stays in your repository, and the ledger records what happened to it.
 
-**Needs you** is the one list of everything that waits for a person, across every project, oldest first: a plan to approve, questions, work to accept, a merge to approve, a gated command a lane asked to run, and stuck work. The web UI opens on it, `ropeshift needs` prints it, and `ropeshift top` watches it in a terminal.
+**Needs you** is the one list of everything that waits for a person, across every project, oldest first, and the web UI shows the most important first: a plan to approve, questions, work to accept, a merge to approve, a gated command a lane asked to run, and stuck work. The web UI opens on it, `ropeshift needs` prints it, and `ropeshift top` watches it in a terminal.
 
 ## Where you come in
 

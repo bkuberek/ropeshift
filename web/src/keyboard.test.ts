@@ -424,7 +424,7 @@ const paths: Record<string, KeyPath> = {
       const accept = page.getByRole("button", { name: "Accept all", exact: true });
       await accept.waitFor();
       await k.activate(accept);
-      const send = page.getByRole("button", { name: "Send 1 of 2 answers", exact: true });
+      const send = page.getByRole("button", { name: "Agree with 1 recommendation", exact: true });
       await send.waitFor();
       await k.activate(send);
     },

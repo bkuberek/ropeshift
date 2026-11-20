@@ -14,7 +14,9 @@ export type KeyAction =
   | { type: "target" }
   | { type: "next" }
   | { type: "previous" }
-  | { type: "primary" };
+  | { type: "primary" }
+  | { type: "choose" }
+  | { type: "discuss" };
 
 // KeyState remembers a G that waits for the key of the view to go to.
 export type KeyState = { goSince: number | null };
@@ -33,6 +35,8 @@ const single: Record<string, KeyAction> = {
   j: { type: "next" },
   k: { type: "previous" },
   a: { type: "primary" },
+  c: { type: "choose" },
+  d: { type: "discuss" },
 };
 
 type Options = { singleKeys: boolean; now: number };
@@ -41,7 +45,8 @@ type Read = { action: KeyAction | null; state: KeyState; handled: boolean };
 
 // readKey reads one key press. Mod+K opens the palette everywhere, a text field included. Every other
 // shortcut is one key, which a person can turn off and which a text field or the terminal pane keeps for
-// itself. No key decides anything: A moves focus to a decision's primary button and presses nothing.
+// itself. No key decides anything: A moves focus to a decision's primary button and presses nothing, and C and D press
+// a question's Choose another and Discuss, which decide nothing.
 export function readKey(input: KeyInput, state: KeyState, { singleKeys, now }: Options): Read {
   const key = input.key.length === 1 ? input.key.toLowerCase() : input.key;
   const mod = input.mac ? input.metaKey : input.ctrlKey;
@@ -112,6 +117,8 @@ export function shortcutList(mac: boolean): ShortcutGroup[] {
         { keys: ["K"], does: "Previous item" },
         { keys: ["Enter"], does: "Open the item" },
         { keys: ["A"], does: "Move focus to the decision's primary button, which you then press" },
+        { keys: ["C"], does: "Show a question's other answers, from Choose another" },
+        { keys: ["D"], does: "Discuss a question with the session that asked it" },
         { keys: ["↑", "↓"], does: "Move in menus, tabs, and the palette" },
       ],
     },
