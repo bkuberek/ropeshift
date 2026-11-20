@@ -48,4 +48,10 @@ func TestALaneShowsItWaitsOnTheOrchestrator(t *testing.T) {
 	if waits == nil || waits.Who != api.WaitsOnOrchestrator || waits.Question != "q-blocks" || waits.Since == 0 {
 		t.Errorf("a lane with a blocking question waits on %+v, want the orchestrator, for q-blocks, with a time", waits)
 	}
+	// A lane's page reads the floor, so the floor's lane says the same.
+	for _, floor := range readView[api.ShopFloor](t, d, api.ViewShopFloor, "").Lanes {
+		if floor.ID == lane.ID && (floor.WaitsOn == nil || floor.WaitsOn.Question != "q-blocks") {
+			t.Errorf("the floor's lane waits on %+v, want q-blocks", floor.WaitsOn)
+		}
+	}
 }
