@@ -282,6 +282,11 @@ func indented(text, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
+// helpersNotice keeps a lane's helpers inside its turn: a lane that ends its turn before a helper's report arrives
+// has reported on work it has not seen.
+const helpersNotice = "\nRun every helper agent you start in the foreground, never in the background, and wait for its report " +
+	"before you call " + ToolLaneReport + ".\n"
+
 // neverWaitNotice ends every lane's brief (FR-SPEND-1). CI, a review, and a merge are waited on by ropeshift's
 // control plane in code, with no session, so a session that waits on one spends its tokens for nothing.
 const neverWaitNotice = "\nNever wait for CI, a review, or a merge: after you push, ropeshift reads the checks and starts the review and " +
@@ -342,6 +347,7 @@ func Brief(spec BriefSpec) string {
 	writeFacts(&out, spec.Facts)
 	out.WriteString("\nWhen the work is done, or cannot go on, call the " + ToolLaneReport +
 		" tool once with its outcome, then end your turn.\n")
+	out.WriteString(helpersNotice)
 	out.WriteString(neverWaitNotice)
 	return out.String()
 }
