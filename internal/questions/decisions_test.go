@@ -41,6 +41,35 @@ func TestCheckBound(t *testing.T) {
 	}
 }
 
+// TestCheckBoundUnattended holds an orchestrator a member set to unattended as CheckBound does, except that it
+// decides a one-way choice: it records one as decided, and never assumes one (FR-QD-8).
+func TestCheckBoundUnattended(t *testing.T) {
+	valid := Decision{
+		ID: "d1", Status: DecisionDecided, Rationale: "It follows.", Citations: []string{"PAY-12"}, Scope: "checkout", Reversibility: Reversible,
+	}
+	tests := []struct {
+		name   string
+		change func(*Decision)
+		want   error
+	}{
+		{"a reversible choice", func(*Decision) {}, nil},
+		{"a one-way choice it decides", func(d *Decision) { d.Reversibility = OneWay }, nil},
+		{"a one-way choice it assumes", func(d *Decision) { d.Reversibility, d.Status, d.Citations = OneWay, DecisionAssumed, nil }, ErrInvalid},
+		{"a one-way choice with no rationale", func(d *Decision) { d.Reversibility, d.Rationale = OneWay, "" }, ErrInvalid},
+		{"a one-way choice with no citation", func(d *Decision) { d.Reversibility, d.Citations = OneWay, nil }, ErrInvalid},
+		{"reversibility unstated", func(d *Decision) { d.Reversibility = "" }, ErrInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			draft := valid
+			tt.change(&draft)
+			if err := draft.CheckBoundUnattended(); !errors.Is(err, tt.want) {
+				t.Errorf("got %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestPolicyCheck(t *testing.T) {
 	valid := DefaultPolicy()
 	tests := []struct {

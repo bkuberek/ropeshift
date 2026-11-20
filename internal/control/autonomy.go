@@ -105,6 +105,28 @@ func holdToAutonomy(tx ports.WriteTx, record ledger.WorkerRecord, order workorde
 	return facts.lanes(), nil
 }
 
+// runsUnattended says an actor is the orchestrator of a worker that stands at unattended, which a member set so that it
+// runs the work with nobody there: it decides every choice the decision policy leaves it, a one-way one too (FR-QD-8).
+// Any other actor, and an orchestrator no worker record names, such as the probe of what the policy allows, is held as
+// one a member attends.
+func runsUnattended(policies ports.PolicyReader, workers ports.WorkerReader, actor ledger.Actor, now int64) (bool, error) {
+	if actor.Kind != ledger.ActorOrchestrator {
+		return false, nil
+	}
+	record, err := workers.Find(actor.ID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	facts, err := readAutonomy(policies, workers, record, now)
+	if err != nil {
+		return false, err
+	}
+	return facts.standing.Level == authority.LevelUnattended, nil
+}
+
 // dayMs is the span of the bound on respawns.
 const dayMs = 24 * 60 * 60 * 1000
 

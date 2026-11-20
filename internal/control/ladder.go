@@ -372,7 +372,11 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 			}
 			record.Categories = escalation.Categories
 		}
-		if failures := questions.Gate(record); len(failures) != 0 {
+		failures, err := gateFor(tx, record, actor)
+		if err != nil {
+			return err
+		}
+		if len(failures) != 0 {
 			return &questions.GateError{Failures: failures}
 		}
 		crashpoint.Hit("question.escalate", "passed")
@@ -386,6 +390,21 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 		return questions.Question{}, err
 	}
 	return record, nil
+}
+
+// gateFor is the gate a question passes from this actor. An orchestrator whose worker runs unattended decides a
+// one-way choice the decision policy leaves it, so only what the policy keeps, a conflict between requirements, or a
+// change of scope passes from it to a member (FR-QD-8).
+func gateFor(tx ports.WriteTx, record questions.Question, actor ledger.Actor) ([]questions.GateFailure, error) {
+	unattended, err := runsUnattended(tx.Policies(), tx.Workers(), actor, tx.Now())
+	if err != nil || !unattended {
+		return questions.Gate(record), err
+	}
+	policy, err := policyInForce(tx)
+	if err != nil {
+		return nil, err
+	}
+	return policy.GateUnattended(record), nil
 }
 
 // Resolve answers a question from a decision the ledger holds, which is rung 1 when an agent
