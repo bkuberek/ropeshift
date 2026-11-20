@@ -1095,6 +1095,9 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if view.WorkActions, err = allowances(tx, orders); err != nil {
 		return nil, err
 	}
+	if view.ReadyWaits, err = h.readyWaits(tx, orders); err != nil {
+		return nil, err
+	}
 	held := map[string]bool{}
 	for _, plan := range plans {
 		detail := api.PlanDetail{

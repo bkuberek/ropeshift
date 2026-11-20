@@ -3318,6 +3318,23 @@
           ]
         }
       ],
+      "ready_waits": {
+        "generated-14": {
+          "reason": "run_window",
+          "worker": "worker-a",
+          "worker_name": "solo"
+        },
+        "generated-2": {
+          "reason": "run_window",
+          "worker": "worker-a",
+          "worker_name": "solo"
+        },
+        "wo-ready": {
+          "reason": "run_window",
+          "worker": "worker-a",
+          "worker_name": "solo"
+        }
+      },
       "reviews": [
         {
           "contract_id": "generated-15",
