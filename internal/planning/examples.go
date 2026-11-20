@@ -55,6 +55,10 @@ blocking = false
 +++
 
 How the work is planned, in prose.
+
+## Files no commit holds
+
+- This repository: ` + "`.atl/`" + ` and ` + "`dist/`" + `, which its .gitignore lacks; ` + "`.env`" + ` and ` + "`.env.*`" + `, which it holds.
 `,
 	},
 	{

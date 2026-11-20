@@ -162,6 +162,7 @@ func planningNotice(spec BriefSpec) string {
 		"for this repository, and size small, medium, or large.\n" +
 		"- Write a draft decision only for an answer the person gave you in conversation. For anything they have not answered, ask " +
 		"with the " + ToolAsk + " tool. " + askAdvice + "\n" +
+		"- " + ignoredFilesRule + "\n" +
 		"- A TOML string needs its quotes, and a file that does not parse reaches nobody.\n\n" +
 		"Commit the files on this branch, because intake reads a commit and never your working tree. Report the outcome after the commit. " +
 		"The person then approves the plan in one step: approving it records your draft decisions as their decisions, passes the " +
@@ -170,6 +171,16 @@ func planningNotice(spec BriefSpec) string {
 		"plan before you report.\n")
 	return out.String()
 }
+
+// ignoredFilesRule is how a plan keeps the files tools write out of every commit (FR-PLAN-15): it finds them in each
+// repository, lists them in the plan, and plans the .gitignore patterns each repository lacks.
+const ignoredFilesRule = "Find the files that tools, agents, editors, builds, and environments write in each repository the plan " +
+	"works in and that no commit should hold: agent and tool caches such as `.atl/`, an agent CLI's local settings such as " +
+	"`.claude/settings.local.json`, editor folders such as `.idea/` and `.vscode/`, dependency folders such as `node_modules/`, " +
+	"build output such as `dist/`, and environment files such as `.env*`. Read each repository's .gitignore, its build and package " +
+	"files, and its tools' configuration to find them. List them in the plan file's body under a `## Files no commit holds` heading, " +
+	"one line for each repository with each pattern and whether its .gitignore holds it already, and give each repository whose " +
+	".gitignore lacks a pattern a work order that adds the patterns it lacks."
 
 // intakeNotice says where intake reads plan files: under the daemon's directory when it has one, and
 // otherwise anywhere in the repository, with the folder a lane should keep them in.

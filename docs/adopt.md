@@ -234,7 +234,7 @@ The session is a planning session, so it runs in a pane, its questions are yours
 - **Onboard, not rewrite.** Add front matter to your existing requirements, specs, architecture notes, and decision records, keeping their prose and their IDs. Move a file only when the format needs it elsewhere, with `git mv`, so its history follows it. A decision record gets front matter of kind `decision` and a `status` of `proposed`, `accepted`, `superseded`, or `rejected`, which the session takes from the record's own status line, or `proposed` when the record states none. It needs no plan. Once its status is `accepted`, the record answers a lane's question like any decision you have recorded: the orchestrator finds it on the first rung of the question ladder, so check the status the session chose for each record before you merge the branch.
 - **Ask about what belongs to someone else.** A file whose front matter belongs to another tool, a document whose meaning is unclear, and two documents that contradict each other are questions for you, not guesses.
 - **Mark what is done**, with evidence.
-- **Plan what remains**, with shared contracts first, as any plan does.
+- **Plan what remains**, with shared contracts first, as any plan does, and with [the files no commit holds](plan-your-first-change.md#files-no-commit-holds) in each repository, read from its `.gitignore`, its build and package files, and its tools' configuration.
 - **Ask which branches in flight to keep.**
 - **Write nothing else.** The session commits only on its own branch of the planning repository, and reads every other repository through read-only worktrees.
 

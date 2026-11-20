@@ -603,3 +603,21 @@ func TestTheDependabotConfigurationUpdatesAPackageManager(t *testing.T) {
 		t.Error("no updates")
 	}
 }
+
+// TestThePlanListsTheFilesNoCommitHolds is FR-PLAN-15: the plan has a place for each repository's files that tools,
+// agents, editors, builds, and environments write, and the .gitignore patterns the plan adds for them.
+func TestThePlanListsTheFilesNoCommitHolds(t *testing.T) {
+	for _, set := range datasets {
+		plan := render(t, "workspace/plan/plan.md", set.data)
+		for _, want := range []string{"## Files no commit holds", ".gitignore", "`.atl/`", "`.claude/settings.local.json`", "`node_modules/`", "`dist/`"} {
+			if !strings.Contains(plan, want) {
+				t.Errorf("%s: the plan leaves out %q", set.name, want)
+			}
+		}
+		for _, repository := range set.data.Repositories {
+			if !strings.Contains(plan, "- "+repository.Name+":") {
+				t.Errorf("%s: the plan has no line for %s", set.name, repository.Name)
+			}
+		}
+	}
+}
