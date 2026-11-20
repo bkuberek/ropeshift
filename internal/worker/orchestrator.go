@@ -300,9 +300,18 @@ func (w *Worker) tendOrchestrator(ctx context.Context) {
 	w.wakeLock.Lock()
 	w.wakes.Debounce, w.wakes.Floor, w.wakes.Hold = debounce, floor, run.limitHolds()
 	w.wakes.Note(digest.Items, now)
+	if laneWaits(w.wakes.Batch()) {
+		w.wakes.Floor = 0
+	}
 	w.wakeLock.Unlock()
 	w.noteOrchestratorMessages(ctx, digest.Items)
 	run.deliverWake(ctx)
+}
+
+// laneWaits says a lane waits on an item of the batch, which the orchestrator is there to unblock: such a batch goes
+// once the debounce passes, inside the minimum interval, which still bounds a batch no lane waits on (FR-ORCH-1).
+func laneWaits(items []ledger.WakeItem) bool {
+	return slices.ContainsFunc(items, func(item ledger.WakeItem) bool { return item.Waiting })
 }
 
 // limitHolds says a wake would cost a turn that fails, so an orchestrator waits where a lane would

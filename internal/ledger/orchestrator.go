@@ -163,6 +163,9 @@ type WakeItem struct {
 	Stamp   int64  `json:"stamp"`
 	Text    string `json:"text"`
 	Digest  string `json:"digest,omitempty"`
+	// Waiting says a lane waits on the item: its blocking question or its request. It wakes an orchestrator once the
+	// debounce passes, inside the minimum interval that bounds every other wake (FR-ORCH-1).
+	Waiting bool `json:"waiting,omitempty"`
 }
 
 // Key names an item as it stands, in its project.

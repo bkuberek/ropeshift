@@ -259,6 +259,32 @@ func TestASecondBatchIsOneWakeUnderTheFloor(t *testing.T) {
 	}
 }
 
+// A lane that cannot go on without an answer waits on the orchestrator, so its blocking question wakes the
+// orchestrator once the debounce passes, inside the minimum interval that bounds every other wake (FR-ORCH-1).
+func TestABlockingQuestionWakesTheOrchestratorUnderTheFloor(t *testing.T) {
+	o := newOrchestratorRig(t, aSession([]fake.DriverStep{completed(0.02)}))
+	o.wokenOnce(t)
+	_, err := control.NewQuestions(o.store, questions.BatchPolicy{}).Ask(t.Context(), scope, questions.Ask{ID: "q2", Text: "Which log level?", Blocking: true}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.tick(t)
+	o.clock.Advance(10 * time.Second)
+	o.tick(t)
+	if got := len(o.driver.Sent()); got != 0 {
+		t.Fatalf("a wake inside the debounce: %d", got)
+	}
+	o.clock.Advance(21 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	for len(o.driver.Sent()) == 0 && time.Now().Before(deadline) {
+		o.tick(t)
+	}
+	sent := o.driver.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Which log level?") {
+		t.Fatalf("31s after a blocking question, under the 2m floor, the wakes sent are %+v", sent)
+	}
+}
+
 // It has no work order and no outcome, so a turn that ends leaves it waiting: nothing nudges it,
 // and nothing ends it.
 func TestARestingOrchestratorIsNotALaneWithNoOutcome(t *testing.T) {

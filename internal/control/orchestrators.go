@@ -456,7 +456,7 @@ func wakeQuestions(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 		if by {
 			text = lanes.DelegateText(text)
 		}
-		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: text})
+		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: text, Waiting: row.Blocking})
 	}
 	return out, nil
 }
@@ -649,7 +649,7 @@ func wakeApprovals(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 		}
 		out = append(out, ledger.WakeItem{
 			Kind: ledger.WakeApproval, ID: row.ID, Stamp: row.RaisedAt, Digest: row.SubjectDigest,
-			Text: row.Subject + ": " + row.Summary,
+			Text: row.Subject + ": " + row.Summary, Waiting: row.Lane != "",
 		})
 	}
 	return out, nil
