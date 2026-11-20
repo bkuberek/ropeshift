@@ -177,6 +177,9 @@ func TestAFailedPushIsReportedAndTriedAgainLater(t *testing.T) {
 	}
 }
 
+// personsMergeCommit is the merge commit the person's merge reports, a full commit ID as the forge gives one.
+const personsMergeCommit = "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a"
+
 // TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge is FR-REVIEW-9 and FR-MERGE-9 on the worker: the review's
 // verdicts reach the pull request as one comment, the worker watches the pull request, and the merge the person
 // makes on the forge comes back, so the integration tick ends the work.
@@ -214,11 +217,11 @@ func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 	if f.row().State != workorders.Integrating {
 		t.Fatalf("the work reads %s, and waits in integrating for the person's merge at person_merges", f.row().State)
 	}
-	f.forge.MergeByPerson(number, "merge-commit")
+	f.forge.MergeByPerson(number, personsMergeCommit)
 	f.clock.Advance(2 * time.Minute)
 	f.converge(2)
 	pr, err := f.pullRequest()
-	if err != nil || pr.State != ledger.PullRequestMerged || pr.MergeCommit != "merge-commit" {
+	if err != nil || pr.State != ledger.PullRequestMerged || pr.MergeCommit != personsMergeCommit {
 		t.Fatalf("the ledger holds %+v: %v", pr, err)
 	}
 	// The read of the person's merge ends the work, and the tick finds nothing left to do.
