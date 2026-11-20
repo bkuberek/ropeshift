@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -742,6 +744,42 @@ func TestTwoPassesAtOnceTellAClearedSessionItsWorkOnce(t *testing.T) {
 		t.Fatalf("told its work %d times", told)
 	}
 	r.awaitOrderState(t, workorders.Acceptance)
+}
+
+// A brief the terminal failed to take, for a reason other than a pane that is gone, may have reached the session in
+// part, so the worker does not send it again: the delivery is on record as failed and not as undelivered, and no
+// later pass tells the session its work.
+func TestABriefTheTerminalFailedIsNotSentAgain(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\n")
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.asking("What is the retry budget?"), completed(0.01)}, []fake.DriverStep{{Hold: true}}))
+	r.start()
+	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.cleared(t, clearedSession)
+	r.driver.FailSend(errors.New("lane-1/2: tmux send-keys: command too long"))
+	for range 3 {
+		if _, err := r.subject.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect, err := r.journal.Effect(t.Context(), lanes.NewEffect(lanes.EffectInput, "lane-1", record.Generation, "", worker.BriefLabel(1)).Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.State != lanes.EffectFailed || effect.Undelivered() {
+		t.Errorf("the delivery is on record as %s, %q", effect.State, effect.Detail)
+	}
+	if told := r.briefs(); told != 0 {
+		t.Errorf("the brief was sent again %d times", told)
+	}
 }
 
 // passAtRest runs a pass of the worker the moment a lane's end of turn reaches the journal, which is
