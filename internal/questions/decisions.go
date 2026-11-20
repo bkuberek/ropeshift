@@ -119,6 +119,21 @@ func (d Decision) CheckBound() error {
 	return nil
 }
 
+// CheckBoundUnattended holds what an orchestrator records when a member set its worker to unattended, which leaves it
+// the run of the work (FR-QD-8): as CheckBound, except that it decides a one-way choice the policy leaves it. It
+// records one as decided and never assumes one, because an assumption is a choice that can be undone.
+func (d Decision) CheckBoundUnattended() error {
+	if d.Reversibility != OneWay {
+		return d.CheckBound()
+	}
+	if d.Status != DecisionDecided {
+		return fmt.Errorf("%w: decision %s is one-way, so it is decided and never assumed", ErrInvalid, d.ID)
+	}
+	held := d
+	held.Reversibility = Reversible
+	return held.CheckBound()
+}
+
 // SameContent says two decisions decide the same thing: the same status, statement, rationale, citations,
 // scope, reversibility, and categories. Who decided, and what each replaced or overlapped, are not content.
 func (d Decision) SameContent(other Decision) bool {

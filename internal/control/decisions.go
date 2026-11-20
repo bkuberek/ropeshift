@@ -122,10 +122,22 @@ func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy
 	if _, err := questions.ParseScope(record.Scope); err != nil && !acceptsAnyScope() {
 		return err
 	}
-	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, actor)
+	unattended, err := runsUnattended(tx.Policies(), tx.Workers(), actor, tx.Now())
+	if err != nil {
+		return err
+	}
+	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, recorder{actor: actor, unattended: unattended})
 }
 
-func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+// recorder is who records a decision, and whether a member set its worker to unattended, which lets an orchestrator
+// decide a one-way choice the policy leaves it.
+type recorder struct {
+	actor      ledger.Actor
+	unattended bool
+}
+
+func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Decision, policy questions.Policy, by recorder) error {
+	actor := by.actor
 	if err := stamp(reader, facts, record, policy); err != nil {
 		return err
 	}
@@ -144,7 +156,11 @@ func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Dec
 		return nil
 	}
 	if !unbound {
-		if err := record.CheckBound(); err != nil {
+		check := record.CheckBound
+		if by.unattended {
+			check = record.CheckBoundUnattended
+		}
+		if err := check(); err != nil {
 			return err
 		}
 	}
@@ -248,7 +264,7 @@ func (q *Questions) Weigh(ctx context.Context, scope ledger.WorkspaceID, draft q
 		standing.OneWay = !policy.Open(categories) || record.Reversibility == questions.OneWay ||
 			(record.Supersedes != "" && old.Reversibility != questions.Reversible)
 		probe := record
-		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), &probe, policy, policyProbe) == nil
+		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), &probe, policy, recorder{actor: policyProbe}) == nil
 		return nil
 	})
 	return standing, err
