@@ -83,6 +83,7 @@ function otherCards(): NeedItem[] {
   const work = (id: string) => base.find((item) => item.id === id) as Extract<NeedItem, { kind: "work" }>;
   const parked = work("wo-parked");
   const lapsed = work("wo-lapsed");
+  const stalled = work("wo-stalled");
   const as = (item: Extract<NeedItem, { kind: "work" }>, id: string, reason: string, detail?: string): NeedItem => ({
     ...item,
     id,
@@ -154,6 +155,26 @@ function otherCards(): NeedItem[] {
     },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
+    // A lane whose session loaded the member's own setup is an item of its own, named by the lane.
+    {
+      ...stalled,
+      id: "lane-wo-leaky",
+      work: {
+        ...stalled.work,
+        reason: "personal_setup",
+        detail: "Your own MCP server github (user) and agent reviewer (~/.claude/agents/reviewer.md) loaded in lane lane-wo-leaky.",
+        work_order: stalled.work.work_order && { ...stalled.work.work_order, id: "wo-leaky", title: "Work order wo-leaky" },
+        lane: stalled.work.lane && { ...stalled.work.lane, id: "lane-wo-leaky", work_order: "wo-leaky", conditions: [] },
+        personal: [
+          { kind: "mcp_server", name: "github", from: "user" },
+          { kind: "agent", name: "reviewer", from: "~/.claude/agents/reviewer.md" },
+        ],
+        recommendation: "ignore",
+        recommendation_rationale:
+          "the lane's rules and hooks still hold every call it makes, but an MCP server or a plugin of yours can reach outside the lane with your own access, so keep it out of the next lanes",
+        actions: [],
+      },
+    },
     history(
       "wo-history-missing",
       "history_missing",

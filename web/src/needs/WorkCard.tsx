@@ -14,6 +14,7 @@ import { ConditionChip, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Refu
 import { Field } from "../ui/forms";
 import type { Frame } from "./frame";
 import { kindOf } from "./kinds";
+import { PersonalSetupChoices } from "./PersonalSetup";
 import { useAct } from "./useAct";
 
 export { workLabels } from "./kinds";
@@ -30,10 +31,11 @@ const reasonWords: Record<string, string> = {
   worker_behind: "Its worker must be upgraded before it can start its lane.",
   history_missing: "Its adoption branch merged without the design history it imported.",
   history_unread: "Its adoption branch merged, and its base could not be checked for the design history it imported.",
+  personal_setup: "Its lane's session loaded your own agent CLI setup, despite the flags that keep it out of lanes.",
 };
 
 // The reasons whose detail is the card's own words, shown under its lead rather than as what a lane said.
-const toldReasons = ["worker_behind", "history_missing", "history_unread"];
+const toldReasons = ["worker_behind", "history_missing", "history_unread", "personal_setup"];
 
 const orchestratorWords: Record<string, string> = {
   tripped: "This orchestrator crashed too often, and its breaker stopped it. Questions wait until it runs.",
@@ -186,6 +188,7 @@ export function WorkCard({
           </ul>
         </>
       ) : null}
+      {work.reason === "personal_setup" ? <PersonalSetupChoices work={work} /> : null}
       {work.standing && !inPage ? <Verdicts standing={work.standing} /> : null}
       {work.orchestrator ? (
         <Facts>

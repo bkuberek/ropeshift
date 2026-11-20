@@ -58,6 +58,7 @@ export const workLabels: Record<string, string> = {
   stalled: "Stalled",
   tripped: "Tripped",
   worker_behind: "Waiting for upgrade",
+  personal_setup: "Your CLI setup in a lane",
 };
 
 const workIcons: Record<string, IconName> = {
@@ -72,6 +73,7 @@ const workIcons: Record<string, IconName> = {
   stalled: "warning",
   tripped: "power",
   worker_behind: "warning",
+  personal_setup: "sliders",
 };
 
 const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "conflict", "one-way-review"] as const;

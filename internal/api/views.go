@@ -159,6 +159,10 @@ const (
 	// ReasonHistoryUnread is a merged adoption branch whose base could not be checked for the design repository's
 	// tip, such as one whose plan approval could not read the import. It clears once a check answers.
 	ReasonHistoryUnread = "history_unread"
+	// ReasonPersonalSetup is a lane whose running session loaded the member's own agent CLI setup despite the flags
+	// that keep it out. Leaving it running is ignoring it this time, so it offers no act, and the item clears when that
+	// session ends.
+	ReasonPersonalSetup = "personal_setup"
 )
 
 // What a member can do about waiting work. Each names one operation of this API.
@@ -212,6 +216,11 @@ type WorkNeed struct {
 	// says the same.
 	Unfinished     []string `json:"unfinished,omitempty"`
 	SendBackReason string   `json:"send_back_reason,omitempty"`
+	// Personal is what of the member's own CLI setup a lane loaded, for ReasonPersonalSetup, and Recommendation the
+	// choice the card recommends, lanes.SetupIgnore, with why.
+	Personal                []lanes.PersonalItem `json:"personal,omitempty"`
+	Recommendation          string               `json:"recommendation,omitempty"`
+	RecommendationRationale string               `json:"recommendation_rationale,omitempty"`
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
@@ -821,6 +830,9 @@ type FloorLane struct {
 	Archivable     bool   `json:"archivable,omitempty"`
 	// WaitsOn is set while the lane waits on a blocking question.
 	WaitsOn *WaitsOn `json:"waits_on,omitempty"`
+	// Setup is what the lane's latest session that reported it loaded at its start, the member's own pieces among them.
+	// A lane whose sessions reported nothing, such as one in a pane, has none.
+	Setup *lanes.Setup `json:"setup,omitempty"`
 }
 
 // ShopFloor is workers, orchestrators, lanes, and their freshness.

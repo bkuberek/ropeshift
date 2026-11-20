@@ -172,7 +172,21 @@ A key the profile does not know refuses the whole profile, and no lane starts un
 
 ## Your own agent CLI setup
 
-Lanes load none of your own Claude Code setup: no settings, hooks, status line, plugins, skills, commands, or subagents from `~/.claude`, no `~/.claude/CLAUDE.md` or `~/.claude/rules/`, no MCP server or connector of yours, and no auto memory. They keep your sign-in. A lane reads the repository's own `.claude/` settings, skills, and subagents, its `CLAUDE.md` or `AGENTS.md`, the agent roster above, and ropeshift's own MCP server, so put what a project's lanes need in the repository or in its lane profile. A repository's `.mcp.json` does not reach lanes either. [Your own agent CLI setup](authorization.md#your-own-agent-cli-setup) names the switch that keeps out each piece.
+Lanes load none of your own Claude Code setup: no settings, hooks, status line, plugins, skills, commands, or subagents from `~/.claude`, no `~/.claude/CLAUDE.md` or `~/.claude/rules/`, no MCP server or connector of yours, and no auto memory. They keep your sign-in. A lane reads the repository's own `.claude/` settings, skills, and subagents, its `CLAUDE.md` or `AGENTS.md`, the servers of its `.mcp.json`, the agent roster above, and ropeshift's own MCP server, so put what a project's lanes need in the repository or in its lane profile. [Your own agent CLI setup](authorization.md#your-own-agent-cli-setup) names the switch that keeps out each piece.
+
+A lane's page shows what its latest session loaded under Runs with. Your CLI setup reads none loaded when the flags held, or lists each piece of yours that reached the lane anyway, with where it is set up; below it are the model, the MCP servers with where each came from, and how many agents and skills the session loaded. A lane whose sessions reported nothing, such as one in a pane, reads not reported.
+
+When a piece of yours reaches a running lane, Needs you holds one item for it, Your CLI setup in a lane, which names each piece and the lane. Its recommendation is to ignore it this time, leaving the lane running, and to open the setting, so the next lanes do not load it. The item goes when the session that loaded the setup ends. Stopping a running lane takes Cancel this work on its work order's page, which ends the work for good. Each piece is set up in one place:
+
+| Piece | Where it is set up |
+|-------|--------------------|
+| MCP server from `user` or `local` | `~/.claude.json` ([MCP](https://code.claude.com/docs/en/mcp)) |
+| MCP server from `claudeai` | Your claude.ai connectors ([MCP](https://code.claude.com/docs/en/mcp)) |
+| MCP server from `plugin`, or a plugin | `enabledPlugins` in `~/.claude/settings.json` ([plugins](https://code.claude.com/docs/en/plugins/loading)) |
+| Agent | `~/.claude/agents/`, by the `name` in its frontmatter ([subagents](https://code.claude.com/docs/en/sub-agents)) |
+| Skill or command | `~/.claude/skills/` or `~/.claude/commands/` ([skills](https://code.claude.com/docs/en/skills)) |
+
+With `CLAUDE_CONFIG_DIR` set, every `~/.claude` path above is under that directory instead ([`.claude` directory](https://code.claude.com/docs/en/claude-directory)).
 
 ## On the command line
 

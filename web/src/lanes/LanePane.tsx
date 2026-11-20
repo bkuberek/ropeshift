@@ -23,6 +23,7 @@ import { KeyCaps, KeyComposer } from "./KeyComposer";
 import { LaneMessages } from "./Messages";
 import { findIn, markRuns } from "./find";
 import { copyText, FindBar, PaneTools, selectContents } from "./PaneTools";
+import { RunsWith } from "./RunsWith";
 import { parseScreen, trimScreen } from "./screen";
 import { PaneSender } from "./sender";
 import { startingMs } from "./starting";
@@ -867,6 +868,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                 <p className="muted">Reading…</p>
               )}
             </Panel>
+            {lane ? <RunsWith setup={lane.setup} /> : null}
             {lane?.artifacts?.length ? (
               <Panel title="Artifacts">
                 <ul className="criteria" aria-label="Artifacts">
