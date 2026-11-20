@@ -51,6 +51,8 @@ const (
 	minAlertWindow, maxAlertWindow        = time.Minute, 24 * time.Hour
 	minAlertCalls, maxAlertCalls          = 1, 1000
 	defaultSoftQuantile, defaultClassName = "p85", "standard"
+	// defaultConsultationLimit is a modest cap on one consultation, a share of what a small work order may spend.
+	defaultConsultationLimit = 2.0
 )
 
 // SpendSizeLimits is an amount for each work order size.
@@ -97,6 +99,9 @@ type SpendPolicy struct {
 	ProjectWarnShare float64 `toml:"project_warn_share" json:"project_warn_share"`
 	// AssistantDailyWarn is the assistant's soft daily limit per project.
 	AssistantDailyWarn float64 `toml:"assistant_daily_warn" json:"assistant_daily_warn"`
+	// ConsultationLimit is the most one consultation an orchestrator starts may spend (FR-ORCH-9), within what the
+	// project's daily and weekly limits leave. 0 turns consultations off, because a consultation never runs uncapped.
+	ConsultationLimit float64 `toml:"consultation_limit" json:"consultation_limit"`
 	// BudgetFlagHeadroomShare is the headroom over a hard limit that a headless generation's budget flag adds.
 	BudgetFlagHeadroomShare float64 `toml:"budget_flag_headroom_share" json:"budget_flag_headroom_share"`
 
@@ -140,7 +145,7 @@ var SpendPolicyKeys = []string{
 	"soft_quantile", "hard_multiplier", "low_confidence_outcomes", "low_confidence_soft_share",
 	"no_history_limit.small", "no_history_limit.medium", "no_history_limit.large",
 	"review_share", "review_soft_share", "plan_hard_multiplier", "project_daily_limit", "project_weekly_limit",
-	"project_warn_share", "assistant_daily_warn", "budget_flag_headroom_share",
+	"project_warn_share", "assistant_daily_warn", "consultation_limit", "budget_flag_headroom_share",
 	"repeat_limit", "repeat_denials_to_park", "no_progress_share", "no_progress_park_multiplier", "no_history_no_progress",
 	"waiting_alert_share", "waiting_alert_window", "waiting_alert_min_calls", "assistant_class",
 }
@@ -151,7 +156,7 @@ var SpendPolicyFileKeys = []string{
 	"version", "max_live_wait", "max_tool_sleep", "wait_rules_off", "wait_rule_patterns",
 	"soft_quantile", "hard_multiplier", "low_confidence_outcomes", "low_confidence_soft_share", "no_history_limit",
 	"review_share", "review_soft_share", "plan_hard_multiplier", "project_daily_limit", "project_weekly_limit",
-	"project_warn_share", "assistant_daily_warn", "budget_flag_headroom_share",
+	"project_warn_share", "assistant_daily_warn", "consultation_limit", "budget_flag_headroom_share",
 	"repeat_limit", "repeat_denials_to_park", "no_progress_share", "no_progress_park_multiplier", "no_history_no_progress",
 	"waiting_alert_share", "waiting_alert_window", "waiting_alert_min_calls", "assistant_class",
 }
@@ -169,6 +174,7 @@ func DefaultSpendPolicy() SpendPolicy {
 		ReviewShare:    0.5, ReviewSoftShare: 0.5, PlanHardMultiplier: 2, ProjectWarnShare: 0.8, BudgetFlagHeadroomShare: 0.1,
 		RepeatLimit: 3, RepeatDenialsToPark: 2, NoProgressShare: 0.5, NoProgressParkMultiplier: 2, NoHistoryNoProgress: 5,
 		WaitingAlertShare: 0.5, WaitingAlertWindow: defaultAlertWindow, WaitingAlertMinCalls: 5, AssistantClass: defaultClassName,
+		ConsultationLimit: defaultConsultationLimit,
 	}
 }
 
@@ -302,7 +308,7 @@ func (p SpendPolicy) checkLimits() error {
 		{"no_history_limit.small", p.NoHistoryLimit.Small}, {"no_history_limit.medium", p.NoHistoryLimit.Medium},
 		{"no_history_limit.large", p.NoHistoryLimit.Large}, {"project_daily_limit", p.ProjectDailyLimit},
 		{"project_weekly_limit", p.ProjectWeeklyLimit}, {"assistant_daily_warn", p.AssistantDailyWarn},
-		{"no_history_no_progress", p.NoHistoryNoProgress},
+		{"consultation_limit", p.ConsultationLimit}, {"no_history_no_progress", p.NoHistoryNoProgress},
 	}
 	for _, a := range amounts {
 		if err := checkSpendFloat(a.key, a.value, 0, maxAmount); err != nil {
@@ -376,6 +382,7 @@ func (p SpendPolicy) Set(key, value string) (SpendPolicy, error) {
 		"assistant_daily_warn": &out.AssistantDailyWarn, "budget_flag_headroom_share": &out.BudgetFlagHeadroomShare,
 		"no_progress_share": &out.NoProgressShare, "no_progress_park_multiplier": &out.NoProgressParkMultiplier,
 		"no_history_no_progress": &out.NoHistoryNoProgress, "waiting_alert_share": &out.WaitingAlertShare,
+		"consultation_limit": &out.ConsultationLimit,
 	}
 	ints := map[string]*int64{
 		"low_confidence_outcomes": &out.LowConfidenceOutcomes, "repeat_limit": &out.RepeatLimit,
@@ -476,6 +483,8 @@ func (p SpendPolicy) Text(key string) string {
 		return f(p.ProjectWarnShare)
 	case "assistant_daily_warn":
 		return f(p.AssistantDailyWarn)
+	case "consultation_limit":
+		return f(p.ConsultationLimit)
 	case "budget_flag_headroom_share":
 		return f(p.BudgetFlagHeadroomShare)
 	case "repeat_limit":
@@ -550,6 +559,7 @@ func (p SpendPolicy) Body() string {
 	line("project_weekly_limit = %s", tomlFloat(p.ProjectWeeklyLimit))
 	line("project_warn_share = %s", tomlFloat(p.ProjectWarnShare))
 	line("assistant_daily_warn = %s", tomlFloat(p.AssistantDailyWarn))
+	line("consultation_limit = %s", tomlFloat(p.ConsultationLimit))
 	line("budget_flag_headroom_share = %s", tomlFloat(p.BudgetFlagHeadroomShare))
 	line("# No progress")
 	line("repeat_limit = %d", p.RepeatLimit)

@@ -44,7 +44,7 @@ func TestTheBuiltInSpendPolicyStatesEveryKeyWithItsDefault(t *testing.T) {
 		"no_history_limit.small": "10", "no_history_limit.medium": "25", "no_history_limit.large": "60",
 		"review_share": "0.5", "review_soft_share": "0.5", "plan_hard_multiplier": "2",
 		"project_daily_limit": "0", "project_weekly_limit": "0", "project_warn_share": "0.8", "assistant_daily_warn": "0",
-		"budget_flag_headroom_share": "0.1", "repeat_limit": "3", "repeat_denials_to_park": "2", "no_progress_share": "0.5",
+		"consultation_limit": "2", "budget_flag_headroom_share": "0.1", "repeat_limit": "3", "repeat_denials_to_park": "2", "no_progress_share": "0.5",
 		"no_progress_park_multiplier": "2", "no_history_no_progress": "5", "waiting_alert_share": "0.5", "waiting_alert_window": "30m",
 		"waiting_alert_min_calls": "5", "assistant_class": "standard",
 	}
@@ -67,7 +67,7 @@ func TestTheBuiltInSpendPolicyStatesEveryKeyWithItsDefault(t *testing.T) {
 	}
 	for _, line := range []string{
 		`soft_quantile = "p85"`, "hard_multiplier = 2.0", "low_confidence_outcomes = 6", "no_history_limit = { small = 10.0, medium = 25.0, large = 60.0 }",
-		"project_daily_limit = 0.0", "repeat_limit = 3", `waiting_alert_window = "30m"`, `assistant_class = "standard"`,
+		"project_daily_limit = 0.0", "consultation_limit = 2.0", "repeat_limit = 3", `waiting_alert_window = "30m"`, `assistant_class = "standard"`,
 		"wait_rule_patterns = { W1 = [], W2 = [], W3 = [], W4 = [] }",
 	} {
 		if !strings.Contains(authority.BuiltInSpendPolicyBody, line+"\n") {
@@ -99,6 +99,7 @@ func TestEachSpendKeyHasItsRange(t *testing.T) {
 		{"project_weekly_limit", []string{"-5"}, []string{"0", "900"}},
 		{"project_warn_share", []string{"-1", "1.2"}, []string{"0.8"}},
 		{"assistant_daily_warn", []string{"-1"}, []string{"3"}},
+		{"consultation_limit", []string{"-1", "1000001"}, []string{"0", "2", "1000000"}},
 		{"budget_flag_headroom_share", []string{"-0.1", "1.1"}, []string{"0", "0.25"}},
 		{"repeat_limit", []string{"1", "21", "x"}, []string{"2", "20"}},
 		{"repeat_denials_to_park", []string{"0", "11"}, []string{"1", "10"}},
