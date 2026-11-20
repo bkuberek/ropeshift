@@ -547,11 +547,13 @@ const (
 	ReadyWaitsForWorker = "no_worker"
 )
 
-// The caps ReadyWait.Cap names, by the name a fleet's caps carry.
+// The caps ReadyWait.Cap names, by the name a fleet's caps or the autonomy policy carry.
 const (
 	CapWorkInProgress     = "wip_limit"
 	CapLanesPerRepository = "lanes_per_repository"
 	CapLanesPerWorker     = "lanes_per_worker"
+	// CapRespawnsPerDay is the bound on the generations a day of a woken lane on a worker below unattended.
+	CapRespawnsPerDay = "attended_max_respawns_per_day"
 )
 
 // ReadyWait says why no worker's orchestrator claims a ready work order now: what the fleet, the caps, and each

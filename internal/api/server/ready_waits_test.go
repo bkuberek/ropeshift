@@ -121,3 +121,30 @@ func TestReadyWorkNamesTheWorkerNearestToClaimingIt(t *testing.T) {
 		"wo-gpu": {Reason: api.ReadyWaitsForWorker},
 	})
 }
+
+// Work a wake made ready is claimed by the worker that held its lane, with nobody there and no orchestrator, so the
+// level, the run window, and the orchestrator hold none of it. The bound on a lane's generations a day does, and so
+// does the worker's cap.
+func TestWokenWorkWaitsOnlyOnWhatBoundsAWake(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	ctx := t.Context()
+	w.Running("wo-woken", "Finish the import").Park(`{"human_resume":true}`)
+	if _, err := control.NewWakes(d.Store).ResumeWork(ctx, apitest.Scope, "wo-woken", talkMember); err != nil {
+		t.Fatal(err)
+	}
+	w.Ready("wo-fresh", "Write the guide")
+	fresh := api.ReadyWait{Reason: api.ReadyWaitsForOrchestrator, Worker: apitest.WorldWorker, WorkerName: "solo"}
+	waitsFor(t, d, "an attended worker with no window and no orchestrator", map[string]api.ReadyWait{"wo-fresh": fresh})
+	bound := authority.DefaultAutonomyPolicy()
+	bound.Version, bound.AttendedMaxRespawnsPerDay = 2, 1
+	draft := authority.AutonomyDraft{Body: "[autonomy_policy]\nversion = 2\n", Policy: bound}
+	if _, err := control.NewAutonomy(d.Store).PublishAutonomyPolicy(ctx, apitest.Scope, draft, talkMember); err != nil {
+		t.Fatal(err)
+	}
+	waitsFor(t, d, "a lane past the day's generations", map[string]api.ReadyWait{
+		"wo-fresh": fresh,
+		"wo-woken": {Reason: api.ReadyWaitsForCap, Worker: apitest.WorldWorker, WorkerName: "solo", Cap: api.CapRespawnsPerDay},
+	})
+}

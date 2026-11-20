@@ -8,7 +8,8 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// ReadyWait says why no worker's orchestrator claims a ready work order now (FR-UI-13). The control plane reads it
+// ReadyWait says why no worker claims a ready work order now (FR-UI-13): its orchestrator, or for work a wake made
+// ready, the worker itself. The control plane reads it
 // at the time of a read from what a claim reads, and no event holds it. The values after ReadyClaims run from the
 // wait nearest to a claim to the farthest, which is the order a read compares workers in.
 type ReadyWait int
@@ -39,6 +40,8 @@ const (
 	CapWorkInProgress = "work_in_progress"
 	CapRepository     = "repository"
 	CapWorker         = "worker"
+	// CapRespawns is the bound on the generations a day of a woken lane, on a worker below unattended.
+	CapRespawns = "respawns"
 )
 
 // ReadyWaitFact is a ready work order's wait, with the worker it is one worker's wait on, the cap a cap's wait
@@ -50,17 +53,22 @@ type ReadyWaitFact struct {
 	Fleet  ledger.FleetMode
 }
 
-// readyWorker is what one worker's claim of any work order reads, once for every work order.
+// readyWorker is what one worker's claim of any work order reads, once for every work order. fresh is the wait of work no
+// wake made ready, which its orchestrator claims; capped says the worker holds as many lanes as it may; and respawns is
+// the bound on a woken lane's generations a day, where zero means none.
 type readyWorker struct {
-	record ledger.WorkerRecord
-	wait   ReadyWait
-	limit  int64
+	record   ledger.WorkerRecord
+	fresh    ReadyWait
+	capped   bool
+	respawns int64
 }
 
-// ReadyWaits reads, for each ready work order of these that no worker's orchestrator will claim, why not. It holds
-// the checks a claim no member made is held to, in their order: the fleet, the project's spend, the workspace's
-// caps, and then for each worker that can run the work, its level, its orchestrator, its run window, and its cap.
-// With several workers it names the one nearest to claiming, so what a member does about it lets that one claim.
+// ReadyWaits reads, for each ready work order of these that no worker will claim, why not. It holds the checks a claim
+// no member made is held to, in their order: the fleet, the project's spend, the workspace's caps, and then for each
+// worker that can run the work, its level, its orchestrator, its run window, and its cap. Work a wake made ready is
+// claimed by the worker that holds its lane, with nobody there and no orchestrator, so the level, the window, and the
+// orchestrator hold none of it, and the bound on its lane's generations a day does (holdToAutonomy). With several
+// workers it names the one nearest to claiming, so what a member does about it lets that one claim.
 func (w *Workers) ReadyWaits(tx ports.ReadTx, orders []workorders.WorkOrder) (map[string]ReadyWaitFact, error) {
 	var ready []workorders.WorkOrder
 	inProgress, inRepository, onWorker := int64(0), map[string]int64{}, map[string]int64{}
@@ -98,12 +106,16 @@ func (w *Workers) ReadyWaits(tx ports.ReadTx, orders []workorders.WorkOrder) (ma
 		}
 		return out, nil
 	}
-	workers, err := readyWorkers(tx, workspace, onWorker)
+	now, err := tx.Now()
+	if err != nil {
+		return nil, err
+	}
+	workers, err := readyWorkers(tx, workspace, onWorker, now)
 	if err != nil {
 		return nil, err
 	}
 	for _, order := range ready {
-		fact, err := readyWaitOf(tx, order, workers)
+		fact, err := readyWaitOf(tx, order, workers, now)
 		if err != nil {
 			return nil, err
 		}
@@ -121,12 +133,8 @@ func (w *Workers) ReadyWaits(tx ports.ReadTx, orders []workorders.WorkOrder) (ma
 }
 
 // readyWorkers reads each worker's standing, orchestrator, and cap once.
-func readyWorkers(tx ports.ReadTx, workspace ledger.Workspace, onWorker map[string]int64) ([]readyWorker, error) {
+func readyWorkers(tx ports.ReadTx, workspace ledger.Workspace, onWorker map[string]int64, now int64) ([]readyWorker, error) {
 	list, err := tx.Workers().List()
-	if err != nil {
-		return nil, err
-	}
-	now, err := tx.Now()
 	if err != nil {
 		return nil, err
 	}
@@ -144,16 +152,17 @@ func readyWorkers(tx ports.ReadTx, workspace ledger.Workspace, onWorker map[stri
 		if err != nil {
 			return nil, err
 		}
-		line := readyWorker{record: record, limit: tighter(tighter(workspace.WorkerLimit, record.LaneCap()), facts.lanes())}
+		limit := tighter(tighter(workspace.WorkerLimit, record.LaneCap()), facts.lanes())
+		line := readyWorker{record: record, capped: limit != 0 && onWorker[worker.ID] >= limit, respawns: facts.respawns()}
 		switch {
 		case !facts.standing.MayWork():
-			line.wait = ReadyManual
+			line.fresh = ReadyManual
 		case !running:
-			line.wait = ReadyNoOrchestrator
+			line.fresh = ReadyNoOrchestrator
 		case !facts.standing.MayClaim():
-			line.wait = ReadyNoRunWindow
-		case line.limit != 0 && onWorker[worker.ID] >= line.limit:
-			line.wait = ReadyCapReached
+			line.fresh = ReadyNoRunWindow
+		case line.capped:
+			line.fresh = ReadyCapReached
 		}
 		out = append(out, line)
 	}
@@ -172,24 +181,64 @@ func orchestratorWanted(tx ports.ReadTx, worker string) (bool, error) {
 	return false, err
 }
 
-// readyWaitOf is the wait of the worker nearest to claiming a work order, among those that can run it.
-func readyWaitOf(tx ports.ReadTx, order workorders.WorkOrder, workers []readyWorker) (ReadyWaitFact, error) {
+// readyWaitOf is the wait of the worker nearest to claiming a work order, among those that can run it. A lane the ledger
+// does not hold admits no worker, so work that resumes one waits for a worker and fails no read.
+func readyWaitOf(tx ports.ReadTx, order workorders.WorkOrder, workers []readyWorker, now int64) (ReadyWaitFact, error) {
 	nearest := ReadyWaitFact{Wait: ReadyNoWorker}
+	today := int64(-1)
 	for _, line := range workers {
 		if runs, _ := line.record.Manifest.Runs(order.Needs); !runs {
 			continue
 		}
 		admitted, err := admitsResume(tx.Lanes(), order, line.record.ID)
-		if err != nil {
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			continue
+		case err != nil:
 			return ReadyWaitFact{}, err
-		}
-		if !admitted || line.wait >= nearest.Wait {
+		case !admitted:
 			continue
 		}
-		nearest = ReadyWaitFact{Wait: line.wait, Worker: line.record.Worker}
-		if line.wait == ReadyCapReached {
-			nearest.Cap = CapWorker
+		wait, capName := line.fresh, CapWorker
+		if order.ResumeLaneID != "" {
+			if today < 0 {
+				if today, err = generationsToday(tx.Lanes(), order.ResumeLaneID, now); err != nil {
+					return ReadyWaitFact{}, err
+				}
+			}
+			wait = ReadyClaims
+			switch {
+			case line.respawns != 0 && today >= line.respawns:
+				wait, capName = ReadyCapReached, CapRespawns
+			case line.capped:
+				wait = ReadyCapReached
+			}
+		}
+		if wait >= nearest.Wait {
+			continue
+		}
+		nearest = ReadyWaitFact{Wait: wait, Worker: line.record.Worker}
+		if wait == ReadyCapReached {
+			nearest.Cap = capName
 		}
 	}
 	return nearest, nil
+}
+
+// generationsToday counts the generations a lane started in the day before a time, as the bound on respawns does.
+func generationsToday(lanes ports.LaneReader, lane string, now int64) (int64, error) {
+	generations, err := lanes.Generations(lane)
+	if errors.Is(err, ports.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var today int64
+	for _, generation := range generations {
+		if now-generation.StartedAt < dayMs {
+			today++
+		}
+	}
+	return today, nil
 }

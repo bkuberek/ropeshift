@@ -23,10 +23,11 @@ var readyCaps = map[string]string{
 	control.CapWorkInProgress: api.CapWorkInProgress,
 	control.CapRepository:     api.CapLanesPerRepository,
 	control.CapWorker:         api.CapLanesPerWorker,
+	control.CapRespawns:       api.CapRespawnsPerDay,
 }
 
-// readyWaits says why each ready work order that no worker's orchestrator will claim waits, and holds nothing when
-// every one will be claimed.
+// readyWaits says why each ready work order that no worker will claim waits, and holds nothing when every one will be
+// claimed.
 func (h *handler) readyWaits(tx ports.ReadTx, orders []workorders.WorkOrder) (map[string]api.ReadyWait, error) {
 	facts, err := h.workers.ReadyWaits(tx, orders)
 	if err != nil || len(facts) == 0 {
