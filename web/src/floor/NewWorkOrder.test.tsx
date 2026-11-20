@@ -77,7 +77,7 @@ describe("creating a work order", () => {
     await userEvent.type(field(box, "Depends on"), "wo-1, wo-2{Enter}wo-1");
     await userEvent.type(field(box, "Requirements"), "FR-A-1 FR-B.2");
     await waitFor(() => expect(within(within(box).getByRole("combobox", { name: "Agent" })).getAllByRole("option").length).toBeGreaterThan(1));
-    await userEvent.selectOptions(within(box).getByRole("combobox", { name: "Agent" }), "reasoning");
+    await userEvent.selectOptions(within(box).getByRole("combobox", { name: "Agent" }), "heavy-implementation");
     await userEvent.selectOptions(within(box).getByRole("combobox", { name: "Size" }), "small");
     await userEvent.type(field(box, "Priority"), "3");
     await userEvent.type(field(box, "Work order ID (optional)"), "wo-form");
@@ -92,7 +92,7 @@ describe("creating a work order", () => {
       repository_id: "id-api",
       depends_on: ["wo-1", "wo-2"],
       requirements: ["FR-A-1", "FR-B.2"],
-      agent: "reasoning",
+      agent: "heavy-implementation",
       size: "small",
       priority: 3,
     });

@@ -388,7 +388,7 @@
     "guide": "Hand work to the agents below when it makes the work cheaper or better, and do it yourself when it does not.\n\n- Choose the lightest agent that does the task reliably the first time.\n- Give an agent below the standard class a complete written spec: the files, the change, and how to check it.\n- Move up one tier only after an agent actually failed at the task, never in anticipation.\n- An agent that needs approval for each start waits for that approval, so start one only when the work needs it.\n- Use one writing agent at a time for each piece of work, and never two on the same files.\n- Read each agent's report, and check its claims against the work before you build on them.",
     "guide_source": "builtin",
     "defaults": {
-      "plan": "reasoning",
+      "plan": "heavy-implementation",
       "contract_review": "analysis",
       "review": "review",
       "change": {
@@ -397,6 +397,6 @@
         "small": "light-implementation"
       }
     },
-    "digest": "sha256:ab2c43f186dfce59997bcdd17b0af7b5f0a75ce115010ad5f7640a188d4657fe"
+    "digest": "sha256:8e498fefc86a31b3a9b7f2bce9f14aed909f21f4afe8d1c34cd711e1f7290327"
   }
 }
