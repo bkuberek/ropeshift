@@ -804,6 +804,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if report, failed := r.restructure(ctx, repository, prepared.Worktree.Path); failed {
 		return report
 	}
+	r.ignoreDecided(ctx, prepared.Worktree.Path)
 	r.startingInstructions(ctx, repository)
 	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)

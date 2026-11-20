@@ -52,6 +52,9 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := checkRung(tx, question, record, policy); err != nil {
 			return err
 		}
+		if err := questions.CheckLeftFileRuling(question, &record); err != nil {
+			return err
+		}
 		if record.Scope == "" {
 			record.Scope = questions.ScopeOf(question.SubjectKind, question.SubjectID)
 		} else if err := checkHeld(tx, record.Scope); err != nil {
@@ -188,9 +191,20 @@ func stamp(reader ports.QuestionReader, facts *scopeFacts, record *questions.Dec
 	if err != nil {
 		return err
 	}
+	path, err := leftFilePath(reader, *record)
+	if err != nil {
+		return err
+	}
 	record.Overlaps = nil
 	for _, row := range overlapping {
-		record.Overlaps = append(record.Overlaps, row.ID)
+		other, err := leftFilePath(reader, row)
+		if err != nil {
+			return err
+		}
+		// A decision on a path a lane left out overlaps only one on the same path, and no other kind of decision.
+		if other == path {
+			record.Overlaps = append(record.Overlaps, row.ID)
+		}
 	}
 	return nil
 }

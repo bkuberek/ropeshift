@@ -376,6 +376,14 @@ var shellKeywords = []string{"if", "then", "elif", "else", "do", "while", "until
 // shells take a command as an argument.
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh"}
 
+// Pushes says a shell command runs git push, however deep it stands, which is what the worker reads a lane's
+// commits for before it lets the push ask anyone (FR-LANE-20).
+func Pushes(command string) bool {
+	var seen gitSeen
+	_, _ = DenyPolicy{}.decideShell(command, "", 0, &seen)
+	return seen.pushes
+}
+
 // gitSeen is what one call's commands did with git, however deep they stood. A stage and a commit run
 // with no prompt and a push does not, so a push that shares a call with them would lean on the CLI's
 // reading of a compound command to reach a person. A hook reads that on its own.
