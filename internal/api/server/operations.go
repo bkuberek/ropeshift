@@ -247,6 +247,9 @@ var routeOperations = map[string]routeOperation{
 	// A read of a request a member made of a worker is the member's alone, as the request is.
 	"GET /v1/workers/{id}/template-writes/{request}":     fixed(authority.OpTemplateWrite),
 	"GET /v1/workers/{id}/forge-account-reads/{request}": fixed(authority.OpRepositoryCreateRemote),
+
+	// Accepting a worker's one-way acknowledgement is a member's word, as acknowledging the stated risk is (FR-QD-8).
+	"POST /v1/workers/{id}/autonomy/one-way-acknowledgement": fixed(authority.OpAutonomyAcknowledgeOneWay),
 }
 
 var repositoryOperations = []string{

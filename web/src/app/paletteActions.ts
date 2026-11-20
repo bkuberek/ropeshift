@@ -41,6 +41,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/workers/tokens/{id}/revoke": { title: "Revoke join token", at: home, group: true },
   "PUT /v1/workers/{id}/autonomy": autonomy,
   "POST /v1/workers/{id}/autonomy/acknowledgement": autonomy,
+  "POST /v1/workers/{id}/autonomy/one-way-acknowledgement": autonomy,
   "POST /v1/workers/{id}/windows": autonomy,
   "DELETE /v1/workers/{id}/windows": autonomy,
   "PUT /v1/workers/{id}/caps": { title: "Settings: Admission and lane caps", at: home },

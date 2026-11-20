@@ -409,12 +409,17 @@ func (w *Workers) nextQuestion(ctx context.Context, actor ledger.Actor) (*Ladder
 }
 
 // yours says what an orchestrator settles of a question it took, by the rule its calls are held to: the decision
-// policy keeps whole categories for a member, and an unattended worker's orchestrator decides every other choice,
-// a one-way one too, so that only a conflict between requirements or a change of scope reaches a member (FR-QD-8).
+// policy keeps whole categories for a member, and an unattended worker's orchestrator, once a member accepted its
+// one-way acknowledgement, decides every other choice, a one-way one too, so that only a conflict between requirements
+// or a change of scope reaches a member (FR-QD-8).
 func (w *Workers) yours(ctx context.Context, question questions.Question, actor ledger.Actor) (string, error) {
+	by, err := readParty(ctx, w.store, w.scope, actor)
+	if err != nil {
+		return "", err
+	}
 	var policy questions.Policy
 	var unattended bool
-	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		var err error
 		if policy, err = readPolicy(tx); err != nil {
 			return err
@@ -423,7 +428,7 @@ func (w *Workers) yours(ctx context.Context, question questions.Question, actor 
 		if err != nil {
 			return err
 		}
-		unattended, err = runsUnattended(tx.Policies(), tx.Workers(), actor, now)
+		unattended, err = standsUnattended(tx.Policies(), tx.Workers(), actor, now)
 		return err
 	})
 	if err != nil {
@@ -433,6 +438,10 @@ func (w *Workers) yours(ctx context.Context, question questions.Question, actor 
 	case !policy.MayDecide(question):
 		return fmt.Sprintf("The decision policy keeps %v for a member. Answer it from a decision on record, attach it to an open "+
 			"question that asks the same, or escalate it with your recommendation.", keptCategories(policy, question)), nil
+	case unattended && !by.oneWayAccepted:
+		return "This worker is unattended, but no member has accepted its one-way acknowledgement, so a one-way choice still " +
+			"goes to a member. Decide or assume a choice that can be undone, and record why. Escalate a one-way choice, a conflict " +
+			"between requirements, or a change of scope.", nil
 	case unattended:
 		return "This worker is unattended, so a member left this question to you. Decide it from the goals, requirements, and " +
 			"contracts, or assume a choice that can be undone, and record why. A one-way choice is yours too: record it decided, with " +

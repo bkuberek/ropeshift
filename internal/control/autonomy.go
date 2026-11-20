@@ -105,12 +105,61 @@ func holdToAutonomy(tx ports.WriteTx, record ledger.WorkerRecord, order workorde
 	return facts.lanes(), nil
 }
 
+// party is who records a decision or escalates a question, and whether a member accepted the one-way acknowledgement of
+// the worker it runs as. The installation's log holds that acceptance, which a project transaction cannot read, so a
+// call reads it before it writes (FR-QD-8).
+type party struct {
+	ledger.Actor
+	oneWayAccepted bool
+}
+
+// readParty reads what a call needs of its actor before its transaction opens. Only an orchestrator decides as its
+// worker, so any other actor has no acknowledgement to read.
+func readParty(ctx context.Context, store ports.Store, scope ledger.WorkspaceID, actor ledger.Actor) (party, error) {
+	by := party{Actor: actor}
+	if authority.PartyOf(actor) != authority.PartyOrchestrator {
+		return by, nil
+	}
+	err := store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
+		accepted, err := oneWayAcceptance(tx, actor.ID)
+		by.oneWayAccepted = accepted != nil
+		return err
+	})
+	return by, err
+}
+
+// oneWayAcceptance reads a worker's acceptance of its one-way acknowledgement from the installation's log, which holds
+// it as an event and nowhere else, or nil.
+func oneWayAcceptance(tx ports.SharedReadTx, worker string) (*authority.OneWayAcknowledgement, error) {
+	for after := int64(0); ; {
+		page, err := tx.Events(after, eventPage)
+		if err != nil {
+			return nil, err
+		}
+		accepted, err := authority.OneWayAccepted(page, worker)
+		if err != nil || accepted != nil || len(page) < eventPage {
+			return accepted, err
+		}
+		after = page[len(page)-1].Rev
+	}
+}
+
 // runsUnattended says an actor is the orchestrator of a worker that stands at unattended, which a member set so that it
-// runs the work with nobody there: it decides every choice the decision policy leaves it, a one-way one too (FR-QD-8).
-// Any other actor, and an orchestrator no worker record names, such as the probe of what the policy allows, is held as
-// one a member attends.
-func runsUnattended(policies ports.PolicyReader, workers ports.WorkerReader, actor ledger.Actor, now int64) (bool, error) {
-	if actor.Kind != ledger.ActorOrchestrator {
+// runs the work with nobody there, and whose one-way acknowledgement a member accepted: it decides every choice the
+// decision policy leaves it, a one-way one too (FR-QD-8). Any other actor, an orchestrator whose acknowledgement waits
+// for a member, and an orchestrator no worker record names, such as the probe of what the policy allows, is held as one
+// a member attends.
+func runsUnattended(policies ports.PolicyReader, workers ports.WorkerReader, by party, now int64) (bool, error) {
+	if !by.oneWayAccepted {
+		return false, nil
+	}
+	return standsUnattended(policies, workers, by.Actor, now)
+}
+
+// standsUnattended says an actor is the orchestrator of a worker that stands at unattended, whatever its one-way
+// acknowledgement says.
+func standsUnattended(policies ports.PolicyReader, workers ports.WorkerReader, actor ledger.Actor, now int64) (bool, error) {
+	if authority.PartyOf(actor) != authority.PartyOrchestrator {
 		return false, nil
 	}
 	record, err := workers.Find(actor.ID)
@@ -169,10 +218,15 @@ func (a *Autonomy) View(ctx context.Context, scope ledger.WorkspaceID, worker st
 		if err != nil {
 			return err
 		}
+		accepted, err := oneWayAcceptance(tx, worker)
+		if err != nil {
+			return err
+		}
 		view = authority.AutonomyView{
 			AsOf: now, WorkerID: worker, SignIn: record.Manifest.SignInKind(), Level: facts.standing.Level, Chosen: facts.setting.Level,
 			Acknowledged: facts.setting.Acknowledged(), Window: facts.window, MayClaim: facts.standing.MayClaim(),
 			MaxLanes: facts.lanes(), MaxRespawnsPerDay: facts.respawns(),
+			OneWay: authority.OneWayStanding{Statement: authority.OneWayStatement, Digest: authority.OneWayDigest(), Accepted: accepted},
 		}
 		return nil
 	})
@@ -252,6 +306,40 @@ func (a *Autonomy) AcknowledgeRisk(ctx context.Context, scope ledger.WorkspaceID
 		}
 		crashpoint.Hit("autonomy.acknowledge", "saved")
 		return appendAutonomy(tx, authority.EventRiskAcknowledged, worker, setting, actor)
+	})
+}
+
+// AcknowledgeOneWay records that a member accepted a worker's one-way acknowledgement, the statement its digest names,
+// which lets the worker's orchestrator at unattended decide a one-way question the decision policy leaves it (FR-QD-8).
+// Every worker needs it, one on an API key too, and it stands apart from the stated risk. The event is its only record,
+// and its ID names the worker and the statement, so a second acceptance of the same statement records nothing.
+func (a *Autonomy) AcknowledgeOneWay(ctx context.Context, scope ledger.WorkspaceID, worker, digest string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionAcknowledgeRisk) {
+		return workorders.ErrForbidden
+	}
+	if digest != authority.OneWayDigest() {
+		return fmt.Errorf("%w: run ropeshift worker autonomy, and read the one-way acknowledgement it prints", authority.ErrStaleStatement)
+	}
+	return a.store.Installation(scope).Write(ctx, "autonomy.acknowledge_one_way", func(tx ports.SharedTx) error {
+		if _, err := tx.Workers().Find(worker); err != nil {
+			return err
+		}
+		id := authority.OneWayEventID(worker, digest)
+		switch _, err := tx.Event(id); {
+		case err == nil:
+			return nil
+		case !errors.Is(err, ports.ErrNotFound):
+			return err
+		}
+		event, err := authority.AutonomyEvent(authority.EventOneWayAcknowledged, worker, authority.OneWayAcknowledgement{
+			WorkerID: worker, By: actor.ID, Digest: digest, At: tx.Now(),
+		}, actor)
+		if err != nil {
+			return err
+		}
+		event.ID = id
+		_, err = tx.Append(event)
+		return err
 	})
 }
 

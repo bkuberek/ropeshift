@@ -82,6 +82,13 @@
       "never_reason": "Autonomy is policy, which only a member changes."
     },
     {
+      "id": "autonomy.acknowledge_one_way",
+      "label": "Accept the one-way acknowledgement",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Autonomy is policy, which only a member changes."
+    },
+    {
       "id": "autonomy.window",
       "label": "Open or close a run window",
       "class": "consent",

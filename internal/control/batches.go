@@ -265,7 +265,7 @@ func (q *Questions) decide(tx ports.WriteTx, id string, record questions.Decisio
 		}
 		record.Reversibility = questions.OneWay
 	}
-	if err := admit(tx, &record, policy, actor); err != nil {
+	if err := admit(tx, &record, policy, party{Actor: actor}); err != nil {
 		return questions.Decision{}, err
 	}
 	if err := q.recordAdmitted(tx, record, boundAnswered, actor, channel); err != nil {
