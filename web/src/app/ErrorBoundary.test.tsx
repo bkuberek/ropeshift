@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { lazy, Suspense } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,8 +20,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // A test that stubs sessionStorage leaves its stub until the stubs go, so they go before the real one is cleared.
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   sessionStorage.clear();
+  document.body.replaceChildren();
 });
 
 describe("isStaleChunk", () => {
@@ -137,6 +140,66 @@ describe("the error boundary", () => {
   });
 });
 
+describe("the failure on screen", () => {
+  it("names what failed in a heading and moves focus there, so a keyboard or a screen reader lands on it", async () => {
+    render(
+      <ErrorBoundary scope="page" name="Overview">
+        <Broken message="boom" />
+      </ErrorBoundary>,
+    );
+    const heading = screen.getByRole("heading", { level: 1, name: /Overview could not be shown/ });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+  });
+
+  it("gives the whole-application failure the main landmark the skip link goes to", () => {
+    render(
+      <ErrorBoundary scope="app">
+        <Broken message="boom" />
+      </ErrorBoundary>,
+    );
+    const main = screen.getByRole("main");
+    expect(main.id).toBe("main");
+    expect(main.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("does not reload by itself while something a person wrote is not sent, and says so", async () => {
+    const reload = vi.spyOn(reloading, "now").mockImplementation(() => {});
+    const draft = document.createElement("textarea");
+    draft.value = "Use the hosted runner, because";
+    document.body.append(draft);
+    const Page = lazy(() => Promise.reject(new TypeError(staleMessage)));
+    render(
+      <ErrorBoundary scope="page" name="Agents">
+        <Suspense fallback={null}>
+          <Page />
+        </Suspense>
+      </ErrorBoundary>,
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("ropeshift was updated");
+    expect(alert.textContent).toContain("did not reload by itself");
+    expect(reload).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("ropeshift:reloaded-for-update")).toBeNull();
+  });
+
+  it("reloads by itself when what is written is empty", async () => {
+    const reload = vi.spyOn(reloading, "now").mockImplementation(() => {});
+    const draft = document.createElement("textarea");
+    draft.value = "   ";
+    document.body.append(draft);
+    const Page = lazy(() => Promise.reject(new TypeError(staleMessage)));
+    render(
+      <ErrorBoundary scope="page" name="Agents">
+        <Suspense fallback={null}>
+          <Page />
+        </Suspense>
+      </ErrorBoundary>,
+    );
+    await screen.findByRole("alert");
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("reloadOnceForUpdate", () => {
   it("reloads again once the guard is old, because a new update is a new reason", () => {
     const reload = vi.spyOn(reloading, "now").mockImplementation(() => {});
@@ -151,7 +214,7 @@ describe("reloadOnceForUpdate", () => {
     const blocked = () => {
       throw new Error("blocked");
     };
-    vi.stubGlobal("sessionStorage", { getItem: blocked, setItem: blocked });
+    vi.stubGlobal("sessionStorage", { getItem: blocked, setItem: blocked, clear: () => {} });
     expect(reloadOnceForUpdate(1_000)).toBe(false);
     expect(reload).not.toHaveBeenCalled();
   });

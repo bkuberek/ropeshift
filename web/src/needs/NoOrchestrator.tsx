@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
-import { readView } from "../api/client";
-import type { ShopFloor, WorkerLine } from "../api/types";
+import type { WorkerLine } from "../api/types";
 import { running } from "../floor/Installation";
 import { OrchestratorStart } from "../floor/OrchestratorStart";
 import { useClock, ViewTime } from "../parts/parts";
 import { Banner } from "../ui/display";
+import { floorSnapshot, refreshFloor, subscribeFloor } from "./floorStore";
 
 // judging are the states an orchestrator judges in: those of a run, less backoff, where it waits out a failure.
 const judging = new Set([...running].filter((state) => state !== "backoff"));
@@ -15,38 +15,18 @@ const judging = new Set([...running].filter((state) => state !== "backoff"));
 export const runsOrchestrator = (line: WorkerLine) =>
   line.freshness === "observed" && line.orchestrator?.desired_state === "running" && judging.has(line.orchestrator.actual_state ?? "");
 
-// While the notice stands, it reads the floor again this often. A worker reports its orchestrator's state a moment after
-// a start, and no ledger event announces that, so a notice that read once would stand after the orchestrator runs. While
-// no notice stands, it still looks, more seldom, so one comes back when the orchestrator stops.
-const noticeRecheckMs = 3_000;
-const quietRecheckMs = 15_000;
-
 // NoOrchestrator tells a member that no orchestrator is judging the questions that wait, and offers both ways on:
 // answer them here as the orchestrator would, or start an orchestrator on a worker, with what keeps each from starting
 // beside its control. It reads the floor, and says nothing while any worker's orchestrator judges, because that one
-// takes what is still open. With no worker at all, it says there is none to start one on. It keeps reading the floor, so
-// the notice goes away once an orchestrator starts, and a read that fails leaves what it last read standing.
+// takes what is still open. With no worker at all, it says there is none to start one on. Every copy of the notice
+// follows one shared read of the floor, which goes on while a copy shows, so the notice goes away once an orchestrator
+// starts, and a read that fails leaves what it last read standing.
 export function NoOrchestrator({ what }: { what: string }) {
-  const [floor, setFloor] = useState<ShopFloor>();
-  const [readAt, setReadAt] = useState(0);
+  const { floor, readAt } = useSyncExternalStore(subscribeFloor, floorSnapshot);
   const now = useClock();
-  const read = useCallback(async () => {
-    try {
-      setFloor(await readView<ShopFloor>("shop-floor"));
-      setReadAt(Date.now());
-    } catch {
-      // The notice keeps what it last read until a read answers.
-    }
-  }, []);
-  useEffect(() => {
-    void read();
-  }, [read]);
+  const read = useCallback(() => refreshFloor(true), []);
   const lines = floor?.workers ?? [];
   const standing = floor !== undefined && !lines.some(runsOrchestrator);
-  useEffect(() => {
-    const timer = setInterval(() => void read(), standing ? noticeRecheckMs : quietRecheckMs);
-    return () => clearInterval(timer);
-  }, [read, standing]);
   if (!floor || !standing) {
     return null;
   }
