@@ -588,39 +588,31 @@ func wakeStuckWork(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 // laneReportLimit bounds what a wake quotes of a lane's report, so one long report does not fill a wake.
 const laneReportLimit = 600
 
+// stuckEnds are the ends of a lane that leave its work failed or blocked.
+var stuckEnds = []workorders.Trigger{workorders.TriggerLaneFailed, workorders.TriggerLaneBlocked, workorders.TriggerAttemptsExhausted}
+
 // laneReported states what the lane said when it ended the work it failed or blocked, which an orchestrator reads to
-// judge a retry and can give as its reason. It reads the last edge that ended a lane, and says nothing when that edge
-// carries no reason. A lane wrote the text, so it is a claim the orchestrator weighs, as a question's text is.
+// judge a retry and can give as its reason. It reads how the work's last lane ended, and says nothing when that lane
+// did not fail or block it, so a later lane's end never leaves an earlier lane's report standing, or when its end
+// carries no reason. A lane wrote the text, so it is a claim the orchestrator weighs, as a question's text is, and it
+// reads as text a stranger wrote: plain, with each credential's shape redacted before the cut (ADR-0037).
 func laneReported(tx ports.ReadTx, order string) (string, error) {
-	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: order})
-	if err != nil {
+	ended, err := lastLaneEnd(tx, order)
+	if err != nil || !slices.Contains(stuckEnds, ended.Trigger) {
 		return "", err
 	}
-	ended := map[string]bool{
-		workorders.EventType(workorders.TriggerLaneFailed): true, workorders.EventType(workorders.TriggerLaneBlocked): true,
-		workorders.EventType(workorders.TriggerAttemptsExhausted): true,
+	reason := strings.TrimSpace(ended.Reason)
+	if detail := strings.TrimSpace(ended.Detail); detail != "" {
+		reason = strings.TrimSpace(reason + " " + detail)
 	}
-	for _, event := range slices.Backward(events) {
-		if !ended[event.Type] {
-			continue
-		}
-		var change workorders.Change
-		if err := json.Unmarshal(event.Data, &change); err != nil {
-			return "", err
-		}
-		reason := strings.TrimSpace(change.Reason)
-		if detail := strings.TrimSpace(change.Detail); detail != "" {
-			reason = strings.TrimSpace(reason + " " + detail)
-		}
-		if reason == "" {
-			return "", nil
-		}
-		if runes := []rune(reason); len(runes) > laneReportLimit {
-			reason = string(runes[:laneReportLimit]) + "…"
-		}
-		return ". Its lane reported: " + reason, nil
+	reason = strings.TrimSpace(ledger.SanitizeCIText(reason))
+	if reason == "" {
+		return "", nil
 	}
-	return "", nil
+	if runes := []rune(reason); len(runes) > laneReportLimit {
+		reason = string(runes[:laneReportLimit]) + "…"
+	}
+	return ". Its lane reported: " + reason, nil
 }
 
 // wakeApprovals is how an orchestrator reads a request: only what a member delegated reaches it, with

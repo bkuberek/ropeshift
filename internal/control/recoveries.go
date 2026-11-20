@@ -111,9 +111,14 @@ var laneEnds = []workorders.Trigger{
 	workorders.TriggerAttemptsExhausted,
 }
 
+// subjectEvents reads the events about one subject, which a read and a write both do.
+type subjectEvents interface {
+	EventsAbout(subject ledger.Subject) ([]ledger.Event, error)
+}
+
 // lastLaneEnd reads how a work order's last lane ended: the lane, its outcome, the reason it gave, and
 // what it reported. A work order no lane ended reads as nothing.
-func lastLaneEnd(tx ports.WriteTx, workOrder string) (workorders.Change, error) {
+func lastLaneEnd(tx subjectEvents, workOrder string) (workorders.Change, error) {
 	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: workOrder})
 	if err != nil {
 		return workorders.Change{}, err
