@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
-import { readView } from "../api/client";
-import type { ShopFloor, WorkerLine } from "../api/types";
+import type { WorkerLine } from "../api/types";
 import { running } from "../floor/Installation";
 import { OrchestratorStart } from "../floor/OrchestratorStart";
 import { useClock, ViewTime } from "../parts/parts";
 import { Banner } from "../ui/display";
+import { floorSnapshot, refreshFloor, subscribeFloor } from "./floorStore";
 
 // judging are the states an orchestrator judges in: those of a run, less backoff, where it waits out a failure.
 const judging = new Set([...running].filter((state) => state !== "backoff"));
@@ -18,24 +18,16 @@ export const runsOrchestrator = (line: WorkerLine) =>
 // NoOrchestrator tells a member that no orchestrator is judging the questions that wait, and offers both ways on:
 // answer them here as the orchestrator would, or start an orchestrator on a worker, with what keeps each from starting
 // beside its control. It reads the floor, and says nothing while any worker's orchestrator judges, because that one
-// takes what is still open. With no worker at all, it says there is none to start one on.
+// takes what is still open. With no worker at all, it says there is none to start one on. Every copy of the notice
+// follows one shared read of the floor, which goes on while a copy shows, so the notice goes away once an orchestrator
+// starts, and a read that fails leaves what it last read standing.
 export function NoOrchestrator({ what }: { what: string }) {
-  const [floor, setFloor] = useState<ShopFloor>();
-  const [readAt, setReadAt] = useState(0);
+  const { floor, readAt } = useSyncExternalStore(subscribeFloor, floorSnapshot);
   const now = useClock();
-  const read = useCallback(async () => {
-    try {
-      setFloor(await readView<ShopFloor>("shop-floor"));
-      setReadAt(Date.now());
-    } catch {
-      setFloor(undefined);
-    }
-  }, []);
-  useEffect(() => {
-    void read();
-  }, [read]);
+  const read = useCallback(() => refreshFloor(true), []);
   const lines = floor?.workers ?? [];
-  if (!floor || lines.some(runsOrchestrator)) {
+  const standing = floor !== undefined && !lines.some(runsOrchestrator);
+  if (!floor || !standing) {
     return null;
   }
   if (lines.length === 0) {

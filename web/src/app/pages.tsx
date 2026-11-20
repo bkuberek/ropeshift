@@ -32,6 +32,7 @@ import { StartReview } from "../planning/StartReview";
 import { StartSession } from "../planning/StartSession";
 import { RoadmapPage } from "../planning/Roadmap";
 import { Banner, EmptyState, SkeletonRows } from "../ui/display";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Link } from "./route";
 import type { View } from "./routes";
 import { titleOf } from "./routes";
@@ -217,12 +218,15 @@ type PageProps = {
 };
 
 // PageFor shows the view an address names. Needs you is not here, because it stays mounted behind every
-// other view, so a half-written answer survives a look elsewhere.
+// other view, so a half-written answer survives a look elsewhere. A page that fails to draw, or whose code is gone
+// because the daemon was updated, says so inside the shell and offers Reload, and never leaves an empty screen.
 export function PageFor(props: PageProps) {
   return (
-    <Suspense fallback={<Loading view={props.view} />}>
-      <ViewFor {...props} />
-    </Suspense>
+    <ErrorBoundary scope="page" name={titleOf(props.view)} reset={props.view}>
+      <Suspense fallback={<Loading view={props.view} />}>
+        <ViewFor {...props} />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

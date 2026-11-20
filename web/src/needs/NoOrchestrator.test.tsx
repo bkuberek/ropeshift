@@ -1,12 +1,13 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { NeedItem, NeedsYou as View, ShopFloor } from "../api/types";
 import { CurrentProject } from "../app/route";
 import { openPage } from "../opening";
 import { golden, goldenNeedsYou, here, refusal, serveApi, serveViews, testProject } from "../testing";
 import { NeedsYou } from "./NeedsYou";
+import { NoOrchestrator } from "./NoOrchestrator";
 
 // A question no orchestrator took within its batch window reaches Needs you from the core (FR-QD-3): its item says no
 // orchestrator judged it, lists what the core found by text as judged by nobody, and shows its ladder trace, and the
@@ -60,6 +61,10 @@ const serveFloor = (floor: ShopFloor, start: () => { status: number; body?: unkn
     }
     return undefined;
   });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("a question no orchestrator judged", () => {
   it("says so on its item, lists what was found by text, and shows its ladder trace", async () => {
@@ -182,5 +187,47 @@ describe("the starts the notice offers", () => {
     openPage("/questions");
     expect(await screen.findByText(/no worker is registered to start one on/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Start orchestrator/ })).toBeNull();
+  });
+
+  it("reads the floor once for every copy of the notice on a page, no faster than every five seconds", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const sent = serveFloor(floorWith());
+    const reads = () => sent.filter((call) => call.path.startsWith("/v1/views/shop-floor")).length;
+    render(
+      <CurrentProject.Provider value={testProject}>
+        <NoOrchestrator what="the first" />
+        <NoOrchestrator what="the second" />
+        <NoOrchestrator what="the third" />
+      </CurrentProject.Provider>,
+    );
+    await waitFor(() => expect(screen.getAllByText(/No orchestrator is judging/)).toHaveLength(3));
+    expect(reads()).toBe(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await waitFor(() => expect(reads()).toBe(2));
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(reads()).toBe(2);
+  });
+
+  it("goes away on its own once the orchestrator starts, with no reload, because the worker reports its state after the start", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let floor = floorWith();
+    serveViews((call) => (call.path.startsWith("/v1/views/shop-floor") ? { status: 200, body: floor } : undefined));
+    openPage("/questions");
+    expect(await screen.findByText(/No orchestrator is judging the questions that wait/)).toBeTruthy();
+    floor = floorWith("working");
+    await vi.advanceTimersByTimeAsync(6_000);
+    await waitFor(() => expect(screen.queryByText(/No orchestrator is judging/)).toBeNull());
+  });
+
+  it("comes back when the orchestrator that ran stops", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let floor = floorWith("working");
+    serveViews((call) => (call.path.startsWith("/v1/views/shop-floor") ? { status: 200, body: floor } : undefined));
+    openPage("/questions");
+    await screen.findByRole("article", { name: "Should the budget hold across restarts?" });
+    expect(screen.queryByText(/No orchestrator is judging/)).toBeNull();
+    floor = floorWith();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await screen.findByText(/No orchestrator is judging the questions that wait/)).toBeTruthy();
   });
 });
