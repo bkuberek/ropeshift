@@ -449,6 +449,11 @@ p + .kv {
   gap: var(--s-8);
 }
 
+.lane-group-gates {
+  margin: 0;
+  padding-left: var(--s-16);
+}
+
 .lane-group > ol {
   padding: 0;
   margin: 0;

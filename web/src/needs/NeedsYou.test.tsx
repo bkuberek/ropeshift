@@ -372,6 +372,25 @@ describe("the flow from one decision to the next", () => {
     expect(screen.getByText(/1 gate waits to be reviewed one by one/)).toBeTruthy();
   });
 
+  it("lists each gate Approve all leaves out by what it asks, above Approve all", async () => {
+    const { view, items } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "git push origin feature"],
+      ["L-88", "npx vitest run"],
+      ["L-88", "git tag v1"],
+    ]);
+    for (const gated of [items[1], items[3]]) {
+      if (gated) {
+        gated.approval.gate = true;
+      }
+    }
+    show(view);
+    const gates = screen.getByRole("list", { name: /^2 gates wait to be reviewed one by one/ });
+    expect(within(gates).getAllByRole("listitem").map((row) => row.textContent)).toEqual(["Allow git push origin feature?", "Allow git tag v1?"]);
+    const approveAll = screen.getByRole("button", { name: "Approve all 2" });
+    expect(gates.compareDocumentPosition(approveAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("says on a gate's card that it is approved one call at a time", async () => {
     const { view, items } = requests([["L-88", "git push origin feature"]]);
     const push = items[0];
