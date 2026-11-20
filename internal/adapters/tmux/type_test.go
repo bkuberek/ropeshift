@@ -32,14 +32,39 @@ func longText() string {
 // a long text typed as one argument fails with "command too long". The pane here asks for bracketed
 // paste, as Claude Code's does, so it receives the text as one paste, whole, with its newlines inside.
 func TestTypeDeliversATextTooLongForOneTmuxCommandAsOnePaste(t *testing.T) {
+	text := longText()
+	got := typeIntoRawPane(t, text, true)
+	// Line feeds stay line feeds: tmux would turn each into a carriage return without paste-buffer -r.
+	if want := pasteBegin + text + pasteEnd; got != want {
+		t.Errorf("the pane received %d bytes that differ from the %d pasted", len(got), len(want))
+	}
+}
+
+// A pane that did not ask for bracketed paste gets the text exactly as typed, with no markers and with
+// its line feeds kept.
+func TestTypeKeepsLineFeedsInAPaneWithBracketedPasteOff(t *testing.T) {
+	text := longText()
+	got := typeIntoRawPane(t, text, false)
+	if got != text {
+		t.Errorf("the pane received %d bytes that differ from the %d typed", len(got), len(text))
+	}
+}
+
+// typeIntoRawPane types the text into a pane that reads raw bytes, and returns what the pane received.
+func typeIntoRawPane(t *testing.T, text string, bracketed bool) string {
+	t.Helper()
 	doubles.RequireTmux(t)
 	terminal := doubles.PrivateTmux(t)
 	ctx := t.Context()
 	dir := t.TempDir()
 	received := filepath.Join(dir, "received.txt")
+	mode := ""
+	if bracketed {
+		mode = `printf '\033[?2004h'; `
+	}
 	// The pane reads raw bytes, so the line discipline neither limits a line nor echoes it, and it
 	// says when it is ready so no byte arrives before the mode is set.
-	script := `stty raw -echo; printf '\033[?2004h'; echo ready; cat > ` + received
+	script := `stty raw -echo; ` + mode + `echo ready; cat > ` + received
 	spec := ports.PaneSpec{Name: "type-g1", Dir: dir, Width: 80, Height: 10, Command: []string{"sh", "-c", script}}
 	if _, err := terminal.Open(ctx, spec); err != nil {
 		t.Fatal(err)
@@ -49,24 +74,20 @@ func TestTypeDeliversATextTooLongForOneTmuxCommandAsOnePaste(t *testing.T) {
 		screen, err := terminal.Capture(ctx, spec.Name)
 		return err == nil && strings.Contains(screen, "ready")
 	})
-
-	text := longText()
 	if err := terminal.Type(ctx, spec.Name, text); err != nil {
 		t.Fatal(err)
 	}
-	// tmux ends a pasted line with a carriage return, which is what Enter sends.
-	want := pasteBegin + strings.ReplaceAll(text, "\n", "\r") + pasteEnd
 	waitFor(t, func() bool {
 		got, err := os.ReadFile(received)
-		return err == nil && len(got) >= len(want)
+		return err == nil && len(got) >= len(text)
 	})
+	// Let a late byte land before reading the whole file.
+	time.Sleep(200 * time.Millisecond)
 	got, err := os.ReadFile(received)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != want {
-		t.Errorf("the pane received %d bytes that differ from the %d pasted", len(got), len(want))
-	}
+	return string(got)
 }
 
 func waitFor(t *testing.T, done func() bool) {
