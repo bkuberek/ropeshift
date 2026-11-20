@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { paneKeys } from "../api/client";
 import type { InProgress, OnHold } from "../api/types";
+import { go } from "../app/route";
 import { openPage } from "../opening";
 import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 import type { Sent } from "../testing";
@@ -380,7 +381,8 @@ describe("a lane's pane, scrolled and sized", () => {
     const region = screen.getByRole("region", { name: `Pane of lane ${lane}` });
     const focusable = () => [...document.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1'])")];
     await user.click(screen.getByRole("button", { name: "Full view" }));
-    const outside = focusable().filter((element) => !region.contains(element));
+    const toasts = document.querySelector(".toasts");
+    const outside = focusable().filter((element) => !region.contains(element) && !toasts?.contains(element));
     expect(outside.length).toBeGreaterThan(0);
     for (const element of outside) {
       expect(element.closest("[inert]"), element.outerHTML.slice(0, 80)).not.toBeNull();
@@ -390,6 +392,49 @@ describe("a lane's pane, scrolled and sized", () => {
     }
     await user.click(screen.getByRole("button", { name: "Exit full view" }));
     expect(document.querySelector("[inert]")).toBeNull();
+  });
+
+  // WCAG 2.2 SC 4.1.3: a toast still speaks over Full view, and its Dismiss can still be pressed.
+  it("leaves the toasts out of what Full view covers", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    const toasts = document.querySelector(".toasts");
+    expect(toasts?.getAttribute("aria-live")).toBe("polite");
+    expect(toasts?.closest("[inert]")).toBeNull();
+    expect(document.querySelector(".skip-link")?.closest("[inert]")).not.toBeNull();
+  });
+
+  it("keeps inert what was inert before Full view", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const before = document.body.appendChild(document.createElement("button"));
+    before.setAttribute("inert", "");
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    await user.click(screen.getByRole("button", { name: "Exit full view" }));
+    expect(before.hasAttribute("inert")).toBe(true);
+    expect(document.querySelectorAll("[inert]")).toHaveLength(1);
+    before.remove();
+  });
+
+  it("takes its marks away when the pane goes while in Full view", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const beside = document.body.appendChild(document.createElement("button"));
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    expect(beside.hasAttribute("inert")).toBe(true);
+    act(() => go("/floor"));
+    await screen.findByRole("heading", { level: 1, name: "Floor" });
+    expect(screen.queryByRole("region", { name: `Pane of lane ${lane}` })).toBeNull();
+    expect(beside.hasAttribute("inert")).toBe(false);
+    expect(document.querySelector("[inert]")).toBeNull();
+    beside.remove();
   });
 
   it("sends Escape to the session from the empty line field, and stays in Full view", async () => {
