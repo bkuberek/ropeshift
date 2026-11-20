@@ -535,22 +535,39 @@ function Typing({ lane, live, sender }: { lane: string; live: boolean; sender: S
   );
 }
 
+// spoken is an overlay Full view leaves uncovered: the toasts, whose messages must still be announced
+// (WCAG 2.2 SC 4.1.3) and dismissed while they show above it.
+const spoken = ".toasts";
+
 // inertOutside makes everything outside an element inert, from the element up to the body, so nothing Full
-// view covers takes focus (WCAG 2.2 SC 2.4.11), and returns how to undo it. What was inert stays inert, and
-// what opens later, such as the command palette, is not covered.
+// view covers takes focus (WCAG 2.2 SC 2.4.11), and returns how to undo it. What holds the toasts is
+// covered around them, what was inert stays inert, and what opens later, such as the command palette, is
+// not covered.
 function inertOutside(element: HTMLElement): () => void {
   const made: Element[] = [];
+  const cover = (node: Element) => {
+    if (node.hasAttribute("inert") || node.matches(spoken)) {
+      return;
+    }
+    if (node.querySelector(spoken)) {
+      for (const child of node.children) {
+        cover(child);
+      }
+      return;
+    }
+    node.setAttribute("inert", "");
+    made.push(node);
+  };
   for (let at: Element = element; at.parentElement && at !== document.body; at = at.parentElement) {
     for (const sibling of at.parentElement.children) {
-      if (sibling !== at && !sibling.hasAttribute("inert")) {
-        sibling.setAttribute("inert", "");
-        made.push(sibling);
+      if (sibling !== at) {
+        cover(sibling);
       }
     }
   }
   return () => {
-    for (const sibling of made) {
-      sibling.removeAttribute("inert");
+    for (const node of made) {
+      node.removeAttribute("inert");
     }
   };
 }
