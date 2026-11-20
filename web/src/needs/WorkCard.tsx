@@ -116,19 +116,19 @@ export function WorkCard({
   const { act, busy, failure } = useAct(after);
   const form = useId();
   const workOrder = work.work_order?.id ?? id;
+  // A retry is told from its reply, before the read after it, which no longer lists the work.
   const send = async (action: WorkAction, words: string) => {
-    let reply: unknown;
     if (
       await act(async () => {
-        reply = await actOnWork(workOrder, action, words);
+        const reply = await actOnWork(workOrder, action, words);
+        const state = (reply as { state?: string } | undefined)?.state;
+        if (action === "retry" && state === "ready" && work.work_order) {
+          onRetried?.({ ...work.work_order, state });
+        }
       })
     ) {
       setAsking(null);
       setReason("");
-      const state = (reply as { state?: string } | undefined)?.state;
-      if (action === "retry" && state === "ready" && work.work_order) {
-        onRetried?.({ ...work.work_order, state });
-      }
     }
   };
   const press = (action: WorkAction | OrchestratorAction) => {
