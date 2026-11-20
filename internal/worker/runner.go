@@ -759,9 +759,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 			r.resumeFrom = r.resumable(ctx)
 		}
 	}
-	if err := r.w.awaitQualified(ctx, r.lease); err != nil {
-		return failed(workorders.ReasonWorkerRestarted)
-	}
+	r.w.qualifyLane(ctx, r.lease)
 	repository, err := r.repository(ctx)
 	if err != nil {
 		return r.failStart(workorders.ReasonNoRepository, err)

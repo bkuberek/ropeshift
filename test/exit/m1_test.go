@@ -12,7 +12,6 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
-	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -81,17 +80,11 @@ func TestM1WalkingSkeleton(t *testing.T) {
 			events := in.events(t, id)
 			want := append(slices.Clone(m1Steps), workorders.EventType(tt.last))
 			// A lane reports each response for the resume table, as many as it takes turns, and a baseline
-			// once it has a usage report. Its first session waits for the qualification probe of the
-			// installed version, and a wait past a second says so once, before the session binds.
+			// once it has a usage report. The qualification probe of the installed version holds nothing, so
+			// no hold comes before the session binds.
 			got := slices.DeleteFunc(eventTypes(events), func(event string) bool {
 				return event == workorders.EventGenerationResponded || event == workorders.EventGenerationBaseline || event == workorders.EventGenerationUsage
 			})
-			if at := slices.Index(got, workorders.EventAdmissionHeld); at >= 0 {
-				if at != len(m1Steps)-1 || !heldFor(t, events, lanes.HeldQualifying) {
-					t.Errorf("a hold that is not the probe's, or not before the session: %v", got)
-				}
-				got = slices.Delete(got, at, at+1)
-			}
 			if !slices.Equal(got, want) {
 				t.Errorf("events\n got %v\nwant %v", got, want)
 			}
@@ -124,27 +117,6 @@ func TestM1WalkingSkeleton(t *testing.T) {
 			}
 		})
 	}
-}
-
-// heldFor reports that every hold among a work order's events names one reason.
-func heldFor(t *testing.T, events []ledger.Event, reason string) bool {
-	t.Helper()
-	for _, event := range events {
-		if event.Type != workorders.EventAdmissionHeld {
-			continue
-		}
-		var change workorders.Change
-		if err := json.Unmarshal(event.Data, &change); err != nil {
-			t.Fatal(err)
-		}
-		var held struct {
-			Reason string `json:"reason"`
-		}
-		if err := json.Unmarshal(change.Payload, &held); err != nil || held.Reason != reason {
-			return false
-		}
-	}
-	return true
 }
 
 // TestM1NoSecretOnDisk reads every file a lane's generation left: the token reaches

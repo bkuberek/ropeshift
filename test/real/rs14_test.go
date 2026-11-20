@@ -100,8 +100,8 @@ func (s *suite) ledgerEvents() []ledger.Event {
 
 // TestRS14 qualifies the installed version from what it does, through the production probe on a real
 // upgrade, in both run modes. The daemon starts on a version its journal has never probed, so its
-// first lane waits while the probe runs every check of the qualification matrix on this machine, and
-// the lane then runs on what the probe found. The run ends with that version's matrix row.
+// worker probes it as it starts, running every check of the qualification matrix on this machine at
+// once, and its first lane does not wait for the probe. The run ends with that version's matrix row.
 func TestRS14(t *testing.T) {
 	s := start(t, "rs14")
 	s.watched = []string{rs14Lane}
@@ -194,8 +194,8 @@ func TestRS14(t *testing.T) {
 			t.Errorf("no result for %s", surface)
 		}
 	}
-	if qualifiedAt == 0 || boundAt == 0 || qualifiedAt > boundAt {
-		t.Errorf("the probe's result at %d, and the lane's session at %d: dispatch did not wait for it", qualifiedAt, boundAt)
+	if qualifiedAt == 0 || boundAt == 0 {
+		t.Errorf("the probe's result at %d, and the lane's session at %d", qualifiedAt, boundAt)
 	}
 	if state != workorders.Acceptance {
 		t.Errorf("the lane ended in %s\n%s", state, d.reported())

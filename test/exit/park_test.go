@@ -37,6 +37,9 @@ func (in *install) parkedLane(t *testing.T, flags []string, start func(...string
 		list := in.workers()
 		return len(list) == 1 && list[0].Epoch >= 1
 	})
+	// A lane that starts while the worker probes the version runs on documented surfaces, and its resume then runs on
+	// the qualified ones, so the lane starts after the probe has passed and the log holds its result.
+	in.waitFor("the version's qualification", func() bool { return len(in.qualified()) != 0 })
 	id := in.onlyWorkOrder()
 	in.must("work", "review", id)
 	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")

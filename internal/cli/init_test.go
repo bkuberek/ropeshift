@@ -76,7 +76,7 @@ func TestInitSaysWhereEachSignInStands(t *testing.T) {
 		},
 		{
 			"a subscription names the terms, and an unqualified version its probe", claudeCode("subscription", "signed_in", false),
-			[]string{"Anthropic's Consumer Terms restrict automated use of a subscription, and no vendor has approved this use.", "This version is not in the qualification matrix"},
+			[]string{"Anthropic's Consumer Terms restrict automated use of a subscription, and no vendor has approved this use.", "This version is not in the qualification matrix, so the worker probes it in the background as it starts, and a lane that starts before the probe passes runs on documented surfaces."},
 			nil,
 		},
 	}

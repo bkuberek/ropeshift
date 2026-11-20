@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -66,10 +67,11 @@ func (in *install) times(kind string) []int64 {
 	return out
 }
 
-// TestAnUpgradeIsProbedBeforeWorkRuns is FR-DRV-2 on the real binary with fakeclaude: a version the
-// shipped matrix does not hold triggers one probe on this machine, no lane's session starts until it
-// ends, and a CLI that updates itself under the running worker is probed again before the next lane.
-func TestAnUpgradeIsProbedBeforeWorkRuns(t *testing.T) {
+// TestAnUpgradeIsProbedInTheBackground is FR-DRV-2 on the real binary with fakeclaude: a version the
+// shipped matrix does not hold is probed once on this machine as the worker starts, before any lane
+// asks, and a CLI that updates itself under the running worker is probed again, with lanes running
+// meanwhile.
+func TestAnUpgradeIsProbedInTheBackground(t *testing.T) {
 	in := newInstall(t)
 	repo := gittest.New(t)
 	repo.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
@@ -86,6 +88,7 @@ func TestAnUpgradeIsProbedBeforeWorkRuns(t *testing.T) {
 	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
 	in.must("lane", "start", id, "--lane", "lane-1")
 	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
+	in.waitFor("the probe's result", func() bool { return len(in.qualified()) != 0 })
 	got := in.qualified()
 	if len(got) != 1 || got[0].Version != "2.1.399" || got[0].Degraded || got[0].Driver != claudecode.DriverName {
 		t.Fatalf("recorded %+v", got)
@@ -94,14 +97,12 @@ func TestAnUpgradeIsProbedBeforeWorkRuns(t *testing.T) {
 	if probes < 3 {
 		t.Fatalf("%d probe sessions", probes)
 	}
-	ends, lane := in.times("probe-ended"), in.times("started")
-	if len(ends) == 0 || len(lane) == 0 {
-		t.Fatalf("probe ends %v, lane prompts %v", ends, lane)
+	starts, lane := in.times("probe-started"), in.times("started")
+	if len(starts) == 0 || len(lane) == 0 {
+		t.Fatalf("probe starts %v, lane starts %v", starts, lane)
 	}
-	for _, end := range ends {
-		if end > lane[0] {
-			t.Errorf("a probe session ended at %d, after the lane's first prompt at %d", end, lane[0])
-		}
+	if slices.Min(starts) > lane[0] {
+		t.Errorf("the first probe session started at %d, after the lane's first session at %d", slices.Min(starts), lane[0])
 	}
 
 	doubles.SetFakeClaudeVersion(t, in.path, "2.1.400")
@@ -112,6 +113,7 @@ func TestAnUpgradeIsProbedBeforeWorkRuns(t *testing.T) {
 	in.must("work", "claim", second, "--worker", in.workers()[0].ID, "--claim-id", "c2")
 	in.must("lane", "start", second, "--lane", "lane-2")
 	in.waitFor("the second lane's outcome", func() bool { return in.show(second).State == workorders.Acceptance })
+	in.waitFor("the update's probe result", func() bool { return len(in.qualified()) > 1 })
 	got = in.qualified()
 	if len(got) != 2 || got[1].Version != "2.1.400" {
 		t.Fatalf("after the update, recorded %+v", got)
