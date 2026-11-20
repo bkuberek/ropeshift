@@ -373,6 +373,18 @@
       "exemptable": false
     },
     {
+      "id": "plan.repository_retry",
+      "label": "Retry creating a plan's repository",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "plan.repository_skip",
+      "label": "Skip creating a plan's repository",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "work_order.decision_rework",
       "label": "Rework work for a decision",
       "class": "member_only",

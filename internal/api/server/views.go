@@ -553,6 +553,13 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	items = append(items, ci...)
+	uncreated, err := control.UncreatedRepositories(tx, h.repositories.Creating)
+	if err != nil {
+		return nil, err
+	}
+	for _, one := range uncreated {
+		items = append(items, creationNeedItem(one))
+	}
 	history, err := historyNeeds(tx)
 	if err != nil {
 		return nil, err
@@ -1577,4 +1584,17 @@ func cardConversation(members ports.MemberReader, threads ports.ConversationRead
 		return nil, err
 	}
 	return &api.CardConversation{ID: thread.ID, Name: thread.Name}, nil
+}
+
+// creationNeedItem is the item of Needs you for a repository an approved plan version creates that waits for a member, or
+// runs: named by its approval and the entry's name, and offering Retry and Skip unless it runs now.
+func creationNeedItem(one control.UncreatedRepository) api.NeedItem {
+	actions := []string{}
+	if one.State != control.CreationRunning {
+		actions = append(actions, api.RepositoryCreationActions...)
+	}
+	return api.NeedItem{Kind: api.NeedRepositoryCreation, ID: one.Approval.ID + "/" + one.Name, Since: one.Since, RepositoryCreation: &api.RepositoryCreationNeed{
+		Approval: one.Approval.ID, Plan: one.Approval.Plan, PlanVersion: one.Approval.PlanVersion, Name: one.Name, ManifestPath: one.ManifestPath,
+		Path: one.Path, State: string(one.State), Reason: one.Reason, Remedy: one.Remedy, Creation: one.Creation, Actions: actions,
+	}}
 }

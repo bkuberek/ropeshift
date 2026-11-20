@@ -531,8 +531,9 @@ func TestPlanShowSaysAnEntryNoWorkOrderTargetsIsPlanned(t *testing.T) {
 		t.Fatalf("plans %+v: %v", plans, err)
 	}
 	planned := "planned\tweb\t../web\t-\t-\tno work order of this version targets web\n"
-	if shown := s.must("plan", "show", plans[0].ID); !strings.Contains(shown, "  repositories approving would register, read now on the daemon's worker's machine:\n") || !strings.Contains(shown, "    "+planned) {
-		t.Errorf("plan show lacks the planned line %q:\n%s", planned, shown)
+	preview := strings.TrimSuffix(planned, "\n") + ", so approving creates nothing; the approval of a version that gives it work creates it\n"
+	if shown := s.must("plan", "show", plans[0].ID); !strings.Contains(shown, "  repositories approving would register, read now on the daemon's worker's machine:\n") || !strings.Contains(shown, "    "+preview) {
+		t.Errorf("plan show lacks the planned line %q:\n%s", preview, shown)
 	}
 	if text := s.must("plan", "approve", plans[0].ID); !strings.Contains(text, "\n"+planned) {
 		t.Errorf("approve lacks the planned line %q:\n%s", planned, text)

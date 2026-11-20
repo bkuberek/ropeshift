@@ -28,7 +28,7 @@ func TestManifestTextPrintsEveryFieldAsPlainText(t *testing.T) {
 func TestARegistrationPrintsItsProblemAsPlainText(t *testing.T) {
 	text := func(problem string) string {
 		var out strings.Builder
-		writeRegistration(&out, &api.ManifestRegistration{Preview: true, Problem: problem})
+		writeRegistration(&out, &api.ManifestRegistration{Preview: true, Problem: problem}, "")
 		return out.String()
 	}
 	sameShape(t, text(hostile), text("x"))

@@ -171,14 +171,14 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	if view.Forecast != nil {
 		writeForecasts(out, *view.Forecast, "  ")
 	}
-	writeRegistration(out, view.Registration)
+	writeRegistration(out, view.Registration, approval.Plan)
 	fmt.Fprintf(out, "  digest %s\n", approval.SubjectDigest)
 }
 
 // writeRegistration prints what approving a plan version would register of the repositories its manifest lists,
 // or what the approval registered, a line for each with its path, where that leads, and its remote. A version
 // that lists no manifest has none.
-func writeRegistration(out *strings.Builder, registration *api.ManifestRegistration) {
+func writeRegistration(out *strings.Builder, registration *api.ManifestRegistration, plan string) {
 	if registration == nil {
 		return
 	}
@@ -187,7 +187,7 @@ func writeRegistration(out *strings.Builder, registration *api.ManifestRegistrat
 	} else {
 		out.WriteString("  repositories this approval registered:\n")
 	}
-	out.WriteString(manifestText(registration.Repositories, registration.Preview, "    "))
+	out.WriteString(registrationText(registration.Repositories, registration.Preview, "    ", plan))
 	if registration.Problem != "" {
 		fmt.Fprintf(out, "    %s\n", plainLine(registration.Problem))
 	}
@@ -253,7 +253,7 @@ func (c *invocation) planApprove(args []string) int {
 		if waiting.Forecast != nil {
 			writeForecasts(&preview, *waiting.Forecast, "  ")
 		}
-		writeRegistration(&preview, waiting.Registration)
+		writeRegistration(&preview, waiting.Registration, asked.Plan)
 		fmt.Fprint(c.stdout, preview.String())
 	}
 	decided, err := client.DecideApproval(c.ctx, asked.ID, api.DecideApproval{Digest: asked.SubjectDigest, Allow: true})
@@ -269,7 +269,7 @@ func approvedText(title string, version int64, summary string, decided api.Appro
 	var out strings.Builder
 	fmt.Fprintf(&out, "approved %s version %d\n", plainLine(title), version)
 	fmt.Fprintf(&out, "  %s\n", plainLine(summary))
-	out.WriteString(manifestText(decided.Repositories, false, ""))
+	out.WriteString(registrationText(decided.Repositories, false, "", decided.Plan))
 	if decided.RepositoriesProblem != "" {
 		fmt.Fprintf(&out, "%s\n", plainLine(decided.RepositoriesProblem))
 	}

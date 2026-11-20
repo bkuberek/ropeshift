@@ -243,6 +243,45 @@ func TestASpendStopSaysWhatItIsChargedAndNamesItsCommands(t *testing.T) {
 	}
 }
 
+// A repository creation a member must settle says which repository of which plan version stopped and why, and names the
+// commands that run it again and leave it undone. One that runs now names none. What a repository or a forge said prints
+// with control characters replaced.
+func TestARepositoryCreationSaysWhereItStoppedAndNamesItsCommands(t *testing.T) {
+	creation := func(name, state string, actions []string) api.NeedItem {
+		return api.NeedItem{Kind: api.NeedRepositoryCreation, ID: "ap-1/" + name, RepositoryCreation: &api.RepositoryCreationNeed{
+			Approval: "ap-1", Plan: "tt-v2", PlanVersion: 2, Name: name, ManifestPath: "repos/" + name, Path: "/work/tt/repos/" + name,
+			State: state, Reason: "push\x1b[31m failed", Actions: actions,
+		}}
+	}
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{
+		creation("api", api.RepositoryCreationFailed, api.RepositoryCreationActions),
+		creation("web", api.RepositoryCreationRunning, []string{}),
+		creation("a\x1b]0;x\x07b", api.RepositoryCreationInterrupted, api.RepositoryCreationActions),
+	}
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{
+		"repository api of plan tt-v2 v2 failed: push?[31m failed",
+		"repository web of plan tt-v2 v2 running: push?[31m failed",
+		"    ropeshift plan retry tt-v2 api --version 2", "    ropeshift plan skip tt-v2 api --version 2 --reason R",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	running := keyed(t, loaded(t, snapshot), "j").View()
+	if strings.Contains(running, "plan retry tt-v2 web") || strings.Contains(running, "plan skip tt-v2 web") || strings.Contains(running, "    ropeshift plan") {
+		t.Errorf("a creation that runs names a command:\n%s", running)
+	}
+	hostile := keyed(t, keyed(t, loaded(t, snapshot), "j"), "j").View()
+	if !strings.Contains(hostile, "    ropeshift plan retry tt-v2 a?]0;x?b --version 2") || strings.ContainsAny(hostile, "\x1b\x07") {
+		t.Errorf("an interrupted creation with a hostile name names no cleaned command:\n%s", hostile)
+	}
+	if strings.ContainsAny(frame+running, "\x1b\x07") {
+		t.Errorf("a control character reached a frame: %q", frame)
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"
@@ -714,4 +753,28 @@ func wide(t *testing.T, snapshot top.Snapshot) top.Model {
 	next, _ := m.Update(top.Resized(1000, 0))
 	next, _ = next.Update(top.Loaded(snapshot))
 	return next
+}
+
+// A refusal's reason and remedy can embed what a disk or a forge said, and a terminal obeys what it is sent: neither an
+// escape sequence, a bell, nor a line break reaches the frame, and the remedy is named beside the reason.
+func TestARepositoryCreationsReasonAndRemedyReachNoTerminal(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedRepositoryCreation, ID: "ap-1/api", RepositoryCreation: &api.RepositoryCreationNeed{
+		Approval: "ap-1", Plan: "tt-v2", PlanVersion: 2, Name: "api", ManifestPath: "repos/api", Path: "/work/tt/repos/api", State: api.RepositoryCreationRefused,
+		Reason: "bad\x1b[31m red\nsecond line\x07 end", Remedy: "run\x1b]0;title\x07 this\nnow", Actions: api.RepositoryCreationActions,
+	}}}
+	for _, width := range []int{120, 60} {
+		frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), width)
+		for _, r := range frame {
+			if r != '\n' && (r < ' ' || r == 0x7f || (r >= 0x80 && r < 0xa0)) {
+				t.Errorf("width %d: a control character %q reached the frame:\n%q", width, r, frame)
+				break
+			}
+		}
+		for _, want := range []string{"refused: bad?[31m red second line? end", "remedy: run?]0;title? this now"} {
+			if !strings.Contains(strings.Join(strings.Fields(frame), " "), strings.Join(strings.Fields(want), " ")) {
+				t.Errorf("width %d: no %q in:\n%s", width, want, frame)
+			}
+		}
+	}
 }

@@ -77,9 +77,12 @@ var cliOnly = map[string]string{
 // webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2 or
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
-var webGaps = map[string]string{}
+var webGaps = map[string]string{
+	"plan retry": "CR7",
+	"plan skip":  "CR7",
+}
 
-var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[345][a-j]|SP[1-9])[12]?$`)
+var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[345][a-j]|SP[1-9]|CR[1-9])[12]?$`)
 
 // TestEveryCommandHasAWebRoute holds the CLI to the web listener: each command is named by a row of
 // WebRoutes, or is in exactly one of equivalents, cliOnly, and webGaps. An entry whose command a row now
@@ -133,7 +136,7 @@ func TestEveryCommandHasAWebRoute(t *testing.T) {
 		case !exists[command]:
 			t.Errorf("webGaps names %q, which is no command", command)
 		case !gapSlice.MatchString(slice):
-			t.Errorf("webGaps names %q as %q, which is no slice of U2, P3, P4, or P5", command, slice)
+			t.Errorf("webGaps names %q as %q, which is no slice of U2, P3, P4, P5, SP, or CR", command, slice)
 		}
 	}
 	if len(commands) < 100 {

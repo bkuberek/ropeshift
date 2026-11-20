@@ -62,10 +62,10 @@ func (c *invocation) needs(args []string) int {
 		for _, item := range view.Items {
 			project := "-"
 			if item.Project != nil {
-				project = item.Project.Name
+				project = plainLine(item.Project.Name)
 			}
 			waited := time.Duration(max(view.AsOf-item.Since, 0)) * time.Millisecond
-			fmt.Fprintf(&out, "%s\t%s\t%s\twaiting %s\n", project, item.Kind, item.ID, waited.Round(time.Second))
+			fmt.Fprintf(&out, "%s\t%s\t%s\twaiting %s\n", project, plainLine(item.Kind), plainLine(item.ID), waited.Round(time.Second))
 		}
 		if len(view.Items) == 0 {
 			out.WriteString("Nothing waits on a member.\n")

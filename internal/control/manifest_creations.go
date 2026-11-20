@@ -4,15 +4,18 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // Placing names the worker whose machine creates the repositories a plan approval names, which the record of each
@@ -369,4 +372,507 @@ func (r *Repositories) appendCreation(ctx context.Context, scope ledger.Workspac
 		_, err := tx.Append(ledger.EventDraft{Type: kind, Actor: actor, Subject: ledger.Subject{Kind: authority.SubjectApproval, ID: approval}, Data: raw})
 		return err
 	})
+}
+
+// maxSkipReason is the longest reason a skip takes, in characters.
+const maxSkipReason = 2000
+
+// UncreatedState is where a repository an approved plan version creates stands when its creation waits for a member.
+type UncreatedState string
+
+// The states of an uncreated repository.
+const (
+	// CreationRefused is a creation a check refused before it wrote anything.
+	CreationRefused UncreatedState = "refused"
+	// CreationFailed is a creation that stopped at a step that failed, keeping what it made.
+	CreationFailed UncreatedState = "failed"
+	// CreationInterrupted is a creation that started and has no later record, with no run of it in this process.
+	CreationInterrupted UncreatedState = "interrupted"
+	// CreationRunning is a creation that runs in this process now.
+	CreationRunning UncreatedState = "running"
+)
+
+// UncreatedRepository is a repository an approved plan version creates that its approval has not created, and a member
+// has not skipped: the approval, the entry's name, its path as the manifest writes it and where that leads, where the
+// creation stands and why, what a member does about it when something can be done, what it did before it stopped, and
+// when its latest record was made.
+type UncreatedRepository struct {
+	Approval     authority.Approval
+	Name         string
+	ManifestPath string
+	Path         string
+	State        UncreatedState
+	Reason       string
+	Remedy       string
+	Creation     *ledger.CreationOutcome
+	Since        int64
+}
+
+// UncreatedRepositories lists, for each approved plan approval, the entries its version creates whose latest creation
+// is refused, failed, or interrupted, or runs now, and whose name the project does not hold. A skipped or a created
+// entry is not listed. creating says whether the creation of an approval's entry runs now in this process, and an entry
+// whose creation does is running. An entry whose creation left no record is read from the registration the approval
+// recorded, when that says it was refused, not attempted, or failed to create.
+func UncreatedRepositories(tx ports.ReadTx, creating func(approval, name string) bool) ([]UncreatedRepository, error) {
+	approvals, err := tx.Approvals().All()
+	if err != nil {
+		return nil, err
+	}
+	held, err := heldNames(tx)
+	if err != nil {
+		return nil, err
+	}
+	var out []UncreatedRepository
+	for _, row := range approvals {
+		if row.Kind != authority.KindPlan || row.State != authority.ApprovalApproved {
+			continue
+		}
+		entries, err := VersionManifest(tx, row)
+		if err != nil {
+			return nil, err
+		}
+		targets, err := VersionTargets(tx, row)
+		if err != nil {
+			return nil, err
+		}
+		events, err := tx.EventsAbout(ledger.Subject{Kind: authority.SubjectApproval, ID: row.ID})
+		if err != nil {
+			return nil, err
+		}
+		recorded, err := RegistrationOf(tx, row.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.Create == "" || !slices.Contains(targets, entry.Name) || held[entry.Name] {
+				continue
+			}
+			item, listed, err := uncreated(row, entry, events, recorded, creating(row.ID, entry.Name))
+			if err != nil {
+				return nil, err
+			}
+			if listed {
+				out = append(out, item)
+			}
+		}
+	}
+	return out, nil
+}
+
+// heldNames are the names of the repositories the project holds and has not removed.
+func heldNames(tx ports.ReadTx) (map[string]bool, error) {
+	all, err := tx.Repositories().Repositories()
+	held := map[string]bool{}
+	for _, record := range all {
+		if record.Name != "" && !record.Removed() {
+			held[record.Name] = true
+		}
+	}
+	return held, err
+}
+
+// uncreated reads where one entry's creation stands, and says whether it waits for a member or runs.
+func uncreated(row authority.Approval, entry planning.ManifestRepository, events []ledger.Event, recorded *ledger.ManifestRegistration, running bool) (UncreatedRepository, bool, error) {
+	latest, err := ledger.LatestCreation(events, entry.Name)
+	if err != nil {
+		return UncreatedRepository{}, false, err
+	}
+	item := UncreatedRepository{Approval: row, Name: entry.Name, ManifestPath: entry.Path, Reason: latest.Reason, Since: creationSince(events, entry.Name)}
+	if latest.Finished != nil {
+		creation := latest.Finished.CreationOutcome
+		item.Creation = &creation
+	}
+	item.Path = creationPath(events, recorded, entry.Name)
+	// The approval's registration and the creation's own records each say how a refusal ended, and the newer is the one that
+	// stands: a retry the creator's check refused records nothing about the creation, only in the registration.
+	refused, hasRecord := recordedOutcome(recorded, entry.Name)
+	recordNewer := hasRecord && registrationRev(events) > creationRev(events, entry.Name)
+	refusedLater := recordNewer && refused.Outcome == ledger.RegistrationRefused
+	var code string
+	switch {
+	case recordNewer:
+		code = refused.RefusalCode
+	case latest.Finished != nil:
+		code = latest.Finished.RefusalCode
+	}
+	if recordNewer && code == ledger.TemplateRefusedBusy {
+		// Another creation holds the path: the refusal says to preview again, and is no word on this creation, so what its own
+		// records said stands.
+		refusedLater, code = false, ""
+		if latest.Finished != nil {
+			code = latest.Finished.RefusalCode
+		}
+	}
+	switch {
+	case running:
+		item.State = CreationRunning
+	case latest.State == ledger.CreationRefused && code == ledger.TemplateRefusedBusy:
+		return UncreatedRepository{}, false, nil
+	case refusedLater:
+		// A retry the creator's check refused came after the creation's last record, and says why it cannot go on.
+		item.State, item.Reason, item.Creation = CreationRefused, refused.Reason, refused.Creation
+	case latest.State == ledger.CreationStarted:
+		item.State = CreationInterrupted
+	case latest.State == ledger.CreationRefused:
+		item.State = CreationRefused
+	case latest.State == ledger.CreationFailed:
+		item.State = CreationFailed
+	case latest.State != ledger.CreationUntried:
+		return UncreatedRepository{}, false, nil
+	default:
+		// No creation record: the registration the approval recorded is what says the entry was not created.
+		outcome, ok := recordedOutcome(recorded, entry.Name)
+		switch {
+		case !ok, outcome.RefusalCode == ledger.TemplateRefusedBusy:
+			return UncreatedRepository{}, false, nil
+		case outcome.Outcome == ledger.RegistrationRefused:
+			item.State = CreationRefused
+		case outcome.Outcome == ledger.NotAttempted, outcome.Outcome == ledger.CreateFailed:
+			item.State = CreationFailed
+		default:
+			return UncreatedRepository{}, false, nil
+		}
+		item.Reason, item.Creation, code = outcome.Reason, outcome.Creation, outcome.RefusalCode
+	}
+	if item.Since == 0 && len(events) != 0 {
+		item.Since = events[len(events)-1].RecordedAt
+	}
+	item.Remedy = creationRemedy(item, code)
+	return item, true, nil
+}
+
+// creationRemedy says what a member does about a creation that waits for them, from the code the creator refused it
+// with, and not from the words of its reason. A forge repository that exists is not the creation's own, which a retry never
+// takes over, so the member clones it where the entry's path leads and names it as the entry's remote, or skips the
+// creation: the record's own remedy for it says how, and a record with none gets the words here. Any other refusal names the
+// command its check gave.
+func creationRemedy(item UncreatedRepository, code string) string {
+	switch {
+	case item.State == CreationRunning:
+		return ""
+	case code == ledger.TemplateRefusedRemoteExists:
+		remedy := ""
+		if item.Creation != nil {
+			remedy = item.Creation.Remedy
+		}
+		if remedy == "" {
+			repository := "the repository"
+			if creation := item.Creation; creation != nil && creation.Owner != "" && creation.ForgeName != "" {
+				repository = creation.Owner + "/" + creation.ForgeName
+			}
+			remedy = fmt.Sprintf("clone %s at %s and write `remote` in place of `create` in the manifest entry for %s", repository, cmp.Or(item.Path, item.ManifestPath), item.Name)
+		}
+		return remedy + ", or skip it"
+	case item.Creation != nil && item.Creation.Remedy != "":
+		return "run `" + item.Creation.Remedy + "`"
+	}
+	return ""
+}
+
+// registrationRev is the revision of the latest registration recorded for an approval, or zero when it recorded none.
+func registrationRev(events []ledger.Event) int64 {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type == ledger.EventManifestRegistered {
+			return events[i].Rev
+		}
+	}
+	return 0
+}
+
+// creationRev is the revision of the latest event about one entry's creation, or zero when there is none.
+func creationRev(events []ledger.Event, name string) int64 {
+	for i := len(events) - 1; i >= 0; i-- {
+		switch events[i].Type {
+		case ledger.EventRepositoryCreationStarted, ledger.EventRepositoryCreationFinished, ledger.EventRepositoryCreationSkipped:
+			var named struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(events[i].Data, &named) == nil && named.Name == name {
+				return events[i].Rev
+			}
+		}
+	}
+	return 0
+}
+
+// recordedOutcome reads what the approval recorded of one entry, when it recorded it.
+func recordedOutcome(recorded *ledger.ManifestRegistration, name string) (ledger.ManifestOutcome, bool) {
+	if recorded == nil {
+		return ledger.ManifestOutcome{}, false
+	}
+	at := slices.IndexFunc(recorded.Repositories, func(one ledger.ManifestOutcome) bool { return one.Name == name })
+	if at < 0 {
+		return ledger.ManifestOutcome{}, false
+	}
+	return recorded.Repositories[at], true
+}
+
+// creationPath is where an entry's path led on the worker's machine: where its creation started, or else where the
+// approval's registration recorded it.
+func creationPath(events []ledger.Event, recorded *ledger.ManifestRegistration, name string) string {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type != ledger.EventRepositoryCreationStarted {
+			continue
+		}
+		var started ledger.CreationStartedEvent
+		if json.Unmarshal(events[i].Data, &started) == nil && started.Name == name && started.Path != "" {
+			return started.Path
+		}
+	}
+	if one, ok := recordedOutcome(recorded, name); ok {
+		return one.Resolved
+	}
+	return ""
+}
+
+// creationSince is when the latest event about one entry's creation was recorded, or zero when there is none.
+func creationSince(events []ledger.Event, name string) int64 {
+	for i := len(events) - 1; i >= 0; i-- {
+		switch events[i].Type {
+		case ledger.EventRepositoryCreationStarted, ledger.EventRepositoryCreationFinished, ledger.EventRepositoryCreationSkipped:
+			var named struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(events[i].Data, &named) == nil && named.Name == name {
+				return events[i].RecordedAt
+			}
+		}
+	}
+	return 0
+}
+
+// creationTarget is an approved plan approval and the entry of its version that a retry or a skip acts on.
+type creationTarget struct {
+	row      authority.Approval
+	entry    planning.ManifestRepository
+	entries  []planning.ManifestRepository
+	targets  map[string]bool
+	recorded *ledger.ManifestRegistration
+	// skipped says a member skipped the entry's creation, which no later record of it undid.
+	skipped bool
+	// started is where the entry's path led when its creation last started, which a record of it keeps when the
+	// approval recorded none.
+	started string
+}
+
+// creationTargetOf reads the entry a retry or a skip of an approval names, and refuses it as an illegal move when the
+// approval is not an approved plan approval, the entry is not one its version creates, or the project holds its name.
+func creationTargetOf(tx ports.ReadTx, approval, name string) (creationTarget, error) {
+	row, err := tx.Approvals().Approval(approval)
+	if err != nil {
+		return creationTarget{}, err
+	}
+	if row.Kind != authority.KindPlan || row.State != authority.ApprovalApproved {
+		return creationTarget{}, fmt.Errorf("%w: approval %s is not an approved plan approval", workorders.ErrIllegalMove, approval)
+	}
+	target := creationTarget{row: row, targets: map[string]bool{}}
+	if target.entries, err = VersionManifest(tx, row); err != nil {
+		return creationTarget{}, err
+	}
+	targeted, err := VersionTargets(tx, row)
+	if err != nil {
+		return creationTarget{}, err
+	}
+	for _, repository := range targeted {
+		target.targets[repository] = true
+	}
+	at := slices.IndexFunc(target.entries, func(entry planning.ManifestRepository) bool { return entry.Name == name })
+	if at < 0 || target.entries[at].Create == "" || !target.targets[name] {
+		return creationTarget{}, fmt.Errorf("%w: %s is not a repository version %d of plan %s creates", workorders.ErrIllegalMove, name, row.PlanVersion, row.Plan)
+	}
+	target.entry = target.entries[at]
+	held, err := heldNames(tx)
+	if err != nil {
+		return creationTarget{}, err
+	}
+	if held[name] {
+		return creationTarget{}, fmt.Errorf("%w: the project holds a repository named %s", workorders.ErrIllegalMove, name)
+	}
+	if target.recorded, err = RegistrationOf(tx, approval); err != nil {
+		return creationTarget{}, err
+	}
+	events, err := tx.EventsAbout(ledger.Subject{Kind: authority.SubjectApproval, ID: approval})
+	if err != nil {
+		return creationTarget{}, err
+	}
+	target.started = creationPath(events, nil, name)
+	latest, err := ledger.LatestCreation(events, name)
+	if err != nil {
+		return creationTarget{}, err
+	}
+	target.skipped = latest.State == ledger.CreationSkipped
+	if one, ok := recordedOutcome(target.recorded, name); ok && one.Outcome == ledger.Skipped {
+		target.skipped = true
+	}
+	return target, nil
+}
+
+// refuseRunning refuses a retry or a skip of a creation that runs now in this process.
+func (r *Repositories) refuseRunning(approval, name string) error {
+	if r.Creating(approval, name) {
+		return fmt.Errorf("%w: %s is being created now", workorders.ErrIllegalMove, name)
+	}
+	return nil
+}
+
+// RetryCreation runs the creation of one entry of an approved plan version again, as one entry of a real run under
+// the approval, with the key of its first run, and records the approval's registration as the last one with that entry
+// replaced. An approval that recorded no registration, or whose record holds the problem that stopped its run, runs the whole registration. It answers with the registration as
+// recorded. Retrying is a member's act, as approving the plan was. An entry that is not one the approval's version
+// creates, a name the project holds, an approval that is not an approved plan approval, and a creation that runs now are
+// refused as an illegal move, and record nothing; an error that comes with a registration is one the run met after it
+// began.
+func (r *Repositories) RetryCreation(ctx context.Context, scope ledger.WorkspaceID, approval, name string, kept ports.Checkouts, creator ports.RepositoryCreator, project string, actor ledger.Actor) ([]Added, error) {
+	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) || !authority.Allowed(actor, authority.ActionCreateRemotes) {
+		return nil, workorders.ErrForbidden
+	}
+	if err := r.refuseRunning(approval, name); err != nil {
+		return nil, err
+	}
+	r.registering.Lock()
+	defer r.registering.Unlock()
+	var target creationTarget
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		target, err = creationTargetOf(tx, approval, name)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if target.skipped {
+		return nil, fmt.Errorf("%w: %s was skipped; a later approved version that targets it creates it", workorders.ErrIllegalMove, name)
+	}
+	if target.recorded == nil || target.recorded.Problem != "" {
+		// An approval that recorded nothing, or whose run an error stopped, registers anew: the entries it never reached are
+		// attempted, and the record it appends holds no problem unless this run meets one.
+		return r.registerApproved(ctx, scope, approval, kept, creator, project, false, true, actor)
+	}
+	run := manifestRun{cause: registrationCause{Approval: target.row.ID, Plan: target.row.Plan, PlanVersion: target.row.PlanVersion}, targets: target.targets, creator: creator, project: project}
+	// The entries before this one in the version would have created their repositories first, so a repository one of them
+	// creates is refused to this one, as it was in the run that registered the version.
+	if at := slices.IndexFunc(target.entries, func(entry planning.ManifestRepository) bool { return entry.Name == name }); at > 0 {
+		run.before = target.entries[:at]
+	}
+	added, runErr := r.registerEntries(ctx, scope, []planning.ManifestRepository{target.entry}, kept, run, actor)
+	if len(added) == 0 {
+		return nil, runErr
+	}
+	record := replacedOutcome(*target.recorded, outcomesOf(added[:1])[0], runErr)
+	if failed := r.recordRegistration(ctx, scope, approval, record, actor); failed != nil {
+		return nil, errors.Join(runErr, failed)
+	}
+	out, err := r.recordedAs(ctx, scope, record)
+	return out, errors.Join(runErr, err)
+}
+
+// SkipCreation records that a member chose to leave one entry of an approved plan version uncreated, with why: it appends
+// the skip to the approval and the approval's registration as the last one with that entry skipped, in one write, so the
+// repository leaves Needs you and the work that names it stays in contract review. A later approved version that creates
+// the entry creates it. The reason takes 1 to 2000 characters. It answers with the registration as recorded, and refuses
+// what RetryCreation refuses. Skipping is a member's act.
+func (r *Repositories) SkipCreation(ctx context.Context, scope ledger.WorkspaceID, approval, name, reason string, actor ledger.Actor) ([]Added, error) {
+	if !authority.Allowed(actor, authority.ActionApprovePlan) {
+		return nil, workorders.ErrForbidden
+	}
+	reason = strings.TrimSpace(reason)
+	if length := utf8.RuneCountInString(reason); length == 0 || length > maxSkipReason {
+		return nil, fmt.Errorf("%w: a reason for skipping takes 1 to %d characters", workorders.ErrInvalid, maxSkipReason)
+	}
+	if strings.ContainsFunc(reason, func(r rune) bool { return ledger.HiddenRune(r) || r == '\u2028' || r == '\u2029' }) {
+		return nil, fmt.Errorf("%w: a reason for skipping is one line of text, with no control character or line break", workorders.ErrInvalid)
+	}
+	// The reason is kept as one plain line, with each run of spaces as one.
+	reason = strings.Join(strings.Fields(reason), " ")
+	if err := r.refuseRunning(approval, name); err != nil {
+		return nil, err
+	}
+	r.registering.Lock()
+	defer r.registering.Unlock()
+	var target creationTarget
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		target, err = creationTargetOf(tx, approval, name)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	skipped := ledger.ManifestOutcome{Name: name, Path: target.entry.Path, Remote: target.entry.Remote, Resolved: target.started, Outcome: ledger.Skipped, Reason: reason}
+	var record ledger.ManifestRegistration
+	if target.recorded != nil {
+		if before, ok := recordedOutcome(target.recorded, name); ok {
+			skipped.Resolved = before.Resolved
+		}
+		record = replacedOutcome(*target.recorded, skipped, nil)
+	} else {
+		record = ledger.ManifestRegistration{Repositories: outcomesNotAttempted(target.entries, skipped)}
+	}
+	skip, err := json.Marshal(ledger.CreationSkippedEvent{Name: name, Reason: reason})
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return nil, err
+	}
+	subject := ledger.Subject{Kind: authority.SubjectApproval, ID: approval}
+	err = r.store.Write(ctx, scope, "approval.repository_creation_skipped", func(tx ports.WriteTx) error {
+		if _, err := tx.Append(ledger.EventDraft{Type: ledger.EventRepositoryCreationSkipped, Actor: actor, Subject: subject, Data: skip}); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: ledger.EventManifestRegistered, Actor: actor, Subject: subject, Data: data})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.recordedAs(ctx, scope, record)
+}
+
+// replacedOutcome is a registration with one entry's outcome in place of what it recorded of that entry, or after the
+// others when it recorded none. The registration's problem is the run's error when it has one, and else stays while an
+// entry is still not attempted.
+func replacedOutcome(record ledger.ManifestRegistration, outcome ledger.ManifestOutcome, runErr error) ledger.ManifestRegistration {
+	out := ledger.ManifestRegistration{Repositories: slices.Clone(record.Repositories), Problem: record.Problem}
+	if at := slices.IndexFunc(out.Repositories, func(one ledger.ManifestOutcome) bool { return one.Name == outcome.Name }); at >= 0 {
+		out.Repositories[at] = outcome
+	} else {
+		out.Repositories = append(out.Repositories, outcome)
+	}
+	switch {
+	case runErr != nil:
+		out.Problem = runErr.Error()
+	case !slices.ContainsFunc(out.Repositories, func(one ledger.ManifestOutcome) bool { return one.Outcome == ledger.NotAttempted }):
+		out.Problem = ""
+	}
+	return out
+}
+
+// outcomesNotAttempted is the outcome of each entry of a manifest for an approval that recorded none when a member skips
+// one of them: the skipped entry as given, and each other as not attempted, which a retry of it runs.
+func outcomesNotAttempted(entries []planning.ManifestRepository, skipped ledger.ManifestOutcome) []ledger.ManifestOutcome {
+	out := make([]ledger.ManifestOutcome, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Name == skipped.Name {
+			out = append(out, skipped)
+			continue
+		}
+		out = append(out, ledger.ManifestOutcome{
+			Name: entry.Name, Path: entry.Path, Remote: entry.Remote, Outcome: ledger.NotAttempted,
+			Reason: fmt.Sprintf("%s was not attempted: %s was skipped before the registration ran", entry.Name, skipped.Name),
+		})
+	}
+	return out
+}
+
+// recordedAs reads a registration as the outcomes of a run, each with the record it names as it stands now.
+func (r *Repositories) recordedAs(ctx context.Context, scope ledger.WorkspaceID, record ledger.ManifestRegistration) ([]Added, error) {
+	var out []Added
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = recordedAdded(tx.Repositories(), &record)
+		return err
+	})
+	return out, err
 }

@@ -57,6 +57,37 @@ func TestADelegateMayNotMergeAQuestion(t *testing.T) {
 	}
 }
 
+// TestOnlyAMemberRetriesOrSkipsARepositoryCreation holds the two operations on a failed repository creation to the
+// member-only class: a delegate's call is refused, not carded, and neither a delegate nor a lane holds what either needs,
+// while a member holds all of it.
+func TestOnlyAMemberRetriesOrSkipsARepositoryCreation(t *testing.T) {
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "m1"}
+	lane := ledger.Actor{Kind: ledger.ActorLane, ID: "l1"}
+	for id, want := range map[string][]authority.Action{
+		authority.OpPlanRepositoryRetry: {authority.ActionApprovePlan, authority.ActionRegisterManifest, authority.ActionCreateRemotes},
+		authority.OpPlanRepositorySkip:  {authority.ActionApprovePlan},
+	} {
+		op, ok := authority.OperationOf(id)
+		if !ok || op.Class != authority.ClassMemberOnly || op.Installation || op.DelegateMayRun() || !slices.Equal(op.Actions, want) {
+			t.Errorf("%s reads %+v, want a member-only project operation needing %v", id, op, want)
+			continue
+		}
+		for _, action := range op.Actions {
+			if !authority.Allowed(member, action) {
+				t.Errorf("a member lacks %s, which %s needs", action, id)
+			}
+			for _, who := range []ledger.Actor{delegate, lane} {
+				if authority.Allowed(who, action) {
+					t.Errorf("%s holds %s, which %s needs", who.Kind, action, id)
+				}
+			}
+		}
+	}
+	if ids := []string{authority.OpPlanRepositoryRetry, authority.OpPlanRepositorySkip}; ids[0] != "plan.repository_retry" || ids[1] != "plan.repository_skip" {
+		t.Errorf("the operations are named %v", ids)
+	}
+}
+
 // TestADelegateHoldsOnlyWhatItsOperationsNeed holds Allowed for a delegate to the class table: a delegate
 // may do what an operational or exemptable consent operation of a project needs, and nothing else.
 func TestADelegateHoldsOnlyWhatItsOperationsNeed(t *testing.T) {

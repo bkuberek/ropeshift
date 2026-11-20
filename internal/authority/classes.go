@@ -108,6 +108,8 @@ const (
 	OpPlanStartReviewByAssistant          = "plan.start_review_by_assistant"
 	OpPlanConfirmRevision                 = "plan.confirm_revision"
 	OpPlanRevise                          = "plan.revise"
+	OpPlanRepositoryRetry                 = "plan.repository_retry"
+	OpPlanRepositorySkip                  = "plan.repository_skip"
 	OpWorkOrderDecisionRework             = "work_order.decision_rework"
 	OpWorkOrderCIWait                     = "work_order.ci_wait"
 	OpWorkOrderCIRerun                    = "work_order.ci_rerun"
@@ -290,6 +292,11 @@ var operations = append(onInstallation(
 	// decisions made since, and starting the session that revises it, are a member's alone (FR-PLAN-12).
 	memberOnly(OpPlanConfirmRevision, "Confirm a plan revision", ActionApprovePlan),
 	memberOnly(OpPlanRevise, "Revise a plan", ActionApprovePlan),
+	// Retrying a repository creation runs the creation again on the daemon's worker, under the member's forge account,
+	// as approving the plan did, and skipping one leaves it undone: both act on an approved plan's registration, which no
+	// card binds to, so a delegate's call is refused, not carded.
+	memberOnly(OpPlanRepositoryRetry, "Retry creating a plan's repository", ActionApprovePlan, ActionRegisterManifest, ActionCreateRemotes),
+	memberOnly(OpPlanRepositorySkip, "Skip creating a plan's repository", ActionApprovePlan),
 	// Rework for the decisions a plan's revision lists costs a lane and a review apiece, so a member chooses it.
 	memberOnly(OpWorkOrderDecisionRework, "Rework work for a decision", ActionApprovePlan),
 	// Waiting longer for CI and rerunning it answer an item that asks a person, and start no agent, so a delegate's
