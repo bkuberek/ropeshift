@@ -371,7 +371,10 @@ describe("a planning session", () => {
   });
 
   // Beside the outline, the pane fills its column and its screen is the scroller, so the screen opens at
-  // the newest line and a scroll to its top reads older lines.
+  // the newest line and a scroll to its top reads older lines. The page is as tall as the content area, so
+  // the column has a height to fill.
+  // happy-dom reads the rules a page declares, not its layout, so this test holds the rules that bound the
+  // screen, and a browser makes the layout from them.
   it("scrolls the pane in its screen, which fills the column", async () => {
     withStyles();
     serve();
@@ -386,6 +389,8 @@ describe("a planning session", () => {
     expect(["auto", "scroll"]).not.toContain(getComputedStyle(pane).overflowY);
     const frame = log.parentElement as HTMLElement;
     expect([getComputedStyle(frame).flexGrow, getComputedStyle(frame).minHeight]).toEqual(["1", "0"]);
+    const bound = log.closest(".planning") as HTMLElement;
+    expect(["", "auto"]).not.toContain(getComputedStyle(bound).height);
   });
 
   it("opens the lane's pane", async () => {

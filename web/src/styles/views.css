@@ -1314,11 +1314,12 @@ details.older[open] > summary {
 }
 
 /* ---------- Planning pane ---------- */
+/* The page is as tall as the content area, from .screen-flush, so the pane's column has a height to fill
+   and its screen scrolls inside it. */
 .planning {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  height: auto;
 }
 
 .planning .grid-pane {

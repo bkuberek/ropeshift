@@ -369,6 +369,8 @@ describe("switching the target", () => {
 
   // In the panel the pane fills the conversation and its screen is the scroller, so the screen opens at the
   // newest line and a scroll to its top reads older lines.
+  // happy-dom reads the rules a page declares, not its layout, so this test holds the rules that bound the
+  // screen, and a browser makes the layout from them.
   it("scrolls an interactive lane's pane in its screen, which fills the panel", async () => {
     withStyles();
     withLanes();
