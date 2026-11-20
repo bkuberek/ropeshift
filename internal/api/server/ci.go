@@ -51,14 +51,21 @@ func (h *handler) ciRerun(w http.ResponseWriter, r *http.Request, actor ledger.A
 
 // ciActions says what a member can do about an item of CI. Wait longer extends a timeout and a rerun runs checks
 // again, so each is offered for what has them: a stalled queue needs a runner, and a finding the classification made
-// of a base or of a check that waits for a person is not mended by running it again.
+// of a base or of a check that waits for a person is not mended by running it again. A rerun is of a head, so a pull
+// request with no head commit on record is offered none.
 func ciActions(item control.CIItem) []string {
 	var actions []string
+	rerun := ledger.CommitHash(item.PullRequest.HeadCommit)
 	switch item.Kind {
 	case ledger.CIItemNotFinished:
-		actions = append(actions, api.ActCIWait, api.ActCIRerun)
+		actions = append(actions, api.ActCIWait)
+		if rerun {
+			actions = append(actions, api.ActCIRerun)
+		}
 	case ledger.CIItemInfrastructure:
-		actions = append(actions, api.ActCIRerun)
+		if rerun {
+			actions = append(actions, api.ActCIRerun)
+		}
 	}
 	if ciRunURL(item) != "" {
 		actions = append(actions, api.ActCIOpen)

@@ -221,7 +221,8 @@ func appendCI(tx ports.WriteTx, eventType, workOrder string, data ciEvent, actor
 // Wait adds time to the CI timeout of a work order's head, which "CI has not finished" offers. With no time named it
 // adds one more p85 of the repository's CI, or ci_no_history_p85 when it has no history. Each press adds once, so the
 // item returns when the head is past the timeout again, and the head's runs are not touched. The time is bound by the
-// largest CI timeout a repository may hold.
+// largest CI timeout a repository may hold. A pull request with no head commit on record is refused, since the time
+// is added to a head.
 func (c *CIAttention) Wait(ctx context.Context, scope ledger.WorkspaceID, workOrder string, by time.Duration, actor ledger.Actor) (ledger.CIWatch, error) {
 	if !authority.Allowed(actor, authority.ActionAnswerCI) {
 		return ledger.CIWatch{}, workorders.ErrForbidden
@@ -238,6 +239,9 @@ func (c *CIAttention) Wait(ctx context.Context, scope ledger.WorkspaceID, workOr
 		repository, err := tx.Repositories().Repository(item.PullRequest.Repository)
 		if err != nil {
 			return err
+		}
+		if !ledger.CommitHash(item.PullRequest.HeadCommit) {
+			return fmt.Errorf("%w: pull request #%d of %s has no head commit to wait for", workorders.ErrInvalid, item.PullRequest.Number, workOrder)
 		}
 		more := by
 		if more == 0 {

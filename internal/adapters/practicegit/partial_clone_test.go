@@ -226,3 +226,76 @@ func TestSnapshotOfATreelessCloneFetchesNoTreeAndReturnsNoSnapshot(t *testing.T)
 		t.Errorf("the snapshot fetched %d of the %d missing objects", len(missing)-len(after), len(missing))
 	}
 }
+
+// A snapshot is of a commit, so a name that is a tree's or a blob's ID, whole or abbreviated, is not one in a partial
+// clone, as in a full one.
+func TestSnapshotOfAPartialCloneNeedsACommit(t *testing.T) {
+	practicegit.WithoutNoLazyFetch(t)
+	origin, first := partialOrigin(t)
+	clone := blobFilteredClone(t, origin, "partial")
+	marker := markPromisor(t, clone)
+	tree := clone.Git("rev-parse", first+"^{tree}")
+	held := clone.Git("rev-parse", "HEAD:config.txt")
+	var missing string
+	for _, line := range missingObjects(t, clone) {
+		missing = strings.TrimPrefix(line, "?")
+		break
+	}
+	if missing == "" {
+		t.Fatal("the clone is missing no object, so it shows nothing")
+	}
+	before := missingObjects(t, clone)
+	for name, ref := range map[string]string{
+		"a tree":                tree,
+		"an abbreviated tree":   tree[:12],
+		"a blob it holds":       held,
+		"an abbreviated blob":   held[:12],
+		"a blob it lacks":       missing,
+		"an abbreviated lacked": missing[:12],
+	} {
+		snapshot, err := practicegit.Snapshots{Env: clone.Env()}.Snapshot(t.Context(), clone.Dir, ref)
+		if !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("the snapshot of %s is %+v with the error %v, want ports.ErrNotFound", name, snapshot, err)
+		}
+	}
+	assertNoFetch(t, marker)
+	if after := missingObjects(t, clone); !slices.Equal(before, after) {
+		t.Errorf("the snapshot fetched %d of the %d missing objects", len(before)-len(after), len(before))
+	}
+}
+
+// A commit of a partial clone is still a snapshot by its abbreviated ID.
+func TestSnapshotOfAPartialCloneStillTakesAnAbbreviatedCommit(t *testing.T) {
+	t.Parallel()
+	origin, first := partialOrigin(t)
+	clone := blobFilteredClone(t, origin, "partial")
+	snapshot, err := practicegit.Snapshots{Env: clone.Env()}.Snapshot(t.Context(), clone.Dir, first[:12])
+	if err != nil || snapshot.Commit != first {
+		t.Errorf("the snapshot of an abbreviated commit is %+v with the error %v, want the commit %s", snapshot, err, first)
+	}
+}
+
+// An annotated tag whose target the partial clone lacks names a commit it cannot read, so it is no commit the clone holds.
+func TestSnapshotOfAPartialCloneNamesNoTagWhoseTargetIsMissing(t *testing.T) {
+	practicegit.WithoutNoLazyFetch(t)
+	origin, _ := partialOrigin(t)
+	clone := blobFilteredClone(t, origin, "partial")
+	marker := markPromisor(t, clone)
+	body := "object " + absentCommit + "\ntype commit\ntag lost\ntagger A <a@example.invalid> 1 +0000\n\nthe target is not here\n"
+	file := filepath.Join(t.TempDir(), "tag")
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tag := clone.Git("hash-object", "-t", "tag", "-w", "--literally", file)
+	before := missingObjects(t, clone)
+	for name, ref := range map[string]string{"the tag": tag, "an abbreviated tag": tag[:12]} {
+		snapshot, err := practicegit.Snapshots{Env: clone.Env()}.Snapshot(t.Context(), clone.Dir, ref)
+		if !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("the snapshot of %s is %+v with the error %v, want ports.ErrNotFound", name, snapshot, err)
+		}
+	}
+	assertNoFetch(t, marker)
+	if after := missingObjects(t, clone); !slices.Equal(before, after) {
+		t.Errorf("the snapshot fetched %d of the %d missing objects", len(before)-len(after), len(before))
+	}
+}
