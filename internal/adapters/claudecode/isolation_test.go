@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -116,4 +117,90 @@ func countOf(args []string, flag string) int {
 		}
 	}
 	return count
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A repository's own `.mcp.json` is project setup, so a lane keeps its servers: the driver reads it from the lane's
+// worktree and passes its servers in ropeshift's own MCP configuration, which `--strict-mcp-config` loads alone. A
+// server the repository names after ropeshift's own does not replace it.
+func TestALaneKeepsItsWorktreesOwnMCPServers(t *testing.T) {
+	spec := laneSpec(t)
+	writeFile(t, filepath.Join(spec.Dir, ".mcp.json"), `{"mcpServers":{
+		"docs":{"type":"http","url":"https://docs.example.test/mcp","headers":{"Authorization":"Bearer ${DOCS_TOKEN}"}},
+		"ropeshift":{"type":"stdio","command":"/elsewhere/ropeshift","args":["mcp"]}}}`)
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	_, path := generatedPaths(spec)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Servers map[string]struct {
+			Type    string            `json:"type"`
+			Command string            `json:"command"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if docs := file.Servers["docs"]; docs.Type != "http" || docs.URL != "https://docs.example.test/mcp" || docs.Headers["Authorization"] != "Bearer ${DOCS_TOKEN}" {
+		t.Errorf("the worktree's server reached the lane as %+v", docs)
+	}
+	if ours := file.Servers[ServerName]; ours.Command != spec.Binary {
+		t.Errorf("the worktree replaced ropeshift's own server: %+v", ours)
+	}
+}
+
+// A worktree whose `.mcp.json` does not parse gives a lane ropeshift's server alone, and the lane still starts.
+func TestAnUnreadableMCPFileGivesALaneOnlyRopeshiftsServer(t *testing.T) {
+	spec := laneSpec(t)
+	writeFile(t, filepath.Join(spec.Dir, ".mcp.json"), `{"mcpServers":`)
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	_, path := generatedPaths(spec)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil || len(file.Servers) != 1 || file.Servers[ServerName] == nil {
+		t.Errorf("the lane's servers are %s (%v)", raw, err)
+	}
+}
+
+// A lane keeps the repository's CLAUDE.md and leaves out the member's own instructions: their `CLAUDE.md` and rules,
+// as absolute paths under their configuration directory, the one `CLAUDE_CONFIG_DIR` names when it is set.
+func TestALaneLeavesOutTheMembersOwnInstructions(t *testing.T) {
+	spec := laneSpec(t)
+	spec.Env = []string{"HOME=/home/member"}
+	want := []string{"/home/member/.claude/CLAUDE.md", "/home/member/.claude/rules/**"}
+	if got := generateSettings(spec).ClaudeMdExcludes; !slices.Equal(got, want) {
+		t.Errorf("a lane excludes %v, want %v", got, want)
+	}
+	spec.Env = append(spec.Env, "CLAUDE_CONFIG_DIR=/config/claude")
+	want = []string{"/config/claude/CLAUDE.md", "/config/claude/rules/**"}
+	if got := generateSettings(spec).ClaudeMdExcludes; !slices.Equal(got, want) {
+		t.Errorf("a lane with a configuration directory excludes %v, want %v", got, want)
+	}
+	for _, pattern := range generateSettings(spec).ClaudeMdExcludes {
+		if matched, _ := filepath.Match(pattern, filepath.Join(spec.Dir, "CLAUDE.md")); matched {
+			t.Errorf("a lane leaves out the repository's own CLAUDE.md with %s", pattern)
+		}
+	}
 }
