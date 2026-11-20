@@ -271,6 +271,11 @@ func (c *repositoryCreator) checkPlace(ctx context.Context, rt *TemplateRuntime,
 		rules.files, rules.started = files, true
 	}
 	refusal, err = c.w.checkFolder(ctx, rt, job.Path, found, rules)
+	// A run that stopped between writing its files and journaling the folder finds them there with no record that they
+	// are its own, so it says how to go on.
+	if err == nil && refusal != nil && refusal.Reason == ledger.TemplateRefusedNotEmpty && journal != nil && journal.Folder() == "" {
+		refusal.Detail += fmt.Sprintf("; this creation stopped before it recorded the folder it writes, so it cannot tell its own files there from anyone else's: clear %s and retry, or skip this repository's creation", job.Path)
+	}
 	return p, refusal, err
 }
 

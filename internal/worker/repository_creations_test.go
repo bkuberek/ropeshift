@@ -756,3 +756,34 @@ func TestAWaitingCheckWhoseContextEndsTakesNoFolder(t *testing.T) {
 		t.Errorf("a check after the preview is %+v (%v), want it to take the folder and pass", checked, err)
 	}
 }
+
+// wroteFolders stops the run once it wrote the shape's files and before it journaled the folder it wrote them in, as
+// a worker that dies there does.
+type wroteFolders struct{ *fake.ProjectFolders }
+
+func (f wroteFolders) Write(ctx context.Context, folder string, files []ports.FolderFile, want ports.FolderID) (ports.FolderID, error) {
+	id, err := f.ProjectFolders.Write(ctx, folder, files, want)
+	if len(files) > 0 {
+		runtime.Goexit()
+	}
+	return id, err
+}
+
+// A creation that stopped between writing its files and journaling the folder cannot tell its files from anyone
+// else's, so it is refused, and the refusal says to clear the folder and retry or to skip the creation.
+func TestACreationThatCannotTellItsFilesSaysToClearTheFolderOrSkip(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	job := creation("/work/tt/repos/api")
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		_, _ = r.creatorWith(wroteFolders{r.folders}, r.forge).Create(context.Background(), job)
+	}()
+	<-stopped
+	report := refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedNotEmpty)
+	if !strings.Contains(report.Detail, "clear "+job.Path+" and retry") || !strings.Contains(report.Detail, "skip") {
+		t.Errorf("the refusal says %q, which does not say to clear the folder or skip", report.Detail)
+	}
+}
