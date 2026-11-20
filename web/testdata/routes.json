@@ -405,6 +405,11 @@
     "command": "lane attach"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/panes/{id}/scrollback",
+    "command": "lane attach"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/projects/{project}/backup/download",
     "command": "backup"

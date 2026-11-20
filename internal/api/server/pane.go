@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -30,6 +31,9 @@ type Panes interface {
 	Screen(ctx context.Context, lane string, generation int64) (string, error)
 	// Send types into a generation's pane. ErrNotFound means there is no such pane.
 	Send(ctx context.Context, lane string, generation int64, input PaneInput) error
+	// Scrollback reads the newest lines of a generation's pane's scrollback, up to the count asked for.
+	// ErrNotFound means there is no such pane.
+	Scrollback(ctx context.Context, lane string, generation int64, lines int) (ports.Scrollback, error)
 }
 
 // PaneInput is what reaches a pane: literal text, then keys by the terminal's names for them. Either
@@ -56,6 +60,11 @@ type TerminalPanes struct {
 // Screen reads the screen of a generation's pane.
 func (p TerminalPanes) Screen(ctx context.Context, lane string, generation int64) (string, error) {
 	return p.Terminal.Screen(ctx, p.Name(lane, generation))
+}
+
+// Scrollback reads the newest lines of a generation's pane's scrollback.
+func (p TerminalPanes) Scrollback(ctx context.Context, lane string, generation int64, lines int) (ports.Scrollback, error) {
+	return p.Terminal.History(ctx, p.Name(lane, generation), lines)
 }
 
 // Send types text into a generation's pane, then presses its keys.
@@ -92,6 +101,7 @@ var paneKeys = map[string]string{
 func (h *handler) paneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+api.PanePath, h.member(h.streamPane))
 	mux.HandleFunc("POST "+api.PaneInputPath, h.member(h.typeIntoPane))
+	mux.HandleFunc("GET "+api.PaneScrollbackPath, h.member(h.readScrollback))
 }
 
 // paneLane reads the lane a request names. It refuses a lane that ended, which will never have a pane
@@ -296,4 +306,49 @@ func paneInputOf(in api.PaneInput) (PaneInput, error) {
 		input.Keys = []string{paneKeys["Enter"]}
 	}
 	return input, nil
+}
+
+// readScrollback answers the newest lines of the scrollback of a lane's current pane, so a member can read
+// what scrolled off the screen. A parked lane has no process, and so no pane to read.
+func (h *handler) readScrollback(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
+	lines, err := scrollbackLines(r.URL.Query()["lines"])
+	if err != nil {
+		invalid(w, "%s", err.Error())
+		return
+	}
+	lane, ok := h.paneLane(w, r)
+	if !ok {
+		return
+	}
+	if lane.ActualState == ledger.StateParked {
+		noPane(w, lane)
+		return
+	}
+	history, err := h.Panes.Scrollback(r.Context(), lane.ID, lane.Generation, lines)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		noPane(w, lane)
+		return
+	case err != nil:
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.PaneScrollback{Lane: lane.ID, Generation: lane.Generation, Lines: history.Lines, Size: history.Size, Limit: history.Limit})
+}
+
+// scrollbackLines reads how many lines a read of a scrollback asks for: one count, from 1 to the bound, or
+// the default with none.
+func scrollbackLines(values []string) (int, error) {
+	switch len(values) {
+	case 0:
+		return api.DefaultPaneScrollback, nil
+	case 1:
+	default:
+		return 0, errors.New("a read of the scrollback names one count of lines")
+	}
+	lines, err := strconv.Atoi(values[0])
+	if err != nil || lines < 1 || lines > api.MaxPaneScrollback {
+		return 0, fmt.Errorf("lines is a whole number from 1 to %d, not %q", api.MaxPaneScrollback, values[0])
+	}
+	return lines, nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/ports"
@@ -21,6 +22,10 @@ type PaneScript struct {
 	// Stale counts the reads, after each key that moves the screen, that still return the screen the
 	// key moved away from, as a pane that repaints slowly does. The screen itself has already moved.
 	Stale int
+	// History is the pane's scrollback, oldest line first, and HistoryLimit how many lines it keeps. Zero
+	// keeps 2000, as tmux does by default.
+	History      []string
+	HistoryLimit int
 }
 
 // Terminal holds scripted panes in memory. No process starts.
@@ -214,6 +219,33 @@ func (t *Terminal) Screen(_ context.Context, name string) (string, error) {
 	}
 	t.screens++
 	return pane.script.Screen, nil
+}
+
+// History reads the newest lines of a pane's scrollback. A read asks for at least one line, as tmux's does.
+func (t *Terminal) History(_ context.Context, name string, lines int) (ports.Scrollback, error) {
+	if lines < 1 {
+		return ports.Scrollback{}, fmt.Errorf("a read of the history asks for at least one line, not %d", lines)
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.failRead != nil {
+		return ports.Scrollback{}, t.failRead
+	}
+	pane, ok := t.panes[name]
+	if !ok {
+		return ports.Scrollback{}, fmt.Errorf("%s: %w", name, ports.ErrNotFound)
+	}
+	history := pane.script.History
+	newest := history[max(0, len(history)-lines):]
+	text := ""
+	if len(newest) > 0 {
+		text = strings.Join(newest, "\n") + "\n"
+	}
+	limit := pane.script.HistoryLimit
+	if limit == 0 {
+		limit = 2000
+	}
+	return ports.Scrollback{Lines: text, Size: len(history), Limit: limit}, nil
 }
 
 // Screens counts every read of a screen for a person, on any pane.

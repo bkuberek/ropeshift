@@ -238,6 +238,10 @@ A member opens a lane's page with Open. Message talks to a lane that runs headle
 
 A lane's page shows its screen or its event stream, its facts, the spend of its work order against its limits, and under them Messages, which lists what was sent to the lane, oldest first, as `ropeshift message list` does. A row gives the message, its kind, the generation it was written for, its state, when it was sent, its body, and the lane's reply. A state claims only what its signal proves: a write to a session shows that bytes were handed over, and only a reply says the lane read the message. A message that ended without being injected says why, such as that it timed out or that its generation ended, and a body and a reply keep their line breaks and are never cut. A lane nobody wrote to says so. The [command reference](cli.md) lists each state `ropeshift message show` names. Under Messages, Questions lists every question the lane asked or waits on, at any status, with the fields Open questions shows and a link to each there, from the moment the lane asks it.
 
+## Lane panes
+
+A lane's pane, on the Lane page, the Planning page, and in the conversation panel, shows the scrollback tmux keeps above the screen. The pane reads the newest 200 lines when it opens and shows the newest line, and the line above the screen says how much it shows, such as "Showing 200 of the 2,000 lines tmux keeps". Scrolling up to the top reads twice as many older lines, up to all that tmux keeps, and keeps your place. While you read at the bottom, the scrollback follows the lines that scroll off the screen. Copy all copies the whole scrollback and the screen as text, and says how many lines it copied.
+
 ## Import an existing project
 
 Import, at `/import`, adopts a project that already has code, documents, and branches, as `ropeshift adopt` does ([adopt an existing project](adopt.md)). The command palette lists it as Adopt a project, and the project switcher, Projects, Repositories, and an empty Overview open the same page. It has four steps: Worker and folders, Dry run, Planning repository, and Adopt session.
