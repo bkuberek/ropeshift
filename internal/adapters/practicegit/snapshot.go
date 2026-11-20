@@ -184,8 +184,17 @@ func snapshotBadObject(err error, commit string) bool {
 	return errors.As(err, &exit) && exit.ExitCode() == 128 && strings.Contains(err.Error(), "fatal: bad object "+commit)
 }
 
-// snapshotRevision resolves a ref to a commit ID, and in a partial clone to the object ID it names without reading the
-// object.
+// snapshotAnyBadObject reports whether a failed git command is git's answer that an object it reads is absent, which
+// for a tag is the object it names.
+func snapshotAnyBadObject(err error) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == 128 && strings.Contains(err.Error(), "fatal: bad object ")
+}
+
+// snapshotRevision resolves a ref to a commit ID. In a partial clone it reads the ID the ref names, and then asks
+// `rev-list --no-walk --missing=print` whether that object is a commit the clone holds: it prints the commit's ID,
+// peeled from a tag, prints nothing for a tree or a blob, and names a missing object or fails with a bad object, and it
+// never fetches one. A ref that names anything but a held commit is ErrNoRevision, as it is outside a partial clone.
 func snapshotRevision(ctx context.Context, git gitcli.Git, ref string, partialClone bool) (string, error) {
 	if !partialClone {
 		return git.Commit(ctx, ref)
@@ -194,7 +203,17 @@ func snapshotRevision(ctx context.Context, git gitcli.Git, ref string, partialCl
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", gitcli.ErrNoRevision, ref)
 	}
-	return id, nil
+	out, err := git.Text(ctx, "rev-list", "--no-walk", "--missing=print", id)
+	if snapshotAnyBadObject(err) {
+		return "", fmt.Errorf("%w: %s", gitcli.ErrNoRevision, ref)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !snapshotCommitID.MatchString(out) {
+		return "", fmt.Errorf("%w: %s", gitcli.ErrNoRevision, ref)
+	}
+	return out, nil
 }
 
 // snapshotEntry is one tracked path at a commit and its file mode.
