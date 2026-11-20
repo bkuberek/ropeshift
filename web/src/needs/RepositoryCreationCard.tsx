@@ -1,4 +1,4 @@
-import { useContext, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { useChange } from "../admin/parts";
@@ -107,6 +107,9 @@ type Props = {
   onResolved?: (words: string) => void;
 };
 
+// What a state reads as in the sentence that announces a change of it.
+const stateWords: Record<RepositoryCreationNeed["state"], string> = { refused: "refused", failed: "failed", interrupted: "interrupted", running: "being created" };
+
 const clock = () => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
 // RepositoryCreationCard is a repository an approved plan version creates that was refused, failed, or was interrupted,
@@ -116,12 +119,26 @@ const clock = () => new Date().toLocaleTimeString(undefined, { hour: "2-digit", 
 export function RepositoryCreationCard({ need, after, frame, onResolved }: Props) {
   const { act, busy, failure } = useAct(after);
   const [skipping, setSkipping] = useState(false);
+  // problem is why a run that met an error after it began could not finish, as a retry's answer says it.
+  const [problem, setProblem] = useState("");
+  // said is what the live region announces when the creation's state changes while the card stands: a read of Needs you moves it.
+  const [said, setSaid] = useState("");
   const name = plainLine(need.name);
+  const was = useRef(need.state);
+  useEffect(() => {
+    if (was.current !== need.state) {
+      was.current = need.state;
+      setSaid(`${name} is now ${stateWords[need.state] ?? plainLine(need.state)}`);
+    }
+  }, [need.state, name]);
   const offers = (action: RepositoryCreationNeed["actions"][number]) => need.actions.includes(action);
   const running = need.state === "running";
   const retry = () =>
     void act(async () => {
+      setProblem("");
+      setSaid("");
       const decided = await retryRepository(need.approval, need.name);
+      setProblem(plainLine(decided.repositories_problem));
       const entry = decided.repositories?.find((one) => one.name === need.name);
       if (entry?.outcome === "created") {
         onResolved?.(`created by you at ${clock()}`);
@@ -166,11 +183,9 @@ export function RepositoryCreationCard({ need, after, frame, onResolved }: Props
         ) : (
           <p>Retry goes on from the last step done and registers {name} once every step succeeds. Skip leaves it uncreated.</p>
         )}
-        {busy ? (
-          <p role="status" className="small">
-            Creating {name}
-          </p>
-        ) : null}
+        <p role="status" className="small">
+          {busy ? `Creating ${name}` : said}
+        </p>
       </DecisionSection>
       <Facts>
         <Fact name="Repository" mono>
@@ -224,6 +239,7 @@ export function RepositoryCreationCard({ need, after, frame, onResolved }: Props
         </DecisionSection>
       ) : null}
       {failure ? <Refusal>{plainLine(failure)}</Refusal> : null}
+      {problem ? <Refusal>{problem}</Refusal> : null}
       {skipping ? <SkipDialog need={need} after={after} onClose={() => setSkipping(false)} onSkipped={() => onResolved?.("you skipped it")} /> : null}
     </DecisionCard>
   );

@@ -188,8 +188,18 @@ describe("Retry", () => {
     await userEvent.click(within(theCard()).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(later).toHaveBeenCalled());
     expect(posts(sent)).toHaveLength(1);
-    expect(within(theCard()).queryByRole("status")).toBeNull();
+    expect(within(theCard()).getByRole("status").textContent).toBe("");
     expect((within(theCard()).getByRole("button", { name: "Retry" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows why a run that met an error could not finish, when the answer carries it", async () => {
+    const problem = "registering the repositories the manifest adds failed: disk full";
+    serveApi((call) => (call.method === "POST" ? { status: 200, body: { id: "generated-1", repositories: [{ name: "ghost", path: "/work/ghost", outcome: "create_failed" }], repositories_problem: problem } } : { status: 200, body: {} }));
+    show(stopped());
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Retry" }));
+    expect((await within(theCard()).findByRole("alert")).textContent).toBe(problem);
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(within(theCard()).getAllByRole("alert")).toHaveLength(1));
   });
 
   it("shows the server's message when it refuses, as it does for an entry a member skipped", async () => {
@@ -198,6 +208,47 @@ describe("Retry", () => {
     show(stopped());
     await userEvent.click(within(theCard()).getByRole("button", { name: "Retry" }));
     expect((await within(theCard()).findByRole("alert")).textContent).toContain(message);
+  });
+});
+
+describe("the live region", () => {
+  it("stands in the card empty, and holds Creating ghost while a retry runs, so a screen reader announces it", async () => {
+    let finish: () => void = () => {};
+    const pending = new Promise<void>((resolve) => (finish = resolve));
+    serveApi(() => ({ status: 200, body: { id: "generated-1", repositories: [] } }));
+    const answered = fetch;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        await pending;
+      }
+      return answered(url, init);
+    });
+    show(stopped());
+    const region = within(theCard()).getByRole("status");
+    expect(region.textContent).toBe("");
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(region.textContent).toBe("Creating ghost"));
+    expect(within(theCard()).getByRole("status")).toBe(region);
+    finish();
+    await waitFor(() => expect(region.textContent).toBe(""));
+  });
+
+  it("announces a change of state that arrives by a read, in the same region", async () => {
+    const running = with_((need) => {
+      need.state = "running";
+      need.actions = [];
+    });
+    const view = show(running);
+    const region = within(theCard("ghost is being created")).getByRole("status");
+    expect(region.textContent).toBe("");
+    const failed = stopped();
+    view.rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...golden<View>("repository-creation-needs-you"), items: [failed] }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    await waitFor(() => expect(within(theCard()).getByRole("status").textContent).toBe("ghost is now failed"));
+    expect(within(theCard()).getByRole("status")).toBe(region);
   });
 });
 
@@ -298,13 +349,30 @@ describe("the palette", () => {
 
 // ATTACK: what the API gives is text, wherever it stands in the card.
 describe("a card built from hostile text", () => {
+  it("names the repository in the palette's Decide entry as plain text", async () => {
+    const item = with_((need) => {
+      need.name = "ghost\u202E<b>x</b>";
+    });
+    serveViews((call) => (call.path === "/v1/needs-you" ? { status: 200, body: { ...golden<View>("repository-creation-needs-you"), items: [item] } } : undefined));
+    openPage("/needs-you");
+    await screen.findByRole("heading", { level: 1, name: "Needs you" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.type(within(palette).getByRole("combobox"), "decide ghost");
+    const titles = within(palette).getAllByRole("option").map((option) => option.textContent ?? "");
+    expect(titles.some((text) => text.includes("Decide: ghost<b>x</b> was not created"))).toBe(true);
+    expect(titles.join("")).not.toMatch(/\u202E/);
+    expect(palette.querySelector("b")).toBeNull();
+  });
+
   const hostile = "\u001b[31mred\u001b[0m\u0007<script>alert(1)</script><img src=x onerror=alert(2)>\u202Eevil\nsecond line";
 
   it("renders no element from it, drops escapes, bells, bidirectional marks, and line breaks, and copies one line", async () => {
     const copy = vi.fn(async (_text: string) => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText: copy }, configurable: true });
     const item = with_((need) => {
-      need.name = `ghost`;
+      need.name = "ghost\u202E<script>alert(9)</script>";
+      need.plan = "plan\u202E\u0007x";
       need.manifest_path = `../ghost\n${hostile}`;
       need.path = `/work/ghost${hostile}`;
       need.reason = hostile;
@@ -321,7 +389,14 @@ describe("a card built from hostile text", () => {
       };
     });
     show(item);
-    const card = theCard();
+    const card = theCard("ghost<script>alert(9)</script> was not created");
+    // The list's title, the card's title, and the plan in their context are the name and the plan as plain text.
+    const listed = screen.getByRole("list", { name: "Waiting items" });
+    expect(listed.textContent).toContain("ghost<script>alert(9)</script> was not created");
+    expect(listed.textContent).toContain("Plan planx · version 1");
+    expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("ghost<script>alert(9)</script> was not created");
+    expect(listed.textContent).not.toMatch(/[\u202E\u0007]/);
+    expect(document.querySelectorAll("script")).toHaveLength(0);
     expect(card.querySelectorAll("script, img, iframe, object, style, link")).toHaveLength(0);
     const text = card.textContent ?? "";
     expect(text).toContain("<script>alert(1)</script>");

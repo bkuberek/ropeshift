@@ -1,4 +1,5 @@
 import type { Approval, CIKind, NeedItem } from "../api/types";
+import { plainLine } from "../planning/creation";
 import type { IconName } from "../ui/Icon";
 import { ciKinds } from "./ciWords";
 import { isHeld, mergeContext, mergeHeading } from "./merge";
@@ -230,7 +231,7 @@ export function headingOf(item: NeedItem): string {
     case "spend":
       return item.spend.work_order.title || item.spend.work_order.id;
     case "repository_creation":
-      return item.repository_creation.state === "running" ? `${item.repository_creation.name} is being created` : `${item.repository_creation.name} was not created`;
+      return `${plainLine(item.repository_creation.name)} ${item.repository_creation.state === "running" ? "is being created" : "was not created"}`;
   }
 }
 
@@ -272,7 +273,7 @@ export function contextOf(item: NeedItem): string {
     case "spend":
       return [item.spend.work_order.id, `${money(item.spend.spend.charged.charged_usd)} of ${money(item.spend.spend.hard_limit)}`].join(" · ");
     case "repository_creation":
-      return [`Plan ${item.repository_creation.plan}`, `version ${item.repository_creation.plan_version}`].join(" · ");
+      return [`Plan ${plainLine(item.repository_creation.plan)}`, `version ${item.repository_creation.plan_version}`].join(" · ");
   }
 }
 
