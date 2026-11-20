@@ -642,7 +642,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                 {sections.map((section) => {
                   const rows = section.entries.map((entry) =>
                     entry.lane ? (
-                      <li key={`lane:${entry.lane}`} className="lane-group">
+                      <li key={entry.key} className="lane-group">
                         <ItemProject.Provider value={entry.items[0]?.project?.name ?? ""}>
                           <LaneGroupHead entry={entry} after={after} onActed={(keys) => keys.forEach((key) => acted.current.add(key))} />
                         </ItemProject.Provider>

@@ -1,4 +1,5 @@
 import type { Approval, NeedItem } from "../api/types";
+import { keyOf } from "./kinds";
 
 // The orders Needs you offers. Importance is the default, and the address keeps any other as `order`.
 export type Order = "importance" | "oldest" | "newest";
@@ -60,8 +61,16 @@ export function gateRequests(items: NeedItem[]): Approval[] {
   return items.filter(isPermission).map((item) => item.approval).filter((approval) => approval.gate === true);
 }
 
-// Entry is one row of the list: a lane's items together, or one item that belongs to no lane, with lane empty.
-export type Entry = { lane: string; items: NeedItem[] };
+// Entry is one row of the list: a lane's items together, or one item that belongs to no lane, with lane empty. Key
+// names it among the rows: a group by its project and its lane, since two projects can each have a lane of one name,
+// and an item alone by its own key.
+export type Entry = { key: string; lane: string; items: NeedItem[] };
+
+// groupOf names the group an item stands in: its project and its lane, or nothing for an item of no lane.
+function groupOf(item: NeedItem): string {
+  const lane = laneOf(item);
+  return lane ? JSON.stringify([item.project?.name ?? "", lane]) : "";
+}
 
 // Section is the entries of one tier, or of the whole list when the order is by wait alone, with tier null.
 export type Section = { tier: number | null; entries: Entry[] };
@@ -81,26 +90,27 @@ function compare(order: Order) {
 // entriesOf gathers the items of one lane at the place of its first, when grouped, and keeps a lane with one item as
 // that item alone, since its own line already names the lane.
 function entriesOf(items: NeedItem[], grouped: boolean): Entry[] {
+  const alone = (item: NeedItem): Entry => ({ key: `item:${keyOf(item)}`, lane: "", items: [item] });
   if (!grouped) {
-    return items.map((item) => ({ lane: "", items: [item] }));
+    return items.map(alone);
   }
-  const byLane = new Map<string, NeedItem[]>();
+  const byGroup = new Map<string, NeedItem[]>();
   for (const item of items) {
-    const lane = laneOf(item);
-    if (lane) {
-      byLane.set(lane, [...(byLane.get(lane) ?? []), item]);
+    const group = groupOf(item);
+    if (group) {
+      byGroup.set(group, [...(byGroup.get(group) ?? []), item]);
     }
   }
   const entries: Entry[] = [];
   const placed = new Set<string>();
   for (const item of items) {
-    const lane = laneOf(item);
-    const together = lane ? (byLane.get(lane) ?? []) : [];
+    const group = groupOf(item);
+    const together = group ? (byGroup.get(group) ?? []) : [];
     if (together.length < 2) {
-      entries.push({ lane: "", items: [item] });
-    } else if (!placed.has(lane)) {
-      placed.add(lane);
-      entries.push({ lane, items: together });
+      entries.push(alone(item));
+    } else if (!placed.has(group)) {
+      placed.add(group);
+      entries.push({ key: `lane:${group}`, lane: laneOf(item), items: together });
     }
   }
   return entries;
