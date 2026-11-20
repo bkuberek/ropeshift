@@ -90,6 +90,8 @@ type Item struct {
 	// the core ran lists what it found by text, judged by nobody, so the trace says which citation is which.
 	NoOrchestrator bool   `json:"no_orchestrator,omitempty"`
 	LadderTrace    []Step `json:"ladder_trace,omitempty"`
+	// AskedBy is who asked the question, so a member can discuss it with them.
+	AskedBy string `json:"asked_by,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -111,7 +113,7 @@ func Present(batch Batch, rows []Question, category string, policy Policy) Prese
 			Recommendation: row.Recommendation, RecommendationRationale: row.RecommendationRationale,
 			EscalationReason: row.EscalationReason, Reversibility: policy.AnswerReversibility(row), Citations: citationsOf(row),
 			Scope: ScopeOf(row.SubjectKind, row.SubjectID), Overlaps: row.Overlaps,
-			NoOrchestrator: row.NoOrchestrator(), LadderTrace: row.LadderTrace,
+			NoOrchestrator: row.NoOrchestrator(), LadderTrace: row.LadderTrace, AskedBy: row.AskedBy,
 		})
 	}
 	return presented

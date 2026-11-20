@@ -567,6 +567,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	items = append(items, history...)
 	items = append(items, h.conflictNeeds(f)...)
 	slices.SortStableFunc(items, func(a, b api.NeedItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
+	for i := range items {
+		items[i].Tier = api.TierOf(items[i])
+	}
 	return items, nil
 }
 
