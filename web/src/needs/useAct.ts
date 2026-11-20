@@ -4,8 +4,8 @@ import { ApiError, inProjectOf } from "../api/client";
 import { ItemProject } from "../app/route";
 
 // useAct runs one change at a time, so a second press cannot send a second decision, and it keeps what
-// the server refused in words a person can act on.
-export function useAct(after: () => Promise<void>) {
+// the server refused in words a person can act on. after hears whether the change went through.
+export function useAct(after: (ok?: boolean) => Promise<void>) {
   const project = useContext(ItemProject);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
@@ -20,11 +20,11 @@ export function useAct(after: () => Promise<void>) {
     setFailure("");
     try {
       await (project ? inProjectOf(project, change) : change());
-      await after();
+      await after(true);
       return true;
     } catch (error) {
       setFailure(error instanceof ApiError ? error.message : String(error));
-      await after();
+      await after(false);
       return false;
     } finally {
       running.current = false;

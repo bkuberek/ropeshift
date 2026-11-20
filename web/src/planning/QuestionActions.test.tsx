@@ -81,3 +81,22 @@ describe("Assume on an open question", () => {
     expect(record.hasAttribute("disabled")).toBe(false);
   });
 });
+
+// Needs you is where a question is decided, so a question that already reached a person offers Decide now, which opens
+// its card there with the primary button focused. It decides nothing itself.
+describe("Decide now", () => {
+  it("opens the question's card in Needs you once it reached a person", () => {
+    serveApi(() => undefined);
+    const question = { ...questionOf("question-1"), status: "needs_human", batch_id: "batch-9" };
+    shown(question, [question]);
+    const link = screen.getByRole("link", { name: `Decide now: ${question.text}` });
+    expect(link.getAttribute("href")).toContain("/needs-you?item=questions%3Abatch-9&focus=primary");
+  });
+
+  it("is not offered while the question is still on the ladder", () => {
+    serveApi(() => undefined);
+    const question = { ...questionOf("question-1"), status: "open", batch_id: undefined };
+    shown(question, [question]);
+    expect(screen.queryByRole("link", { name: /^Decide now/ })).toBeNull();
+  });
+});
