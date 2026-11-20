@@ -103,8 +103,9 @@ type hookPayload struct {
 	Model            string `json:"model"`
 	Prompt           string `json:"prompt"`
 	// BackgroundTasks are a Stop's tasks in flight (https://code.claude.com/docs/en/hooks#stop-input), which are
-	// counted and never read: a task's description and command say what the session asked of it.
-	BackgroundTasks []json.RawMessage `json:"background_tasks"`
+	// counted and never read: a task's description and command say what the session asked of it. It is kept raw, so
+	// a value in a shape this build does not know counts nothing and costs nothing else of the Stop.
+	BackgroundTasks json.RawMessage `json:"background_tasks"`
 	ToolInput       struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
@@ -204,7 +205,7 @@ func NewHookEvent(event string, input []byte) HookEvent {
 		out.Path = WrittenPath(payload.ToolName, payload.ToolInput.FilePath, payload.ToolInput.NotebookPath)
 	}
 	if event == EventStop {
-		out.Background = len(payload.BackgroundTasks)
+		out.Background = countTasks(payload.BackgroundTasks)
 	}
 	if payload.ToolName == ToolQuestion {
 		for _, question := range payload.ToolInput.Questions {
@@ -216,6 +217,15 @@ func NewHookEvent(event string, input []byte) HookEvent {
 		}
 	}
 	return out
+}
+
+// countTasks counts the entries of a Stop's `background_tasks`, and finds none in a value that is no list.
+func countTasks(raw json.RawMessage) int {
+	var tasks []json.RawMessage
+	if json.Unmarshal(raw, &tasks) != nil {
+		return 0
+	}
+	return len(tasks)
 }
 
 // HookRecord is one event after merging: repeats add to Count and move LastMs.

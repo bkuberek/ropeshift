@@ -60,6 +60,10 @@ const (
 	// the restructuring lacks, and the fix is to run `ropeshift adopt --dry-run` again and restart with
 	// `--restructure`.
 	ReasonRestructureIncomplete = "restructure_incomplete"
+	// ReasonBackgroundUnreported says a lane rested on background work its own turn left running past the longest a
+	// lane waits live (max_live_wait), after its nudge, and nothing reported. The report's detail says since when, how
+	// many tasks still ran, and the bound that ended the wait.
+	ReasonBackgroundUnreported = "background_unreported"
 )
 
 // CheckResult is one check a lane reports. Criterion names what it speaks for, and a check

@@ -55,7 +55,7 @@ Work becomes `ready` only when it passes a definition of ready: its contract is 
 
 **A lane that cannot go on parks.** It saves its work, stops its process so it uses no quota, and resumes when its answer arrives.
 
-**A lane's turn ends its work only when nothing it started still runs.** A lane runs its helper agents and its commands in the foreground and waits for their reports before it reports. When a turn still ends with some of its own background work running, such as a watch, the worker neither nudges the lane nor ends it: the lane rests, reads `waiting_external`, and goes on in the turn that work's end starts ([Agents](authorization.md#agents)).
+**A lane's turn ends its work only when nothing it started still runs.** A lane runs its helper agents and its commands in the foreground and waits for their reports before it reports. When a turn still ends with some of its own background work running, such as a watch, the worker holds back the lane's nudge: the lane rests and reads `waiting_background`, and goes on in the turn that work's end starts. The rest lasts no longer than `max_live_wait` ([waiting costs no credits](#waiting-costs-no-credits)).
 
 **The orchestrator** is one agent per machine that keeps the work moving. It claims ready work, starts lanes, starts a review when a lane finishes, and settles questions within the decision policy you set. A worker that runs on a Claude subscription starts at `attended`: its orchestrator claims work only inside a run window you open ([Claude subscriptions and automated use](onboarding.md#claude-subscriptions-and-automated-use)). You can also claim and start any work order by hand.
 
@@ -72,6 +72,7 @@ A session that waits spends its credits on nothing: every turn it takes while it
 | CI, a review, or a merge | Nothing: the lane reports its work and ends, and ropeshift starts the next step once the result is in |
 | A person | The lane asks, ends its turn, and parks after `ask_wait` |
 | A timer or an outside process, up to `max_live_wait` | The lane calls `lane_wait` and stays live |
+| Background work it started, such as a watch | The lane rests with no nudge and reads `waiting_background` until that work reports. Past `max_live_wait` it gets a nudge that names the work, and a lane whose nudge was spent ends `blocked` with the reason `background_unreported`, whose detail says when its turn ended, how many tasks still ran, and the bound |
 | A timer or an outside process, longer | `lane_wait` answers `parking`, the lane ends its turn, and the worker parks it within one pass, and a restart of the worker in between still parks it. The lane wakes when the wait ends, or when you resume it |
 
 A parked lane has no process and makes no model call until it wakes.

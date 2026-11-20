@@ -50,12 +50,17 @@ func TestAStopCountsTheBackgroundWorkStillRunning(t *testing.T) {
 	if strings.Contains(string(raw), secret) || strings.Contains(string(raw), "I started") {
 		t.Errorf("a task's text left the session: %s", raw)
 	}
+	// A list in a shape this build does not know counts nothing, and leaves the rest of the Stop whole.
 	for name, input := range map[string]string{
 		"an empty list": `{"session_id":"s-1","background_tasks":[]}`,
 		"no list":       `{"session_id":"s-1"}`,
+		"a null":        `{"session_id":"s-1","background_tasks":null}`,
+		"an object":     `{"session_id":"s-1","background_tasks":{"a":{"type":"subagent"}}}`,
+		"a number":      `{"session_id":"s-1","background_tasks":4}`,
 	} {
-		if event := lanes.NewHookEvent(lanes.EventStop, []byte(input)); event.Background != 0 {
-			t.Errorf("%s: background %d", name, event.Background)
+		event := lanes.NewHookEvent(lanes.EventStop, []byte(input))
+		if event.Background != 0 || event.Malformed || event.SessionID != "s-1" {
+			t.Errorf("%s: %+v", name, event)
 		}
 	}
 	if event := lanes.NewHookEvent(lanes.EventPreToolUse, input); event.Background != 0 {

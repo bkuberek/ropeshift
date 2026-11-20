@@ -244,9 +244,9 @@ func TestConditions(t *testing.T) {
 			want:  []lanes.Condition{lanes.WaitingExternal},
 		},
 		{
-			name:  "a lane at rest on its own background work waits on it",
+			name:  "a lane at rest on its own background work waits on it, under a condition of its own",
 			facts: lanes.Facts{State: lanes.Idle, SinceProgress: 30, StallAfter: 20, BackgroundInFlight: true},
-			want:  []lanes.Condition{lanes.WaitingExternal},
+			want:  []lanes.Condition{lanes.WaitingBackground},
 		},
 		{
 			name:  "a wait does not suppress overdue",

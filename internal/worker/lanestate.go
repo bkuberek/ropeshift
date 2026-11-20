@@ -76,9 +76,11 @@ type laneState struct {
 	forPerson bool
 	// forWake says an orchestrator's generation waits for something to judge, before it prepares a session.
 	forWake bool
-	// background is how many background tasks the session's newest Stop said still run. Each wakes the session
-	// with a turn of its own when it ends.
-	background int
+	// background is how many background tasks the session's newest Stop said still run, and backgroundSince when
+	// the worker heard that Stop. Each task wakes the session with a turn of its own when it ends, and the prompt
+	// that starts a turn ends the count.
+	background      int
+	backgroundSince time.Time
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -497,28 +499,30 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 	case lanes.EventCallDenied:
 		s.callEnded(event.Subject)
 	case lanes.EventStop:
-		s.noteBackground(event.Background)
+		s.noteBackground(event.Background, r.w.clock.Now())
+	case lanes.EventUserPromptSubmit:
+		s.noteBackground(0, time.Time{})
 	case hookStopFailure:
-		s.noteBackground(0)
+		s.noteBackground(0, time.Time{})
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)
 	}
 }
 
-// noteBackground keeps what the turn that just stopped left running in the background. A failed turn leaves
-// nothing to wait on.
-func (s *laneState) noteBackground(tasks int) {
+// noteBackground keeps what the turn that just stopped left running in the background, and when the worker heard
+// it. A failed turn leaves nothing to wait on, and a turn that starts ends the wait.
+func (s *laneState) noteBackground(tasks int, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.background = tasks
+	s.background, s.backgroundSince = tasks, at
 }
 
-// backgroundInFlight says the session's last turn stopped with its own background work still running, so the
-// lane's work is not over: the session goes on in the turn that work's end starts.
-func (s *laneState) backgroundInFlight() bool {
+// backgroundRest says the session's last turn stopped with its own background work still running, since when,
+// and how many tasks, so the lane's work is not over: the session goes on in the turn that work's end starts.
+func (s *laneState) backgroundRest() (since time.Time, tasks int, resting bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.background > 0
+	return s.backgroundSince, s.background, s.background > 0
 }
 
 // settleBrief moves a lane whose brief has shown no evidence past its grace.

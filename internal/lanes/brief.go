@@ -15,6 +15,11 @@ import (
 const Nudge = "You ended your turn with no outcome. Call the " + ToolLaneReport +
 	" tool now, once, with the outcome of this lane."
 
+// BackgroundNudge is the nudge of a lane that rested on its own background work for as long as a lane may wait live,
+// and heard nothing from it.
+const BackgroundNudge = "Your last turn ended with background work you started still running, and it has not reported " +
+	"within the time a lane may wait. Call the " + ToolLaneReport + " tool now, once, with the outcome of this lane."
+
 // PackFile is where a pack sits in a worktree, in a directory git does not see.
 const PackFile = ".ropeshift/context/pack.md"
 

@@ -208,8 +208,34 @@ func aWorldInEveryState(t *testing.T) *apitest.Daemon {
 	t.Helper()
 	clock := apitest.NewClock()
 	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
-	apitest.EveryState(apitest.NewWorld(t, d), clock)
+	w := apitest.NewWorld(t, d)
+	apitest.EveryState(w, clock)
+	everyConditionOnALane(t, d, w)
 	return d
+}
+
+// everyConditionOnALane gives a lane of its own to each condition no lane of the world carries. EveryState hands the
+// conditions to its lanes one to each in turn, so once there are more conditions than lanes that report one, the
+// turn leaves some over. An orchestrator's generation is the only one that awaits a wake, so that one stays with it.
+func everyConditionOnALane(t *testing.T, d *apitest.Daemon, w *apitest.World) {
+	t.Helper()
+	floor := readView[api.ShopFloor](t, d, api.ViewShopFloor, "")
+	carried := map[string]bool{}
+	for _, lane := range floor.Lanes {
+		for _, condition := range lane.Conditions {
+			carried[condition] = true
+		}
+	}
+	for _, condition := range lanes.EveryCondition {
+		if condition == lanes.AwaitingWake || carried[string(condition)] {
+			continue
+		}
+		lane := w.Running("wc-"+string(condition), "A lane that is "+string(condition))
+		lane.Status(ledger.LaneStatus{
+			ActualState: string(lanes.Idle), Liveness: string(lanes.LivenessAlive), ModelReach: string(lanes.Reachable),
+			LedgerReach: string(lanes.Reachable), Conditions: []string{string(condition)},
+		})
+	}
 }
 
 // TestFixtureCoversEveryState walks both state tables into one ledger and writes what it reads back,
