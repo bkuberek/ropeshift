@@ -285,6 +285,32 @@ describe("the flow from one decision to the next", () => {
     expect(posts(sent)[1]?.body).toMatchObject({ digest: "digest-approval-2", allow: true });
   });
 
+  it("moves to the next item and leaves focus where a person types outside the page", async () => {
+    const { view, items } = requests([
+      ["lane-a", "Bash"],
+      ["lane-b", "Read"],
+    ]);
+    serveApi(() => ({ status: 200 }));
+    const elsewhere = document.body.appendChild(document.createElement("textarea"));
+    try {
+      let rerender: (ui: ReactElement) => void = () => {};
+      ({ rerender } = show(
+        view,
+        async () => {
+          elsewhere.focus();
+          rerender(page({ ...view, items: items.slice(1) }));
+        },
+        "approval",
+      ));
+      await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+      await waitFor(() => expect(document.querySelector("[data-said]")?.textContent).toBe("Approved: Allow Bash. Next: Allow Read?"));
+      await new Promise((settle) => requestAnimationFrame(settle));
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
   it("says nothing else needs you once the last item is decided, and links what happens next", async () => {
     const { view } = requests([["lane-a", "Bash"]]);
     serveApi(() => ({ status: 200 }));

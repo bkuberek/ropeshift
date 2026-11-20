@@ -298,6 +298,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const title = useRef<HTMLHeadingElement>(null);
   const resolvedNote = useRef<HTMLParagraphElement>(null);
   const doneNote = useRef<HTMLDivElement>(null);
+  const page = useRef<HTMLDivElement>(null);
   const tabsId = useId();
   useArrivalFocus(title, active);
   const params = active ? route.params : new URLSearchParams();
@@ -441,20 +442,31 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   });
   const isGone = (item: NeedItem) => gone !== null && keyOf(gone) === keyOf(item);
 
-  // The next item's primary button takes focus once its card shows. One that cannot be pressed yet, such as a batch
-  // with nothing chosen, leaves focus on the card's first button, or on the item in the list.
+  // workingElsewhere says a person's focus is in another part of the window, such as a message they type in the
+  // conversation panel, which moving on must not take from them.
+  const workingElsewhere = () => {
+    const at = document.activeElement;
+    return at !== null && at !== document.body && !page.current?.contains(at);
+  };
+
+  // The next item's primary button takes focus once its card shows, unless the person works elsewhere. One that cannot
+  // be pressed yet, such as a batch with nothing chosen, leaves focus on the card's first button, or on the item in the
+  // list.
   useEffect(() => {
     if (!focusNext.current || focusNext.current !== selectedKey) {
       return;
     }
     focusNext.current = "";
+    if (workingElsewhere()) {
+      return;
+    }
     const card = [...document.querySelectorAll<HTMLElement>("[data-card]")].find((element) => element.dataset.card === selectedKey);
     (card?.querySelector<HTMLElement>(".decide .btn-primary:not(:disabled)") ?? card?.querySelector<HTMLElement>(".decide .btn:not(:disabled)") ?? document.getElementById(`need-${selectedKey}`))?.focus();
   });
 
   // With nothing left, focus moves to the line that says so, and what happens next. A new item ends it.
   useEffect(() => {
-    if (finished && active) {
+    if (finished && active && !workingElsewhere()) {
       doneNote.current?.focus();
     }
   }, [finished, active]);
@@ -573,7 +585,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
 
   return (
     <ViewTime.Provider value={{ asOf: view.as_of, elapsed }}>
-      <div className={`split${selected && (narrow || chosenKey) ? " show-detail" : ""}`}>
+      <div className={`split${selected && (narrow || chosenKey) ? " show-detail" : ""}`} ref={page}>
         <section className="split-list" aria-labelledby={`${tabsId}-title`}>
           <div className="split-list-head">
             <div className="split-title">
