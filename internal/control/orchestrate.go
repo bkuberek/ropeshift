@@ -137,10 +137,15 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		if err := readBody(call, &ruling); err != nil {
 			return nil, err
 		}
+		if err := w.citeConsultation(ctx, call.Question, &ruling); err != nil {
+			return nil, err
+		}
 		ruled, err := w.questions.Rule(ctx, w.scope, call.Question, ruling, actor)
 		return RecordedDecision{Decision: ruled}, err
 	case ledger.VerbRestart, ledger.VerbReset, ledger.VerbRetry, ledger.VerbReplan:
 		return w.recover(ctx, recoveryActs[verb], call, actor)
+	case ledger.VerbConsult:
+		return w.consult(ctx, call, actor)
 	}
 	return nil, fmt.Errorf("%w: no such act: %q", workorders.ErrInvalid, verb)
 }
