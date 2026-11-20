@@ -49,9 +49,15 @@ export function laneOf(item: NeedItem): string {
 }
 
 // permissionRequests are what Approve all covers in a lane's group: its open permission requests, each bound to its
-// own digest. It never covers a merge, a recovery act, a plan, a card, or a question.
+// own digest. It never covers a gate or a push, a merge, a recovery act, a plan, a card, or a question.
 export function permissionRequests(items: NeedItem[]): Approval[] {
-  return items.filter(isPermission).map((item) => item.approval);
+  return items.filter(isPermission).map((item) => item.approval).filter((approval) => !approval.gate);
+}
+
+// gateRequests are a lane's requests for a call its profile gates, or a push, which ask in every mode by design, so a
+// member reviews each one by itself.
+export function gateRequests(items: NeedItem[]): Approval[] {
+  return items.filter(isPermission).map((item) => item.approval).filter((approval) => approval.gate === true);
 }
 
 // Entry is one row of the list: a lane's items together, or one item that belongs to no lane, with lane empty.

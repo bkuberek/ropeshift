@@ -12,16 +12,16 @@ import (
 
 const approvalColumns = `id, lane_id, work_order_id, generation, kind, subject, subject_digest, input, command, path, summary,
        requested_by, state, decided_by, decided_kind, decided_digest, decided_at, reason, policy_version, raised_at, expires_at,
-       channel, used_by, plan_id, plan_version, detail`
+       channel, used_by, plan_id, plan_version, detail, gate`
 
 var (
 	stmtInsertApproval = define("approval.insert",
 		`INSERT INTO approval_requests
   (workspace_id, id, lane_id, work_order_id, generation, kind, subject, subject_digest, input, command, path, summary,
-   requested_by, state, reason, policy_version, raised_at, expires_at, channel, used_by, plan_id, plan_version, detail)
+   requested_by, state, reason, policy_version, raised_at, expires_at, channel, used_by, plan_id, plan_version, detail, gate)
 VALUES
   (:workspace_id, :id, :lane_id, :work_order_id, :generation, :kind, :subject, :subject_digest, :input, :command, :path, :summary,
-   :requested_by, :state, :reason, :policy_version, :raised_at, :expires_at, :channel, :used_by, :plan_id, :plan_version, :detail)
+   :requested_by, :state, :reason, :policy_version, :raised_at, :expires_at, :channel, :used_by, :plan_id, :plan_version, :detail, :gate)
 ON CONFLICT (workspace_id, id) DO NOTHING`)
 
 	stmtApproval = define("approval.get",
@@ -74,9 +74,11 @@ func scanApproval(row scanner) (authority.Approval, error) {
 	var state string
 	var lane, workOrder, decidedBy, decidedKind, decidedDigest, plan sql.NullString
 	var generation, decidedAt, planVersion sql.NullInt64
+	var gate int64
 	err := row.Scan(&a.ID, &lane, &workOrder, &generation, &a.Kind, &a.Subject, &a.SubjectDigest, &a.Input, &a.Command, &a.Path,
 		&a.Summary, &a.RequestedBy, &state, &decidedBy, &decidedKind, &decidedDigest, &decidedAt, &a.Reason, &a.PolicyVersion,
-		&a.RaisedAt, &a.ExpiresAt, &a.Channel, &a.UsedBy, &plan, &planVersion, &a.Detail)
+		&a.RaisedAt, &a.ExpiresAt, &a.Channel, &a.UsedBy, &plan, &planVersion, &a.Detail, &gate)
+	a.Gate = gate != 0
 	a.Lane, a.WorkOrder, a.Generation = lane.String, workOrder.String, generation.Int64
 	a.Plan, a.PlanVersion = plan.String, planVersion.Int64
 	a.State, a.DecidedBy, a.DecidedKind = authority.ApprovalState(state), decidedBy.String, decidedKind.String
@@ -172,7 +174,7 @@ func (t approvalTx) Insert(a authority.Approval) (bool, error) {
 		"subject_digest": a.SubjectDigest, "input": a.Input, "command": a.Command, "path": a.Path, "summary": a.Summary,
 		"requested_by": a.RequestedBy, "state": string(a.State), "reason": a.Reason, "policy_version": a.PolicyVersion,
 		"raised_at": a.RaisedAt, "expires_at": a.ExpiresAt, "channel": a.Channel, "used_by": a.UsedBy,
-		"plan_id": nullText(a.Plan), "plan_version": planVersion, "detail": a.Detail,
+		"plan_id": nullText(a.Plan), "plan_version": planVersion, "detail": a.Detail, "gate": flag(a.Gate),
 	}))
 	return n > 0, err
 }

@@ -116,6 +116,8 @@ type laneRun struct {
 	reads    []lanes.ReadTree
 	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
 	maxReviewRounds int64
+	// gates are the permission rules this lane's profile gates, which its requests are read against.
+	gates []string
 
 	bound   bool
 	nudged  atomic.Bool
@@ -979,6 +981,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if effort != "" {
 		r.settings.Effort = effort
 	}
+	r.gates = slices.Clone(prepared.Profile.Agent.Gates)
 	r.handleLock.Unlock()
 	r.noteReviewBound(prepared.Profile)
 	r.state.mu.Lock()

@@ -50,6 +50,7 @@ export function ApprovalCard({ approval, after, frame, compact = false, place, o
       }
     >
       <p>{approval.summary}</p>
+      {approval.gate ? <p className="cond warn">Gate: the lane's profile gates this call, or it is a push, so it asks in every mode and is approved one call at a time, never with Approve all.</p> : null}
       {approval.command || approval.input ? (
         <DecisionSection title="Exact operation">
           <pre className="op call">{approval.command || approval.input}</pre>

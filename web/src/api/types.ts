@@ -70,6 +70,9 @@ export type Approval = {
   decided_at?: number;
   channel?: string;
   reason?: string;
+  // gate says the call is one the lane's profile gates, or a push, which asks in every mode and is approved one call at a
+  // time, never in a batch.
+  gate?: boolean;
 };
 
 // A change a confirmation card makes: one field of a record from its value to another, one argument the
