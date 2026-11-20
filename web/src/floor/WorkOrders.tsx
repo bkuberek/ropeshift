@@ -24,7 +24,7 @@ import { standingWords, waitingStandingWords } from "./evidence";
 import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { PullRequestPanel } from "./PullRequest";
-import { ReadyWaitActions, ReadyWaitNote, readyWaitWords } from "./ReadyWait";
+import { ReadyWaitActions, ReadyWaitNote, ReadyWaitWords } from "./ReadyWait";
 import { ReviewOf } from "./ReviewOf";
 import { HeldFact, HeldTag } from "./StartHeld";
 import { StartAllReady } from "./StartAll";
@@ -81,7 +81,7 @@ function Under({ row }: { row: WorkRow }) {
     );
   }
   if (row.waits) {
-    return <ReadyWaitNote wait={row.waits} />;
+    return <ReadyWaitNote wait={row.waits} subject={titleOf(row)} />;
   }
   const wake = row.held?.wakes[0];
   if (wake) {
@@ -528,8 +528,8 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
       <ViewTime.Provider value={{ asOf: index.stamp.as_of, elapsed: Math.max(0, now - index.readAt) }}>
         {failure ? <Banner tone="danger">{`This page is not current. ${failure}`}</Banner> : null}
         {row.waits ? (
-          <Banner tone="warning" action={<ReadyWaitActions wait={row.waits} after={after} />}>
-            {readyWaitWords(row.waits)}
+          <Banner tone="warning" action={<ReadyWaitActions wait={row.waits} subject={order.title || order.id} after={after} />}>
+            <ReadyWaitWords wait={row.waits} />
           </Banner>
         ) : null}
         <Stepper state={order.state} rounds={standing?.rounds} />

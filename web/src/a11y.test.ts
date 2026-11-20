@@ -188,6 +188,29 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the start all dialog, with workers, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        // The Open tab lists the ready work of the plans the Go tests wrote, which Start all ready starts.
+        await page.goto(`${base}/projects/default/work?group=open`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start all ready" }).click();
+        await page.getByRole("dialog", { name: "Start all ready work" }).waitFor();
+        await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 1, null, { timeout: 20_000 });
+        // The Start button turns from disabled to enabled as the workers arrive, and axe reads a color a transition has
+        // reached, so the audit waits for the transition to end.
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        const found = (await audit(page)).map((violation) => `start all dialog ${violation}`);
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "Import, on the dry run, on the Restructure choice with a code tree left out, and on the refusal of a plan that changed, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

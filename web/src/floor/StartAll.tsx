@@ -14,8 +14,9 @@ const titleOf = (order: WorkOrder) => order.title || order.id;
 
 const counted = (count: number) => `${count} work order${count === 1 ? "" : "s"}`;
 
-// A work order the server refused to start, with the API's words.
-type Refused = { order: WorkOrder; why: string };
+// A work order the server refused to start, with the API's words, and whether its claim went through before its lane
+// start was refused, which leaves the work claimed.
+type Refused = { order: WorkOrder; why: string; claimed: boolean };
 
 // StartAllDialog claims every ready work order for one worker and starts each one's lane, in the list's order, as
 // Start does for one. A refusal stops that work order and no other, and the dialog stays open on what was refused, so
@@ -58,11 +59,15 @@ function StartAllDialog({ orders, onClose }: { orders: WorkOrder[]; onClose: () 
       for (const order of left) {
         const run = ids.current.get(order.id) ?? newRunIDs();
         ids.current.set(order.id, run);
+        let claimed = false;
         try {
-          await claimAndStart(order.id, worker, run);
+          const onClaimed = () => {
+            claimed = true;
+          };
+          await claimAndStart(order.id, worker, run, { onClaimed });
           started++;
         } catch (error) {
-          failures.push({ order, why: error instanceof Error ? error.message : String(error) });
+          failures.push({ order, why: error instanceof Error ? error.message : String(error), claimed });
         }
       }
     });
@@ -103,7 +108,7 @@ function StartAllDialog({ orders, onClose }: { orders: WorkOrder[]; onClose: () 
       >
         <p className="small muted">Claims each ready work order for the worker, then asks the worker to start its lane, one after another.</p>
         <Field label="Worker" help="The machine that runs the lanes. Workers the daemon sees now come first.">
-          <Select value={worker} onChange={(event) => setWorker(event.target.value)}>
+          <Select value={worker} disabled={refused.some((row) => row.claimed)} onChange={(event) => setWorker(event.target.value)}>
             <option value="">{found === null ? "Reading…" : choices.length === 0 ? "No worker has joined" : "Choose a worker"}</option>
             {choices.map((choice) => (
               <option key={choice.id} value={choice.id}>
@@ -117,6 +122,7 @@ function StartAllDialog({ orders, onClose }: { orders: WorkOrder[]; onClose: () 
             ? refused.map((row) => (
                 <li key={row.order.id} className="list-row">
                   <span className="list-row-title">{titleOf(row.order)}</span>
+                  {row.claimed ? <p className="small">The work is claimed on {nameOf(worker)}, and no lane has started.</p> : null}
                   <Refusal>{row.why}</Refusal>
                 </li>
               ))

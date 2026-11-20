@@ -11,7 +11,7 @@ import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { useRead } from "../admin/parts";
 import { addressOf, Link } from "../app/route";
-import { ReadyWaitActions, readyWaitWords } from "../floor/ReadyWait";
+import { ReadyWaitActions, ReadyWaitWords } from "../floor/ReadyWait";
 import { milestoneStates } from "../floor/states";
 import { fullHeadingOf, headingOf, keyOf, kindOf } from "../needs/kinds";
 import { Ago, Bar, Lasted, Page, StampLine, useClock, ViewTime } from "../parts/parts";
@@ -200,7 +200,7 @@ function ReadyWaits({ plans }: { plans: Plans }) {
     <>
       {[...groups.entries()].map(([key, { wait, count }]) => (
         <Banner key={key} tone="warning" action={<ReadyWaitActions wait={wait} />}>
-          {count} ready work order{count === 1 ? " waits" : "s wait"}. {readyWaitWords(wait)} <Link to={addressOf("/work", { group: "open" })}>Work orders</Link>
+          {count} ready work order{count === 1 ? " waits" : "s wait"}. <ReadyWaitWords wait={wait} /> <Link to={addressOf("/work", { group: "open" })}>Work orders</Link>
         </Banner>
       ))}
     </>

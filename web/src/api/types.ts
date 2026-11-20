@@ -757,7 +757,7 @@ export type ReadyWait = {
   reason: ReadyWaitReason;
   worker?: string;
   worker_name?: string;
-  cap?: "wip_limit" | "lanes_per_repository" | "lanes_per_worker";
+  cap?: "wip_limit" | "lanes_per_repository" | "lanes_per_worker" | "attended_max_respawns_per_day";
   fleet?: "pause" | "drain";
 };
 
