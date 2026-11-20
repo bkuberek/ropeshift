@@ -19,6 +19,7 @@ import { Surface } from "../talk/Surface";
 import { Banner } from "../ui/display";
 import { ToastProvider } from "../ui/overlays";
 import { inField, idle, onMac, readKey } from "./keys";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { NoSuchView, PageFor } from "./pages";
 import type { Entry } from "./ranking";
 import { useFocusParam } from "./focusParam";
@@ -502,7 +503,9 @@ export function App() {
                 {needs.view ? (
                   <>
                     <div hidden={view !== "needs-you"} className="screen-flush">
-                      <NeedsYou view={needs.view} readAt={needs.readAt} after={needs.reload} active={view === "needs-you"} />
+                      <ErrorBoundary scope="page" name="Needs you">
+                        <NeedsYou view={needs.view} readAt={needs.readAt} after={needs.reload} active={view === "needs-you"} />
+                      </ErrorBoundary>
                     </div>
                     {view && view !== "needs-you" ? <PageFor
                         key={`${view}:${project}:${route.project ? "project" : "installation"}`}

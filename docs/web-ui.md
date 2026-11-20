@@ -379,6 +379,8 @@ The right end of the status bar names the version the daemon runs, such as `v0.1
 
 A package manager replaces the binary on disk and leaves the daemon running the build it started from. The daemon reads the installed binary's version once a minute, and when that is a later release than the one running, the status bar shows Daemon out of date, and About shows a warning that says the same. The warning names the fix: `brew services restart ropeshift` when the daemon runs through `brew services`, and otherwise restarting the service, whichever command wrote it. A development build, or a binary the daemon cannot read, shows no warning. [Versioning](versioning.md#what-a-daemon-reports) describes what the daemon compares.
 
+A page that is open while the daemon is updated still holds the old build's code, and the new build no longer serves some of its files. When a view's code cannot load for that reason, the view says "ropeshift was updated" with a Reload button, inside the shell, and the page reloads once by itself. It does not reload a second time within a minute, so a file that stays missing cannot loop. A view that fails to draw for any other reason says which view could not be shown and why, with Reload and Try again. A failure of the page as a whole says the same on a page of its own. A view never leaves an empty screen.
+
 ## Measures
 
 ![Measures, with the fleet mode, limits, and counts of work orders and lanes by state](assets/screenshots/measures-light.png#gh-light-mode-only)
