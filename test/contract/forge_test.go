@@ -41,7 +41,7 @@ func TestForgeContractOnTheFake(t *testing.T) {
 				return commit
 			},
 			Merge: func(_ *testing.T, number int64) string {
-				merge := strings.Repeat("m", 40)
+				merge := strings.Repeat("ab", 20)
 				forge.MergeByPerson(number, merge)
 				return merge
 			},

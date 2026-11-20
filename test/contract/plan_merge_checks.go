@@ -208,7 +208,7 @@ func checkApprovedPlanMerges(r *Rig) error {
 	if err := p.noMergeRequest(); err != nil {
 		return err
 	}
-	if err := p.landed(merge, "merged-plan"); err != nil {
+	if err := p.landed(merge, mergedPlan); err != nil {
 		return err
 	}
 	approved, err := p.integrationEvents(ledger.EventIntegrationApproved)
@@ -216,7 +216,7 @@ func checkApprovedPlanMerges(r *Rig) error {
 		return Violatedf("the approval events %+v: %v", approved, err)
 	}
 	merged, err := p.integrationEvents(ledger.EventIntegrationMerged)
-	if err != nil || len(merged) != 1 || !strings.Contains(string(merged[0].Data), `"merged_commit":"merged-plan"`) || !strings.Contains(string(merged[0].Data), `"plan_id"`) {
+	if err != nil || len(merged) != 1 || !strings.Contains(string(merged[0].Data), `"merged_commit":"`+mergedPlan+`"`) || !strings.Contains(string(merged[0].Data), `"plan_id"`) {
 		return Violatedf("the merge events %+v: %v", merged, err)
 	}
 	// The approved plan's work goes on, as approving a plan always made it.
@@ -265,7 +265,7 @@ func checkApprovedPlanMergesItsPullRequest(r *Rig) error {
 	if err := p.noMergeRequest(); err != nil {
 		return err
 	}
-	return p.landed(merge, "merged-pr")
+	return p.landed(merge, mergedPR)
 }
 
 // checkPersonMergesTheApprovedBranch: the approval ends the planning, and the person merges the branch when
@@ -323,7 +323,7 @@ func checkPersonMergesTheApprovedPullRequest(r *Rig) error {
 		return err
 	}
 	merged := p.pullRequestAt(p.head)
-	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, "persons-merge", "2026-11-12T11:00:00Z"
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, personsMerge, "2026-11-12T11:00:00Z"
 	if err := p.read(merged); err != nil {
 		return err
 	}
@@ -331,11 +331,24 @@ func checkPersonMergesTheApprovedPullRequest(r *Rig) error {
 		return err
 	}
 	record, err := p.approvedBy(p.head, ledger.PersonMerges, 1)
-	if err != nil || record.MergedCommit != "persons-merge" || record.PullRequest != 7 {
+	if err != nil || record.MergedCommit != personsMerge || record.PullRequest != 7 {
 		return Violatedf("the person's merge is recorded as %+v: %v", record, err)
 	}
 	return p.noMerge()
 }
+
+// The commits the merges of the plans in these checks made.
+const (
+	mergedPlan     = "1a2b3c4d1a2b3c4d1a2b3c4d1a2b3c4d1a2b3c4d"
+	mergedPR       = "2b3c4d5e2b3c4d5e2b3c4d5e2b3c4d5e2b3c4d5e"
+	mergedMoved    = "3c4d5e6f3c4d5e6f3c4d5e6f3c4d5e6f3c4d5e6f"
+	mergedBranch   = "4d5e6f704d5e6f704d5e6f704d5e6f704d5e6f70"
+	mergedAdoption = "5e6f70815e6f70815e6f70815e6f70815e6f7081"
+	mergedByHand   = "6f7081926f7081926f7081926f7081926f708192"
+)
+
+// personsMerge is the commit a person's merge on the forge made, as a worker reads it.
+const personsMerge = "0be1f00d0be1f00d0be1f00d0be1f00d0be1f00d"
 
 // movedPlan is a commit the planning branch moved to after its approval, whose plan changed.
 func (p *planMergeRig) movedPlan() string {
@@ -439,7 +452,7 @@ func checkMovedPlanningPullRequest(r *Rig) error {
 	if err != nil || old.Merged() {
 		return Violatedf("the approval of the old head reads %+v: %v", old, err)
 	}
-	return p.landed(merge, "merged-moved")
+	return p.landed(merge, mergedMoved)
 }
 
 func checkMovedPlanningBranch(r *Rig) error {
@@ -479,7 +492,7 @@ func checkMovedPlanningBranch(r *Rig) error {
 	if err != nil || again.Commit != moved {
 		return Violatedf("the worker is asked to merge %+v, want the new head %s: %v", again, moved, err)
 	}
-	return p.landed(again, "merged-branch")
+	return p.landed(again, mergedBranch)
 }
 
 func checkPlanningConflict(r *Rig) error {
@@ -557,7 +570,7 @@ func checkAdoptionBranchMerges(r *Rig) error {
 	if err := p.noMergeRequest(); err != nil {
 		return err
 	}
-	return p.landed(merge, "merged-adoption")
+	return p.landed(merge, mergedAdoption)
 }
 
 func checkPlanAcceptedByHandWaits(r *Rig) error {
@@ -609,7 +622,7 @@ func checkPlanAcceptedByHandWaits(r *Rig) error {
 	if _, err := p.approvedBy(p.head, ledger.ReviewApproves, 1); err != nil {
 		return err
 	}
-	return p.landed(merge, "merged-by-hand")
+	return p.landed(merge, mergedByHand)
 }
 
 // approvedBeforeTheOpening approves the plan and records its approval of the head while no pull request is on
@@ -653,11 +666,11 @@ func checkPlanMergeNamesItsPullRequest(r *Rig) error {
 	if err != nil || merge.Number != 7 {
 		return Violatedf("the worker is asked to merge %+v: %v", merge, err)
 	}
-	if err := p.landed(merge, "merged-pr"); err != nil {
+	if err := p.landed(merge, mergedPR); err != nil {
 		return err
 	}
 	record, err := p.approvedBy(p.head, ledger.PersonApproves, 1)
-	if err != nil || record.PullRequest != 7 || record.MergedCommit != "merged-pr" {
+	if err != nil || record.PullRequest != 7 || record.MergedCommit != mergedPR {
 		return Violatedf("the merge is recorded as %+v, want pull request 7: %v", record, err)
 	}
 	merged, err := p.integrationEvents(ledger.EventIntegrationMerged)
@@ -682,7 +695,7 @@ func checkPlanForgeMergeNamesItsPullRequest(r *Rig) error {
 		return err
 	}
 	merged := p.pullRequestAt(p.head)
-	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, "persons-merge", "2026-11-12T11:00:00Z"
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, personsMerge, "2026-11-12T11:00:00Z"
 	if err := p.read(merged); err != nil {
 		return err
 	}
@@ -690,7 +703,7 @@ func checkPlanForgeMergeNamesItsPullRequest(r *Rig) error {
 		return err
 	}
 	record, err := p.approvedBy(p.head, ledger.PersonMerges, 1)
-	if err != nil || record.MergedCommit != "persons-merge" || record.PullRequest != 7 {
+	if err != nil || record.MergedCommit != personsMerge || record.PullRequest != 7 {
 		return Violatedf("the person's merge is recorded as %+v, want pull request 7: %v", record, err)
 	}
 	events, err := p.integrationEvents(ledger.EventIntegrationMerged)

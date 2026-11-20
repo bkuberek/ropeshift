@@ -159,6 +159,8 @@ func pullRequestHold(forge ports.ForgeReader, workers ports.WorkerReader, workOr
 	switch {
 	case opened && pr.State != ledger.PullRequestOpen:
 		hold.Detail = fmt.Sprintf("pull request #%d is %s", pr.Number, pr.State)
+	case opened && request.State == ledger.ForgeDone && pr.HeadCommit == "":
+		hold.Detail = fmt.Sprintf("pull request #%d has no head commit yet, so it is not yet at the commit under review, %s", pr.Number, short(commit))
 	case opened && request.State == ledger.ForgeDone:
 		hold.Detail = fmt.Sprintf("pull request #%d's head is %s, not yet the commit under review, %s", pr.Number, short(pr.HeadCommit), short(commit))
 	case request.Detail != "":
@@ -335,12 +337,14 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 	if report.PullRequest == nil || report.PullRequest.Number <= 0 {
 		return fmt.Errorf("%w: a publish that worked names no pull request", workorders.ErrInvalid)
 	}
-	pr := *report.PullRequest
+	pr := commitsOrNone(*report.PullRequest)
+	noHead := !ledger.CommitHash(report.PullRequest.HeadCommit)
 	readAt := tx.Now()
 	// A publish's view of the pull request was taken before its report arrived, and the worker's own reads may have
 	// told the ledger of the same head since. Those reads are newer, and the worker holds that the ledger has
-	// them, so it reports nothing more until the forge changes again: the stale view must not replace them.
-	if held, err := tx.Forge().PullRequest(request.WorkOrder); err == nil && held.Number == pr.Number && held.HeadCommit == pr.HeadCommit && held.State == pr.State {
+	// them, so it reports nothing more until the forge changes again: the stale view must not replace them. A view
+	// whose head is no commit takes back no head the ledger holds either.
+	if held, err := tx.Forge().PullRequest(request.WorkOrder); err == nil && held.Number == pr.Number && (noHead || held.HeadCommit == pr.HeadCommit && held.State == pr.State) {
 		pr, readAt = held.PullRequest, held.ReadAt
 	} else if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return err
@@ -638,6 +642,20 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 	return head.String() + notesSection(notes, noteBudget(head.Len(), out.Len())) + out.String(), nil
 }
 
+// commitsOrNone is a pull request as a worker reported it, with a head or a merge commit that is no commit hash taken
+// away. A worker's report is untrusted, and these go on to name commits in requests to workers, in git commands, in the
+// commit work is reviewed at, and in the commit a dependent's work starts from, so one that git would read as an option or
+// a path is no commit at all.
+func commitsOrNone(pr ledger.PullRequest) ledger.PullRequest {
+	if !ledger.CommitHash(pr.HeadCommit) {
+		pr.HeadCommit = ""
+	}
+	if !ledger.CommitHash(pr.MergeCommit) {
+		pr.MergeCommit = ""
+	}
+	return pr
+}
+
 // pullRequestRead keeps what the worker that opened a pull request read of it, when it differs from what the
 // ledger holds: a merge or a close, a new head, a change in mergeability or checks. A read that changes
 // nothing writes nothing, and the integration tick decides what a merge ends.
@@ -650,7 +668,12 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	if err != nil {
 		return err
 	}
-	read := report.PullRequest
+	read := commitsOrNone(report.PullRequest)
+	if !ledger.CommitHash(report.PullRequest.HeadCommit) {
+		// A read of a head that is no commit says nothing of the head the ledger holds, nor of the checks on it, so
+		// neither is replaced: the head would otherwise be blanked, and the next read of it counted as a new push.
+		read.HeadCommit, read.Checks = held.HeadCommit, held.Checks
+	}
 	read.Checks = clampedBaseReads(read.Checks)
 	if held.Worker != worker || held.Number != read.Number {
 		return fmt.Errorf("%w: pull request %d of %s is not this worker's to read", workorders.ErrInvalid, read.Number, report.WorkOrder)

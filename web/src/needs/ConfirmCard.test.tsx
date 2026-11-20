@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Approval, NeedItem, NeedsYou as View } from "../api/types";
+import type { Approval, FieldChange, NeedItem, NeedsYou as View } from "../api/types";
 import { CurrentProject } from "../app/route";
 import { golden, here, refusal, serveApi, testProject } from "../testing";
 import { NeedsYou } from "./NeedsYou";
@@ -144,11 +144,11 @@ describe("a confirmation card", () => {
 // A delegate's or the assistant's acknowledgement of a practices finding, or the withdrawal of one, is a card that names the
 // finding, why its practice matters, and the reason, as the API prepares it.
 describe("a practices card", () => {
-  const practicesCard = (operation: "practices.acknowledge" | "practices.withdraw", label: string, summary: string): CardItem => {
+  const practicesCard = (operation: "practices.acknowledge" | "practices.withdraw", label: string, summary: string, rows?: FieldChange[]): CardItem => {
     const base = cardOf(cards(), "repository.raise_merge_authority");
     // As the API prepares them: a withdrawal shows the reason that stops holding as the value it leaves, not one it takes.
     const reason = operation === "practices.acknowledge" ? { field: "reason", to: "the whole team owns every path" } : { field: "reason", from: "the whole team owns every path", to: null };
-    const changes = [{ field: "finding", to: "codeowners" }, { field: "why", to: "It names who reviews each path." }, reason];
+    const changes = rows ?? [{ field: "finding", to: "codeowners" }, { field: "why", to: "It names who reviews each path." }, reason];
     const path = operation === "practices.acknowledge" ? "/v1/projects/default/practices/acknowledgements" : "/v1/projects/default/practices/acknowledgements/withdraw";
     const detail = { operation, label, method: "POST", path, arguments: { repository: "repo-1", finding: "codeowners" }, why: "The plan names this step.", changes };
     return {
@@ -172,5 +172,35 @@ describe("a practices card", () => {
     expect(changes.textContent).toContain("It names who reviews each path.");
     expect(changes.textContent).toContain("the whole team owns every path");
     expect(within(card).getByRole("button", { name: "Confirm" })).toBeTruthy();
+  });
+
+  // A card prepared before arguments were sent as {field, to} holds them as {field, from: null, to}: nothing was there to
+  // move from, so the row names the value alone.
+  it("reads an argument a card holds with a null from as the value alone", () => {
+    const summary = "Acknowledge a practices finding: codeowners in widgets";
+    const view = cards();
+    const item = practicesCard("practices.acknowledge", "Acknowledge a practices finding", summary, [
+      { field: "finding", from: null, to: "codeowners" },
+      { field: "reason", from: null, to: "the whole team owns every path" },
+    ]);
+    view.items = [item, ...view.items];
+    show(view, item);
+    const rows = within(theCard(summary)).getByRole("region", { name: "What it changes" }).querySelectorAll("li");
+    expect(Array.from(rows, (row) => row.textContent)).toEqual(["finding: codeowners", "reason: the whole team owns every path"]);
+  });
+
+  // The API sends a withdrawal's reason as the value that stops holding, "from" it "to" null.
+  it("reads a field whose value goes away as removed, not as a move to null", () => {
+    const summary = "Withdraw a finding's acknowledgement: codeowners in widgets";
+    const view = cards();
+    const item = practicesCard("practices.withdraw", "Withdraw a finding's acknowledgement", summary, [
+      { field: "finding", from: null, to: "codeowners" },
+      { field: "reason", from: "the whole team owns every path", to: null },
+    ]);
+    view.items = [item, ...view.items];
+    show(view, item);
+    const row = within(theCard(summary)).getByText("reason").closest("li");
+    expect(row?.textContent).toMatch(/reason: the whole team owns every path\s*→\s*to\s*removed/);
+    expect(row?.textContent).not.toContain("null");
   });
 });

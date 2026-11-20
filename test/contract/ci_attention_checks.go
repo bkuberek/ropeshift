@@ -290,7 +290,7 @@ func checkCIEditsMoveTheItems(r *Rig) error {
 	if err := f.completeHeads(5, func() error { return nil }); err != nil {
 		return err
 	}
-	if err := f.ciRead("head-edit", ciCheck(ledger.CIRunInProgress)); err != nil {
+	if err := f.ciRead(olderHead, ciCheck(ledger.CIRunInProgress)); err != nil {
 		return err
 	}
 	withHistory, err := f.ciWatch()

@@ -576,9 +576,10 @@ func (s *Source) Head(ctx context.Context) (string, error) {
 }
 
 // Tree lists the Markdown blobs of a commit. The hash in the listing is the digest
-// of the file as written.
+// of the file as written. The directory is read literally, so a name that holds pathspec magic, such as `:(top)docs`,
+// names a folder of that name and no other.
 func (s *Source) Tree(ctx context.Context, commit string) ([]Blob, error) {
-	args := []string{"ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit}
+	args := []string{"--literal-pathspecs", "ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit}
 	if dir := strings.Trim(s.config.Directory, "/"); dir != "" && dir != "." {
 		// After `--end-of-options` every argument is a revision or a path, so a `--` here would be one more path.
 		args = append(args, dir)

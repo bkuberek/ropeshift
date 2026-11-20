@@ -14,7 +14,7 @@
     "state": "open",
     "base": "main",
     "branch": "lane/wo-ci",
-    "head_commit": "abc123-wo-ci",
+    "head_commit": "9516386a189d58455b5aea25bdcca0e50b431796",
     "checks": [
       {
         "name": "CI",
@@ -26,7 +26,7 @@
     ]
   },
   "ci": {
-    "head": "abc123-wo-ci",
+    "head": "9516386a189d58455b5aea25bdcca0e50b431796",
     "watching": true,
     "final": false,
     "queued": false,

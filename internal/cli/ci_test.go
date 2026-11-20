@@ -13,6 +13,9 @@ import (
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
+// ciPullRequestHead is the commit the pull requests of these tests are at, as git names one.
+const ciPullRequestHead = "abc123abc123abc123abc123abc123abc123abc1"
+
 // ciPullRequestOn keeps an open pull request for a work order whose one required run is in progress and was first
 // held an age ago.
 func ciPullRequestOn(t *testing.T, s *session, id string, age time.Duration) {
@@ -20,7 +23,7 @@ func ciPullRequestOn(t *testing.T, s *session, id string, age time.Duration) {
 	err := s.daemon.Store.Write(t.Context(), apitest.Scope, "test.pull_request", func(tx ports.WriteTx) error {
 		err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
 			PullRequest: ledger.PullRequest{
-				Number: 7, URL: "https://forge.example/acme/app/pull/7", State: ledger.PullRequestOpen, Base: "main", Branch: "lane/" + id, HeadCommit: "abc123",
+				Number: 7, URL: "https://forge.example/acme/app/pull/7", State: ledger.PullRequestOpen, Base: "main", Branch: "lane/" + id, HeadCommit: ciPullRequestHead,
 				Checks: []ledger.PullRequestCheck{{Name: "CI", State: ledger.CheckPending, Status: ledger.CIRunInProgress, Required: true}},
 			},
 			WorkOrder: id, Repository: aRepositoryID, Worker: "worker-a", ReadAt: time.Now().Add(-age).UnixMilli(),

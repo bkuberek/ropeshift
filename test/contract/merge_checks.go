@@ -31,6 +31,7 @@ var MergeChecks = []Check{
 	{"MG11", "a read whose head moved past the reviewed commit sends work in integrating back to review, and voids the member's open approval", checkMovedHeadVoidsTheApproval},
 	{"MG12", "at person_merges accepted work through a pull request waits in integrating for the person's merge, which ropeshift never makes", checkPersonMergesWaitsInIntegrating},
 	{"MG13", "a merge refused as stale at a head that is no commit ID leaves the work in integrating at the reviewed commit", checkStaleMergeAtNoCommitIDIsIgnored},
+	{"MG14", "a merge commit a worker reports that is no commit ID is recorded as none: the work still ends, and no record or event holds it", checkMergeCommitMustBeACommitID},
 }
 
 // newMergeRig is a forge rig whose repository merges at a level, with a method.
@@ -200,7 +201,7 @@ func checkMergeAfterTheReview(r *Rig) error {
 	if err := f.noMergeBut(merge); err != nil {
 		return err
 	}
-	landed := ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged"), MergedAt: "2026-11-11T12:00:00Z"}
+	landed := ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit(), MergedAt: "2026-11-11T12:00:00Z"}
 	if err := f.mergeCame(merge, landed); err != nil {
 		return err
 	}
@@ -336,7 +337,7 @@ func checkMemberApprovesTheMerge(r *Rig) error {
 	if err != nil || len(calibrations) != 1 || calibrations[0].Decision != workorders.DecisionAccept || calibrations[0].Commit != f.head {
 		return Violatedf("the calibrations read %+v: %v", calibrations, err)
 	}
-	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged")}); err != nil {
+	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit()}); err != nil {
 		return err
 	}
 	return r.stateIs(f.store, f.grant.WorkOrder, workorders.Done)
@@ -464,7 +465,7 @@ func checkBranchMerge(r *Rig) error {
 	if merge.Binding != "" || merge.Number != 0 || merge.Branch != branchName || merge.Base != "main" || merge.Commit != f.head || merge.Method != ledger.MergeRebase {
 		return Violatedf("the lane's worker is asked %+v", merge)
 	}
-	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged")}); err != nil {
+	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit()}); err != nil {
 		return err
 	}
 	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
@@ -537,7 +538,7 @@ func checkForgeMergeWhileIntegrating(r *Rig) error {
 		return err
 	}
 	merged := f.pullRequestAt(f.head)
-	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.ID("merged"), "2026-11-11T12:00:00Z"
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.Commit(), "2026-11-11T12:00:00Z"
 	if err := f.read(merged); err != nil {
 		return err
 	}
@@ -669,7 +670,7 @@ func checkStaleMergeReviewsTheNewHead(r *Rig) error {
 	if err != nil || again.Commit != moved {
 		return Violatedf("after the new review the worker is asked %+v: %v", again, err)
 	}
-	if err := f.mergeCame(again, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged")}); err != nil {
+	if err := f.mergeCame(again, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit()}); err != nil {
 		return err
 	}
 	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
@@ -747,6 +748,57 @@ func checkStaleMergeAtNoCommitIDIsIgnored(r *Rig) error {
 	return r.CheckProjection(f.store)
 }
 
+func checkMergeCommitMustBeACommitID(r *Rig) error {
+	// A merge the worker made lands, and what it reports as the merge commit is kept only when it is a commit ID.
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, "")
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	first, err := f.oneMerge()
+	if err != nil {
+		return err
+	}
+	if err := f.mergeCame(first, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: hostileHead, MergedAt: "2026-11-11T12:00:00Z"}); err != nil {
+		return err
+	}
+	if err := f.mergedWithNoCommit("a merge the worker made"); err != nil {
+		return err
+	}
+	// A merge the person made on the forge, as the worker read it, is kept the same way.
+	g, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, "")
+	if err != nil {
+		return err
+	}
+	if _, err := g.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	merged := g.pullRequestAt(g.head)
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, hostileHead, "2026-11-11T12:00:00Z"
+	if err := g.read(merged); err != nil {
+		return err
+	}
+	return g.mergedWithNoCommit("a merge the person made")
+}
+
+// mergedWithNoCommit says the work ended, merged, with no merge commit on its record, and that no record, request, or event
+// holds the hostile commit a merge reported.
+func (f *forgeRig) mergedWithNoCommit(when string) error {
+	if err := f.r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
+		return err
+	}
+	view, err := f.standing()
+	if err != nil || len(view.Integrations) != 1 || !view.Integrations[0].Merged() || view.Integrations[0].MergedCommit != "" {
+		return Violatedf("after %s the approvals read %+v: %v", when, view.Integrations, err)
+	}
+	if err := f.wantNoHostileHead("after " + when); err != nil {
+		return err
+	}
+	return f.r.CheckProjection(f.store)
+}
+
 func checkPersonMergesWaitsInIntegrating(r *Rig) error {
 	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, "")
 	if err != nil {
@@ -776,7 +828,7 @@ func checkPersonMergesWaitsInIntegrating(r *Rig) error {
 	}
 	// The person merges on the forge, and the work is done.
 	merged := f.pullRequestAt(f.head, requiredCheck("CI result", ledger.CheckPassed))
-	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.ID("merged"), "2026-11-11T12:00:00Z"
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.Commit(), "2026-11-11T12:00:00Z"
 	if err := f.read(merged); err != nil {
 		return err
 	}

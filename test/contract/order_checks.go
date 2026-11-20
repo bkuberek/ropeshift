@@ -271,7 +271,7 @@ func checkMergeWaitsForItsDependencies(r *Rig) error {
 	if err != nil || merge.Commit != f.head {
 		return Violatedf("once the dependency is done the worker is asked %+v: %v", merge, err)
 	}
-	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged")}); err != nil {
+	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit()}); err != nil {
 		return err
 	}
 	if err := r.stateIs(s, work, workorders.Done); err != nil {

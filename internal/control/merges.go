@@ -650,6 +650,9 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		return fmt.Errorf("%w: a merge report says nothing of the merge", workorders.ErrInvalid)
 	}
 	result := *report.Merge
+	if !ledger.CommitHash(result.MergeCommit) {
+		result.MergeCommit = ""
+	}
 	switch result.Outcome {
 	case ledger.MergeMerged, ledger.MergeConflict, ledger.MergeBehind, ledger.MergeStaleHead, ledger.MergeRefused:
 	default:

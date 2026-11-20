@@ -144,3 +144,20 @@ func TestTreeOfADirectoryHoldsOnlyThatDirectoryWhenASiblingIsNamedLikeTheSeparat
 		t.Errorf("the tree of docs holds %q, want %q", paths, want)
 	}
 }
+
+// A directory is a path, so one that holds pathspec magic names that folder and no other: `:(top)docs` lists no file
+// of a repository that has docs/ at its top and no folder of that name.
+func TestTreeReadsADirectoryWithPathspecMagicLiterally(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("docs/a.md", "one\n")
+	commit := repo.Git("rev-parse", "HEAD")
+
+	blobs, err := New(Config{Repository: repo.Dir, Env: repo.Env(), Directory: ":(top)docs"}).Tree(t.Context(), commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(blobs) != 0 {
+		t.Errorf("the directory :(top)docs listed %+v, want nothing: no folder has that name", blobs)
+	}
+}

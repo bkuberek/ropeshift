@@ -71,8 +71,8 @@ func measuresText(r measures.Report) string {
 	fmt.Fprintf(&b, "review agreement, last 30 days\t%s\n", agreementText(r.ReviewAgreement.Workspace.Last30Days))
 	fmt.Fprintf(&b, "review agreement, all time\t%s\n", agreementText(r.ReviewAgreement.Workspace.AllTime))
 	for _, repo := range r.ReviewAgreement.Repositories {
-		fmt.Fprintf(&b, "review agreement, %s (%s), last 30 days\t%s\n", shortRepository(repo.Repository), repo.MergeAuthority, agreementText(repo.Last30Days))
-		fmt.Fprintf(&b, "review agreement, %s (%s), all time\t%s\n", shortRepository(repo.Repository), repo.MergeAuthority, agreementText(repo.AllTime))
+		fmt.Fprintf(&b, "review agreement, %s (%s), last 30 days\t%s\n", shortRepository(plainLine(repo.Repository)), repo.MergeAuthority, agreementText(repo.Last30Days))
+		fmt.Fprintf(&b, "review agreement, %s (%s), all time\t%s\n", shortRepository(plainLine(repo.Repository)), repo.MergeAuthority, agreementText(repo.AllTime))
 	}
 	for _, trigger := range slices.Sorted(maps.Keys(r.ParkTime)) {
 		fmt.Fprintf(&b, "park time, %s\t%s\n", trigger, durationsText(r.ParkTime[trigger]))
