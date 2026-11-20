@@ -72,3 +72,24 @@ func TestARosterChangeCannotLeaveOpenChangeWorkShellLess(t *testing.T) {
 		t.Errorf("stripping the shell from open change work's agent: %v", err)
 	}
 }
+
+// Open work that already names an agent unfit for it holds back any roster change, and the refusal names
+// that work order and why its agent cannot run it, not the change.
+func TestARosterRefusalNamesOpenWorksUnfitAgentAndWhy(t *testing.T) {
+	base := roster.Resolve(roster.Layer{}, roster.Layer{})
+	layer, err := roster.Apply(roster.Layer{}, base, roster.Change{Op: roster.OpSet, Agent: "mechanical", Fields: map[string]string{"effort": roster.EffortMedium}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uses, err := openUses(listedOrders{orders: []workorders.WorkOrder{
+		{ID: "wo-1", Kind: workorders.KindChange, Agent: "reasoning", State: workorders.Ready},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = stillUsable(roster.Resolve(layer, roster.Layer{}), uses, "")
+	if !errors.Is(err, roster.ErrInUse) || !strings.Contains(err.Error(), "work order wo-1") || !strings.Contains(err.Error(), "denies the shell") ||
+		strings.Contains(err.Error(), "would leave") {
+		t.Errorf("a refusal for open work's unfit agent: %v", err)
+	}
+}

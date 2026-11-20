@@ -157,13 +157,20 @@ type Use struct {
 // DefaultUses lists what the default mapping names.
 func (r Resolved) DefaultUses() []Use { return r.Defaults.names() }
 
+// Unusable is why this roster cannot give a use its agent: the agent is unknown, disabled, or unfit for the
+// kind of work that names it. It is nil when the roster can.
+func (r Resolved) Unusable(use Use) error {
+	_, err := r.usable(use.Agent, use.Kind)
+	return err
+}
+
 // Missing lists each use whose agent this roster does not hold enabled, or holds unfit for the kind of
 // work that names it. A change whose result has any is refused, because what names the agent would fail
 // the definition of ready.
 func (r Resolved) Missing(uses []Use) []Use {
 	var out []Use
 	for _, use := range uses {
-		if _, err := r.usable(use.Agent, use.Kind); err != nil {
+		if r.Unusable(use) != nil {
 			out = append(out, use)
 		}
 	}

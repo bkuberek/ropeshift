@@ -292,7 +292,9 @@ func openUses(orders ports.WorkOrderReader) ([]roster.Use, error) {
 	return out, nil
 }
 
-// stillUsable refuses a roster that leaves the default mapping or open work without its agent.
+// stillUsable refuses a roster that leaves the default mapping or open work without its agent. The refusal
+// names each use and why the roster would not give it its agent, which may be open work that named an agent
+// unfit for it before this change.
 func stillUsable(after roster.Resolved, uses []roster.Use, project string) error {
 	missing := after.Missing(append(after.DefaultUses(), uses...))
 	if len(missing) == 0 {
@@ -300,13 +302,13 @@ func stillUsable(after roster.Resolved, uses []roster.Use, project string) error
 	}
 	var named []string
 	for _, use := range missing {
-		named = append(named, fmt.Sprintf("%s names %s", use.By, use.Agent))
+		named = append(named, fmt.Sprintf("%s names %s, and %v", use.By, use.Agent, after.Unusable(use)))
 	}
 	where := ""
 	if project != "" {
 		where = " in project " + project
 	}
-	return fmt.Errorf("%w: the change would leave an agent unusable that something still names%s: %s", roster.ErrInUse, where, strings.Join(named, "; "))
+	return fmt.Errorf("%w: after the change, something%s would still name an agent the roster cannot give it: %s", roster.ErrInUse, where, strings.Join(named, "; "))
 }
 
 func nextVersion(scope string, current int64, layer roster.Layer, summary string, actor ledger.Actor, now int64) (roster.Version, error) {
