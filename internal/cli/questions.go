@@ -16,6 +16,9 @@ import (
 	"ropeshift.com/ropeshift/internal/questions"
 )
 
+// statusAll is the status filter that lists questions at every status.
+const statusAll = "all"
+
 // filterFlags adds the flags a list of questions or decisions shares.
 func filterFlags(set *flag.FlagSet, filter *api.RecordFilter) {
 	set.StringVar(&filter.Category, "category", "", "only this category")
@@ -45,6 +48,10 @@ func (c *invocation) questionList(args []string) int {
 	}
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
+	}
+	// `all` is every status, which no status filter reads as.
+	if filter.Status == statusAll {
+		filter.Status = ""
 	}
 	client, exit := c.projectClient()
 	if client == nil {

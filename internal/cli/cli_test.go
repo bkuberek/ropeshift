@@ -678,6 +678,10 @@ func TestQuestionCommands(t *testing.T) {
 			t.Errorf("%v: %q", tt.args, text)
 		}
 	}
+	// `--status all` reads as no status filter, so it lists every question rather than none.
+	if text := s.must("question", "list", "--status", "all"); !strings.Contains(text, "q1") || !strings.Contains(text, "q2") {
+		t.Errorf("--status all: %q", text)
+	}
 	var want, got api.QuestionView
 	want, err := s.daemon.Client.Question(t.Context(), "q1")
 	if err != nil {
