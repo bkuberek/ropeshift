@@ -273,7 +273,8 @@ const cleanupLimit = 2 * time.Second
 // Type sends literal text. A short text is typed as keys. A long one goes through a tmux paste buffer, which
 // is fed on standard input and so has no length limit, and is written to the pane in one piece, so nothing
 // interleaves with it. The paste is bracketed when the program in the pane asked for that, and a newline in
-// the text then stays part of the text instead of submitting it.
+// the text then stays part of the text instead of submitting it. Line feeds stay line feeds (paste-buffer
+// -r); tmux would otherwise turn each into a carriage return.
 func (t *Terminal) Type(ctx context.Context, name, text string) error {
 	if len(text) <= pasteThreshold {
 		_, err := t.run(ctx, "send-keys", "-t", target(name), "-l", "--", text)
@@ -294,7 +295,7 @@ func (t *Terminal) paste(ctx context.Context, name, text string) error {
 		t.discard(ctx, buffer)
 		return err
 	}
-	if _, err := t.run(ctx, "paste-buffer", "-p", "-d", "-b", buffer, "-t", target(name)); err != nil {
+	if _, err := t.run(ctx, "paste-buffer", "-p", "-r", "-d", "-b", buffer, "-t", target(name)); err != nil {
 		t.discard(ctx, buffer)
 		return err
 	}

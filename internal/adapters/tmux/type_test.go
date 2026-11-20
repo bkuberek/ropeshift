@@ -161,7 +161,7 @@ func TestTypeFeedsALongTextToABufferAndPastesIt(t *testing.T) {
 	if runner.fed[buffer] != text {
 		t.Errorf("the buffer was fed %d bytes, want the %d typed", len(runner.fed[buffer]), len(text))
 	}
-	if want := []string{"paste-buffer", "-p", "-d", "-b", buffer, "-t", "=lane-g1:"}; !slices.Equal(paste, want) {
+	if want := []string{"paste-buffer", "-p", "-r", "-d", "-b", buffer, "-t", "=lane-g1:"}; !slices.Equal(paste, want) {
 		t.Errorf("tmux was asked %v, want %v", paste, want)
 	}
 }
