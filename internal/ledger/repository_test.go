@@ -177,3 +177,22 @@ func TestARepositoryNameIsOneACommandCanType(t *testing.T) {
 		t.Errorf("a record with a name no command can type: %v", err)
 	}
 }
+
+func TestANewRepositoryNameHoldsNoHiddenCharacter(t *testing.T) {
+	for _, name := range []string{"api\u200b", "a\u2028pi", "a\u2029pi", "api\u202e", "\u200bapi"} {
+		if err := CheckRepositoryName(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+func TestARecordAlreadyHeldUnderAHiddenCharacterNameStillValidates(t *testing.T) {
+	r := NewRepository("r")
+	r.Name = "api\u200b"
+	if err := r.Validate(); err != nil {
+		t.Errorf("a stored record named %q: %v", r.Name, err)
+	}
+	if err := CheckExistingRepositoryName(r.Name); err != nil {
+		t.Errorf("an existing name %q: %v", r.Name, err)
+	}
+}

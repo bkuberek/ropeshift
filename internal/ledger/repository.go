@@ -253,7 +253,7 @@ func (r Repository) Validate() error {
 		}
 	}
 	if r.Name != "" {
-		if err := CheckRepositoryName(r.Name); err != nil {
+		if err := CheckExistingRepositoryName(r.Name); err != nil {
 			return err
 		}
 	}
@@ -356,8 +356,25 @@ const maxRepositoryName = 100
 
 // CheckRepositoryName refuses a name a command or a contract file could not name the repository by: an
 // empty one, "." and "..", which name directories and "." the contract file's own repository, one that
-// starts with a dash, which reads as a flag, and one with a space, a slash, or a control character.
+// starts with a dash, which reads as a flag, and one with a space, a slash, or a character that hides or
+// reorders text.
 func CheckRepositoryName(name string) error {
+	if err := CheckExistingRepositoryName(name); err != nil {
+		return err
+	}
+	if strings.IndexFunc(name, HiddenText) >= 0 {
+		return fmt.Errorf("%w: name %q holds a character that is not seen", ErrInvalidRepository, name)
+	}
+	return nil
+}
+
+// HiddenText says a character hides or reorders text, or ends a line: HiddenRune, and the line and paragraph
+// separators.
+func HiddenText(r rune) bool { return HiddenRune(r) || r == '\u2028' || r == '\u2029' }
+
+// CheckExistingRepositoryName is the rule a repository already registered keeps meeting, so a record
+// stays readable and changeable: CheckRepositoryName without its refusal of hidden characters.
+func CheckExistingRepositoryName(name string) error {
 	bad := func(why string) error { return fmt.Errorf("%w: name %q %s", ErrInvalidRepository, name, why) }
 	switch {
 	case name == "":

@@ -155,7 +155,7 @@ var lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\u2028"
 // A command with a control or format character, a tab or a line break among them, would show as another command, so a
 // line says it cannot be shown and where it is exact: the plan's JSON.
 func commandText(command string) string {
-	if strings.IndexFunc(command, func(r rune) bool { return ledger.HiddenRune(r) || r == '\u2028' || r == '\u2029' }) < 0 {
+	if strings.IndexFunc(command, ledger.HiddenText) < 0 {
 		return command
 	}
 	return fmt.Sprintf("(this command holds characters that cannot be shown; run '%s adopt --dry-run --json' with the same arguments to read it exactly)", program)
