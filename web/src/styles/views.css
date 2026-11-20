@@ -1073,6 +1073,18 @@ details.older[open] > summary {
   gap: var(--s-4);
 }
 
+.pane-frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-height: 0;
+}
+
+.pane-history {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 /* The shortcut sheet */
 .sheet {
   display: flex;

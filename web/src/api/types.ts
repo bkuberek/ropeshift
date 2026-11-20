@@ -1206,6 +1206,10 @@ export type PaneScreen = { lane_id: string; generation: number; screen: string }
 // PaneLane says a lane has no screen to show now, and the state that says why.
 export type PaneLane = { lane_id: string; generation: number; state: string };
 
+// PaneScrollback is a read of a pane's scrollback: the newest lines that scrolled off its screen, oldest
+// first, each ending in a newline, and how many lines the history holds now and how many tmux keeps.
+export type PaneScrollback = { lane_id: string; generation: number; lines: string; size: number; limit: number };
+
 // A project of the installation, as the registry lists it.
 export type Project = {
   id: string;
