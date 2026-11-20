@@ -306,7 +306,7 @@ func TestTypingIntoAPaneNeedsTheToken(t *testing.T) {
 	wantStatus(t, response, raw, http.StatusNoContent, "")
 }
 
-// Text goes in literally, Enter after it when asked, and a named key as the terminal names it.
+// Text goes in literally, Enter after it when asked, and keys as the terminal names them.
 func TestThePaneTakesTextAndNamedKeys(t *testing.T) {
 	t.Parallel()
 	r := paneOn(t)
@@ -315,7 +315,7 @@ func TestThePaneTakesTextAndNamedKeys(t *testing.T) {
 	inputs := []api.PaneInput{
 		{Text: "A planning tool", Enter: true},
 		{Text: "half a line"},
-		{Key: "Escape"}, {Key: "Backspace"}, {Key: "Up"}, {Key: "Ctrl-C"}, {Key: "Ctrl-D"}, {Key: "Enter"}, {Key: "Tab"},
+		{Key: "Escape"}, {Key: "BSpace"}, {Key: "Up"}, {Key: "Ctrl-C"}, {Key: "Ctrl-D"}, {Key: "Enter"}, {Key: "Tab"},
 	}
 	for _, input := range inputs {
 		response, raw := r.typeInto(t, cookies, token, r.lane.ID, input)
@@ -333,42 +333,100 @@ func TestThePaneTakesTextAndNamedKeys(t *testing.T) {
 	}
 }
 
-// Every key the API names is one the pane takes, so the list a page reads and the keys the server
+// A chord or a sequence of chords reaches the pane as tmux names each chord
+// (https://man.openbsd.org/tmux.1#KEY_BINDINGS), so a member can press Shift-Tab, Ctrl-O, or Ctrl-X
+// Ctrl-S. Shift-Tab is BTab, tmux's name for it.
+func TestThePaneTakesKeySequences(t *testing.T) {
+	t.Parallel()
+	r := paneOn(t)
+	r.panes.show(r.lane.ID, 1, "a screen")
+	cookies, token := r.signedIn(t)
+	for _, c := range []struct {
+		sequence string
+		keys     []string
+	}{
+		{"Shift-Tab", []string{"BTab"}},
+		{"BTab", []string{"BTab"}},
+		{"Ctrl-O", []string{"C-o"}},
+		{"Ctrl-X Ctrl-S", []string{"C-x", "C-s"}},
+		{"ctrl-c", []string{"C-c"}},
+		{"enter", []string{"Enter"}},
+		{"Alt-x", []string{"M-x"}},
+		{"Alt-X", []string{"M-X"}},
+		{"Alt-Ctrl-x", []string{"C-M-x"}},
+		{"Ctrl-Alt-DC", []string{"C-M-DC"}},
+		{"Shift-Up", []string{"S-Up"}},
+		{"Ctrl-Shift-Tab", []string{"C-BTab"}},
+		{"F12", []string{"F12"}},
+		{"Ctrl-Space", []string{"C-Space"}},
+		{"Ctrl-]", []string{"C-]"}},
+		{"y", []string{"y"}},
+		{";", []string{";"}},
+		{"-", []string{"-"}},
+		{"Ctrl--", []string{"C--"}},
+		{"\u00e9", []string{"\u00e9"}},
+		{"Down Down Down Down Down Down Down Enter", []string{"Down", "Down", "Down", "Down", "Down", "Down", "Down", "Enter"}},
+	} {
+		t.Run(c.sequence, func(t *testing.T) {
+			response, raw := r.typeInto(t, cookies, token, r.lane.ID, api.PaneInput{Key: c.sequence})
+			wantStatus(t, response, raw, http.StatusNoContent, "")
+			took := r.panes.took(r.lane.ID, 1)
+			if last := took[len(took)-1]; last.Text != "" || !slices.Equal(last.Keys, c.keys) {
+				t.Errorf("the pane took %+v, want the keys %q", last, c.keys)
+			}
+		})
+	}
+}
+
+// Every named key the API lists is one the pane takes, so the names a page reads and the keys the server
 // accepts are the same list.
 func TestThePaneTakesEveryKeyOnTheList(t *testing.T) {
 	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)
-	for _, key := range api.PaneKeys {
+	for _, key := range api.PaneKeyNames {
 		response, raw := r.typeInto(t, cookies, token, r.lane.ID, api.PaneInput{Key: key})
 		wantStatus(t, response, raw, http.StatusNoContent, "")
 	}
-	if took := r.panes.took(r.lane.ID, 1); len(took) != len(api.PaneKeys) {
-		t.Errorf("the pane took %d keys, want %d", len(took), len(api.PaneKeys))
+	if took := r.panes.took(r.lane.ID, 1); len(took) != len(api.PaneKeyNames) {
+		t.Errorf("the pane took %d keys, want %d", len(took), len(api.PaneKeyNames))
 	}
 }
 
-// ATTACK: the key list is closed, so a page cannot send a key name, a sequence, or an escape the list
-// does not hold, and text cannot carry a control character that would act as a key.
+// ATTACK: only the key grammar reaches tmux, so a page cannot send tmux's own key names, a raw string,
+// a command, or an escape, and text cannot carry a control character that would act as a key.
 func TestThePaneRefusesAnyKeyOffItsList(t *testing.T) {
 	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)
 	for name, input := range map[string]any{
-		"tmux's own name":       api.PaneInput{Key: "C-c"},
-		"a key not on the list": api.PaneInput{Key: "F1"},
-		"two keys":              api.PaneInput{Key: "Enter Enter"},
-		"a sequence":            api.PaneInput{Key: "\x1b[A"},
-		"nothing":               api.PaneInput{},
-		"Enter alone":           api.PaneInput{Enter: true},
-		"text and a key":        api.PaneInput{Text: "yes", Key: "Enter"},
-		"an escape in text":     api.PaneInput{Text: "\x1b[2J"},
-		"a newline in text":     api.PaneInput{Text: "one\ntwo"},
-		"a tab in text":         api.PaneInput{Text: "one\ttwo"},
-		"text past the limit":   api.PaneInput{Text: strings.Repeat("a", api.MaxPaneText+1)},
-		"an unknown field":      map[string]string{"keys": "C-c"},
+		"tmux's own name":               api.PaneInput{Key: "C-c"},
+		"a key not on the list":         api.PaneInput{Key: "F13"},
+		"a word":                        api.PaneInput{Key: "send-keys"},
+		"a tmux command after a key":    api.PaneInput{Key: "Enter;kill-server"},
+		"a tmux flag":                   api.PaneInput{Key: "-X"},
+		"nine chords":                   api.PaneInput{Key: strings.TrimSpace(strings.Repeat("Down ", api.MaxPaneChords+1))},
+		"two spaces":                    api.PaneInput{Key: "Ctrl-X  Ctrl-S"},
+		"a space first":                 api.PaneInput{Key: " Enter"},
+		"a space last":                  api.PaneInput{Key: "Enter "},
+		"a modifier with no key":        api.PaneInput{Key: "Ctrl-"},
+		"a modifier twice":              api.PaneInput{Key: "Ctrl-Ctrl-x"},
+		"Shift on a character":          api.PaneInput{Key: "Shift-a"},
+		"a modifier tmux has, not ours": api.PaneInput{Key: "Cmd-k"},
+		"an escape sequence":            api.PaneInput{Key: "\x1b[A"},
+		"a tab between chords":          api.PaneInput{Key: "Enter\tTab"},
+		"a newline after a key":         api.PaneInput{Key: "Escape\n"},
+		"keys past the limit":           api.PaneInput{Key: strings.Repeat("x", api.MaxPaneKeys+1)},
+		"nothing":                       api.PaneInput{},
+		"Enter alone":                   api.PaneInput{Enter: true},
+		"text and a key":                api.PaneInput{Text: "yes", Key: "Enter"},
+		"an escape in text":             api.PaneInput{Text: "\x1b[2J"},
+		"a newline in text":             api.PaneInput{Text: "one\ntwo"},
+		"a tab in text":                 api.PaneInput{Text: "one\ttwo"},
+		"text past the limit":           api.PaneInput{Text: strings.Repeat("a", api.MaxPaneText+1)},
+		"an unknown field":              map[string]string{"keys": "C-c"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			response, raw := r.typeInto(t, cookies, token, r.lane.ID, input)

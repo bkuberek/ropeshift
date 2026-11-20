@@ -83,10 +83,19 @@ export const paths = {
   paneInput: (lane: string) => project(`/panes/${encodeURIComponent(lane)}/input`),
 };
 
-// The keys a member may press in a lane's pane. The list is closed, and the server holds the same one.
-export const paneKeys = ["Enter", "Escape", "Tab", "Backspace", "Up", "Down", "Left", "Right", "Ctrl-C", "Ctrl-D"] as const;
+// The named keys a chord in a lane's pane may end with: tmux's names for them, which the server holds the
+// same list of. A chord is any of Ctrl, Alt, and Shift, each with a hyphen, then a named key or one
+// character, and a sequence is up to maxPaneChords chords separated by spaces, such as Ctrl-X Ctrl-S.
+export const paneKeyNames = [
+  "Up", "Down", "Left", "Right", "BSpace", "BTab", "DC", "End", "Enter", "Escape",
+  "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+  "Home", "IC", "PageUp", "PageDown", "Space", "Tab",
+] as const;
 
-export type PaneKey = (typeof paneKeys)[number];
+export type PaneKeyName = (typeof paneKeyNames)[number];
+
+// maxPaneChords is the most chords one key sequence holds.
+export const maxPaneChords = 8;
 
 // The kinds of record `ropeshift search` reads when it is given none: what a question may match.
 const candidateKinds = ["decision", "requirement", "contract", "decision_document", "question"];
@@ -466,6 +475,7 @@ export function typeIntoPane(lane: string, text: string, enter: boolean): Promis
   return call("POST", paths.paneInput(lane), { text, enter });
 }
 
-export function pressPaneKey(lane: string, key: PaneKey): Promise<void> {
-  return call("POST", paths.paneInput(lane), { key });
+// sendPaneKeys presses a key sequence in a lane's pane, such as Shift-Tab or Ctrl-X Ctrl-S.
+export function sendPaneKeys(lane: string, keys: string): Promise<void> {
+  return call("POST", paths.paneInput(lane), { key: keys });
 }

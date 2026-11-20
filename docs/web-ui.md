@@ -34,6 +34,7 @@ Every action has a keyboard path, and `?` lists the shortcuts. A single-key shor
 | `J`, `K` | Moves to the next or the previous item of a list or a table |
 | `A` | Moves focus to the open decision's primary button, which you then press |
 | `Esc` | Closes the palette, a dialog, a menu, or the drawer, and returns focus |
+| `Enter` on a pane's screen, or a click on it | Sends every key to the lane's session, until `Ctrl ]` gives them back ([lane panes](#lane-panes)) |
 
 No single key decides anything: `A` moves focus, and `Enter` presses. The `G` waits a moment for its second key. Settings and Agents open the current project's page, and Overview the project's own page.
 
@@ -237,6 +238,18 @@ A member opens a lane's page with Open. Message talks to a lane that runs headle
 ## Lane
 
 A lane's page shows its screen or its event stream, its facts, the spend of its work order against its limits, and under them Messages, which lists what was sent to the lane, oldest first, as `ropeshift message list` does. A row gives the message, its kind, the generation it was written for, its state, when it was sent, its body, and the lane's reply. A state claims only what its signal proves: a write to a session shows that bytes were handed over, and only a reply says the lane read the message. A message that ended without being injected says why, such as that it timed out or that its generation ended, and a body and a reply keep their line breaks and are never cut. A lane nobody wrote to says so. The [command reference](cli.md) lists each state `ropeshift message show` names. Under Messages, Questions lists every question the lane asked or waits on, at any status, with the fields Open questions shows and a link to each there, from the moment the lane asks it.
+
+## Lane panes
+
+The Lane page, the Planning page, and the conversation panel show an interactive lane's terminal pane: its screen as text, the key row, and Type into the session. A terminal attached with `ropeshift lane attach` shows the same session, and what you send from the page reaches it too.
+
+A click on the screen, or `Enter` while the screen has focus, gives the keys to the session. The pane's frame takes a ring in its target's colour, and a strip above the screen says "Keys go to the session. Ctrl ] releases." Every key you press then goes to the session, Tab, Shift-Tab, Escape, and Ctrl combinations included, and single-key shortcuts are off. A shortcut the browser or the operating system keeps for itself never reaches the page, so it never reaches the session either. On macOS, Command shortcuts stay with the browser and the page, so `⌘ K` still opens the command palette and `⌘ C` copies.
+
+`Ctrl ]`, a click outside the pane, or Release on the strip gives the keys back. Focus stays on the screen, and Tab moves on from there. Opening a page never gives the keys to a session, and a click that ends a text selection leaves them with the page, so the selection can be copied. The release key is named on the strip, in the screen's tooltip, in its accessible name while it holds the keys, and in the shortcut sheet, so focus never stays trapped in the pane without a stated way out ([WCAG 2.1.2 No Keyboard Trap](https://www.w3.org/TR/WCAG21/#no-keyboard-trap)). While it holds the keys, the screen is an application to a screen reader, which then passes keys through.
+
+The key row sends one key or combination with a click: Esc, Tab, Shift-Tab, Enter, Ctrl-C, Ctrl-O, and the four arrows. Keys… opens a composer that sends any combination or sequence. Type it, such as `Ctrl-X Ctrl-S`, or select Record and press the keys, each one added as you press it, Tab and Escape included, until `Ctrl ]` stops the recording. The composer shows the sequence as key caps, and Send keys sends it. A sequence holds up to 8 chords, in the grammar the [API](api.md#lane-panes) names.
+
+Type into the session types a line, and Press Enter after the text, checked by default, ends it with Enter, as if you typed it in the pane. With the field empty, Enter, Escape, and the up and down arrows go to the session, so a menu can be answered from the field. What you send goes in the order you sent it, and a refusal, such as for a lane that has no pane now, is said under the pane.
 
 ## Import an existing project
 

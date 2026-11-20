@@ -337,7 +337,7 @@ export function Surface({ live, variant, onClose, projectLabel, after }: Props) 
             <Icon name="attach" size="sm" />
             <span>This session is interactive: type in the pane.</span>
           </div>
-          <LanePane lane={target.id} live={live} attached state={lane?.state} />
+          <LanePane lane={target.id} live={live} attached state={lane?.state} target={described.kind} />
         </div>
       ) : (
         <>

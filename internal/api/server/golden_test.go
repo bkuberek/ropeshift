@@ -454,11 +454,11 @@ func TestGoldenTemplates(t *testing.T) {
 	holdsGolden(t, "templates", pretty(t, got))
 }
 
-// TestGoldenPaneKeys writes the closed list of keys a member may press in a lane's pane, so a web test
-// can hold the page's buttons to it.
+// TestGoldenPaneKeys writes the named keys a chord in a lane's pane may end with, so a web test can hold
+// the keys the page sends to them.
 func TestGoldenPaneKeys(t *testing.T) {
 	t.Parallel()
-	holdsGolden(t, "pane-keys", pretty(t, api.PaneKeys))
+	holdsGolden(t, "pane-keys", pretty(t, api.PaneKeyNames))
 }
 
 // A review pins the contract of the work it judges, which puts it under the plan that contract belongs

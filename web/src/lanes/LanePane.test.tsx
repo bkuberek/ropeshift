@@ -2,7 +2,6 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { paneKeys } from "../api/client";
 import type { InProgress, OnHold } from "../api/types";
 import { openPage } from "../opening";
 import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
@@ -46,6 +45,11 @@ async function opened() {
 // paneStatus is the pane's own status line, apart from the page's.
 function paneStatus(): HTMLElement {
   return within(screen.getByRole("region", { name: `Pane of lane ${lane}` })).getByRole("status");
+}
+
+// chordsOf reads the chords the page sent, in order, however it grouped them into requests.
+function chordsOf(typed: Sent[]): string[] {
+  return typed.flatMap((sent) => ((sent.body as { key?: string }).key ?? "").split(" ").filter(Boolean));
 }
 
 function show(stream: FakeEvents, text: string, generation = 1) {
@@ -120,7 +124,7 @@ describe("a lane's pane", () => {
     expect(typed[0]?.body).toEqual({ text: "half a line", enter: false });
   });
 
-  it("presses each named key, and leaves the keyboard in the field", async () => {
+  it("presses each key of the key row, and leaves the keyboard in the field", async () => {
     const typed = serve();
     openPage(page);
     show(await opened(), "> Yes\n  No");
@@ -128,12 +132,13 @@ describe("a lane's pane", () => {
     const field = screen.getByRole("textbox", { name: "Type into the session" });
     await user.click(field);
     const keys = screen.getByRole("group", { name: "Press a key" });
-    for (const key of paneKeys) {
+    const row = ["Esc", "Tab", "Shift-Tab", "Enter", "Ctrl-C", "Ctrl-O", "Up", "Down", "Left", "Right"];
+    for (const key of row) {
       await user.click(within(keys).getByRole("button", { name: key }));
       expect(document.activeElement).toBe(field);
     }
-    await waitFor(() => expect(typed).toHaveLength(paneKeys.length));
-    expect(typed.map((sent) => sent.body)).toEqual(paneKeys.map((key) => ({ key })));
+    const sent = ["Escape", "Tab", "Shift-Tab", "Enter", "Ctrl-C", "Ctrl-O", "Up", "Down", "Left", "Right"];
+    await waitFor(() => expect(chordsOf(typed)).toEqual(sent));
   });
 
   it("sends Enter, Escape, and the arrows from an empty field", async () => {
@@ -143,8 +148,7 @@ describe("a lane's pane", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("textbox", { name: "Type into the session" }));
     await user.keyboard("{ArrowDown}{ArrowUp}{Escape}{Enter}");
-    await waitFor(() => expect(typed).toHaveLength(4));
-    expect(typed.map((sent) => sent.body)).toEqual([{ key: "Down" }, { key: "Up" }, { key: "Escape" }, { key: "Enter" }]);
+    await waitFor(() => expect(chordsOf(typed)).toEqual(["Down", "Up", "Escape", "Enter"]));
   });
 
   it("says when the lane is parked, and sends nothing while it is", async () => {
@@ -196,6 +200,132 @@ describe("a lane's pane", () => {
     const region = await screen.findByRole("log", { name: `Screen of lane ${lane}` });
     expect(region.textContent).toBe("<img src=x onerror=alert(1)>here");
     expect(region.querySelector("img, a")).toBeNull();
+  });
+});
+
+describe("a lane's pane that holds the keys", () => {
+  const named = { name: /^Screen of lane lane:plan 1/ };
+
+  async function captured() {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "Accept the plan? (Tab to accept)");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("log", named));
+    const held = screen.getByRole("application", named);
+    return { typed, user, held };
+  }
+
+  it("never holds the keys when the page opens", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    expect(screen.getByRole("log", named)).toBeTruthy();
+    expect(screen.queryByText(/Keys go to the session/)).toBeNull();
+  });
+
+  it("takes the keys on a click, names the release key, and sends every key to the session", async () => {
+    const { typed, user, held } = await captured();
+    expect(screen.getByText(/Keys go to the session/).closest(".pane-capture")?.textContent).toMatch(/Ctrl\s*\]\s*releases/);
+    expect(held.getAttribute("aria-label")).toContain("Ctrl-] releases them");
+    await user.keyboard("{Tab}{Shift>}{Tab}{/Shift}{Escape}{Control>}o{/Control}{Control>}x{/Control}{Control>}s{/Control}y?");
+    expect(document.activeElement).toBe(held);
+    await waitFor(() => expect(chordsOf(typed)).toEqual(["Tab", "Shift-Tab", "Escape", "Ctrl-o", "Ctrl-x", "Ctrl-s", "y", "?"]));
+    expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
+  });
+
+  it("gives the keys back on Ctrl-], with focus left on the screen, so Tab moves on from there", async () => {
+    const { typed, user, held } = await captured();
+    await user.keyboard("{Control>}]{/Control}");
+    expect(screen.getByRole("log", named)).toBe(held);
+    expect(screen.queryByText(/Keys go to the session/)).toBeNull();
+    expect(document.activeElement).toBe(held);
+    await user.tab();
+    expect(document.activeElement).not.toBe(held);
+    expect(typed).toEqual([]);
+  });
+
+  it("gives the keys back on Release and on a click outside the pane", async () => {
+    const { user, held } = await captured();
+    await user.click(screen.getByRole("button", { name: "Release" }));
+    expect(screen.getByRole("log", named)).toBe(held);
+    expect(document.activeElement).toBe(held);
+    await user.click(held);
+    expect(screen.getByRole("application", named)).toBe(held);
+    await user.click(screen.getByRole("heading", { level: 1, name: /^Lane / }));
+    expect(screen.getByRole("log", named)).toBe(held);
+  });
+
+  it("takes the keys on Enter while the screen has focus, and sends nothing for that Enter", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const log = screen.getByRole("log", named);
+    act(() => log.focus());
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("application", named)).toBe(log);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(chordsOf(typed)).toEqual(["Enter"]));
+  });
+
+  it("takes no keys while the lane is parked", async () => {
+    serve();
+    openPage(page);
+    const stream = await opened();
+    show(stream, "a screen");
+    act(() => stream.send("lane", { lane_id: lane, generation: 1, state: "parked" }));
+    await waitFor(() => expect(paneStatus().textContent).toMatch(/parked/i));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("log", named));
+    expect(screen.queryByRole("application", named)).toBeNull();
+  });
+
+  it("sends any sequence the member types in Keys", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Keys…" }));
+    const composer = screen.getByRole("group", { name: "Compose keys" });
+    const keys = within(composer).getByRole("textbox", { name: "Keys to send" });
+    expect(document.activeElement).toBe(keys);
+    await user.type(keys, "Ctrl-X Ctrl-S");
+    expect([...composer.querySelectorAll("kbd")].map((cap) => cap.textContent)).toEqual(["Ctrl", "X", "Ctrl", "S"]);
+    await user.click(within(composer).getByRole("button", { name: "Send keys" }));
+    await waitFor(() => expect(typed.map((sent) => sent.body)).toEqual([{ key: "Ctrl-X Ctrl-S" }]));
+    expect((keys as HTMLInputElement).value).toBe("");
+  });
+
+  it("records the keys a member presses in Keys, until Ctrl-]", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Keys…" }));
+    const composer = screen.getByRole("group", { name: "Compose keys" });
+    const record = within(composer).getByRole("button", { name: "Record" });
+    await user.click(record);
+    expect(record.getAttribute("aria-pressed")).toBe("true");
+    expect(within(composer).getByText(/Ctrl-\] stops the recording/)).toBeTruthy();
+    await user.keyboard("{Control>}x{/Control}{Shift>}{Tab}{/Shift}{Escape}{Control>}]{/Control}");
+    expect(record.getAttribute("aria-pressed")).toBe("false");
+    expect((within(composer).getByRole("textbox", { name: "Keys to send" }) as HTMLInputElement).value).toBe("Ctrl-x Shift-Tab Escape");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(typed.map((sent) => sent.body)).toEqual([{ key: "Ctrl-x Shift-Tab Escape" }]));
+  });
+
+  it("refuses a sequence longer than the server takes before it sends it", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Keys…" }));
+    const composer = screen.getByRole("group", { name: "Compose keys" });
+    await user.type(within(composer).getByRole("textbox", { name: "Keys to send" }), "a b c d e f g h i");
+    expect(within(composer).getByRole("alert").textContent).toMatch(/at most 8 chords/);
+    expect((within(composer).getByRole("button", { name: "Send keys" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(typed).toEqual([]);
   });
 });
 

@@ -3,6 +3,7 @@ package tmux_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -70,16 +71,16 @@ func typeIntoRawPane(t *testing.T, text string, bracketed bool) string {
 		t.Fatal(err)
 	}
 	doubles.KillTmux(t, terminal, spec.Name)
-	waitFor(t, func() bool {
+	waitFor(t, func() (bool, string) {
 		screen, err := terminal.Capture(ctx, spec.Name)
-		return err == nil && strings.Contains(screen, "ready")
+		return err == nil && strings.Contains(screen, "ready"), fmt.Sprintf("no ready on the screen: %q", screen)
 	})
 	if err := terminal.Type(ctx, spec.Name, text); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, func() bool {
+	waitFor(t, func() (bool, string) {
 		got, err := os.ReadFile(received)
-		return err == nil && len(got) >= len(text)
+		return err == nil && len(got) >= len(text), fmt.Sprintf("the program read %d of %d bytes", len(got), len(text))
 	})
 	// Let a late byte land before reading the whole file.
 	time.Sleep(200 * time.Millisecond)
@@ -90,12 +91,17 @@ func typeIntoRawPane(t *testing.T, text string, bracketed bool) string {
 	return string(got)
 }
 
-func waitFor(t *testing.T, done func() bool) {
+// waitFor waits until done says the pane got there, and fails with what done last saw if it never does.
+func waitFor(t *testing.T, done func() (bool, string)) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
-	for !done() {
+	for {
+		ok, last := done()
+		if ok {
+			return
+		}
 		if time.Now().After(deadline) {
-			t.Fatal("the pane did not get there in time")
+			t.Fatalf("the pane did not get there in time: %s", last)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

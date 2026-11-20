@@ -14,9 +14,9 @@ import {
   decideEffect,
   followEvents,
   passReview,
-  paneKeys,
+  paneKeyNames,
   paths,
-  pressPaneKey,
+  sendPaneKeys,
   readDocument,
   readDocumentVersions,
   readApproval,
@@ -76,7 +76,7 @@ describe("the client", () => {
     await readApproval("approval a");
     await readOutline("lane:a b");
     await typeIntoPane("lane:a b", "A planning tool", true);
-    await pressPaneKey("lane:a b", "Ctrl-C");
+    await sendPaneKeys("lane:a b", "Ctrl-X Ctrl-S");
     expect(sent.length).toBeGreaterThan(20);
     await readProjects();
     for (const call of sent) {
@@ -96,8 +96,8 @@ describe("the client", () => {
     expect(reachable("POST", "/v1/passphrase")).toBe(false);
   });
 
-  it("offers the keys the server takes in a pane, and no other", () => {
-    expect([...paneKeys]).toEqual(keys);
+  it("names the keys of a pane as the server does, and no other", () => {
+    expect([...paneKeyNames]).toEqual(keys);
   });
 
   it("escapes an ID into its path", async () => {

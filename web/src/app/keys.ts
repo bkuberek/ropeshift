@@ -115,5 +115,12 @@ export function shortcutList(mac: boolean): ShortcutGroup[] {
         { keys: ["↑", "↓"], does: "Move in menus, tabs, and the palette" },
       ],
     },
+    {
+      name: "Lane pane",
+      rows: [
+        { keys: ["Enter"], does: "On a pane's screen, or with a click on it: send every key to the session, Tab, Shift-Tab, and Escape included" },
+        { keys: ["Ctrl", "]"], does: "Gives the keys back to the page, with focus left on the screen" },
+      ],
+    },
   ];
 }

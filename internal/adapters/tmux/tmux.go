@@ -256,9 +256,19 @@ func (t *Terminal) Screen(ctx context.Context, name string) (string, error) {
 	return t.run(ctx, "capture-pane", "-p", "-e", "-t", target(name))
 }
 
-// Keys sends named keys.
+// Keys sends named keys, each looked up by its name. They follow `--`, so none reads as a flag. tmux's
+// command line reads an argument that ends in a semicolon as the end of a command, so a key that ends in
+// one, such as ; or M-;, is sent with the semicolon escaped
+// (https://man.openbsd.org/tmux.1#COMMAND_PARSING_AND_EXECUTION).
 func (t *Terminal) Keys(ctx context.Context, name string, keys ...string) error {
-	_, err := t.run(ctx, append([]string{"send-keys", "-t", target(name)}, keys...)...)
+	args := []string{"send-keys", "-t", target(name), "--"}
+	for _, key := range keys {
+		if head, ok := strings.CutSuffix(key, ";"); ok {
+			key = head + `\;`
+		}
+		args = append(args, key)
+	}
+	_, err := t.run(ctx, args...)
 	return err
 }
 

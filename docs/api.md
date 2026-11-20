@@ -234,6 +234,31 @@ idle_stop = "30m"
 warm_idle_stop = "2m"
 ```
 
+## Lane panes
+
+A member reaches the terminal pane of a lane that runs in one, as the web UI's pane does. The routes name the lane, and follow it to the pane of its current generation. Only a member's session reaches them, so neither a lane nor an orchestrator can read a screen or type into one, and typing into a pane needs the CSRF token, as every change from the web listener does.
+
+| Route | Body | Answer |
+|-------|------|--------|
+| `GET /v1/projects/{project}/panes/{id}` | | A stream of server-sent events: `screen`, with `lane_id`, `generation`, and `screen`, the visible screen with the escape sequences that set its colours and emphasis, each time it changes; and `lane`, with `lane_id`, `generation`, and `state`, while the lane has no screen to show, such as while it is parked |
+| `POST /v1/projects/{project}/panes/{id}/input` | `{"text": "...", "enter": true}` or `{"key": "..."}` | 204 once the pane took the input |
+
+`text` is typed literally, with Enter after it when `enter` is true. It holds at most 4096 bytes and no control character, which would act as a key.
+
+`key` is a key sequence:
+
+- A chord is zero or more of `Ctrl`, `Alt`, and `Shift`, each followed by a hyphen, then a named key or one printable character: `Enter`, `Shift-Tab`, `Ctrl-O`, `Alt-x`, or `Ctrl--`, which is Ctrl and the minus key. Modifiers and names are read in any case.
+- The named keys are the ones tmux names: `Up`, `Down`, `Left`, `Right`, `BSpace` (Backspace), `BTab` (Shift-Tab), `DC` (Delete), `End`, `Enter`, `Escape`, `F1` to `F12`, `Home`, `IC` (Insert), `PageUp`, `PageDown`, `Space`, and `Tab` ([tmux](https://man.openbsd.org/tmux.1#KEY_BINDINGS)).
+- Shift goes only with a named key, such as `Shift-Up`. A character carries its own Shift, so a sequence holds `A`, not `Shift-a`.
+- A sequence is 1 to 8 chords, each separated from the next by one space, such as `Ctrl-X Ctrl-S`, in at most 256 bytes.
+
+The server reads each chord into tmux's name for it: Ctrl is `C-`, Alt is `M-`, and Shift is `S-`, so `Ctrl-X Ctrl-S` is `C-x C-s`, with a letter under Ctrl lowercase, as a terminal sends it; `Shift-Tab` is `BTab`. It sends the names with `send-keys`, which looks each one up as a key, and sends text with `send-keys -l`, which looks up none ([tmux](https://man.openbsd.org/tmux.1#send-keys)). Anything outside the grammar answers 400 `invalid`, among them tmux's own spelling such as `C-c`, a word, a control character, a modifier with no key or twice, Shift on a character, and a ninth chord, so no string a page sends reaches tmux as anything but a key it names.
+
+| Status | Code | When |
+|--------|------|------|
+| 409 | `lane_ended` | The lane has ended, so it will never have a pane again |
+| 409 | `no_pane` | The lane has no pane now: it runs without a terminal, its pane has not opened yet, it is parked, or no worker this control plane reaches holds it |
+
 ## Searching a project's records
 
 `GET /v1/projects/{project}/views/search` is the read model the web UI's command palette reads. It lists the project's work orders, lanes, plans, contracts, requirements, decisions, questions, planning documents, and repositories, and the calling member's conversations by name as kind `conversation`, each with its kind, ID, title, and state, and it changes nothing. `q` keeps the records whose ID or title holds every word, in any order and any case: an exact ID first, then an ID that begins with the words, then words that each begin a word of the title, then the rest. `category` names one kind. `limit` caps the list, 20 by default when `q` is set, and `more` says the cap cut it. With no `q`, every record is listed.
