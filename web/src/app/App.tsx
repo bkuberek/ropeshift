@@ -8,6 +8,7 @@ import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
 import { useView } from "../api/useView";
 import { settingsList } from "../admin/Settings";
+import { plainLine } from "../planning/creation";
 import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
 import { useClock } from "../parts/parts";
@@ -256,8 +257,29 @@ export function App() {
         to: `/needs-you?item=${encodeURIComponent(`${item.kind}:${item.id}`)}&focus=primary`,
       }),
     );
+    // A repository a plan approval did not create has Retry and Skip, each taking a member to its button.
+    const creations = items.flatMap((item: NeedItem): Entry[] => {
+      if (item.kind !== "repository_creation") {
+        return [];
+      }
+      const need = item.repository_creation;
+      const to = (focus: string) => addressOf("/needs-you", { item: `${item.kind}:${item.id}`, focus: `${focus} creating ${plainLine(need.name)}` });
+      const entry = (action: string, title: string, icon: Entry["icon"]): Entry => ({
+        key: `${action}:${item.id}`,
+        group: "Actions",
+        title: `${title} ${plainLine(need.name)}`,
+        icon,
+        meta: projectName(item.project, item.project?.name ?? "") || "Needs you",
+        to: to(action === "retry-creation" ? "Retry" : "Skip"),
+      });
+      return [
+        ...(need.actions.includes("repository_retry") ? [entry("retry-creation", "Retry creating", "retry")] : []),
+        ...(need.actions.includes("repository_skip") ? [entry("skip-creation", "Skip creating", "x")] : []),
+      ];
+    });
     const actions: Entry[] = [
       ...decide.slice(0, 5),
+      ...creations,
       ...pageEntries,
       { key: "action:projects", group: "Actions", title: "Switch project", icon: "projects", meta: "P", run: () => switcher.setOpen(true) },
       { key: "action:create-project", group: "Actions", title: "Create project", icon: "plus", to: "/projects?dialog=create" },

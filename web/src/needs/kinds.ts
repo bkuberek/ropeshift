@@ -139,6 +139,9 @@ export function approvalHeading(approval: Approval): string {
   }
 }
 
+// creationKind is the overline of a repository a plan approval did not create.
+export const creationKind: { icon: IconName; name: string } = { icon: "repo", name: "Repository creation" };
+
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   switch (item.kind) {
@@ -165,7 +168,7 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
     case "spend":
       return spendKind;
     case "repository_creation":
-      return { icon: "repo", name: "Repository creation" };
+      return creationKind;
   }
 }
 

@@ -74,6 +74,8 @@ export const paths = {
   overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
   candidates: (text: string, limit: number) => project(`/candidates?${new URLSearchParams({ text, kinds: candidateKinds.join(","), limit: String(limit) })}`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
+  retryRepository: (approval: string, name: string) => project(`/approvals/${encodeURIComponent(approval)}/repositories/${encodeURIComponent(name)}/retry`),
+  skipRepository: (approval: string, name: string) => project(`/approvals/${encodeURIComponent(approval)}/repositories/${encodeURIComponent(name)}/skip`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
@@ -376,6 +378,17 @@ export function searchCandidates(text: string, limit = 8): Promise<CandidateList
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<ApprovalDecided> {
   return call<ApprovalDecided>("POST", paths.decideApproval(id), { digest, allow, reason, ...(place ? { place } : {}) });
+}
+
+// retryRepository runs the creation of one repository an approved plan version names again, from its journal, and
+// answers with the approval and what its registration holds now.
+export function retryRepository(approval: string, name: string): Promise<ApprovalDecided> {
+  return call<ApprovalDecided>("POST", paths.retryRepository(approval, name), {});
+}
+
+// skipRepository leaves a repository an approved plan version names uncreated, with the member's reason.
+export function skipRepository(approval: string, name: string, reason: string): Promise<ApprovalDecided> {
+  return call<ApprovalDecided>("POST", paths.skipRepository(approval, name), { reason });
 }
 
 export function decideEffect(id: string, outcome: EffectOutcome, reason: string): Promise<unknown> {

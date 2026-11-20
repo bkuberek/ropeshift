@@ -9,6 +9,8 @@ import {
   answerQuestion,
   changePassphrase,
   decideApproval,
+  retryRepository,
+  skipRepository,
   decideEffect,
   followEvents,
   passReview,
@@ -36,7 +38,7 @@ import type { Route, WorkAction } from "./types";
 
 const served = (routes as Route[]).map((route) => ({
   method: route.method,
-  path: new RegExp(`^${route.pattern.replaceAll("{id}", "[^/]+").replaceAll("{project}", "[^/]+")}(\\?.*)?$`),
+  path: new RegExp(`^${route.pattern.replaceAll("{id}", "[^/]+").replaceAll("{project}", "[^/]+").replaceAll("{name}", "[^/]+")}(\\?.*)?$`),
 }));
 
 const reachable = (method: string, path: string) => served.some((route) => route.method === method && route.path.test(path));
@@ -52,6 +54,8 @@ describe("the client", () => {
     await answerQuestion("q1", "Yes");
     await decideApproval("a1", "digest", true, "");
     await decideEffect("worker-a:1:8", "retry", "");
+    await retryRepository("a 1", "api");
+    await skipRepository("a 1", "api", "built by hand");
     for (const action of Object.keys(workActions) as WorkAction[]) {
       await actOnWork("wo", action, "because");
     }
