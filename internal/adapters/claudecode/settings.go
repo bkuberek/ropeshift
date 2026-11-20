@@ -74,6 +74,8 @@ type settingsFile struct {
 	// hold.
 	CrossSessionInbound string      `json:"crossSessionInbound"`
 	StatusLine          *statusLine `json:"statusLine,omitempty"`
+	// ClaudeMdExcludes leaves out the member's own instructions and keeps the repository's (personalInstructions).
+	ClaudeMdExcludes []string `json:"claudeMdExcludes,omitempty"`
 }
 
 // toolRule is the permission rule of one ropeshift MCP tool.
@@ -214,6 +216,7 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 			DisableBypassPermissionsMode: bypassOff,
 		},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
+		ClaudeMdExcludes: personalInstructions(spec),
 	}
 	if spec.Binary == "" {
 		return out
@@ -286,7 +289,7 @@ func writeGenerated(spec ports.SessionSpec) error {
 		return err
 	}
 	settingsPath, mcpPath := generatedPaths(spec)
-	files := map[string]any{settingsPath: generateSettings(spec), mcpPath: generateMCP(spec), policyPath(spec): compilePolicy(spec)}
+	files := map[string]any{settingsPath: generateSettings(spec), mcpPath: laneMCP(spec), policyPath(spec): compilePolicy(spec)}
 	for path, body := range files {
 		raw, err := json.MarshalIndent(body, "", "  ")
 		if err != nil {
