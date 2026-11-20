@@ -190,7 +190,7 @@ func checkApprovalSaysWhatThePlanningRepositoryDoesNotIgnore(r *Rig) error {
 	}
 	repositories := r.repositories(s)
 	want := unignoredReason("vendor/ledger")
-	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, r.member())
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", true, r.member())
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func checkApprovalSaysWhatThePlanningRepositoryDoesNotIgnore(r *Rig) error {
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func checkApprovalSaysWhatThePlanningRepositoryDoesNotIgnore(r *Rig) error {
 	}
 	// What the approval recorded is what a second decision reads, whatever the planning repository ignores now.
 	kept.Ignore("/work/plan", "vendor")
-	replayed, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	replayed, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, nil, "", false, r.member())
 	if err != nil {
 		return err
 	}

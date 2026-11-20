@@ -128,7 +128,7 @@ func addedViews(added []control.Added) []api.RepositoryAdded {
 	out := make([]api.RepositoryAdded, 0, len(added))
 	for _, one := range added {
 		view := api.RepositoryAdded{
-			Name: one.Name, ManifestPath: one.Manifest, Remote: one.Remote, Path: one.Path, Entered: one.Entered, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason,
+			Name: one.Name, ManifestPath: one.Manifest, Remote: one.Remote, Path: one.Path, Entered: one.Entered, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason, RefusalCode: one.RefusalCode, Creation: one.Creation,
 		}
 		if one.Repository.ID != "" {
 			record := one.Repository
@@ -145,7 +145,7 @@ func recordedViews(repositories ports.RepositoryReader, record *ledger.ManifestR
 	out := &api.ManifestRegistration{Repositories: make([]api.RepositoryAdded, 0, len(record.Repositories)), Problem: record.Problem}
 	for _, one := range record.Repositories {
 		view := api.RepositoryAdded{
-			Name: one.Name, ManifestPath: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason,
+			Name: one.Name, ManifestPath: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason, RefusalCode: one.RefusalCode, Creation: one.Creation,
 		}
 		if one.Repository != "" {
 			held, err := repositories.Repository(one.Repository)

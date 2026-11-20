@@ -100,6 +100,9 @@ type Config struct {
 	// which registering repositories reads and records (ADR-0022). Nil has no worker's machine, and a
 	// registration refuses.
 	Checkouts ports.Checkouts
+	// Creator creates the repositories a plan approval names, on the machine of the worker this daemon runs. Nil has
+	// none, and approving a version that creates a repository refuses it, saying so.
+	Creator ports.RepositoryCreator
 	// Layouts reads how the clones on that machine are laid out, for the plan of an adoption (FR-ADOPT-12). Nil
 	// reads none, and the plan refuses.
 	Layouts ports.Layouts
@@ -318,7 +321,7 @@ func matching(config Config) func(ports.Store) ports.Matcher {
 
 func newHandler(config Config) *handler {
 	practices := control.NewPractices(config.Store).Placing(config.AssistantHosts, config.HeartbeatMs, config.LocalWorker)
-	repositories := control.NewRepositories(config.Store).Rooted(config.Profiles).Practicing(practices).Warning(config.Warn)
+	repositories := control.NewRepositories(config.Store).Rooted(config.Profiles).Practicing(practices).Placing(config.LocalWorker).Warning(config.Warn)
 	return &handler{
 		Config:        config,
 		adoptions:     control.NewAdoptions(repositories).Checking(config.PracticeSources),

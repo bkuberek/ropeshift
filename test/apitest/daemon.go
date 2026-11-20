@@ -240,6 +240,8 @@ type Options struct {
 	Installed func() version.Installed
 	// Checkouts is the machine of the daemon's worker. Nil has none, and registering a repository refuses.
 	Checkouts ports.Checkouts
+	// Creator creates the repositories a plan approval names. Nil has none.
+	Creator ports.RepositoryCreator
 	// Profiles reads the profile in force for a clone, which a registration reads the worktree root from. Nil
 	// reads none.
 	Profiles ports.ProfileSource
@@ -298,7 +300,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		AssistantHosts: options.AssistantHosts, LocalWorker: options.LocalWorker, Warn: options.Warn,
-		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
+		Checkouts: options.Checkouts, Creator: options.Creator, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
 		Attempts: options.Attempts, WebhookAttempts: options.WebhookAttempts, Templates: options.Templates, Hashes: options.Hashes,
 		WorkerURL: options.WorkerURL, CAFingerprint: options.CAFingerprint,
 	}

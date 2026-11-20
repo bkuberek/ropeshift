@@ -67,6 +67,8 @@ type placedContract struct {
 	Milestone string
 	Shared    bool
 	Uses      []string
+	// Reads are the repositories the contract's lanes read, by name, which target none.
+	Reads []string
 	// Orders are the work orders. A contract that lists none gets one, named `<id>-order`.
 	Orders []orderIn
 }
@@ -88,6 +90,9 @@ func (c placedContract) text() string {
 	}
 	if len(c.Uses) != 0 {
 		out += "uses = " + quoted(c.Uses) + "\n"
+	}
+	if len(c.Reads) != 0 {
+		out += "reads = " + quoted(c.Reads) + "\n"
 	}
 	out += "\n[[criteria]]\nid = \"c1\"\ntext = \"It works\"\n"
 	orders := c.Orders

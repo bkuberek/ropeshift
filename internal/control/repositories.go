@@ -24,6 +24,12 @@ type Repositories struct {
 	// registering holds one registration from an approved plan at a time, so a decision repeated while the
 	// first registers waits for it and reads its record.
 	registering sync.Mutex
+	// creating holds the key of each creation that runs now in this process, which creatingMu guards apart from
+	// registering, so a read of it never waits for a registration.
+	creatingMu sync.Mutex
+	creating   map[string]bool
+	// worker names the worker whose machine creates repositories, which each creation's start records. Nil names none.
+	worker func(context.Context) (string, error)
 	// profiles reads the worktree root in force for a clone, so a registration can say when it would lie
 	// inside the clone. Nil says nothing.
 	profiles ports.ProfileSource

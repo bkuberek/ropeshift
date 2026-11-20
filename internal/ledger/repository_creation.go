@@ -3,7 +3,119 @@ package ledger
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 )
+
+// The events about a plan approval that record the creation of a repository its version names.
+const (
+	// EventRepositoryCreationStarted records a creation about to write anything: a CreationStartedEvent.
+	EventRepositoryCreationStarted = "approval.repository_creation_started"
+	// EventRepositoryCreationFinished records what a creation came to: a CreationFinishedEvent.
+	EventRepositoryCreationFinished = "approval.repository_creation_finished"
+	// EventRepositoryCreationSkipped records a member leaving a creation undone: a CreationSkippedEvent.
+	EventRepositoryCreationSkipped = "approval.repository_creation_skipped"
+)
+
+// CreationState is where the events about one entry's creation leave it.
+type CreationState string
+
+// The states of a creation. A finished creation is in the state of its outcome.
+const (
+	// CreationUntried is an entry no creation event names.
+	CreationUntried CreationState = ""
+	// CreationStarted is a creation that started and has no later event: it runs now, or it was interrupted.
+	CreationStarted CreationState = "started"
+	// CreationCreated is a creation every step of which is done.
+	CreationCreated CreationState = "created"
+	// CreationRefused is a creation a check refused, with nothing written.
+	CreationRefused CreationState = "refused"
+	// CreationFailed is a creation that stopped at a step that failed, keeping what it made.
+	CreationFailed CreationState = "failed"
+	// CreationSkipped is a creation a member chose to leave undone.
+	CreationSkipped CreationState = "skipped"
+)
+
+// CreationStartedEvent is the data of EventRepositoryCreationStarted.
+type CreationStartedEvent struct {
+	Name         string `json:"name"`
+	Key          string `json:"key"`
+	ManifestPath string `json:"manifest_path"`
+	// Path is the entry's path on the worker's machine, and Leads where it leads, every link followed.
+	Path          string `json:"path"`
+	Leads         string `json:"leads,omitempty"`
+	Forge         string `json:"forge"`
+	Owner         string `json:"owner"`
+	ForgeName     string `json:"forge_name"`
+	Visibility    string `json:"visibility"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// Worker is the worker whose machine runs the creation.
+	Worker string `json:"worker,omitempty"`
+}
+
+// CreationFinishedEvent is the data of EventRepositoryCreationFinished: the outcome, which is CreationCreated,
+// CreationRefused, or CreationFailed, the reason when it is not created, and the creation's own fields.
+type CreationFinishedEvent struct {
+	Name    string        `json:"name"`
+	Key     string        `json:"key"`
+	Outcome CreationState `json:"outcome"`
+	Reason  string        `json:"reason,omitempty"`
+	// RefusalCode is the code the creator refused with, as it gave it, for a creation that finished refused.
+	RefusalCode string `json:"refusal_code,omitempty"`
+	CreationOutcome
+}
+
+// CreationSkippedEvent is the data of EventRepositoryCreationSkipped.
+type CreationSkippedEvent struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// CreationRecord is the latest of the events about one entry's creation.
+type CreationRecord struct {
+	State CreationState
+	// Reason is why the creation was refused, failed, or skipped.
+	Reason string
+	// Started is the creation's latest start, which a later finished event clears, and Finished is the latest finish,
+	// which a later start clears.
+	Started  *CreationStartedEvent
+	Finished *CreationFinishedEvent
+}
+
+// LatestCreation reads where the events about one plan approval, in the order they were recorded, leave the creation
+// of the entry named. Events of other types and of other entries are not read.
+func LatestCreation(events []Event, name string) (CreationRecord, error) {
+	var out CreationRecord
+	for _, event := range events {
+		switch event.Type {
+		case EventRepositoryCreationStarted:
+			var data CreationStartedEvent
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return CreationRecord{}, fmt.Errorf("event %d: %w", event.Rev, err)
+			}
+			if data.Name == name {
+				out = CreationRecord{State: CreationStarted, Started: &data}
+			}
+		case EventRepositoryCreationFinished:
+			var data CreationFinishedEvent
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return CreationRecord{}, fmt.Errorf("event %d: %w", event.Rev, err)
+			}
+			if data.Name == name {
+				out = CreationRecord{State: data.Outcome, Reason: data.Reason, Finished: &data}
+			}
+		case EventRepositoryCreationSkipped:
+			var data CreationSkippedEvent
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return CreationRecord{}, fmt.Errorf("event %d: %w", event.Rev, err)
+			}
+			if data.Name == name {
+				out = CreationRecord{State: CreationSkipped, Reason: data.Reason}
+			}
+		}
+	}
+	return out, nil
+}
 
 // RepositoryCreation is one repository a plan approval creates on the worker's machine.
 type RepositoryCreation struct {

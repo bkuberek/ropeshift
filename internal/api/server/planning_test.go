@@ -154,10 +154,21 @@ var manifestEntries = []planning.ManifestRepository{
 // clone of billing beside it, on a daemon whose one repository is the planning repository.
 func planningMachine(t *testing.T, options apitest.Options) *apitest.Daemon {
 	t.Helper()
+	d, _ := planningMachineWith(t, options, nil)
+	return d
+}
+
+// planningMachineWith is planningMachine with the creator that makeCreator gives for the machine, which the daemon
+// creates the repositories a plan approval names with. It returns the machine too.
+func planningMachineWith(t *testing.T, options apitest.Options, makeCreator func(*fake.Checkouts) ports.RepositoryCreator) (*apitest.Daemon, *fake.Checkouts) {
+	t.Helper()
 	machine := fake.NewCheckouts()
 	machine.Place(ports.Clone{Path: "/work/plan", ID: "id-plan", DefaultBranch: "main"})
 	machine.Place(ports.Clone{Path: "/work/billing", ID: "id-billing", Remote: manifestEntries[0].Remote, DefaultBranch: "main"})
 	options.Checkouts = machine
+	if makeCreator != nil {
+		options.Creator = makeCreator(machine)
+	}
 	d := apitest.StartWith(t, options)
 	planner, err := control.NewRepositories(d.Store).Detect(t.Context(), apitest.Scope, control.DetectedRepository{ID: "id-plan", Directory: "plan", DefaultBranch: "main"},
 		ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
@@ -167,7 +178,7 @@ func planningMachine(t *testing.T, options apitest.Options) *apitest.Daemon {
 	if err := machine.Keep(t.Context(), apitest.Scope, planner.ID, "/work/plan"); err != nil {
 		t.Fatal(err)
 	}
-	return d
+	return d, machine
 }
 
 // wantPlannedPreview checks that a waiting version's preview has billing registering and web planned.

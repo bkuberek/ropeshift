@@ -408,7 +408,7 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,
-		ParseManifest: reads.parseManifest, Panes: reads.panes, Layouts: reads.layouts,
+		ParseManifest: reads.parseManifest, Panes: reads.panes, Layouts: reads.layouts, Creator: reads.creator,
 		// The keys of the CI webhooks are in the server's environment, which the network listener's webhook route reads.
 		Env: os.LookupEnv,
 	}

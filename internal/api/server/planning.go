@@ -140,7 +140,7 @@ func (h *handler) previewRegistration(r *http.Request, approval authority.Approv
 	case !member:
 		preview.Problem = "only a member's session reads what approving would register"
 	default:
-		added, err := h.repositories.RegisterApproved(r.Context(), h.Scope, approval.ID, h.Checkouts, true, actor)
+		added, err := h.repositories.RegisterApproved(r.Context(), h.Scope, approval.ID, h.Checkouts, h.Creator, h.projectName(r.Context()), true, actor)
 		if err != nil {
 			preview.Problem = "reading what approving would register failed: " + err.Error()
 		}

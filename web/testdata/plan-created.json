@@ -1,0 +1,306 @@
+{
+  "plan": {
+    "id": "generated-1",
+    "title": "The platform",
+    "status": "active",
+    "source": "plan.md@3"
+  },
+  "contracts": [
+    {
+      "id": "generated-2",
+      "version": 1,
+      "plan_id": "generated-1",
+      "title": "Alpha",
+      "digest": "sha256:66193411e54e769a64192aad54ad3bddd3b739bf252d922e88b14f6716b4e5e4",
+      "source": "contract.md@3",
+      "statement": "The statement.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "It works"
+        }
+      ],
+      "work_orders": [
+        {
+          "ref": "work_order:alpha-billing",
+          "digest": "sha256:379c9a235701c58387add497296e7bde1a5c02c09d330feb01b71199fa7f5286"
+        },
+        {
+          "ref": "work_order:alpha-web",
+          "digest": "sha256:6e41862b1f30fedc5aba0390b64c685e89289a1ea4409f9b6a83078c570f8e91"
+        },
+        {
+          "ref": "work_order:alpha-docs",
+          "digest": "sha256:2c476fc27d029a5421b5c65ce57c7c7a204d98b65eff5a69419b1fad2111afd7"
+        }
+      ],
+      "status": "active"
+    }
+  ],
+  "work_orders": [
+    {
+      "id": "generated-3",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "The billing work",
+      "unknown_repository": "billing",
+      "size": "unknown",
+      "contract_id": "generated-2",
+      "contract_version": 1
+    },
+    {
+      "id": "generated-4",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "The docs work",
+      "unknown_repository": "docs",
+      "size": "unknown",
+      "contract_id": "generated-2",
+      "contract_version": 1
+    },
+    {
+      "id": "generated-5",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "The web work",
+      "unknown_repository": "web",
+      "size": "unknown",
+      "contract_id": "generated-2",
+      "contract_version": 1
+    }
+  ],
+  "approval": {
+    "approval": {
+      "id": "generated-6",
+      "lane_id": "",
+      "work_order_id": "",
+      "generation": 0,
+      "kind": "plan",
+      "subject": "generated-1@1",
+      "subject_digest": "sha256:f00215512db9773f254129da2daf6a7272420bfcfb6774bae20dca277ae2890b",
+      "summary": "Plan The platform, version 1: 1 contract, 1 repositories",
+      "requested_by": "system:intake",
+      "state": "pending",
+      "raised_at": 1790000000000,
+      "plan_id": "generated-1",
+      "plan_version": 1,
+      "detail": "{\"title\":\"The platform\",\"ref\":\"platform-v1\",\"counts\":{\"contract\":1,\"repositories\":1},\"difference\":{\"added\":[\"contract:alpha\",\"plan:platform-v1\",\"repositories:platform\"]},\"source\":\"plan.md@3\"}"
+    },
+    "detail": {
+      "title": "The platform",
+      "ref": "platform-v1",
+      "counts": {
+        "contract": 1,
+        "repositories": 1
+      },
+      "difference": {
+        "added": [
+          "contract:alpha",
+          "plan:platform-v1",
+          "repositories:platform"
+        ]
+      },
+      "source": "plan.md@3"
+    },
+    "records": [
+      {
+        "ref": "plan:platform-v1",
+        "digest": "sha256:8cee52006a4e5a6b8a3f72c0383a84c1a8b4657d76055edac077b169d355635f"
+      },
+      {
+        "ref": "repositories:platform",
+        "digest": "sha256:e05b9dcd24a3e7acbb329dabdb9d37397be38cfa814eede7e0b7d68ac281e5c1",
+        "record": "repositories:platform"
+      },
+      {
+        "ref": "contract:alpha",
+        "digest": "sha256:66193411e54e769a64192aad54ad3bddd3b739bf252d922e88b14f6716b4e5e4",
+        "record": "generated-2",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:7dcadae293eed25244aacaf2d2982f970d934039fddebc008fae1d1268125824"
+          },
+          {
+            "ref": "work_order:alpha-billing",
+            "digest": "sha256:379c9a235701c58387add497296e7bde1a5c02c09d330feb01b71199fa7f5286"
+          },
+          {
+            "ref": "work_order:alpha-web",
+            "digest": "sha256:6e41862b1f30fedc5aba0390b64c685e89289a1ea4409f9b6a83078c570f8e91"
+          },
+          {
+            "ref": "work_order:alpha-docs",
+            "digest": "sha256:2c476fc27d029a5421b5c65ce57c7c7a204d98b65eff5a69419b1fad2111afd7"
+          }
+        ]
+      }
+    ],
+    "registration": {
+      "preview": true,
+      "repositories": [
+        {
+          "name": "billing",
+          "manifest_path": "../billing",
+          "remote": "git@example.invalid:acme/billing.git",
+          "path": "/work/billing",
+          "outcome": "registered",
+          "repository": {
+            "id": "id-billing",
+            "name": "billing",
+            "remote": "git@example.invalid:acme/billing.git",
+            "default_branch": "main",
+            "merge_method": "merge",
+            "merge_authority": "person_merges",
+            "review_target": "branch",
+            "start_from": "merged",
+            "state": "active"
+          },
+          "checkout": "/work/billing"
+        },
+        {
+          "name": "web",
+          "manifest_path": "../web",
+          "remote": "git@github.com:acme/web.git",
+          "path": "/work/web",
+          "outcome": "created",
+          "creation": {
+            "forge": "github",
+            "owner": "acme",
+            "forge_name": "web",
+            "visibility": "private",
+            "default_branch": "main",
+            "url": "git@github.com:acme/web.git",
+            "login": "octo"
+          }
+        },
+        {
+          "name": "docs",
+          "manifest_path": "../docs",
+          "path": "/work/docs",
+          "outcome": "refused",
+          "reason": "docs is not registered: gh_signed_out: Run `gh auth login --hostname github.com` on this machine",
+          "refusal_code": "gh_signed_out",
+          "creation": {
+            "forge": "github",
+            "owner": "acme",
+            "forge_name": "docs",
+            "visibility": "public",
+            "default_branch": "trunk",
+            "remedy": "gh auth login --hostname github.com"
+          }
+        }
+      ]
+    },
+    "forecast": {
+      "plan_id": "generated-1",
+      "plan_version": 1,
+      "state": "pending",
+      "estimate_set": {
+        "id": "generated-7",
+        "plan_id": "generated-1",
+        "plan_version": 1,
+        "ledger_rev": 22,
+        "estimator_version": 1,
+        "policy_version": 1,
+        "digest": "sha256:steady",
+        "created_at": 1790000000000,
+        "estimates": [
+          {
+            "id": "generated-8",
+            "estimate_set_id": "generated-7",
+            "work_order_id": "generated-3",
+            "status": "no_history",
+            "keys": [],
+            "dropped_keys": [],
+            "sample_count": 0,
+            "min_samples": 10,
+            "sample_ids": [],
+            "pool_samples": 0,
+            "delivery_p50_ms": 0,
+            "delivery_p85_ms": 0,
+            "delivery_min_ms": 0,
+            "delivery_max_ms": 0,
+            "cost_p50_usd": 0,
+            "cost_p85_usd": 0,
+            "cost_min_usd": 0,
+            "cost_max_usd": 0,
+            "p85_open": false,
+            "cost_at_least": false,
+            "rev": 22,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "No estimate: no change of unknown size has finished in this project yet, and this project does not share history with other projects.",
+            "current": true,
+            "created_at": 1790000000000
+          },
+          {
+            "id": "generated-9",
+            "estimate_set_id": "generated-7",
+            "work_order_id": "generated-4",
+            "status": "no_history",
+            "keys": [],
+            "dropped_keys": [],
+            "sample_count": 0,
+            "min_samples": 10,
+            "sample_ids": [],
+            "pool_samples": 0,
+            "delivery_p50_ms": 0,
+            "delivery_p85_ms": 0,
+            "delivery_min_ms": 0,
+            "delivery_max_ms": 0,
+            "cost_p50_usd": 0,
+            "cost_p85_usd": 0,
+            "cost_min_usd": 0,
+            "cost_max_usd": 0,
+            "p85_open": false,
+            "cost_at_least": false,
+            "rev": 22,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "No estimate: no change of unknown size has finished in this project yet, and this project does not share history with other projects.",
+            "current": true,
+            "created_at": 1790000000000
+          },
+          {
+            "id": "generated-10",
+            "estimate_set_id": "generated-7",
+            "work_order_id": "generated-5",
+            "status": "no_history",
+            "keys": [],
+            "dropped_keys": [],
+            "sample_count": 0,
+            "min_samples": 10,
+            "sample_ids": [],
+            "pool_samples": 0,
+            "delivery_p50_ms": 0,
+            "delivery_p85_ms": 0,
+            "delivery_min_ms": 0,
+            "delivery_max_ms": 0,
+            "cost_p50_usd": 0,
+            "cost_p85_usd": 0,
+            "cost_min_usd": 0,
+            "cost_max_usd": 0,
+            "p85_open": false,
+            "cost_at_least": false,
+            "rev": 22,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "No estimate: no change of unknown size has finished in this project yet, and this project does not share history with other projects.",
+            "current": true,
+            "created_at": 1790000000000
+          }
+        ]
+      },
+      "forecasts": []
+    }
+  },
+  "versions": [
+    {
+      "version": 1,
+      "digest": "sha256:f00215512db9773f254129da2daf6a7272420bfcfb6774bae20dca277ae2890b",
+      "approval": "generated-6",
+      "state": "pending"
+    }
+  ]
+}
