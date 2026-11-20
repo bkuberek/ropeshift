@@ -32,6 +32,37 @@ function show(batch: Batch) {
   );
 }
 
+// A question's card says what each option trades off, beside the option, and what the answer unblocks, as the asker
+// wrote them.
+describe("a question in its shape", () => {
+  const shaped: QuestionItem = {
+    id: "q-retry",
+    text: "How often does a call to the forge retry before it gives up?",
+    title: "Forge retries",
+    options: ["Twice", "Until the deadline"],
+    recommendation: "Twice",
+    recommendation_rationale: "It fits the deadline.",
+    tradeoffs: { Twice: "It may give up early.", "Until the deadline": "It holds a lane longer." },
+    unblocks: "The forge client's retry policy.",
+    reversibility: "reversible",
+  };
+  const one = (item: QuestionItem): Batch => ({ batch: { id: "batch-1", status: "delivered", opened_at: 1, closes_at: 2, delivered_at: 2 }, items: [item] });
+
+  it("says what each option trades off, and what the answer unblocks", () => {
+    show(one(shaped));
+    const group = screen.getByRole("group", { name: shaped.text });
+    expect(within(group).getByRole("radio", { name: /^Twice/ }).closest("label")?.textContent).toContain("It may give up early.");
+    expect(within(group).getByRole("radio", { name: /^Until the deadline/ }).closest("label")?.textContent).toContain("It holds a lane longer.");
+    expect(within(group).getByText("Unblocks: The forge client's retry policy.")).toBeTruthy();
+  });
+
+  it("says nothing of tradeoffs or what it unblocks when the asker gave neither", () => {
+    show(one({ ...shaped, tradeoffs: undefined, unblocks: undefined }));
+    expect(screen.queryByText(/^Unblocks:/)).toBeNull();
+    expect(screen.queryByText("It may give up early.")).toBeNull();
+  });
+});
+
 describe("a batch of 18 questions raised in the middle of a plan", () => {
   // A question that reaches a one-way decision through its category states it as reversibility, and starts with
   // nothing chosen, as one that reaches it through its reason does (G6).

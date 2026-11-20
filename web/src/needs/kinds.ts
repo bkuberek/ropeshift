@@ -205,12 +205,13 @@ export function fullHeadingOf(item: NeedItem): string {
   return only ? oneLine(only.text) || headingOf(item) : headingOf(item);
 }
 
-// headingOf says what is asked, as a person reads it. A batch of one question is titled by the question.
+// headingOf says what is asked, as a person reads it. A batch of one question is titled by the title its asker gave
+// it, or else by its text.
 export function headingOf(item: NeedItem): string {
   switch (item.kind) {
     case "questions": {
       const [only] = item.batch.items;
-      return item.batch.items.length === 1 && only ? questionTitle(only.text) : `${item.batch.items.length} questions`;
+      return item.batch.items.length === 1 && only ? questionTitle(only.title?.trim() || only.text) : `${item.batch.items.length} questions`;
     }
     case "approval":
       return approvalHeading(item.approval);

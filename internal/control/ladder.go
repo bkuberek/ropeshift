@@ -23,6 +23,7 @@ func (q *Questions) Ask(ctx context.Context, scope ledger.WorkspaceID, ask quest
 		ID: ask.ID, Text: ask.Text, Categories: ask.Categories, Blocking: ask.Blocking, Options: ask.Options,
 		Recommendation: ask.Recommendation, RecommendationRationale: ask.RecommendationRationale,
 		SubjectKind: ask.SubjectKind, SubjectID: ask.SubjectID, AskedBy: actor.ID,
+		Title: ask.Title, Tradeoffs: ask.Tradeoffs, Unblocks: ask.Unblocks,
 	})
 	if err != nil {
 		return questions.AskResult{}, err

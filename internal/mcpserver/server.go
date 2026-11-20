@@ -255,12 +255,15 @@ var askTool = map[string]any{
 	"name": lanes.ToolAsk,
 	"description": "Ask a question this lane cannot answer from its contract. It records the question and returns at once: " +
 		"answered, with the answer and what it rests on; attached, because the same question is already open; or pending. " +
-		"Give the options you would choose between and the one you recommend with why, whenever you can. " +
+		"Ask it in the shape a person answers in one step: a short title, the options you would choose between with what each " +
+		"one trades off, the one you recommend and why, and what the answer unblocks. A question with no recommendation, or " +
+		"none that says why, is sent back unasked. " +
 		"Do not wait on it. Go on with any other useful work, and end your turn if nothing is left without the answer.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"text": map[string]any{"type": "string", "description": "The question, as a person would read it."},
+			"text":  map[string]any{"type": "string", "description": "The question, as a person would read it."},
+			"title": map[string]any{"type": "string", "description": "The question in a few words, on one line, which a list shows in place of the text."},
 			"categories": map[string]any{
 				"type": "array", "items": map[string]any{"type": "string"},
 				"description": "Which kinds of member could answer it, such as product, design, architecture, data, security, compliance, operations, or business. " +
@@ -276,10 +279,21 @@ var askTool = map[string]any{
 				"type":        "string",
 				"description": "Why that option is the one to choose. A person who accepts the recommendation records this as the reason.",
 			},
+			"tradeoffs": map[string]any{
+				"type": "object", "additionalProperties": map[string]any{"type": "string"},
+				"description": "What choosing each option gives up, keyed by the option, written the same way as in options.",
+			},
+			"unblocks": map[string]any{"type": "string", "description": "What the answer lets go on, such as the work it unblocks."},
 		},
 		"required": []string{"text"},
 	},
 }
+
+// askSentBack is why a lane's question is sent back: a person answers a question by agreeing with its recommendation,
+// so a question with none, or none that says why, would reach them half-formed.
+const askSentBack = "This question is not asked: a question reaches a person with a recommendation they can agree with. " +
+	"Give the options you would choose between, the one you recommend in recommendation, written as its option is, why in " +
+	"recommendation_rationale, a short title, what each option trades off in tradeoffs, and what the answer unblocks, then ask again."
 
 var laneHandoffTool = map[string]any{
 	"name": lanes.ToolLaneHandoff,
@@ -594,6 +608,9 @@ func callAsk(arguments json.RawMessage, call Caller) map[string]any {
 	var ask lanes.AskRequest
 	if err := json.Unmarshal(arguments, &ask); err != nil {
 		return toolText("these arguments are not a question: "+err.Error(), true)
+	}
+	if strings.TrimSpace(ask.Recommendation) == "" || strings.TrimSpace(ask.RecommendationRationale) == "" {
+		return toolText(askSentBack, true)
 	}
 	answer, err := call(lanes.Request{Ask: &ask})
 	if err != nil {

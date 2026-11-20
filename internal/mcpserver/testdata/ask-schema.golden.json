@@ -29,6 +29,21 @@
     "text": {
       "description": "The question, as a person would read it.",
       "type": "string"
+    },
+    "title": {
+      "description": "The question in a few words, on one line, which a list shows in place of the text.",
+      "type": "string"
+    },
+    "tradeoffs": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "What choosing each option gives up, keyed by the option, written the same way as in options.",
+      "type": "object"
+    },
+    "unblocks": {
+      "description": "What the answer lets go on, such as the work it unblocks.",
+      "type": "string"
     }
   },
   "required": [

@@ -156,6 +156,12 @@ type Question struct {
 	// AskedAt is when the question was recorded, by database time, from which its batch window runs while no
 	// orchestrator takes it. A question recorded before the ledger kept it reads zero.
 	AskedAt int64 `json:"asked_at,omitempty"`
+	// Title is the question in a few words, which a list shows in place of its text. Tradeoffs is what choosing each
+	// option gives up, by option, and Unblocks what the answer lets go on, each as the asker wrote it. A question
+	// asked before the ledger kept them holds none.
+	Title     string            `json:"title,omitempty"`
+	Tradeoffs map[string]string `json:"tradeoffs,omitempty"`
+	Unblocks  string            `json:"unblocks,omitempty"`
 }
 
 // Step is one rung a question passed, with what it considered there. By is who recorded it: an orchestrator, by its
@@ -276,6 +282,9 @@ func New(draft Question) (Question, error) {
 		return Question{}, err
 	}
 	if err := checkRecommendation(&draft); err != nil {
+		return Question{}, err
+	}
+	if err := checkShape(&draft); err != nil {
 		return Question{}, err
 	}
 	draft.NormalizedHash = Hash(draft.Text)
