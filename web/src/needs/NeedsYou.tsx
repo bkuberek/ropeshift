@@ -372,32 +372,27 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
       setGone(item);
       return;
     }
-    // A card tells of a retry once its act returns, after the read that no longer lists the work, so the page decides
-    // once the act is done. Work a member retried here waits for them to start it, so the page stays on it to offer
-    // Start.
+    // A card tells of a retry from its act's reply, before the read that no longer lists the work. Work a member
+    // retried here waits for them to start it, so the page stays on it to offer Start.
+    if (retriedHere.current.has(key)) {
+      setGone(item);
+      return;
+    }
     const order = lastListed.current;
-    const move = () => {
-      if (retriedHere.current.has(key)) {
-        setGone(item);
-        return;
-      }
-      const at = order.indexOf(key);
-      const following = at < 0 ? [] : [...order.slice(at + 1), ...order.slice(0, at).reverse()];
-      const next = view.items.find((row) => keyOf(row) === following.find(still));
-      if (next) {
-        movedAt.current = Date.now();
-        focusNext.current = keyOf(next);
-        const then = headingOf(next);
-        setSaid(`${outcomeOf(key, item)}. Next: ${/[.?!]$/.test(then) ? then : `${then}.`}`);
-        go(address({ item: keyOf(next) }), { stay: true, replace: true });
-        return;
-      }
-      setFinished(item);
-      setSaid(`${outcomeOf(key, item)}. Nothing else needs you.`);
-      go(address({ item: "" }), { stay: true, replace: true });
-    };
-    const timer = setTimeout(move, 0);
-    return () => clearTimeout(timer);
+    const at = order.indexOf(key);
+    const following = at < 0 ? [] : [...order.slice(at + 1), ...order.slice(0, at).reverse()];
+    const next = view.items.find((row) => keyOf(row) === following.find(still));
+    if (next) {
+      movedAt.current = Date.now();
+      focusNext.current = keyOf(next);
+      const then = headingOf(next);
+      setSaid(`${outcomeOf(key, item)}. Next: ${/[.?!]$/.test(then) ? then : `${then}.`}`);
+      go(address({ item: keyOf(next) }), { stay: true, replace: true });
+      return;
+    }
+    setFinished(item);
+    setSaid(`${outcomeOf(key, item)}. Nothing else needs you.`);
+    go(address({ item: "" }), { stay: true, replace: true });
   }, [view.items]);
 
   // Leaving the page is moving on, so an item settled while it was open is gone when the person comes back.
