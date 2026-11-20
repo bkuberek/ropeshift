@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -624,7 +625,7 @@ func insideRepository(name string) bool {
 // never climbs above that directory. Where it resolves once symbolic links are followed is read again on
 // the machine that registers it.
 func inPlanningDirectory(name string) bool {
-	if name == "" || strings.ContainsAny(name, "\\\x00") || path.IsAbs(name) || strings.IndexFunc(name, ledger.HiddenText) >= 0 {
+	if name == "" || strings.ContainsAny(name, "\\\x00") || path.IsAbs(name) || !utf8.ValidString(name) || strings.IndexFunc(name, ledger.HiddenText) >= 0 {
 		return false
 	}
 	parts := strings.Split(path.Clean(name), "/")

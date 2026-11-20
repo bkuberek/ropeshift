@@ -152,6 +152,12 @@ func CIReworkBrief(lead string, lines int, checks []CIFailedCheck) string {
 	return out.String()
 }
 
-// HiddenRune says a character hides or reorders what text says: a control character, or a format character
-// (Unicode category Cf) such as a bidirectional override, isolate, or mark, or a zero-width character.
-func HiddenRune(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }
+// ControlOrFormatRune says a character is a control character or a format character (Unicode category Cf), such as a
+// bidirectional override, isolate, or mark, or a zero-width character.
+func ControlOrFormatRune(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }
+
+// HiddenRune says a character hides or reorders what text says: a control or format character, a default ignorable
+// code point outside those, such as a Hangul filler or the combining grapheme joiner, or a blank braille pattern.
+func HiddenRune(r rune) bool {
+	return ControlOrFormatRune(r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) || r == '\u2800'
+}

@@ -336,7 +336,7 @@ func CheckBranch(name string) error {
 		}
 		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
 		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
-		if HiddenRune(r) {
+		if ControlOrFormatRune(r) {
 			return bad("holds a character that is not seen")
 		}
 		if unicode.IsSpace(r) {
@@ -361,6 +361,9 @@ const maxRepositoryName = 100
 func CheckRepositoryName(name string) error {
 	if err := CheckExistingRepositoryName(name); err != nil {
 		return err
+	}
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("%w: name %q is not valid UTF-8", ErrInvalidRepository, name)
 	}
 	if strings.IndexFunc(name, HiddenText) >= 0 {
 		return fmt.Errorf("%w: name %q holds a character that is not seen", ErrInvalidRepository, name)
