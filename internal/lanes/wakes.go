@@ -142,10 +142,15 @@ type WakeBatch struct {
 	// Hold keeps a wake back that would fail, and what comes while it stands stays in the batch.
 	Hold bool
 
-	told    map[string]bool
-	waiting []ledger.WakeItem
-	since   time.Time
-	last    time.Time
+	told map[string]bool
+	// toldWaiting names each item a lane waits on that a wake carried, by its project, kind, and ID and not its stamp,
+	// so it skips the floor only the first time. A question the orchestrator took and let go comes back with a new
+	// stamp, and it leaves the digest while it is held, so nothing here forgets a name: it holds one per blocking
+	// question or lane request this worker told its orchestrator of.
+	toldWaiting map[string]bool
+	waiting     []ledger.WakeItem
+	since       time.Time
+	last        time.Time
 }
 
 // Note reads a digest. What is new starts the debounce, and what is gone from it stops counting,
@@ -170,12 +175,28 @@ func (b *WakeBatch) Note(items []ledger.WakeItem, now time.Time) {
 	b.waiting = waiting
 }
 
-// Due says a wake should go now.
+// Due says a wake should go now. A batch that holds an item a lane waits on, which no wake has carried, goes once the
+// debounce passes, inside the floor: the orchestrator is there to unblock lanes (FR-ORCH-1).
 func (b *WakeBatch) Due(now time.Time) bool {
 	if b.Hold || len(b.waiting) == 0 || now.Sub(b.since) < b.Debounce {
 		return false
 	}
-	return b.last.IsZero() || now.Sub(b.last) >= b.Floor
+	return b.last.IsZero() || now.Sub(b.last) >= b.Floor || b.newlyWaiting()
+}
+
+// newlyWaiting says the batch holds an item a lane waits on that no wake carried.
+func (b *WakeBatch) newlyWaiting() bool {
+	for _, item := range b.waiting {
+		if item.Waiting && !b.toldWaiting[waitedOn(item)] {
+			return true
+		}
+	}
+	return false
+}
+
+// waitedOn names an item a lane waits on however it stands.
+func waitedOn(item ledger.WakeItem) string {
+	return item.Project + "/" + item.Kind + "/" + item.ID
 }
 
 // Batch is what a wake would carry now.
@@ -186,8 +207,14 @@ func (b *WakeBatch) Sent(items []ledger.WakeItem, now time.Time) {
 	if b.told == nil {
 		b.told = map[string]bool{}
 	}
+	if b.toldWaiting == nil {
+		b.toldWaiting = map[string]bool{}
+	}
 	for _, item := range items {
 		b.told[item.Key()] = true
+		if item.Waiting {
+			b.toldWaiting[waitedOn(item)] = true
+		}
 	}
 	b.waiting, b.last = nil, now
 }

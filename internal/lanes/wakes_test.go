@@ -186,6 +186,46 @@ func TestTheFloorHolds(t *testing.T) {
 	}
 }
 
+// waitingOn is an item a lane waits on, such as its blocking question.
+func waitingOn(id string, stamp int64) ledger.WakeItem {
+	item := item(id)
+	item.Stamp, item.Waiting = stamp, true
+	return item
+}
+
+// A lane waits on its orchestrator for an item it has not been told of, so that item goes once the debounce passes,
+// inside the floor (FR-ORCH-1).
+func TestAWaitingItemNobodyWasToldOfSkipsTheFloor(t *testing.T) {
+	b := newBatch()
+	b.Note([]ledger.WakeItem{item("a")}, start)
+	first := start.Add(30 * time.Second)
+	b.Sent(b.Batch(), first)
+	b.Note([]ledger.WakeItem{item("a"), waitingOn("b", 1)}, first.Add(time.Second))
+	if !b.Due(first.Add(31 * time.Second)) {
+		t.Error("a waiting item nobody was told of waits out the floor")
+	}
+}
+
+// An item the orchestrator was told of and let go comes back with a new stamp, and it keeps the floor: otherwise a
+// question taken and left unanswered wakes the orchestrator at every debounce, with no bound.
+func TestAWaitingItemThatWasToldKeepsTheFloor(t *testing.T) {
+	b := newBatch()
+	b.Note([]ledger.WakeItem{waitingOn("b", 1)}, start)
+	first := start.Add(30 * time.Second)
+	if !b.Due(first) {
+		t.Fatal("no first wake")
+	}
+	b.Sent(b.Batch(), first)
+	b.Note(nil, first.Add(time.Second))
+	b.Note([]ledger.WakeItem{waitingOn("b", 2)}, first.Add(2*time.Second))
+	if b.Due(first.Add(33 * time.Second)) {
+		t.Error("a waiting item the orchestrator was told of skipped the floor again")
+	}
+	if !b.Due(first.Add(2 * time.Minute)) {
+		t.Error("no wake at the floor")
+	}
+}
+
 func TestAnItemThatChangedCountsAgain(t *testing.T) {
 	b := newBatch()
 	b.Note([]ledger.WakeItem{item("a")}, start)

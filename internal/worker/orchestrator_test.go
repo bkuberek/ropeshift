@@ -634,6 +634,58 @@ func TestATurnThatEndsHoldingAQuestionLetsItGo(t *testing.T) {
 	}
 }
 
+// A blocking question skips the floor once, when the orchestrator was never told of it. A turn that takes it and ends
+// with no record lets it go with a new stamp, and its next wake keeps the floor: otherwise the same question wakes the
+// orchestrator at every debounce, with no bound (FR-ORCH-7).
+func TestABlockingQuestionLetGoKeepsTheFloor(t *testing.T) {
+	var o *orchestratorRig
+	taken := make(chan lanes.Reply, 1)
+	o = newOrchestratorRig(t, aSession())
+	o.scripts = []fake.DriverScript{script(
+		[]fake.DriverStep{{Bound: true}, {Do: func(spec ports.SessionSpec) {
+			taken <- callTool(t, o.subject, tokenIn(spec), lanes.ToolQuestionNext, nil)
+		}}, completed(0.01)},
+		[]fake.DriverStep{completed(0.02)},
+	)}
+	o.start(t)
+	o.tick(t)
+	_, err := control.NewQuestions(o.store, questions.BatchPolicy{}).Ask(t.Context(), scope, questions.Ask{ID: "q1", Text: "Which retry budget?", Blocking: true}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	select {
+	case reply := <-taken:
+		if !reply.OK {
+			t.Fatalf("the session took nothing: %+v", reply)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the session never took the question")
+	}
+	o.awaitRest(t)
+	if row := o.question(t, "q1"); row.ClaimedBy != "" || !row.Status.Unresolved() {
+		t.Fatalf("a turn that ended still holds %+v", row)
+	}
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	for range 10 {
+		o.tick(t)
+	}
+	if got := len(o.driver.Sent()); got != 0 {
+		t.Fatalf("%d wakes 31s after the orchestrator let go of a blocking question it was told of, under the 2m floor", got)
+	}
+	o.clock.Advance(90 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	for len(o.driver.Sent()) == 0 && time.Now().Before(deadline) {
+		o.tick(t)
+	}
+	if sent := o.driver.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "q1") {
+		t.Fatalf("at the floor, the wakes sent are %+v", sent)
+	}
+}
+
 // A restart finds the session its last worker left, and goes on from what its journal holds.
 func TestAnOrchestratorComesBackAfterARestart(t *testing.T) {
 	o := newOrchestratorRig(t, script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
