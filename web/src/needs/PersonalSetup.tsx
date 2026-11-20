@@ -1,51 +1,101 @@
-import type { WorkNeed } from "../api/types";
+import { acceptPersonalSetup } from "../api/client";
+import type { PersonalSetupNeed } from "../api/types";
 import { addressOf, Link } from "../app/route";
+import { plainLine } from "../planning/creation";
+import { Button } from "../ui/controls";
+import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
+import { Fact, Facts, Refusal } from "../ui/display";
+import type { Frame } from "./frame";
+import { pieceWords, setupKind } from "./kinds";
+import { useAct } from "./useAct";
 
 // setupHelp is the guide that says where each piece of a member's own agent CLI setup is set up, and how to keep it out
 // of lanes or give a project's lanes what they need.
 export const setupHelp = "https://github.com/bkuberek/ropeshift/blob/main/docs/settings-and-agents.md#your-own-agent-cli-setup";
 
-// The choices a member has about a lane that loaded their own setup, as the recommendation names them.
-const choiceWords: Record<string, string> = {
-  ignore: "ignore it this time and open the setting",
+// The choices of a leak, as the recommendation names them.
+const choiceWords: Record<PersonalSetupNeed["recommendation"], string> = {
+  accept: "accept it for this machine's lanes",
+  separate_directory: "run this machine's lanes in a separate configuration directory",
 };
 
-// PersonalSetupChoices is what a member can do about a lane whose session loaded their own agent CLI setup despite the
-// flags that keep it out, and which of it the card recommends. Ignoring it is leaving the lane running, so the card has
-// no button and goes when the session that loaded the setup ends. The one way to stop a running lane is to cancel its
-// work, which a leak does not warrant, so the card names it on the work order's page and does not offer it.
-export function PersonalSetupChoices({ work }: { work: WorkNeed }) {
-  const recommended = work.recommendation ? choiceWords[work.recommendation] : undefined;
-  const order = work.work_order?.id;
+// PersonalSetupCard is one piece of the member's own agent CLI setup that reached a machine's lanes on one CLI version
+// despite the flags that keep it out (ADR-0040). Lanes keep running while it waits. Accepting it is the card's one act,
+// and it leads only when it is what the card recommends; the separate configuration directory is not built yet, and
+// removing the piece is the member's own change, which ropeshift never makes.
+export function PersonalSetupCard({ need, after, frame }: { need: PersonalSetupNeed; after: () => Promise<void>; frame: Frame }) {
+  const { act, busy, failure } = useAct(after);
+  const piece = need.piece;
+  const kind = pieceWords[piece.kind] ?? piece.kind;
+  const accept = () => void act(() => acceptPersonalSetup(need.worker, { version: need.version, kind: piece.kind, name: piece.name }));
   return (
-    <>
-      <ul className="criteria" aria-label="Choices">
-        <li>
-          <strong>Ignore it this time</strong>: leave the lane running. This card goes when its session ends.
-        </li>
-        <li>
-          <a href={setupHelp} target="_blank" rel="noreferrer">
-            Open the setting
-          </a>
-          : each piece above says where it is set up. Remove it there so the next lanes do not load it, or put what the project's lanes need in the
-          repository.
-        </li>
-        <li>
-          <strong>Stop the lane</strong>: only Cancel this work stops a running lane, and it ends the work for good.
-          {order ? (
-            <>
-              {" "}
-              <Link to={addressOf("/work-order", { id: order })}>Cancel this work on work order {order}</Link>.
-            </>
-          ) : null}
-        </li>
-      </ul>
-      {recommended ? (
+    <DecisionCard
+      kind={setupKind}
+      project={frame.project}
+      title={frame.title}
+      provenance={frame.provenance}
+      binding={`Bound to worker ${plainLine(need.worker)} on version ${plainLine(need.version)}. Accepting it applies to that machine and version only.`}
+      actions={
+        need.actions.includes("setup_accept") ? (
+          <Button variant={need.recommendation === "accept" ? "primary" : "secondary"} loading={busy} disabled={busy} data-focus={`Accept ${kind} ${plainLine(piece.name)}`} onClick={accept}>
+            Accept it for this machine's lanes
+          </Button>
+        ) : undefined
+      }
+    >
+      <p>
+        Lanes on this machine loaded your own {kind} {plainLine(piece.name)}, though the flags they start with keep your own setup out. Lanes keep running while this
+        waits, with it named on each.
+      </p>
+      <Facts>
+        <Fact name="Piece">
+          {kind} {plainLine(piece.name)}
+        </Fact>
+        {piece.from ? (
+          <Fact name="Set up in" mono>
+            {plainLine(piece.from)}
+          </Fact>
+        ) : null}
+        <Fact name="Worker" mono>
+          {plainLine(need.worker)}
+        </Fact>
+        <Fact name="Version" mono>
+          {plainLine(need.version)}
+        </Fact>
+      </Facts>
+      <DecisionSection title="Lanes it reached">
+        <ul className="criteria" aria-label="Lanes it reached">
+          {need.lanes.map((lane) => (
+            <li key={lane.id}>
+              <Link to={addressOf("/lane", { id: lane.id })}>{lane.id}</Link> · {lane.title ? plainLine(lane.title) : lane.work_order}
+            </li>
+          ))}
+        </ul>
+      </DecisionSection>
+      <DecisionSection title="Choices">
+        <ul className="criteria" aria-label="Choices">
+          <li>
+            <strong>Accept it for this machine's lanes</strong>: it counts as on for this machine's lanes on this version, and is not raised again there.
+          </li>
+          <li>
+            <strong>Run this machine's lanes in a separate configuration directory</strong>: not available yet, a follow-up adds it. Lanes would run with a
+            configuration directory ropeshift owns, which needs a second sign-in.
+          </li>
+          <li>
+            <strong>Remove it from my own setup</strong>: change your own configuration where it is set up, which ropeshift never edits. A lane started after it
+            loads clean.{" "}
+            <a href={setupHelp} target="_blank" rel="noreferrer">
+              Where each piece is set up
+            </a>
+            .
+          </li>
+        </ul>
         <p>
-          Recommended: {recommended}
-          {work.recommendation_rationale ? `, because ${work.recommendation_rationale}` : ""}.
+          Recommended: {choiceWords[need.recommendation] ?? plainLine(need.recommendation)}
+          {need.recommendation_rationale ? `, because ${plainLine(need.recommendation_rationale)}` : ""}.
         </p>
-      ) : null}
-    </>
+      </DecisionSection>
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </DecisionCard>
   );
 }

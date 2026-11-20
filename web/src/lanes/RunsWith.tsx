@@ -58,6 +58,7 @@ export function RunsWith({ setup }: { setup?: LaneSetup }) {
         <Fact name="Agents">{(setup.agents ?? []).length}</Fact>
         <Fact name="Skills">{(setup.skills ?? []).length}</Fact>
         <Fact name="Plugins">{plugins.length ? plugins.join(", ") : <Absent>none</Absent>}</Fact>
+        {setup.version ? <Fact name="Version">{setup.version}</Fact> : null}
         <Fact name="Generation">{setup.generation}</Fact>
       </Facts>
     </Panel>

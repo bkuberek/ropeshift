@@ -6,6 +6,7 @@ import { RunsWith } from "./RunsWith";
 
 const clean: LaneSetup = {
   generation: 2,
+  version: "2.1.330",
   model: "claude-opus-5-5",
   tools: ["Read", "Bash", "mcp__ropeshift__lane_report"],
   mcp_servers: [
@@ -34,6 +35,7 @@ describe("Runs with", () => {
     expect(factOf("Skills").textContent).toBe("1");
     expect(factOf("Plugins").textContent).toBe("none");
     expect(factOf("Generation").textContent).toBe("2");
+    expect(factOf("Version").textContent).toBe("2.1.330");
   });
 
   it("lists each piece of the member's own setup that reached the lane, with where it is set up", () => {

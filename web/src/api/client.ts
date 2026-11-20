@@ -79,6 +79,7 @@ export const paths = {
   skipRepository: (approval: string, name: string) => project(`/approvals/${encodeURIComponent(approval)}/repositories/${encodeURIComponent(name)}/skip`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
+  personalSetupAcceptances: (worker: string) => project(`/workers/${encodeURIComponent(worker)}/personal-setup/acceptances`),
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
   pane: (lane: string) => project(`/panes/${encodeURIComponent(lane)}`),
   paneInput: (lane: string) => project(`/panes/${encodeURIComponent(lane)}/input`),
@@ -456,6 +457,12 @@ export function sendBack(id: string, reason: string): Promise<unknown> {
 export function actOnWork(id: string, action: WorkAction, reason: string): Promise<unknown> {
   const { verb, needsReason } = workActions[action];
   return call("POST", paths.work(id, verb), needsReason ? { reason } : {});
+}
+
+// acceptPersonalSetup accepts a piece of the member's own agent CLI setup for a worker's lanes on one CLI version, so
+// the leak is not raised again there.
+export function acceptPersonalSetup(worker: string, accepted: { version: string; kind: string; name: string }): Promise<unknown> {
+  return call("POST", paths.personalSetupAcceptances(worker), accepted);
 }
 
 // Asking for an orchestrator that runs resets a breaker that stopped it and replaces one that stalled.

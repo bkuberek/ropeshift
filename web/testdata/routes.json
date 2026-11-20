@@ -386,6 +386,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/workers/{id}/personal-setup/acceptances",
+    "command": "worker accept-setup"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/work-orders/{id}/retry",
     "command": "work retry"
   },

@@ -23,6 +23,8 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
     case "confirm":
     case "repository_creation":
       return "cards";
+    case "personal_setup":
+      return "decisions";
     case "questions":
     case "one_way_review":
     case "plan_approval":
@@ -58,7 +60,6 @@ export const workLabels: Record<string, string> = {
   stalled: "Stalled",
   tripped: "Tripped",
   worker_behind: "Waiting for upgrade",
-  personal_setup: "Your CLI setup in a lane",
 };
 
 const workIcons: Record<string, IconName> = {
@@ -73,10 +74,9 @@ const workIcons: Record<string, IconName> = {
   stalled: "warning",
   tripped: "power",
   worker_behind: "warning",
-  personal_setup: "sliders",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "conflict", "one-way-review"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "conflict", "one-way-review", "personal-setup"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -121,6 +121,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "conflict";
     case "one_way_review":
       return "one-way-review";
+    case "personal_setup":
+      return "personal-setup";
   }
 }
 
@@ -155,6 +157,11 @@ export const creationKind: { icon: IconName; name: string } = { icon: "repo", na
 export const conflictKind: { icon: IconName; name: string } = { icon: "branch", name: "Conflict" };
 // oneWayReviewKind is the overline of a one-way decision an orchestrator made, which waits for a member's review.
 export const oneWayReviewKind: { icon: IconName; name: string } = { icon: "decision", name: "One-way decision to review" };
+// setupKind is the overline of a piece of the member's own agent CLI setup that reached a machine's lanes.
+export const setupKind: { icon: IconName; name: string } = { icon: "sliders", name: "Your CLI setup in lanes" };
+
+// pieceWords names each kind of a member's own setup as a heading says it.
+export const pieceWords: Record<string, string> = { mcp_server: "MCP server", plugin: "plugin", agent: "agent", skill: "skill", command: "command" };
 
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
@@ -187,6 +194,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return conflictKind;
     case "one_way_review":
       return oneWayReviewKind;
+    case "personal_setup":
+      return setupKind;
   }
 }
 
@@ -254,6 +263,8 @@ export function headingOf(item: NeedItem): string {
       return `${plainLine(item.conflict.title || item.conflict.work_order)} changed files a person changed too`;
     case "one_way_review":
       return questionTitle(item.one_way_review.decision.statement);
+    case "personal_setup":
+      return `Your ${pieceWords[item.personal_setup.piece.kind] ?? item.personal_setup.piece.kind} ${plainLine(item.personal_setup.piece.name)} reached lanes on ${item.personal_setup.worker}`;
   }
 }
 
@@ -300,6 +311,8 @@ export function contextOf(item: NeedItem): string {
       return [item.conflict.work_order, `lane ${item.conflict.lane}`, plainLine(item.conflict.name), plural(item.conflict.paths.length, "file")].join(" · ");
     case "one_way_review":
       return [`Decided by the orchestrator on ${deciderOf(item.one_way_review)}`, plainLine(item.one_way_review.decision.id)].join(" · ");
+    case "personal_setup":
+      return [`Worker ${item.personal_setup.worker}`, `version ${item.personal_setup.version}`, plural(item.personal_setup.lanes.length, "lane")].join(" · ");
   }
 }
 

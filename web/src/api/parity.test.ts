@@ -67,6 +67,7 @@ import {
   writeTemplates,
 } from "./admin";
 import {
+  acceptPersonalSetup,
   actOnWork,
   answerBatch,
   cancelScheduledStart,
@@ -228,6 +229,7 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/work-orders/{id}/lane-reset": act("reset"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-respawn": act("respawn"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-resume": act("resume"),
+  "POST /v1/projects/{project}/workers/{id}/personal-setup/acceptances": step("acceptPersonalSetup", () => acceptPersonalSetup("worker-1", { version: "2.1.330", kind: "agent", name: "reviewer" })),
   "GET /v1/projects/{project}/panes/{id}": step("followPane", () => followPane("lane-1")),
   "POST /v1/projects/{project}/panes/{id}/input": step("sendPaneKeys", () => sendPaneKeys("lane-1", "Shift-Tab")),
   "GET /v1/projects/{project}/panes/{id}/scrollback": step("readPaneScrollback", () => readPaneScrollback("lane-1", 200)),

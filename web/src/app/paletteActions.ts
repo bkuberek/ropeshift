@@ -75,6 +75,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/projects/{project}/work-orders/{id}/replan": { title: "Back to planning: ", at: home, query: "back to planning" },
   "POST /v1/projects/{project}/work-orders/{id}/cancel": { title: "Cancel this work: ", at: home, query: "cancel this work" },
   "POST /v1/projects/{project}/work-orders/{id}/lane-reset": decide,
+  "POST /v1/projects/{project}/workers/{id}/personal-setup/acceptances": decide,
   "POST /v1/projects/{project}/work-orders/{id}/lane-respawn": decide,
   "POST /v1/projects/{project}/work-orders/{id}/lane-resume": decide,
   "POST /v1/projects/{project}/work-orders/{id}/lane-archive": { title: "Archive the worktree of lane ", at: `${project}/work-order?id=wo-done` },

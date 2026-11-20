@@ -84,6 +84,10 @@ const (
 	// NeedOneWayReview is a one-way decision an orchestrator on an unattended worker made itself, which members review:
 	// one item for each decision, which blocks no work (FR-QD-8).
 	NeedOneWayReview = "one_way_review"
+	// NeedPersonalSetup is a piece of the member's own agent CLI setup that reached lanes despite the flags that keep it
+	// out: one item for each machine, CLI version, and piece, listing the lanes it reached (ADR-0040). Lanes keep running
+	// while it waits.
+	NeedPersonalSetup = "personal_setup"
 )
 
 // What a member can do about an orchestrator's one-way decision. Keep records the same decision as the member's in its
@@ -92,6 +96,43 @@ const (
 	ActDecisionKeep     = "decision_keep"
 	ActDecisionOverturn = "decision_overturn"
 )
+
+// What a member can do about personal setup that leaked. Accepting it is an operation of this API, and names the
+// command that does the same: `worker accept-setup`. Running lanes in a separate configuration directory and removing
+// the piece from their own setup have no operation: the first is not built yet, and the second is the member's own
+// change, which ropeshift never makes.
+const ActAcceptSetup = "setup_accept"
+
+// PersonalSetupActions lists what a read model can offer about personal setup, so every surface can be held to knowing
+// each one.
+var PersonalSetupActions = []string{ActAcceptSetup}
+
+// PersonalSetupNeed is one piece of the member's own setup that lanes of one worker loaded on one CLI version: the
+// piece and where it is set up, the lanes it reached, and the choice recommended for it, lanes.SetupAccept or
+// lanes.SetupSeparateDirectory, with why.
+type PersonalSetupNeed struct {
+	Worker                  string             `json:"worker"`
+	Version                 string             `json:"version"`
+	Piece                   lanes.PersonalItem `json:"piece"`
+	Lanes                   []SetupLane        `json:"lanes"`
+	Recommendation          string             `json:"recommendation"`
+	RecommendationRationale string             `json:"recommendation_rationale"`
+	Actions                 []string           `json:"actions"`
+}
+
+// SetupLane is one lane a leaked piece reached, with the work it runs.
+type SetupLane struct {
+	ID        string `json:"id"`
+	WorkOrder string `json:"work_order"`
+	Title     string `json:"title,omitempty"`
+}
+
+// AcceptPersonalSetup accepts one piece of the member's own setup for a worker's lanes on one CLI version.
+type AcceptPersonalSetup struct {
+	Version string `json:"version"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+}
 
 // Where a repository creation stands, as its Needs you item says.
 const (
@@ -159,10 +200,6 @@ const (
 	// ReasonHistoryUnread is a merged adoption branch whose base could not be checked for the design repository's
 	// tip, such as one whose plan approval could not read the import. It clears once a check answers.
 	ReasonHistoryUnread = "history_unread"
-	// ReasonPersonalSetup is a lane whose running session loaded the member's own agent CLI setup despite the flags
-	// that keep it out. Leaving it running is ignoring it this time, so it offers no act, and the item clears when that
-	// session ends.
-	ReasonPersonalSetup = "personal_setup"
 )
 
 // What a member can do about waiting work. Each names one operation of this API.
@@ -216,11 +253,6 @@ type WorkNeed struct {
 	// says the same.
 	Unfinished     []string `json:"unfinished,omitempty"`
 	SendBackReason string   `json:"send_back_reason,omitempty"`
-	// Personal is what of the member's own CLI setup a lane loaded, for ReasonPersonalSetup, and Recommendation the
-	// choice the card recommends, lanes.SetupIgnore, with why.
-	Personal                []lanes.PersonalItem `json:"personal,omitempty"`
-	Recommendation          string               `json:"recommendation,omitempty"`
-	RecommendationRationale string               `json:"recommendation_rationale,omitempty"`
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
@@ -286,6 +318,9 @@ type NeedItem struct {
 	Conflict *ConflictNeed `json:"conflict,omitempty"`
 	// OneWayReview is set for a one_way_review item, whose ID is the decision's.
 	OneWayReview *OneWayReviewNeed `json:"one_way_review,omitempty"`
+	// PersonalSetup is set for a personal_setup item, whose ID is the worker, the version, the kind, and the name, joined
+	// by slashes.
+	PersonalSetup *PersonalSetupNeed `json:"personal_setup,omitempty"`
 }
 
 // OneWayReviewNeed is a one-way decision an orchestrator on an unattended worker made itself, which waits for a member's

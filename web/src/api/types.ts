@@ -259,11 +259,6 @@ export type WorkNeed = {
   // send_back_reason is the reason Send back offers, which says the same.
   unfinished?: string[];
   send_back_reason?: string;
-  // personal is what of the member's own CLI setup a lane loaded, for the personal_setup reason, and recommendation the
-  // choice its card recommends, with why.
-  personal?: PersonalItem[];
-  recommendation?: "ignore";
-  recommendation_rationale?: string;
 };
 
 export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
@@ -600,6 +595,7 @@ export type NeedItem = {
   | { kind: "repository_creation"; repository_creation: RepositoryCreationNeed }
   | { kind: "conflict"; conflict: ConflictNeed }
   | { kind: "one_way_review"; one_way_review: OneWayReviewNeed }
+  | { kind: "personal_setup"; personal_setup: PersonalSetupNeed }
 );
 
 // What a member can do about an orchestrator's one-way decision: keep it as their own, or overturn it.
@@ -613,6 +609,21 @@ export type OneWayReviewNeed = {
   decided_by_name?: string;
   question?: string;
   actions: OneWayReviewAction[];
+};
+
+// SetupLane is one lane a leaked piece of the member's own setup reached, with the work it runs.
+export type SetupLane = { id: string; work_order: string; title?: string };
+
+// PersonalSetupNeed is one piece of the member's own agent CLI setup that lanes of one worker loaded on one CLI version,
+// the lanes it reached, and the choice recommended for it: "accept", or "separate_directory", which is not built yet.
+export type PersonalSetupNeed = {
+  worker: string;
+  version: string;
+  piece: PersonalItem;
+  lanes: SetupLane[];
+  recommendation: "accept" | "separate_directory";
+  recommendation_rationale: string;
+  actions: "setup_accept"[];
 };
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
@@ -1214,6 +1225,7 @@ export type PersonalItem = { kind: string; name: string; from?: string };
 // pieces among them, which a lane runs clean of.
 export type LaneSetup = {
   generation: number;
+  version?: string;
   model?: string;
   tools?: string[];
   mcp_servers?: SetupServer[];

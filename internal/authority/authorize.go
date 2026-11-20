@@ -195,6 +195,10 @@ const (
 	// ADR-0033: group mode's accounts (G3a) map it to maintainer. Until then the one member holds it, as it holds
 	// every action, and no delegate, orchestrator, lane, worker, or tick does.
 	ActionRaiseSpendLimit Action = "spend.raise"
+	// ActionAcceptPersonalSetup accepts a piece of the member's own agent CLI setup that leaked into a machine's lanes,
+	// for that machine and CLI version (ADR-0040). What a lane loads of a member's own setup is that member's choice, so
+	// no delegate, orchestrator, lane, worker, or tick holds it.
+	ActionAcceptPersonalSetup Action = "personal_setup.accept"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -211,7 +215,7 @@ func Actions() []Action {
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
 		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit, ActionMergeQuestion,
-		ActionAcknowledgePractices, ActionWithdrawPractices, ActionConsult,
+		ActionAcknowledgePractices, ActionWithdrawPractices, ActionConsult, ActionAcceptPersonalSetup,
 	}
 }
 

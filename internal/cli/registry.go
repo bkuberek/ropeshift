@@ -148,6 +148,7 @@ func registry() []section {
 			command("lane respawn", "<work-order>", "ask for a running lane's next generation", (*invocation).laneRespawn),
 			command("lane resume", "<work-order>", "give a parked lane a member's word", (*invocation).laneResume),
 			command("lane archive", "<lane> [--force]", "remove a lane's worktree, which keeps its branch", (*invocation).laneArchive),
+			command("worker accept-setup", "<id> --version V --kind K --name N", "accept a piece of your own agent CLI setup for a worker's lanes on one version", (*invocation).workerAcceptSetup),
 			command("message send", "(<lane> | --orchestrator W) --body B [--kind K] [--id I] [--reply-to R] [--generation G]", "send a lane or an orchestrator a message, which grants nothing", (*invocation).messageSend),
 			command("message show", "<id>", "say what became of a message", (*invocation).messageShow),
 			command("message list", "<lane>", "list what was sent to a lane", (*invocation).messageList),
