@@ -748,7 +748,22 @@ export type PlanDetail = {
 
 // reviews are the reviews of lane work that have not ended. A plan lists none of them, and a ready one waits
 // for a member to start it.
-export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[]; reviews: WorkOrder[]; work_actions: Record<string, Allowance> };
+// ReadyWaitReason is why no worker's orchestrator claims a ready work order, as the plans view says it.
+export type ReadyWaitReason = "fleet" | "spend_limit" | "cap" | "run_window" | "no_orchestrator" | "manual" | "no_worker";
+
+// ReadyWait is what holds one ready work order from a claim, and the worker nearest to claiming it for a reason that
+// is one worker's. cap names the cap, by the name a fleet's caps carry, and fleet the mode a fleet's wait is in.
+export type ReadyWait = {
+  reason: ReadyWaitReason;
+  worker?: string;
+  worker_name?: string;
+  cap?: "wip_limit" | "lanes_per_repository" | "lanes_per_worker";
+  fleet?: "pause" | "drain";
+};
+
+// ready_waits holds a wait for each ready work order no worker's orchestrator will claim, and nothing for one that
+// will be claimed.
+export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[]; reviews: WorkOrder[]; work_actions: Record<string, Allowance>; ready_waits?: Record<string, ReadyWait> };
 
 export type DocumentKind = "requirements" | "spec" | "design" | "decision" | "other";
 

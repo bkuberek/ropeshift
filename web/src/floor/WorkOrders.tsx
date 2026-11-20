@@ -24,9 +24,11 @@ import { standingWords, waitingStandingWords } from "./evidence";
 import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { PullRequestPanel } from "./PullRequest";
+import { ReadyWaitActions, ReadyWaitNote, readyWaitWords } from "./ReadyWait";
 import { ReviewOf } from "./ReviewOf";
 import { HeldFact, HeldTag } from "./StartHeld";
-import { StartWork } from "./StartWork";
+import { StartAllReady } from "./StartAll";
+import { startOf, StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
 import { SpendPanel } from "./SpendPanel";
 import { WorkEstimatePanel } from "./WorkEstimatePanel";
@@ -67,8 +69,8 @@ function laneSaid(row: WorkRow): string {
   return "";
 }
 
-// Under is the line beneath a work order's title: what a parked lane waits for, why work stopped, or
-// what a lane said of its end.
+// Under is the line beneath a work order's title: why no worker claims ready work, what a parked lane waits for,
+// why work stopped, or what a lane said of its end.
 function Under({ row }: { row: WorkRow }) {
   // A planning work order's lane is its planning session, which a person talks to in its pane.
   if (row.order.kind === "plan" && row.lane) {
@@ -77,6 +79,9 @@ function Under({ row }: { row: WorkRow }) {
         <Link to={addressOf("/lane", { id: row.lane.id })}>Open the planning session</Link>
       </span>
     );
+  }
+  if (row.waits) {
+    return <ReadyWaitNote wait={row.waits} />;
   }
   const wake = row.held?.wakes[0];
   if (wake) {
@@ -109,8 +114,8 @@ function Repository({ id, names }: { id: string; names: Map<string, string> }) {
   return name ? <span title={id}>{name}</span> : <Id value={id} />;
 }
 
-// WorkTable lists work orders: ID, title, state, repository, lane, attempts, and time in state. A title
-// links to its work order.
+// WorkTable lists work orders: ID, title, state, repository, lane, attempts, time in state, and Start on ready
+// work. A title links to its work order.
 function WorkTable({ rows, label, repositories }: { rows: WorkRow[]; label: string; repositories: Map<string, string> }) {
   return (
     <TableRegion label={label}>
@@ -127,6 +132,9 @@ function WorkTable({ rows, label, repositories }: { rows: WorkRow[]; label: stri
             </th>
             <th scope="col" className="r">
               In state
+            </th>
+            <th scope="col">
+              <span className="visually-hidden">Actions</span>
             </th>
           </tr>
         </thead>
@@ -166,6 +174,7 @@ function WorkTable({ rows, label, repositories }: { rows: WorkRow[]; label: stri
               <td data-label="In state" className="r">
                 {row.since ? <Lasted at={row.since} ended={groupOf(row) === "completed"} /> : <Absent>not read</Absent>}
               </td>
+              <td data-label="Actions">{row.order.state === "ready" ? <StartWork order={row.order} allowed={row.allowed} small /> : null}</td>
             </tr>
           ))}
         </tbody>
@@ -182,8 +191,19 @@ export function WorkOrdersPage({ live, group }: { live: Live; group: string }) {
   const rows = index?.rows ?? [];
   const inGroup = (id: GroupTab) => (id === "all" ? rows : rows.filter((row) => groupOf(row) === id));
   const spec = groups.find((row) => row.id === chosen) ?? groups[0];
+  // Start all ready claims every ready work order a member may claim, as Start does one at a time.
+  const startable = rows.filter((row) => row.order.state === "ready" && startOf(row.order, row.allowed)?.kind === "claim").map((row) => row.order);
   return (
-    <Page title="Work orders" note={index ? `${rows.length} work order${rows.length === 1 ? "" : "s"} in this project` : undefined} actions={<NewWorkOrder />}>
+    <Page
+      title="Work orders"
+      note={index ? `${rows.length} work order${rows.length === 1 ? "" : "s"} in this project` : undefined}
+      actions={
+        <>
+          <StartAllReady orders={startable} />
+          <NewWorkOrder />
+        </>
+      }
+    >
       <LinkTabs
         label="Groups"
         tabs={groups.map((row) => ({ to: addressOf("/work", { group: row.id }), label: row.label, count: index ? inGroup(row.id).length : undefined, current: row.id === chosen }))}
@@ -507,6 +527,11 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
     >
       <ViewTime.Provider value={{ asOf: index.stamp.as_of, elapsed: Math.max(0, now - index.readAt) }}>
         {failure ? <Banner tone="danger">{`This page is not current. ${failure}`}</Banner> : null}
+        {row.waits ? (
+          <Banner tone="warning" action={<ReadyWaitActions wait={row.waits} after={after} />}>
+            {readyWaitWords(row.waits)}
+          </Banner>
+        ) : null}
         <Stepper state={order.state} rounds={standing?.rounds} />
         <div className="grid grid-main-side work-order">
           <div className="stack">

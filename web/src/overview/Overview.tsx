@@ -6,11 +6,12 @@ import { listPractices } from "../api/practices";
 import type { PracticesList } from "../api/practices";
 import type { AuditPage, RepositoryList } from "../api/admin";
 import { readView } from "../api/client";
-import type { NeedsYou, Operations, Plans, Roadmap, ShopFloor } from "../api/types";
+import type { NeedsYou, Operations, Plans, ReadyWait, Roadmap, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { useRead } from "../admin/parts";
 import { addressOf, Link } from "../app/route";
+import { ReadyWaitActions, readyWaitWords } from "../floor/ReadyWait";
 import { milestoneStates } from "../floor/states";
 import { fullHeadingOf, headingOf, keyOf, kindOf } from "../needs/kinds";
 import { Ago, Bar, Lasted, Page, StampLine, useClock, ViewTime } from "../parts/parts";
@@ -185,6 +186,27 @@ function Activity({ page }: { page: AuditPage }) {
   );
 }
 
+// ReadyWaits says what holds ready work from a claim, once for each wait, with how many work orders it holds and what
+// a member can do about it. Work a worker's orchestrator will claim says nothing.
+function ReadyWaits({ plans }: { plans: Plans }) {
+  const groups = new Map<string, { wait: ReadyWait; count: number }>();
+  for (const wait of Object.values(plans.ready_waits ?? {})) {
+    const key = [wait.reason, wait.worker ?? "", wait.cap ?? "", wait.fleet ?? ""].join("/");
+    const group = groups.get(key) ?? { wait, count: 0 };
+    group.count++;
+    groups.set(key, group);
+  }
+  return (
+    <>
+      {[...groups.entries()].map(([key, { wait, count }]) => (
+        <Banner key={key} tone="warning" action={<ReadyWaitActions wait={wait} />}>
+          {count} ready work order{count === 1 ? " waits" : "s wait"}. {readyWaitWords(wait)} <Link to={addressOf("/work", { group: "open" })}>Work orders</Link>
+        </Banner>
+      ))}
+    </>
+  );
+}
+
 // What a read gives a panel: the answer, or the failure in the API's words, or skeleton rows while it comes.
 function Read<T>({ state, children }: { state: { view: T | null; failure: string }; children: (view: T) => ReactNode }) {
   if (state.view) {
@@ -256,6 +278,7 @@ export function OverviewPage({ live, project, label, archived }: Props) {
         </div>
       ) : (
         <>
+          {plans.view ? <ReadyWaits plans={plans.view} /> : null}
           <Tiles tiles={tilesOf({ project, needs: needs.view?.items, floor: floor.view ?? undefined, operations: operations.view ?? undefined })} />
           <div className="grid grid-main-side">
             <div className="stack">
