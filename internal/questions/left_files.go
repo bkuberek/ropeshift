@@ -20,7 +20,7 @@ const leftFileIDDigest = 16
 // so the same path in the same repository is the same question: one still open takes no second, and one answered
 // is answered from the record, so a path is decided once.
 func LeftFile(id, repository, path string) (Question, error) {
-	text := fmt.Sprintf("Is `%s` part of the project in repository %s? A lane left it out of its commits, because its "+
+	text := fmt.Sprintf("Is %q part of the project in repository %s? A lane left it out of its commits, because its "+
 		"session did not create or edit it. If it belongs to the project, a later lane commits it. If not, the "+
 		"repository's .gitignore gets an entry for it. Decide it with the scope repo:%s, so this path is not asked "+
 		"about again.", path, repository, repository)

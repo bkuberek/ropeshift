@@ -2,6 +2,7 @@ package control
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -48,12 +49,22 @@ func newLeftFilesRig(t *testing.T) leftFilesRig {
 // report folds one lane guard report that left the paths out.
 func (r leftFilesRig) report(id string, paths ...string) {
 	r.t.Helper()
+	r.reportUnasked(id, paths...)
+}
+
+// reportUnasked folds one report and returns the paths it could not ask about.
+func (r leftFilesRig) reportUnasked(id string, paths ...string) []string {
+	r.t.Helper()
+	var unasked []string
 	err := r.store.Write(r.t.Context(), "w", "test.guard", func(tx ports.WriteTx) error {
-		return askLeftFiles(tx, "worker-1", id, ledger.UploadEvent{WorkOrder: "wo"}, ledger.LaneGuard{LeftOut: paths})
+		var err error
+		unasked, err = askLeftFiles(tx, "worker-1", id, ledger.UploadEvent{WorkOrder: "wo"}, ledger.LaneGuard{LeftOut: paths})
+		return err
 	})
 	if err != nil {
 		r.t.Fatal(err)
 	}
+	return unasked
 }
 
 func (r leftFilesRig) asked() []questions.Question {
@@ -107,5 +118,46 @@ func TestALeftOutPathIsDecidedOnce(t *testing.T) {
 		if question.ID != id && question.Status != questions.StatusOpen {
 			t.Errorf("the new path's question %+v", question)
 		}
+	}
+}
+
+// TestADismissedPathIsNotAskedAgain holds a dismissal as the record's answer: no later report asks again.
+func TestADismissedPathIsNotAskedAgain(t *testing.T) {
+	r := newLeftFilesRig(t)
+	r.report("event-1", ".atl/")
+	asked := r.asked()
+	if len(asked) != 1 {
+		t.Fatalf("questions %+v", asked)
+	}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	if err := NewQuestions(r.store, questions.BatchPolicy{}).Dismiss(t.Context(), "w", asked[0].ID, member); err != nil {
+		t.Fatal(err)
+	}
+	r.report("event-2", ".atl/")
+	if again := r.asked(); len(again) != 1 {
+		t.Errorf("a dismissed path was asked again: %+v", again)
+	}
+}
+
+// TestPathsThatDifferOnlyInCaseAreTwoQuestions keeps Makefile and makefile apart, which the record's hash folds
+// together.
+func TestPathsThatDifferOnlyInCaseAreTwoQuestions(t *testing.T) {
+	r := newLeftFilesRig(t)
+	r.report("event-1", "Makefile", "makefile")
+	if asked := r.asked(); len(asked) != 2 {
+		t.Errorf("questions %+v", asked)
+	}
+}
+
+// TestAPathThatMakesNoQuestionIsNamed returns a path too long for a question, for the lane's event to name, and
+// asks about the rest.
+func TestAPathThatMakesNoQuestionIsNamed(t *testing.T) {
+	r := newLeftFilesRig(t)
+	long := strings.Repeat("a", questions.MaxFieldBytes) + "/"
+	if unasked := r.reportUnasked("event-1", long, ".atl/"); !slices.Equal(unasked, []string{long}) {
+		t.Errorf("unasked %d paths", len(unasked))
+	}
+	if asked := r.asked(); len(asked) != 1 || !strings.Contains(asked[0].Text, `".atl/"`) {
+		t.Errorf("questions %+v", asked)
 	}
 }

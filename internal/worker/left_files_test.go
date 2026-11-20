@@ -29,7 +29,7 @@ func TestAFileALaneLeftOutIsTheOrchestratorsQuestion(t *testing.T) {
 			asked = append(asked, row)
 		}
 	}
-	if len(asked) != 1 || !strings.Contains(asked[0].Text, "`.atl/`") || !strings.Contains(asked[0].Text, "repo-1") || asked[0].Status != questions.StatusOpen || asked[0].Blocking {
+	if len(asked) != 1 || !strings.Contains(asked[0].Text, `".atl/"`) || !strings.Contains(asked[0].Text, "repo-1") || asked[0].Status != questions.StatusOpen || asked[0].Blocking {
 		t.Fatalf("questions %+v", asked)
 	}
 	if !questions.DefaultPolicy().MayDecide(asked[0]) {
