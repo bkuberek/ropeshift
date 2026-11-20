@@ -2,6 +2,7 @@
   "kind": "plan_approval",
   "id": "generated-1",
   "since": 1790000000000,
+  "tier": 3,
   "plan_approval": {
     "approval": {
       "id": "generated-1",

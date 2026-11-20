@@ -1046,6 +1046,7 @@
           "id": "wo-lapsed",
           "kind": "work",
           "since": 1790000060001,
+          "tier": 2,
           "work": {
             "actions": [
               "reassign",
@@ -1111,12 +1112,14 @@
           },
           "id": "wo-contract_review",
           "kind": "contract_review",
-          "since": 1790000062001
+          "since": 1790000062001,
+          "tier": 3
         },
         {
           "id": "wo-parked",
           "kind": "work",
           "since": 1790000066001,
+          "tier": 2,
           "work": {
             "actions": [
               "resume"
@@ -1171,6 +1174,7 @@
           "id": "wo-acceptance",
           "kind": "work",
           "since": 1790000067001,
+          "tier": 3,
           "work": {
             "actions": [
               "accept",
@@ -1264,6 +1268,7 @@
           "id": "wo-blocked",
           "kind": "work",
           "since": 1790000069001,
+          "tier": 2,
           "work": {
             "actions": [
               "resolve",
@@ -1326,6 +1331,7 @@
           "id": "wo-failed",
           "kind": "work",
           "since": 1790000071001,
+          "tier": 2,
           "work": {
             "actions": [
               "retry"
@@ -1388,6 +1394,7 @@
           "id": "wl-pending",
           "kind": "work",
           "since": 1790000073001,
+          "tier": 2,
           "work": {
             "actions": [
               "respawn",
@@ -1441,6 +1448,7 @@
           "id": "wl-backoff",
           "kind": "work",
           "since": 1790000133001,
+          "tier": 2,
           "work": {
             "actions": [
               "respawn",
@@ -1494,6 +1502,7 @@
           "id": "wl-ended",
           "kind": "work",
           "since": 1790000133001,
+          "tier": 3,
           "work": {
             "actions": [
               "accept",
@@ -1587,6 +1596,7 @@
           "id": "wl-parked",
           "kind": "work",
           "since": 1790000133001,
+          "tier": 2,
           "work": {
             "actions": [
               "resume"
@@ -1641,6 +1651,7 @@
           "id": "wl-tripped",
           "kind": "work",
           "since": 1790000133001,
+          "tier": 2,
           "work": {
             "actions": [
               "reset",

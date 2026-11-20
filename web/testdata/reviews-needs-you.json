@@ -5,6 +5,7 @@
       "id": "wo-lapsed",
       "kind": "work",
       "since": 1790000244001,
+      "tier": 2,
       "work": {
         "actions": [
           "reassign",
@@ -55,6 +56,7 @@
       "id": "wo-blocked",
       "kind": "work",
       "since": 1790000304001,
+      "tier": 2,
       "work": {
         "actions": [
           "resolve",
@@ -133,12 +135,14 @@
       },
       "id": "worker-a:1:11",
       "kind": "effect",
-      "since": 1790000364001
+      "since": 1790000364001,
+      "tier": 2
     },
     {
       "id": "wo-accept",
       "kind": "work",
       "since": 1790000424001,
+      "tier": 3,
       "work": {
         "actions": [
           "accept",
@@ -295,7 +299,8 @@
       },
       "id": "approval-1",
       "kind": "approval",
-      "since": 1790000484001
+      "since": 1790000484001,
+      "tier": 1
     },
     {
       "batch": {
@@ -308,6 +313,7 @@
         },
         "items": [
           {
+            "asked_by": "lane-asking",
             "blocking": true,
             "categories": [
               "product"
@@ -345,6 +351,7 @@
             "text": "Should the budget hold across restarts?"
           },
           {
+            "asked_by": "lane-asking",
             "categories": [
               "product",
               "security"
@@ -385,12 +392,14 @@
       },
       "id": "generated-7",
       "kind": "questions",
-      "since": 1790000604001
+      "since": 1790000604001,
+      "tier": 1
     },
     {
       "id": "wo-parked",
       "kind": "work",
       "since": 1790000664001,
+      "tier": 2,
       "work": {
         "actions": [
           "resume"
@@ -445,6 +454,7 @@
       "id": "wo-stalled",
       "kind": "work",
       "since": 1790000724001,
+      "tier": 2,
       "work": {
         "actions": [
           "respawn",
@@ -498,6 +508,7 @@
       "id": "wo-tripped",
       "kind": "work",
       "since": 1790000724001,
+      "tier": 2,
       "work": {
         "actions": [
           "reset",
@@ -548,6 +559,7 @@
       "id": "wo-failed",
       "kind": "work",
       "since": 1790000904001,
+      "tier": 2,
       "work": {
         "actions": [
           "retry"
@@ -623,7 +635,8 @@
       },
       "id": "generated-13",
       "kind": "approval",
-      "since": 1790001504001
+      "since": 1790001504001,
+      "tier": 3
     },
     {
       "id": "generated-14",
@@ -706,7 +719,8 @@
         "title": "The factory floor",
         "version": 6
       },
-      "since": 1790002104001
+      "since": 1790002104001,
+      "tier": 3
     },
     {
       "contract_review": {
@@ -727,7 +741,8 @@
       },
       "id": "wo-review",
       "kind": "contract_review",
-      "since": 1790002104001
+      "since": 1790002104001,
+      "tier": 3
     }
   ],
   "revision": 410

@@ -6,6 +6,7 @@
       "kind": "repository_creation",
       "id": "generated-1/ghost",
       "since": 1794000000000,
+      "tier": 2,
       "repository_creation": {
         "approval": "generated-1",
         "plan": "generated-2",

@@ -10,6 +10,7 @@
       "kind": "confirm",
       "id": "generated-1",
       "since": 1794000000000,
+      "tier": 3,
       "card": {
         "approval": {
           "id": "generated-1",
@@ -55,6 +56,7 @@
       "kind": "confirm",
       "id": "generated-2",
       "since": 1794000060000,
+      "tier": 3,
       "card": {
         "approval": {
           "id": "generated-2",
@@ -104,6 +106,7 @@
       "kind": "confirm",
       "id": "generated-3",
       "since": 1794000120000,
+      "tier": 3,
       "card": {
         "approval": {
           "id": "generated-3",
@@ -153,6 +156,7 @@
       "kind": "confirm",
       "id": "generated-4",
       "since": 1794000180000,
+      "tier": 3,
       "card": {
         "approval": {
           "id": "generated-4",
