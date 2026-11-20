@@ -188,7 +188,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		if earlier {
 			added.Reason = earlierIdentity
 		}
-		found := DetectedRepository{ID: id, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, Directory: clone.Directory}
+		found := DetectedRepository{ID: id, Remote: clone.Remote, DefaultBranch: storedDefaultBranch(clone.DefaultBranch), Directory: clone.Directory}
 		look, err := detectIn(tx.Repositories(), found, how.claimed)
 		switch {
 		case look.record.Removed() && !how.restore:
@@ -220,7 +220,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 			if look.made {
 				kind = ledger.EventRepositoryRegistered
 			}
-			event, err := repositoryEvent(kind, id, detectedEvent{Name: look.named, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, registrationCause: how.cause}, actor)
+			event, err := repositoryEvent(kind, id, detectedEvent{Name: look.named, Remote: clone.Remote, DefaultBranch: found.DefaultBranch, registrationCause: how.cause}, actor)
 			if err != nil {
 				return err
 			}

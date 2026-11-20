@@ -124,6 +124,7 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 	if found.ID == "" {
 		return ledger.Repository{}, fmt.Errorf("%w: no id", ledger.ErrInvalidRepository)
 	}
+	found.DefaultBranch = storedDefaultBranch(found.DefaultBranch)
 	var record ledger.Repository
 	err := r.store.Write(ctx, scope, "repository.detect", func(tx ports.WriteTx) error {
 		look, err := detectIn(tx.Repositories(), found, nil)
@@ -162,6 +163,16 @@ type detection struct {
 func errRemoved(record ledger.Repository) error {
 	return fmt.Errorf("%w: repository %s was removed from this project; register it again with repository add",
 		ledger.ErrRepositoryState, cmp.Or(record.Name, record.ID))
+}
+
+// storedDefaultBranch is the default branch git named as a record stores it: empty when CheckBranch refuses it, such
+// as a remote HEAD that holds a character that is not seen, so the repository's lanes wait for a base a member names
+// and never start from a branch that reads as another.
+func storedDefaultBranch(branch string) string {
+	if branch != "" && ledger.CheckBranch(branch) != nil {
+		return ""
+	}
+	return branch
 }
 
 // detectIn makes or refreshes a record in a transaction. A new name avoids the names the project's
