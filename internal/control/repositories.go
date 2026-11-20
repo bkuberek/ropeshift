@@ -299,7 +299,7 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 			return err
 		}
 		after = apply(before, change)
-		if err := after.Validate(); err != nil {
+		if err := after.ValidateChange(before); err != nil {
 			return err
 		}
 		// Raising merge authority and moving review to a pull request are never a delegate's to run with no
