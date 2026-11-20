@@ -39,7 +39,7 @@ The doctor runs when a worker starts, so a result is as old as the worker's last
 
 Work is ready and nothing starts it. Ready work is claimed by your machine's orchestrator, or by you with Start. In the sidebar, select Workers and resources. In your worker's Orchestrator column:
 
-- A stopped orchestrator claims nothing. Select Start orchestrator ([start the orchestrator](watch-work-run.md#1-start-the-orchestrator)).
+- An orchestrator starts with its worker, and one a member stopped claims nothing. Select Start orchestrator ([check the orchestrator](watch-work-run.md#1-check-the-orchestrator)).
 - Waiting for a run window means the worker is attended, the level a subscription worker starts at, and it claims work only inside a run window you opened. Select Open run window, which opens Settings, Autonomy and run windows, then Open window ([open a run window](watch-work-run.md#2-open-a-run-window)).
 - Waiting for work means nothing is ready for it, so check that the work is ready and not held, as the next section says.
 
