@@ -145,6 +145,9 @@ type SessionSpec struct {
 	// Repository is the checkout the worktree came from, whose local settings a worktree
 	// session shares.
 	Repository string
+	// Base is the commit the lane's worktree began from, which a driver reads the repository's own files at, such as
+	// its `.mcp.json`, and never from the worktree a lane can edit (FR-PROF-5). Empty names none.
+	Base string
 	// Credential binds an API key to the CLI, for a lane that has one.
 	Credential SecretBinding
 	// TempDir is a short private directory for the session's sockets. Empty leaves
@@ -411,6 +414,9 @@ type DriverEvent struct {
 	// Tools are the calls the event's message made, with the path a file-writing call named and no other
 	// input.
 	Tools []lanes.ToolUse
+	// Setup is what an EventSessionBound's session loaded at its start, as its CLI reported it. A driver that
+	// reads no such report, or a session whose start it did not see, leaves it nil.
+	Setup *lanes.Setup
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64

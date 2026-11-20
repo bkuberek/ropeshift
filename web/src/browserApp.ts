@@ -83,6 +83,7 @@ function otherCards(): NeedItem[] {
   const work = (id: string) => base.find((item) => item.id === id) as Extract<NeedItem, { kind: "work" }>;
   const parked = work("wo-parked");
   const lapsed = work("wo-lapsed");
+  const stalled = work("wo-stalled");
   const as = (item: Extract<NeedItem, { kind: "work" }>, id: string, reason: string, detail?: string): NeedItem => ({
     ...item,
     id,
@@ -130,6 +131,25 @@ function otherCards(): NeedItem[] {
     },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
+    // A piece of the member's own setup that leaked is an item of its own for its machine, version, and piece.
+    {
+      kind: "personal_setup",
+      id: "worker-a/2.1.330/mcp_server/github",
+      since: lapsed.since,
+      personal_setup: {
+        worker: "worker-a",
+        version: "2.1.330",
+        piece: { kind: "mcp_server", name: "github", from: "user" },
+        lanes: [
+          { id: "lane-wo-stalled", work_order: "wo-stalled", title: stalled.work.work_order?.title },
+          { id: "lane-wo-leaky", work_order: "wo-leaky" },
+        ],
+        recommendation: "separate_directory",
+        recommendation_rationale:
+          "it can run commands or reach data outside the project with no person watching, and a separate configuration directory keeps it out of unattended lanes without changing your own sessions",
+        actions: ["setup_accept"],
+      },
+    },
     history(
       "wo-history-missing",
       "history_missing",

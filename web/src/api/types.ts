@@ -544,7 +544,23 @@ export type NeedItem = {
   | { kind: "ci"; ci: CINeed }
   | { kind: "spend"; spend: SpendNeed }
   | { kind: "repository_creation"; repository_creation: RepositoryCreationNeed }
+  | { kind: "personal_setup"; personal_setup: PersonalSetupNeed }
 );
+
+// SetupLane is one lane a leaked piece of the member's own setup reached, with the work it runs.
+export type SetupLane = { id: string; work_order: string; title?: string };
+
+// PersonalSetupNeed is one piece of the member's own agent CLI setup that lanes of one worker loaded on one CLI version,
+// the lanes it reached, and the choice recommended for it: "accept", or "separate_directory", which is not built yet.
+export type PersonalSetupNeed = {
+  worker: string;
+  version: string;
+  piece: PersonalItem;
+  lanes: SetupLane[];
+  recommendation: "accept" | "separate_directory";
+  recommendation_rationale: string;
+  actions: "setup_accept"[];
+};
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
 export type NeedsProject = ProjectLabel & { revision: number; waiting: number };
@@ -1111,9 +1127,33 @@ export type WorkerLine = {
   scheduled_start?: ScheduledStart;
 };
 
+// SetupServer is one MCP server a lane's session loaded, and where it came from: "ropeshift", "repository", or the
+// scope the agent CLI reported, such as "user".
+export type SetupServer = { name: string; from: string };
+
+// PersonalItem is one piece of the member's own agent CLI setup that a lane's session loaded: an mcp_server, a plugin,
+// an agent, a skill, or a command, and where it is set up.
+export type PersonalItem = { kind: string; name: string; from?: string };
+
+// LaneSetup is what a lane's latest session that reported it loaded at its start. personal names the member's own
+// pieces among them, which a lane runs clean of.
+export type LaneSetup = {
+  generation: number;
+  version?: string;
+  model?: string;
+  tools?: string[];
+  mcp_servers?: SetupServer[];
+  agents?: string[];
+  skills?: string[];
+  plugins?: string[];
+  personal?: PersonalItem[];
+};
+
 // A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.
 // archivable says a member may ask for the lane's worktree to be removed: the lane ended, and it still stands.
-export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean };
+// setup is what its latest session reported it loaded; a lane whose sessions reported nothing, such as one in a pane,
+// has none.
+export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean; setup?: LaneSetup };
 
 export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: FloorLane[] };
 

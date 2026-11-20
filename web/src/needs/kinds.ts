@@ -23,6 +23,8 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
     case "confirm":
     case "repository_creation":
       return "cards";
+    case "personal_setup":
+      return "decisions";
     case "questions":
     case "plan_approval":
     case "plan_revision":
@@ -72,7 +74,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "personal-setup"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -113,6 +115,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "spend";
     case "repository_creation":
       return "repository-creation";
+    case "personal_setup":
+      return "personal-setup";
   }
 }
 
@@ -143,6 +147,12 @@ export function approvalHeading(approval: Approval): string {
 // creationKind is the overline of a repository a plan approval did not create.
 export const creationKind: { icon: IconName; name: string } = { icon: "repo", name: "Repository creation" };
 
+// setupKind is the overline of a piece of the member's own agent CLI setup that reached a machine's lanes.
+export const setupKind: { icon: IconName; name: string } = { icon: "sliders", name: "Your CLI setup in lanes" };
+
+// pieceWords names each kind of a member's own setup as a heading says it.
+export const pieceWords: Record<string, string> = { mcp_server: "MCP server", plugin: "plugin", agent: "agent", skill: "skill", command: "command" };
+
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   switch (item.kind) {
@@ -170,6 +180,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return spendKind;
     case "repository_creation":
       return creationKind;
+    case "personal_setup":
+      return setupKind;
   }
 }
 
@@ -232,6 +244,8 @@ export function headingOf(item: NeedItem): string {
       return item.spend.work_order.title || item.spend.work_order.id;
     case "repository_creation":
       return `${plainLine(item.repository_creation.name)} ${item.repository_creation.state === "running" ? "is being created" : "was not created"}`;
+    case "personal_setup":
+      return `Your ${pieceWords[item.personal_setup.piece.kind] ?? item.personal_setup.piece.kind} ${plainLine(item.personal_setup.piece.name)} reached lanes on ${item.personal_setup.worker}`;
   }
 }
 
@@ -274,6 +288,8 @@ export function contextOf(item: NeedItem): string {
       return [item.spend.work_order.id, `${money(item.spend.spend.charged.charged_usd)} of ${money(item.spend.spend.hard_limit)}`].join(" · ");
     case "repository_creation":
       return [`Plan ${plainLine(item.repository_creation.plan)}`, `version ${item.repository_creation.plan_version}`].join(" · ");
+    case "personal_setup":
+      return [`Worker ${item.personal_setup.worker}`, `version ${item.personal_setup.version}`, plural(item.personal_setup.lanes.length, "lane")].join(" · ");
   }
 }
 

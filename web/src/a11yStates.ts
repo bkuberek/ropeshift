@@ -29,6 +29,7 @@ export const views = [
   "/needs-you?item=work%3Awo-tripped",
   "/needs-you?item=work%3Awo-long-parked",
   "/needs-you?item=work%3Awo-behind",
+  "/needs-you?item=personal_setup%3Aworker-a%2F2.1.330%2Fmcp_server%2Fgithub",
   "/needs-you?item=work%3Awo-history-missing",
   "/needs-you?item=work%3Awo-history-unread",
   "/needs-you?item=ci%3Awo-ci%3Aci_not_finished",

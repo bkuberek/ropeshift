@@ -987,7 +987,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	r.state.noteCapabilities(capabilities)
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
-		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
+		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Base: r.begins(), Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
 		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating() && !r.assisting(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
@@ -1207,8 +1207,28 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	if !r.bindSession(ctx, event.SessionID, event.ModelResolved) {
 		return
 	}
+	r.recordSetup(ctx, event.Setup)
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
+	}
+}
+
+// recordSetup keeps on the lane what its session loaded at its start, for the generation the session runs. A lane's
+// own work order holds it, so an assistant's or an orchestrator's session, which runs none, records nothing here.
+func (r *laneRun) recordSetup(ctx context.Context, setup *lanes.Setup) {
+	if setup == nil || r.assisting() || r.orchestrating() {
+		return
+	}
+	lane := r.record()
+	loaded := *setup
+	loaded.Generation = lane.Generation
+	payload, err := json.Marshal(loaded)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return
+	}
+	if _, err := r.w.Record(ctx, r.w.event(ledger.UploadLaneSetup, lane, payload)); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 	}
 }
 
