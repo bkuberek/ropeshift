@@ -292,8 +292,11 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const order: Order = orderOf(params.get("order"));
   const grouped = params.get("group") !== "off";
   const [advance, setAdvance] = useFlag("ropeshift-advance", true);
-  // acted holds the items a person decided on this page, whose leaving the list moves the page to the next item.
+  // acted holds the items a person decided on this page, whose leaving the list moves the page to the next item, and
+  // retriedHere the work they retried, which stays to offer Start. Each is kept as the act returns, before the read
+  // that no longer lists the item.
   const acted = useRef(new Set<string>());
+  const retriedHere = useRef(new Set<string>());
   // movedAt is when the page last moved to the next item on its own, focusNext the item whose primary button takes
   // focus once it shows, and said the polite line that says what happened and what is next.
   const movedAt = useRef(0);
@@ -365,25 +368,36 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
     if (!item || !active) {
       return;
     }
-    // Work a member retried here waits for them to start it, so the page stays on it to offer Start.
-    if (!decidedHere || !advance || retried[key] !== undefined) {
+    if (!decidedHere || !advance) {
       setGone(item);
       return;
     }
-    const at = lastListed.current.indexOf(key);
-    const following = at < 0 ? [] : [...lastListed.current.slice(at + 1), ...lastListed.current.slice(0, at).reverse()];
-    const next = view.items.find((row) => keyOf(row) === following.find(still));
-    if (next) {
-      movedAt.current = Date.now();
-      focusNext.current = keyOf(next);
-      const then = headingOf(next);
-      setSaid(`${outcomeOf(key, item)}. Next: ${/[.?!]$/.test(then) ? then : `${then}.`}`);
-      go(address({ item: keyOf(next) }), { stay: true, replace: true });
-      return;
-    }
-    setFinished(item);
-    setSaid(`${outcomeOf(key, item)}. Nothing else needs you.`);
-    go(address({ item: "" }), { stay: true, replace: true });
+    // A card tells of a retry once its act returns, after the read that no longer lists the work, so the page decides
+    // once the act is done. Work a member retried here waits for them to start it, so the page stays on it to offer
+    // Start.
+    const order = lastListed.current;
+    const move = () => {
+      if (retriedHere.current.has(key)) {
+        setGone(item);
+        return;
+      }
+      const at = order.indexOf(key);
+      const following = at < 0 ? [] : [...order.slice(at + 1), ...order.slice(0, at).reverse()];
+      const next = view.items.find((row) => keyOf(row) === following.find(still));
+      if (next) {
+        movedAt.current = Date.now();
+        focusNext.current = keyOf(next);
+        const then = headingOf(next);
+        setSaid(`${outcomeOf(key, item)}. Next: ${/[.?!]$/.test(then) ? then : `${then}.`}`);
+        go(address({ item: keyOf(next) }), { stay: true, replace: true });
+        return;
+      }
+      setFinished(item);
+      setSaid(`${outcomeOf(key, item)}. Nothing else needs you.`);
+      go(address({ item: "" }), { stay: true, replace: true });
+    };
+    const timer = setTimeout(move, 0);
+    return () => clearTimeout(timer);
   }, [view.items]);
 
   // Leaving the page is moving on, so an item settled while it was open is gone when the person comes back.
@@ -711,6 +725,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                     onDecided: (done) => setDecided((was) => ({ ...was, [keyOf(item)]: done })),
                     onResolved: (words) => setResolved((was) => ({ ...was, [keyOf(item)]: words })),
                     onRetried: (order) => {
+                      retriedHere.current.add(keyOf(item));
                       setResolved((was) => ({ ...was, [keyOf(item)]: "you retried it, and the work is ready, but no lane has started. Start it to choose the worker that runs it" }));
                       setRetried((was) => ({ ...was, [keyOf(item)]: order }));
                     },
