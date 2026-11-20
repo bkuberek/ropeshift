@@ -379,6 +379,35 @@ export function recordDecision(request: RecordDecision): Promise<RecordedDecisio
   return call("POST", paths.decisions(), request);
 }
 
+// keptIDOf names the decision a member's Keep records in place of another, so a second press finds the first. An ID
+// whose name would not fit gives a digest of it instead, under a prefix the plain form never makes.
+export async function keptIDOf(decision: string): Promise<string> {
+  const named = `kept-${decision}`;
+  if (plainID.test(named)) {
+    return named;
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(decision));
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `kept_${hex.slice(0, 40)}`;
+}
+
+// keepDecision records a decision again as the member's, in its place and with nothing else changed, as
+// `ropeshift decision record --supersedes` does. A decision that replaces one with the same content binds nothing anew,
+// so the work it reaches stands as it was. It is how a member keeps a one-way decision an orchestrator made (FR-QD-8).
+export async function keepDecision(decision: RecordedDecision): Promise<RecordedDecision> {
+  return recordDecision({
+    id: await keptIDOf(decision.id),
+    status: decision.status === "assumed" ? "assumed" : "decided",
+    statement: decision.statement,
+    ...(decision.rationale ? { rationale: decision.rationale } : {}),
+    ...(decision.citations?.length ? { citations: decision.citations } : {}),
+    ...(decision.scope ? { scope: decision.scope } : {}),
+    ...(decision.reversibility ? { reversibility: decision.reversibility } : {}),
+    ...(decision.categories?.length ? { categories: decision.categories } : {}),
+    supersedes: decision.id,
+  });
+}
+
 // overturnDecision reverses a decision with what takes its place, as `ropeshift decision overturn` does. It
 // sends each completed work order that rested on the decision to rework, and the answer names them. The ID of
 // the new decision is the client's, so a retry finds what the first attempt made.

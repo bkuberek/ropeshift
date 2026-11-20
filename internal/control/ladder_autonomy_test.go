@@ -183,6 +183,80 @@ func TestAMemberAcceptsTheOneWayAcknowledgementOnce(t *testing.T) {
 	}
 }
 
+// publishParkOnOneWay publishes a lane policy that parks a lane on a one-way decision and tells it of any other.
+func publishParkOnOneWay(t *testing.T, r *planeRig) {
+	t.Helper()
+	policy := authority.LanePolicy{Version: 2, OnContractVersion: authority.LaneNotify, OnBindingDecision: authority.LaneNotify, OnOneWayDecision: authority.LanePark}
+	body := "[lane_policy]\nversion = 2\non_contract_version = \"notify\"\non_binding_decision = \"notify\"\non_one_way_decision = \"park\"\n"
+	if _, err := control.NewQuestions(r.stores["pa"], questions.BatchPolicy{}).PublishLanePolicy(t.Context(), "pa", authority.LanePolicyDraft{Body: body, Policy: policy}, projectMember); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// parkWanted reads what a policy asked of a lane.
+func parkWanted(t *testing.T, r *planeRig, lane string) string {
+	t.Helper()
+	var wanted string
+	err := r.stores["pa"].Read(t.Context(), "pa", func(tx ports.ReadTx) error {
+		row, err := tx.Lanes().Row(lane)
+		wanted = row.ParkWanted
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wanted
+}
+
+// TestAnOrchestratorsOneWayDecisionParksNoLane holds a decision an unattended orchestrator made to blocking no work: a
+// lane policy that parks a lane on a one-way decision parks none for it, and a member who keeps it records the same
+// decision, which binds nothing again. A member's own one-way decision still parks the lane (FR-QD-8).
+func TestAnOrchestratorsOneWayDecisionParksNoLane(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	publishParkOnOneWay(t, r)
+	acceptOneWay(t, r)
+	call, _ := ladderAtRungThree(t, r, questions.CategoryArchitecture)
+	if err := r.claim("pa", "wo-a"); err != nil {
+		t.Fatal(err)
+	}
+	for _, lease := range r.desired().Leases {
+		if lease.WorkOrder != "wo-a" {
+			continue
+		}
+		running := workorders.Lease{WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence}
+		if _, err := control.NewLeases(r.stores["pa"]).StartLane(ctx, "pa", running, "lane-wo-a", ledger.Actor{Kind: ledger.ActorWorker, ID: "worker-1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	decision, err := decideOneWay(r, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wanted := parkWanted(t, r, "lane-wo-a"); wanted != "" {
+		t.Errorf("the orchestrator's one-way decision asks the lane to park: %q", wanted)
+	}
+	decisions := control.NewQuestions(r.stores["pa"], questions.BatchPolicy{})
+	kept := decision
+	kept.ID, kept.Supersedes, kept.DecidedBy, kept.Overlaps = "kept-a", decision.ID, "", nil
+	if _, err := decisions.RecordDecision(ctx, "pa", kept, projectMember); err != nil {
+		t.Fatalf("keeping the decision: %v", err)
+	}
+	if wanted := parkWanted(t, r, "lane-wo-a"); wanted != "" {
+		t.Errorf("keeping the orchestrator's decision asks the lane to park: %q", wanted)
+	}
+	own := questions.Decision{
+		ID: "member-a", Status: questions.DecisionDecided, Statement: "Name the repositories after their services.", Rationale: "The plan names them so.",
+		Scope: "wo:wo-a", Reversibility: questions.OneWay, Categories: []string{questions.CategoryArchitecture},
+	}
+	if _, err := decisions.RecordDecision(ctx, "pa", own, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	if wanted := parkWanted(t, r, "lane-wo-a"); wanted == "" {
+		t.Error("a member's one-way decision asks the lane to park nothing, so this test cannot see a park")
+	}
+}
+
 // TestAnUnattendedOrchestratorEscalatesWhatThePolicyKeeps holds the rule an unattended worker keeps: a one-way choice
 // in a category the decision policy keeps for a member reaches a member, and the orchestrator cannot decide it.
 func TestAnUnattendedOrchestratorEscalatesWhatThePolicyKeeps(t *testing.T) {

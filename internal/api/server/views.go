@@ -566,6 +566,12 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	}
 	items = append(items, history...)
 	items = append(items, h.conflictNeeds(f)...)
+	// A one-way decision an unattended orchestrator made waits for a member's review, and blocks no work (FR-QD-8).
+	oneWay, err := oneWayReviewNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, oneWay...)
 	slices.SortStableFunc(items, func(a, b api.NeedItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
 }

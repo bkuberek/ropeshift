@@ -80,6 +80,16 @@ const (
 	// one item for the work order, for a member to settle, which ropeshift never resolves by overwriting either side
 	// (FR-UI-14).
 	NeedConflict = "conflict"
+	// NeedOneWayReview is a one-way decision an orchestrator on an unattended worker made itself, which members review:
+	// one item for each decision, which blocks no work (FR-QD-8).
+	NeedOneWayReview = "one_way_review"
+)
+
+// What a member can do about an orchestrator's one-way decision. Keep records the same decision as the member's in its
+// place, through `decision record --supersedes`, and Overturn reverses it, through `decision overturn`.
+const (
+	ActDecisionKeep     = "decision_keep"
+	ActDecisionOverturn = "decision_overturn"
 )
 
 // Where a repository creation stands, as its Needs you item says.
@@ -254,6 +264,19 @@ type NeedItem struct {
 	RepositoryCreation *RepositoryCreationNeed `json:"repository_creation,omitempty"`
 	// Conflict is set for a conflict item, whose ID is the work order's.
 	Conflict *ConflictNeed `json:"conflict,omitempty"`
+	// OneWayReview is set for a one_way_review item, whose ID is the decision's.
+	OneWayReview *OneWayReviewNeed `json:"one_way_review,omitempty"`
+}
+
+// OneWayReviewNeed is a one-way decision an orchestrator on an unattended worker made itself, which waits for a member's
+// review and blocks no work (FR-QD-8): the decision, the name of the worker whose orchestrator decided it, and the text
+// of the question it answered, when it answered one. Actions says what the member can do. The item leaves Needs you
+// once the decision no longer stands as the orchestrator's: a member kept it, overturned it, or replaced it.
+type OneWayReviewNeed struct {
+	Decision      questions.Decision `json:"decision"`
+	DecidedByName string             `json:"decided_by_name,omitempty"`
+	Question      string             `json:"question,omitempty"`
+	Actions       []string           `json:"actions"`
 }
 
 // RepositoryCreationNeed is a repository an approved plan version creates that waits for a member, or runs: the approval

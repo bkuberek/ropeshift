@@ -128,6 +128,30 @@ function otherCards(): NeedItem[] {
         waiting: [{ work_order: "wo-waiting", title: "Document the budget" }],
       },
     },
+    // A one-way decision the orchestrator of an unattended worker made itself, which waits for a member's review.
+    {
+      id: "d-repositories",
+      kind: "one_way_review",
+      since: 1790000660000,
+      one_way_review: {
+        decision: {
+          id: "d-repositories",
+          status: "decided",
+          statement: "Keep one repository per service.",
+          rationale: "The plan fixes one repository per service, and the lane recommends it.",
+          citations: ["wo:wo-running", "requirement:FAC-2"],
+          scope: "wo:wo-running",
+          reversibility: "one_way",
+          categories: ["architecture"],
+          decided_by: "worker-a",
+          decided_by_kind: "orchestrator",
+          question_id: "q-repositories",
+        },
+        decided_by_name: "worker-a",
+        question: "How many repositories does the product have?",
+        actions: ["decision_keep", "decision_overturn"],
+      },
+    },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
     history(

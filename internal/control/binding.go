@@ -94,7 +94,11 @@ func (q *Questions) applyBinding(tx ports.WriteTx, record questions.Decision, ho
 		}
 	}
 	crashpoint.Hit("decision.record", "noticed")
-	if err := parkAsPolicySays(tx, touched, how, oneWay, record.ID, actor); err != nil {
+	// An orchestrator records a one-way decision only at unattended, where it blocks no work: members review it in Needs
+	// you, so the lane policy's rule for a one-way decision does not park a lane for it, and it parks one only as any
+	// other decision does (FR-QD-8).
+	parksAsOneWay := oneWay && authority.PartyOf(actor) != authority.PartyOrchestrator
+	if err := parkAsPolicySays(tx, touched, how, parksAsOneWay, record.ID, actor); err != nil {
 		return err
 	}
 	crashpoint.Hit("decision.record", "parked")
