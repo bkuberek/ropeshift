@@ -74,17 +74,7 @@ type settingsFile struct {
 	// hold.
 	CrossSessionInbound string      `json:"crossSessionInbound"`
 	StatusLine          *statusLine `json:"statusLine,omitempty"`
-	// Env turns the CLI's background tasks off, so a subagent or a command runs inside the turn that started it,
-	// and a turn's end is the session's answer (https://code.claude.com/docs/en/env-vars). `--settings` sits above
-	// a repository's settings files, and its `env` overwrites what a shell exported
-	// (https://code.claude.com/docs/en/settings-reference#env). A watch and an MCP task still run in the background,
-	// and a Stop hook counts what is left in flight.
-	Env map[string]string `json:"env,omitempty"`
 }
-
-// envNoBackgroundTasks removes `run_in_background` from the shell and subagent tools, and stops the CLI moving a
-// subagent, a long MCP call, or a timed-out command to the background.
-const envNoBackgroundTasks = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 
 // toolRule is the permission rule of one ropeshift MCP tool.
 func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
@@ -224,7 +214,6 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 			DisableBypassPermissionsMode: bypassOff,
 		},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
-		Env: map[string]string{envNoBackgroundTasks: "1"},
 	}
 	if spec.Binary == "" {
 		return out

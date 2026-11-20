@@ -183,6 +183,7 @@ func paneEnv(spec ports.SessionSpec, use Use) []string {
 	env := append(withoutTelemetry(spec.Env), lanes.EnvPolicy+"="+policyPath(spec))
 	env = append(env, spec.Override.Env()...)
 	env = append(env, agentEnv(spec)...)
+	env = append(env, foregroundEnv()...)
 	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
