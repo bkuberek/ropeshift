@@ -9,8 +9,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -208,11 +210,15 @@ func (c *repositoryCreator) hold(ctx context.Context, rt *TemplateRuntime, job l
 	if err != nil {
 		return nil, "", nil, err
 	}
+	key := found.Real
+	if c.w.creationFolders.ignoresCase(ctx, rt, found.Real) {
+		key = strings.ToLower(key)
+	}
 	if wait {
-		release, err := c.w.creationFolders.lock(ctx, found.Real)
+		release, err := c.w.creationFolders.lock(ctx, key)
 		return release, found.Real, nil, err
 	}
-	release, _ := c.w.creationFolders.take(found.Real)
+	release, _ := c.w.creationFolders.take(key)
 	if release == nil {
 		return nil, found.Real, folderRefusal(ledger.TemplateRefusedBusy,
 			fmt.Sprintf("another repository creation on this worker writes %s now; read the preview again", found.Real)), nil
@@ -544,9 +550,60 @@ func saveCreation(rt *TemplateRuntime, key string, journal creationJournal) erro
 
 // creationFolders are the folders repository creations on a worker write now, by the path each leads to, so two
 // creations never write one folder at once: two projects whose planning clones sit side by side share a bound.
+// A folder is held by the path it leads to, its case folded where the disk ignores case, as APFS and NTFS do by
+// default, so two spellings that differ only in case, which name one folder there, take turns too.
 type creationFolders struct {
 	mu   sync.Mutex
 	held map[string]chan struct{}
+	// cases says, of each folder probed, whether the disk that holds it ignores case.
+	cases map[string]bool
+}
+
+// ignoresCase says the disk that holds a path ignores case. It probes the nearest folder at or above the path whose
+// name has a letter: its name in the other case names the same folder only on such a disk. Each folder is probed
+// once. A worker that keeps no checkouts cannot ask the disk, and reads every disk as keeping case apart.
+func (l *creationFolders) ignoresCase(ctx context.Context, rt *TemplateRuntime, real string) bool {
+	if rt.Checkouts == nil {
+		return false
+	}
+	for dir := real; dir != "/" && dir != "."; dir = path.Dir(dir) {
+		name := path.Base(dir)
+		swapped := swapCase(name)
+		if swapped == name {
+			continue
+		}
+		if found, err := rt.Folders.Inspect(ctx, dir); err != nil || !found.Exists || !found.Directory {
+			continue
+		}
+		l.mu.Lock()
+		known, probed := l.cases[dir]
+		l.mu.Unlock()
+		if probed {
+			return known
+		}
+		same, err := rt.Checkouts.SameFile(ctx, dir, path.Join(path.Dir(dir), swapped))
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return false
+		}
+		l.mu.Lock()
+		if l.cases == nil {
+			l.cases = map[string]bool{}
+		}
+		l.cases[dir] = same
+		l.mu.Unlock()
+		return same
+	}
+	return false
+}
+
+// swapCase is a name with each letter in the other case.
+func swapCase(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsUpper(r) {
+			return unicode.ToLower(r)
+		}
+		return unicode.ToUpper(r)
+	}, name)
 }
 
 // lock waits until no creation holds the folder, or the context ends, and takes it. Its release lets the next one in.

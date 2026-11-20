@@ -175,3 +175,37 @@ func TestOnADiskALinkAboveThePathThatLeadsOutsideTheBoundIsRefused(t *testing.T)
 		t.Errorf("outside the bound holds %v (%v)", entries, err)
 	}
 }
+
+// ignoresCase says the disk that holds dir finds it under its name in the other case.
+func ignoresCase(t *testing.T, dir string) bool {
+	t.Helper()
+	first, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.Stat(filepath.Join(filepath.Dir(dir), strings.ToUpper(filepath.Base(dir))))
+	return err == nil && os.SameFile(first, second)
+}
+
+// On a disk that ignores case, two spellings that differ only in case name one folder, so they share the creation
+// lock. A disk that keeps case apart has two folders, and the test does not apply.
+func TestOnADiskThatIgnoresCaseSpellingsInAnotherCaseShareTheCreationLock(t *testing.T) {
+	t.Parallel()
+	r := newDiskRig(t)
+	if !ignoresCase(t, r.at("work/tt/repos")) {
+		t.Skip("this disk keeps names that differ in case apart")
+	}
+	var subject ports.RepositoryCreator
+	creator := func(forge ports.ForgeAccounts) ports.RepositoryCreator {
+		subject = r.creator(r.folders(), forge)
+		return subject
+	}
+	release := r.holdingPreview(creator, r.job("work/tt/repos/api"))
+	defer release()
+	for _, rel := range []string{"work/tt/repos/API", "work/TT/repos/api"} {
+		checked, err := subject.Check(t.Context(), r.job(rel))
+		if err != nil || checked.Refusal == nil || checked.Refusal.Reason != ledger.TemplateRefusedBusy {
+			t.Errorf("the check of %s is %+v (%v), want refused as path_busy", rel, checked, err)
+		}
+	}
+}
