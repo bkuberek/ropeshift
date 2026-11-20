@@ -44,7 +44,11 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		return workorders.Grant{}, err
 	}
 	var grant workorders.Grant
+	// refused is a claim the roster refuses the work's agent: the work goes back to contract review in the
+	// transaction, which commits, and the claim is refused after it.
+	var refused error
 	err = l.store.Write(ctx, scope, "claim", func(tx ports.WriteTx) error {
+		refused = nil
 		existing, err := tx.Claims().Find(request.ClaimID)
 		switch {
 		case err == nil:
@@ -59,6 +63,20 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		prior, err := tx.WorkOrders().Get(request.WorkOrder)
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return err
+		}
+		// Ready work whose agent the roster now refuses, such as work an earlier build made ready, leaves ready
+		// before anything is granted, so the refusal is recorded and the work does not wait there unseen.
+		view, err := ResolveIn(tx.Roster())
+		if err != nil {
+			return err
+		}
+		reason, err := sendBackUnfit(tx, view.Resolved, prior, actor)
+		if err != nil {
+			return err
+		}
+		if reason != "" {
+			refused = fmt.Errorf("%w: %s", workorders.ErrIneligible, reason)
+			return nil
 		}
 		crashpoint.Hit("claim", "eligible")
 		won, err := tx.Leases().Grant(request)
@@ -126,6 +144,9 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 	})
 	if err != nil {
 		return workorders.Grant{}, err
+	}
+	if refused != nil {
+		return workorders.Grant{}, refused
 	}
 	return grant, nil
 }
