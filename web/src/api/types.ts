@@ -155,6 +155,14 @@ export type Generation = {
   ended_at?: number;
 };
 
+// CLICheck is the agent CLI version a lane's worker is probing while the lane's process runs that version, with
+// the words a person reads: the version, what its check means for the lane, and what ends it.
+export type CLICheck = {
+  driver: string;
+  version: string;
+  words: string;
+};
+
 export type Lane = {
   id: string;
   work_order: string;
@@ -165,6 +173,7 @@ export type Lane = {
   liveness: string;
   model_reach?: string;
   ledger_reach?: string;
+  checking?: CLICheck;
   freshness: "observed" | "last_reported";
   as_of: number;
   reported_by_epoch?: number;

@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { InProgress, OnHold } from "../api/types";
+import type { InProgress, OnHold, ShopFloor } from "../api/types";
 import { openPage } from "../opening";
 import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 import type { Sent } from "../testing";
@@ -326,6 +326,61 @@ describe("a lane's pane that holds the keys", () => {
     expect(within(composer).getByRole("alert").textContent).toMatch(/at most 8 chords/);
     expect((within(composer).getByRole("button", { name: "Send keys" }) as HTMLButtonElement).disabled).toBe(true);
     expect(typed).toEqual([]);
+  });
+});
+
+describe("a lane's facts", () => {
+  it("name the agent CLI version the lane's worker checks, beside the lane's state", async () => {
+    const shown = "lane-wo-effect";
+    const checkingWords = "Checking Claude Code 2.1.400: this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces";
+    serveViews((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/shop-floor") {
+        const floor = golden<ShopFloor>("shop-floor");
+        const row = floor.lanes.find((line) => line.id === shown);
+        if (!row) {
+          throw new Error(`the golden holds no lane ${shown}`);
+        }
+        row.checking = { driver: "claude-code", version: "2.1.400", words: checkingWords };
+        return { status: 200, body: floor };
+      }
+      return undefined;
+    });
+    openPage(`/lane?id=${shown}`);
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    const state = (await within(facts).findByText("State")).closest(".kv-row") as HTMLElement;
+    expect(within(state).getByText(checkingWords).className).toContain("checking");
+  });
+
+  it("say beside Degraded mode, in a sentence the chip points to, when the lane restarts on qualified surfaces", async () => {
+    const shown = "lane-wo-effect";
+    serveViews((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/shop-floor") {
+        const floor = golden<ShopFloor>("shop-floor");
+        const row = floor.lanes.find((line) => line.id === shown);
+        if (!row) {
+          throw new Error(`the golden holds no lane ${shown}`);
+        }
+        row.conditions = ["degraded_mode"];
+        return { status: 200, body: floor };
+      }
+      return undefined;
+    });
+    openPage(`/lane?id=${shown}`);
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    const state = (await within(facts).findByText("State")).closest(".kv-row") as HTMLElement;
+    const chip = within(state).getByText("Degraded mode");
+    const sentence = within(state).getByText("Runs on documented surfaces until it restarts on a qualified version.");
+    expect(sentence.id).not.toBe("");
+    expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(chip.nextElementSibling).toBe(sentence);
+  });
+
+  it("name no check on a lane whose worker checks nothing", async () => {
+    serveViews();
+    openPage("/lane?id=lane-wo-effect");
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    await within(facts).findByText("State");
+    expect(within(facts).queryByText(/^Checking /)).toBeNull();
   });
 });
 

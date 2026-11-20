@@ -181,6 +181,82 @@ func TestALaneStartsAtOnceWithNothingQualified(t *testing.T) {
 	}
 }
 
+// TestALaneSaysWhichVersionItsWorkerChecks is a lane whose process runs on a version its worker is probing:
+// it says so in words, it runs on documented surfaces meanwhile, and the probe's end moves the lane's status
+// at once. A process keeps the surfaces it started with, so a probe that passes clears the check and leaves
+// the condition, and a respawn is what starts on the checked surfaces.
+func TestALaneSaysWhichVersionItsWorkerChecks(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	release := r.driver.HoldProbes()
+	t.Cleanup(release)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	view := r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
+	if c := view.Checking; c.Driver != fake.FakeDriverName || c.Version != "1.0.1" || c.Words != ledger.CheckingCLI(fake.FakeDriverName, "1.0.1").Words {
+		t.Errorf("the lane names %+v", c)
+	}
+	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a lane on documented surfaces reads %v", view.Conditions)
+	}
+	release()
+	view = r.eventually("the check ended", func(view ledger.LaneView) bool { return view.Checking == nil })
+	if got := r.qualifications(); len(got) != 2 || got[1].Version != "1.0.1" || got[1].Degraded {
+		t.Fatalf("the probe recorded %+v", got)
+	}
+	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a process that started on documented surfaces reads %v once its probe passed", view.Conditions)
+	}
+}
+
+// TestAProbeThatFailsAddsDegradedModeToARunningLane is a lane that started on what the driver answered for its
+// version, whose probe then found a surface failed: the lane reads degraded from the probe's end.
+func TestAProbeThatFailsAddsDegradedModeToARunningLane(t *testing.T) {
+	t.Parallel()
+	var release func()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", false)
+		release = driver.HoldProbes()
+	})
+	t.Cleanup(release)
+	r.dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	if view := r.atGate(g); slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Fatalf("a lane on a version the driver answers for reads %v", view.Conditions)
+	}
+	r.driver.SetVersion("1.0.0", true)
+	release()
+	r.eventually("the probe's result", func(view ledger.LaneView) bool {
+		return view.Checking == nil && slices.Contains(view.Conditions, string(lanes.DegradedMode))
+	})
+}
+
+// A lane that ends while its version's probe runs names no check: nothing of it waits on the probe.
+func TestALaneThatEndsDuringAProbeNamesNoCheck(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	release := r.driver.HoldProbes()
+	t.Cleanup(release)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), r.reports(workorders.OutcomeCompleted), completed(0.1)}))
+	r.atGate(g)
+	r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
+	g.free()
+	view := r.eventually("the lane's end", func(view ledger.LaneView) bool { return view.ActualState == ledger.StateEnded })
+	if view.Checking != nil {
+		t.Errorf("an ended lane names %+v", view.Checking)
+	}
+}
+
 // TestAQualificationReplaysFromTheLog is the record of a probe: the ledger's log replays to what the
 // worker holds, and a document that is no probe's result is refused and leaves nothing to replay.
 func TestAQualificationReplaysFromTheLog(t *testing.T) {

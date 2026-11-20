@@ -35,7 +35,7 @@ A running worker does not rely on the matrix alone, because the settings and plu
 - one headless session with a budget cap of a hundredth of a cent, whose one turn the client ends at the cap when the flag works, which costs a fraction of a cent;
 - one pane in a new directory, which reaches the prompt and takes no turn, when the worker has a terminal.
 
-No lane waits for the probe. A lane that starts while it runs starts at once, on documented surfaces, because no probe's result names its version yet, so it runs in `degraded_mode`. A worker that has probed no version before is the one exception: its driver answers from the shipped matrix, so a version the matrix holds runs on the surfaces the matrix passed. One probe runs at a time, and every lane on the version shares it. The result is kept in the worker's journal, recorded in the ledger as `worker.driver_qualified`, and handed to the driver, and from then on it decides that version's surfaces for each process that starts. A probe that cannot run leaves every surface unobserved, so the version runs degraded.
+No lane waits for the probe. A lane that starts while it runs starts at once, on documented surfaces, because no probe's result names its version yet, so it runs in `degraded_mode`. While the probe runs, a lane whose process runs on the version carries the check, which `ropeshift lane show`, the lane page, and Planning say in words: `Checking Claude Code <version>`, that the lane runs on documented surfaces until the check passes, and that a respawn then picks up the qualified surfaces. The probe's end clears it. A worker that has probed no version before is the one exception: its driver answers from the shipped matrix, so a version the matrix holds runs on the surfaces the matrix passed. One probe runs at a time, and every lane on the version shares it. The result is kept in the worker's journal, recorded in the ledger as `worker.driver_qualified`, and handed to the driver, and from then on it decides that version's surfaces for each process that starts. A probe that cannot run leaves every surface unobserved, so the version runs degraded.
 
 ## When the CLI updates itself
 
@@ -44,6 +44,7 @@ A running process keeps the version it started on. A new process reads the insta
 - A version the last probe named uses that probe's result.
 - Any other version uses no undocumented surface, whether the last probe passed or failed, until its own probe ends. A lane whose process starts meanwhile starts at once, on documented surfaces.
 - The worker probes the new version as soon as it reads it, whether or not a lane is starting, so no lane waits for the probe.
+- A process keeps the surfaces it started with, so a lane that started on documented surfaces keeps `degraded_mode` after its version's probe passes, and a respawn starts a process on the surfaces the probe passed. A probe that finds a surface failed adds the condition to a lane that is running.
 - A session that a restarted worker takes over uses the result for the version it started on, not the installed one.
 
 So an update never moves a lane between qualified and degraded without a probe's result for the version it runs, and no process uses an undocumented surface that no check of its version passed.

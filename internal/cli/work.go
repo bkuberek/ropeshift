@@ -761,10 +761,19 @@ func (c *invocation) laneShow(args []string) int {
 	return c.finish(err, lane, func() string { return laneDetail(lane) })
 }
 
-// laneDetail is a lane's line, and where its branch began: the ref and the commit the claim named, which
-// review diffs against and integration targets. A lane that began where its checkout was names none.
+// laneDetail is a lane's line, the agent CLI version its worker is checking when a check holds it, what each
+// condition that has a sentence means, and where its branch began: the ref and the commit the claim named,
+// which review diffs against and integration targets. A lane that began where its checkout was names none.
 func laneDetail(lane ledger.LaneView) string {
 	text := laneLine(lane)
+	if lane.Checking != nil {
+		text += fmt.Sprintf("status\t%s\n", oneLine(lane.Checking.Words))
+	}
+	for _, condition := range lane.Conditions {
+		if note := lanes.Condition(condition).Note(); note != "" {
+			text += fmt.Sprintf("%s\t%s\n", condition, note)
+		}
+	}
 	if lane.BaseCommit != "" {
 		text += fmt.Sprintf("base\t%s\t%s\n", dashIfEmpty(lane.BaseRef), lane.BaseCommit)
 	}

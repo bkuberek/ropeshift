@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { actOnWork, readView } from "../api/client";
 import type { Completed, InProgress, Lane, OnHold, ShopFloor, WorkOrder } from "../api/types";
@@ -8,9 +8,10 @@ import { useChange } from "../admin/parts";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { LanePane } from "../lanes/LanePane";
 import { startedAt } from "../lanes/starting";
+import { noteOf } from "../floor/states";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
-import { ConditionChip, EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
+import { CheckingChip, ConditionChip, ConditionNote, EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
 import { Icon } from "../ui/Icon";
 import { Outline } from "./Outline";
 import { StartSession } from "./StartSession";
@@ -70,6 +71,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
   const talk = useTalk();
   const resume = useChange();
   const heading = useRef<HTMLHeadingElement>(null);
+  const noteBase = useId();
   useArrivalFocus(heading);
 
   const sessions = sessionsOf(running.view, held.view);
@@ -129,7 +131,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             <span className="row-tight">
               <LaneBadge state={found.actual_state} />
               {(found.conditions ?? []).map((condition) => (
-                <ConditionChip key={condition} name={condition} />
+                <ConditionChip key={condition} name={condition} describedBy={`${noteBase}-${condition}`} />
               ))}
             </span>
           ) : null}
@@ -159,6 +161,14 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             {worker ? <> on {worker}</> : null}
           </span>
         </p>
+        {found && (found.checking || (found.conditions ?? []).some((condition) => noteOf(condition))) ? (
+          <p className="convo-check">
+            {(found.conditions ?? []).map((condition) => (
+              <ConditionNote key={condition} name={condition} id={`${noteBase}-${condition}`} />
+            ))}
+            {found.checking ? <CheckingChip check={found.checking} /> : null}
+          </p>
+        ) : null}
         <p className="convo-can">{planningWords}</p>
       </div>
       {failure ? <Refusal>{failure}</Refusal> : null}

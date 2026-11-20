@@ -1,5 +1,11 @@
 package ledger
 
+import (
+	"errors"
+	"regexp"
+	"strings"
+)
+
 // The freshness every state carries when it is read (FR-LANE-6, FR-UI-5).
 const (
 	// FreshnessObserved means a worker confirmed the value within the freshness window.
@@ -101,6 +107,60 @@ type LaneStatus struct {
 	// machine is healthy (FR-LANE-7).
 	ModelReach  string `json:"model_reach"`
 	LedgerReach string `json:"ledger_reach"`
+	// Checking is the agent CLI version the lane's worker is probing, when the lane's process runs that
+	// version and the probe has not ended (FR-DRV-2).
+	Checking *CLICheck `json:"checking,omitempty"`
+}
+
+// CLICheck is a worker's probe of one agent CLI version, as a lane that runs on the version names it. Words
+// say it as a person reads it: which version is checked, what that means for the lane, and what ends it.
+type CLICheck struct {
+	Driver  string `json:"driver"`
+	Version string `json:"version"`
+	Words   string `json:"words"`
+}
+
+// CheckingCLI is the check of a driver's version, with its words, which every surface that shows a check shows as
+// they are: the lane's process runs on documented surfaces until the check passes, and a respawn then picks up the
+// qualified ones.
+func CheckingCLI(driver, version string) *CLICheck {
+	return &CLICheck{
+		Driver: driver, Version: version,
+		Words: "Checking " + VendorOf(driver).Product + " " + version +
+			": this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces",
+	}
+}
+
+// MaxCheckWords bounds the words of a check a worker reports, in bytes.
+const MaxCheckWords = 300
+
+var (
+	checkDriver  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	checkVersion = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
+)
+
+// Validate says whether a check a worker reported can be kept: its driver is named as a driver is, its version as a
+// version is, and its words are one line of plain text within MaxCheckWords.
+func (c CLICheck) Validate() error {
+	switch {
+	case !checkDriver.MatchString(c.Driver):
+		return errors.New("the check's driver is no driver name")
+	case !checkVersion.MatchString(c.Version):
+		return errors.New("the check's version is no version")
+	case len(c.Words) > MaxCheckWords:
+		return errors.New("the check's words are too long")
+	case strings.ContainsAny(c.Words, "\n\t") || PlainText(c.Words) != c.Words:
+		return errors.New("the check's words are not one line of plain text")
+	}
+	return nil
+}
+
+// SameCheck reports two lanes' checks that name the same driver and version, or two lanes with none.
+func SameCheck(a, b *CLICheck) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Driver == b.Driver && a.Version == b.Version
 }
 
 // LaneRow is a lane's status as the ledger holds it.

@@ -246,6 +246,16 @@ const (
 	AwaitingWake Condition = "awaiting_wake"
 )
 
+// Note is the sentence that says what a condition means for the lane that carries it, and is empty for a condition
+// whose name says it. A process uses the surfaces it started with, so the lane that runs degraded keeps the
+// condition until its next process starts on a qualified version.
+func (c Condition) Note() string {
+	if c == DegradedMode {
+		return "Runs on documented surfaces until it restarts on a qualified version."
+	}
+	return ""
+}
+
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
 	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted, DayCapped,

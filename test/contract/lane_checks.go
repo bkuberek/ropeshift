@@ -2,6 +2,7 @@ package contract
 
 import (
 	"encoding/json"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -21,6 +22,7 @@ var LaneChecks = []Check{
 	{"S23", "a fenced worker cannot move a lane's status", checkFencedStatus},
 	{"S24", "an older epoch cannot overwrite a newer status", checkOlderEpoch},
 	{"S25", "a status arrives with its event, under the revision", checkStatusEvent},
+	{"S26", "a status names the check its worker runs, and keeps none that is no plain driver, version, and words", checkStatusCheck},
 }
 
 // statusRig is one registered worker holding one running lane.
@@ -279,6 +281,82 @@ func checkStatusEvent(r *Rig) error {
 	}
 	if found != 1 {
 		return Violatedf("%d status events", found)
+	}
+	return r.CheckProjection(s.store)
+}
+
+// checkStatusCheck holds a lane's check to what a person can read: a status that names a driver and a version in
+// the shapes a driver and a version have, with words that are one plain line of bounded length, is kept, and a
+// status whose check is anything else is kept without it, so the lane still moves.
+func checkStatusCheck(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	named := s.working
+	named.Checking = ledger.CheckingCLI("claude-code", "2.1.400")
+	if _, err := s.report(named); err != nil {
+		return err
+	}
+	view, err := s.want("working", ledger.FreshnessObserved)
+	if err != nil {
+		return err
+	}
+	if view.Checking == nil || *view.Checking != *named.Checking {
+		return Violatedf("a lane's check reads %+v, want %+v", view.Checking, named.Checking)
+	}
+	words := named.Checking.Words
+	refused := []struct {
+		what  string
+		check *ledger.CLICheck
+	}{
+		{"a driver with a space", &ledger.CLICheck{Driver: "claude code", Version: "2.1.400", Words: words}},
+		{"a driver in capitals", &ledger.CLICheck{Driver: "Claude-Code", Version: "2.1.400", Words: words}},
+		{"a version with a line break", &ledger.CLICheck{Driver: "claude-code", Version: "2.1.400\nelse", Words: words}},
+		{"a version that is no version", &ledger.CLICheck{Driver: "claude-code", Version: "../2.1", Words: words}},
+		{"a version too long", &ledger.CLICheck{Driver: "claude-code", Version: strings.Repeat("9", 65), Words: words}},
+		{"words with an escape sequence", &ledger.CLICheck{Driver: "claude-code", Version: "2.1.400", Words: "Checking \x1b[2J"}},
+		{"words with a line break", &ledger.CLICheck{Driver: "claude-code", Version: "2.1.400", Words: "Checking\nClaude Code"}},
+		{"words with a hidden character", &ledger.CLICheck{Driver: "claude-code", Version: "2.1.400", Words: "Checking \u202eClaude Code"}},
+		{"words past the bound", &ledger.CLICheck{Driver: "claude-code", Version: "2.1.400", Words: strings.Repeat("x", 301)}},
+	}
+	if _, err := s.report(named); err != nil {
+		return err
+	}
+	// Each refused check rides a status that moves the lane, so the state that arrives with it is what shows it was kept.
+	states := []string{"idle", "working"}
+	for i, tt := range refused {
+		state := states[i%len(states)]
+		moved := ledger.LaneStatus{ActualState: state, Liveness: "alive", ModelReach: "reachable", LedgerReach: "unknown", Checking: tt.check}
+		if _, err := s.report(moved); err != nil {
+			return err
+		}
+		view, err := s.plane.Lane(r.Ctx, s.lane)
+		if err != nil {
+			return err
+		}
+		if view.ActualState != state {
+			return Violatedf("a status with %s left the lane %s, want %s", tt.what, view.ActualState, state)
+		}
+		if view.Checking != nil {
+			return Violatedf("a status with %s left the lane's check at %+v", tt.what, view.Checking)
+		}
+	}
+	events, err := r.Events(s.store, r.Scope)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		if event.Type != ledger.EventLaneStatus || event.Subject.ID != s.lane {
+			continue
+		}
+		var status ledger.LaneStatus
+		if err := json.Unmarshal(event.Data, &status); err != nil {
+			return err
+		}
+		if status.Checking != nil && *status.Checking != *named.Checking {
+			return Violatedf("the log keeps a lane's check of %+v", status.Checking)
+		}
 	}
 	return r.CheckProjection(s.store)
 }

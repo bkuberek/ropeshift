@@ -127,8 +127,9 @@ func (w *Worker) handOverLocked() {
 // in the driver, which from then on qualifies that version alone. A probe that could not run leaves
 // every surface unobserved, so the version runs degraded.
 func (w *Worker) runProbe(life context.Context, p *probeRun) {
-	// A probe that ends with no result of its own, because the version moved under it, leaves the driver
-	// what the worker holds.
+	// A probe's end moves the status of every lane on its version, so the loop publishes at once. A probe
+	// that ends with no result of its own, because the version moved under it, leaves the driver what the
+	// worker holds.
 	ownResult := false
 	defer func() {
 		w.qualLock.Lock()
@@ -138,6 +139,7 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 			w.handOverLocked()
 		}
 		w.qualLock.Unlock()
+		w.laneMoved()
 	}()
 	ctx, cancel := context.WithTimeout(life, probeLimit)
 	defer cancel()
@@ -179,6 +181,32 @@ func (w *Worker) keepQualification(ctx context.Context, q lanes.Qualification) e
 	w.qual = q
 	w.config.Lanes.Driver.Qualify(q)
 	return nil
+}
+
+// qualificationOf is what a lane whose process runs on a version reads of its worker's probes: the
+// result that holds for that version, when one does, and otherwise the check of it that runs now, which
+// the lane names.
+func (w *Worker) qualificationOf(version string) (check *ledger.CLICheck, held lanes.Qualification, holds bool) {
+	if version == "" {
+		return nil, lanes.Qualification{}, false
+	}
+	driver := w.driverName()
+	w.qualLock.Lock()
+	defer w.qualLock.Unlock()
+	switch {
+	case w.qual.Holds(version):
+		return nil, w.qual, true
+	case w.probe != nil && w.probe.version == version:
+		return ledger.CheckingCLI(driver, version), lanes.Qualification{}, false
+	}
+	return nil, lanes.Qualification{}, false
+}
+
+// runVersion is the version the lane's process runs, and empty before its first process starts.
+func (r *laneRun) runVersion() string {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.version
 }
 
 // driverName is the driver this epoch advertised.
