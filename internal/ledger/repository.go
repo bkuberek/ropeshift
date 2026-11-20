@@ -328,7 +328,7 @@ func CheckBranch(name string) error {
 	for _, r := range name {
 		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
 		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
-		if HiddenRune(r) {
+		if ControlOrFormatRune(r) {
 			return bad("holds a character that is not seen")
 		}
 		if unicode.IsSpace(r) {
