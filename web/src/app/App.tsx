@@ -78,7 +78,8 @@ function moveInList(step: 1 | -1): void {
   if (handled) {
     return;
   }
-  const items = [...document.querySelectorAll<HTMLElement>("#main [data-item]")].filter((item) => !item.closest("[hidden]"));
+  // A row inside a group that is closed cannot take focus in a browser, so J and K pass over it.
+  const items = [...document.querySelectorAll<HTMLElement>("#main [data-item]")].filter((item) => !item.closest("[hidden], details:not([open])"));
   const at = items.findIndex((item) => item === document.activeElement || item.contains(document.activeElement));
   items[at < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, at + step))]?.focus();
 }

@@ -22,6 +22,14 @@ describe("an address that names a control to focus", () => {
     expect(window.location.pathname).toBe("/workers");
   });
 
+  it("opens the closed group that holds the control it names, and focuses the control", async () => {
+    serveViews();
+    openPage("/floor?focus=Open lane lane-generated-2");
+    const link = await screen.findByRole("link", { name: "Open lane lane-generated-2", hidden: true });
+    await waitFor(() => expect(document.activeElement).toBe(link));
+    expect(link.closest("details")?.open).toBe(true);
+  });
+
   it("matches the start of a control's name, in any case", async () => {
     serveViews();
     openPage("/workers?focus=start orch");

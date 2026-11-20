@@ -95,6 +95,27 @@ describe("the keyboard", () => {
     expect(sent.some((call) => call.method === "POST")).toBe(false);
   });
 
+  // A browser cannot focus a row inside a closed group, so J passes over the Ended group of the floor until it is opened.
+  it("moves through the lanes of the floor with J and passes over the closed Ended group", async () => {
+    serveViews();
+    openPage("/floor");
+    await screen.findByText("Ended (7)");
+    (document.activeElement as HTMLElement | null)?.blur();
+    const landed: (Element | null)[] = [];
+    for (let press = 0; press < 30; press++) {
+      await userEvent.keyboard("j");
+      landed.push(document.activeElement);
+    }
+    expect(landed.some((element) => element?.closest("details"))).toBe(false);
+    expect(landed[landed.length - 1]?.closest("tr")?.getAttribute("data-lane")).toBe("lane-wo-tripped");
+    await userEvent.click(screen.getByText("Ended (7)"));
+    (document.activeElement as HTMLElement | null)?.blur();
+    for (let press = 0; press < 30; press++) {
+      await userEvent.keyboard("j");
+    }
+    expect(document.activeElement?.closest("details")).not.toBeNull();
+  });
+
   it("opens the conversation panel with a period, the cursor in its message box, and closes it with one from outside the box", async () => {
     serveViews();
     openPage("/needs-you");
