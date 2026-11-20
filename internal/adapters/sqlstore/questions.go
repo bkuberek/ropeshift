@@ -15,7 +15,7 @@ import (
 const (
 	questionColumns = `id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
        batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
-       claimed_by, claim_until, decision_id, overlapping, asked_at`
+       claimed_by, claim_until, decision_id, overlapping, asked_at, title, tradeoffs, unblocks`
 	batchColumns    = `b.id, b.status, b.opened_at, b.closes_at, b.delivered_at`
 	decisionColumns = `id, status, statement, rationale, citations, scope, reversibility, categories,
        decided_by, supersedes, question_id, policy_version, overlapping, no_conflict`
@@ -39,11 +39,11 @@ var (
 		`INSERT INTO questions
   (workspace_id, id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
    batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
-   claimed_by, claim_until, decision_id, overlapping, asked_at)
+   claimed_by, claim_until, decision_id, overlapping, asked_at, title, tradeoffs, unblocks)
 VALUES
   (:workspace_id, :id, :text, :normalized_hash, :categories, :status, :rung, :blocking, :subject_kind, :subject_id,
    :batch_id, :asked_by, :options, :recommendation, :recommendation_rationale, :escalation_reason, :ladder_trace,
-   :claimed_by, :claim_until, :decision_id, :overlapping, :asked_at)`)
+   :claimed_by, :claim_until, :decision_id, :overlapping, :asked_at, :title, :tradeoffs, :unblocks)`)
 
 	stmtSaveQuestion = define("question.save",
 		`UPDATE questions
@@ -276,6 +276,15 @@ func questionParams(q questions.Question) (params, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The shape is written once, when the question is asked, and an empty set of tradeoffs is stored as none.
+	tradeoffs := sql.NullString{}
+	if len(q.Tradeoffs) != 0 {
+		raw, err := json.Marshal(q.Tradeoffs)
+		if err != nil {
+			return nil, err
+		}
+		tradeoffs = sql.NullString{String: string(raw), Valid: true}
+	}
 	return params{
 		"id": q.ID, "text": q.Text, "normalized_hash": q.NormalizedHash, "categories": string(categories),
 		"status": string(q.Status), "rung": q.Rung, "blocking": flag(q.Blocking), "subject_kind": nullText(q.SubjectKind),
@@ -283,6 +292,7 @@ func questionParams(q questions.Question) (params, error) {
 		"options": string(options), "recommendation": nullText(q.Recommendation), "recommendation_rationale": nullText(q.RecommendationRationale),
 		"escalation_reason": nullText(q.EscalationReason), "ladder_trace": string(trace), "claimed_by": nullText(q.ClaimedBy), "claim_until": nullInt(q.ClaimUntil),
 		"decision_id": nullText(q.DecisionID), "overlapping": string(overlapping), "asked_at": nullInt(q.AskedAt),
+		"title": nullText(q.Title), "tradeoffs": tradeoffs, "unblocks": nullText(q.Unblocks),
 	}, nil
 }
 
@@ -316,9 +326,11 @@ func scanQuestion(row scanner) (questions.Question, error) {
 	var status, categories, options, trace string
 	var blocking int64
 	var subjectKind, subjectID, batch, askedBy, recommendation, rationale, reason, claimedBy, decision, overlapping sql.NullString
+	var title, tradeoffs, unblocks sql.NullString
 	var claimUntil, askedAt sql.NullInt64
 	err := row.Scan(&q.ID, &q.Text, &q.NormalizedHash, &categories, &status, &q.Rung, &blocking, &subjectKind, &subjectID,
-		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision, &overlapping, &askedAt)
+		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision, &overlapping, &askedAt,
+		&title, &tradeoffs, &unblocks)
 	if err != nil {
 		return questions.Question{}, err
 	}
@@ -326,6 +338,12 @@ func scanQuestion(row scanner) (questions.Question, error) {
 	q.SubjectKind, q.SubjectID, q.BatchID, q.AskedBy = subjectKind.String, subjectID.String, batch.String, askedBy.String
 	q.Recommendation, q.RecommendationRationale, q.EscalationReason = recommendation.String, rationale.String, reason.String
 	q.ClaimedBy, q.ClaimUntil, q.DecisionID, q.AskedAt = claimedBy.String, claimUntil.Int64, decision.String, askedAt.Int64
+	q.Title, q.Unblocks = title.String, unblocks.String
+	if tradeoffs.String != "" {
+		if err := json.Unmarshal([]byte(tradeoffs.String), &q.Tradeoffs); err != nil {
+			return questions.Question{}, fmt.Errorf("question %s: %w", q.ID, err)
+		}
+	}
 	for _, field := range []struct {
 		raw  string
 		into any

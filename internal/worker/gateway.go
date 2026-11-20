@@ -243,6 +243,7 @@ func (w *Worker) takeAsk(ctx context.Context, lane lanes.Record, request lanes.A
 		Ask: questions.Ask{
 			ID: id, Text: request.Text, Categories: request.Categories, Blocking: request.Blocking,
 			Options: request.Options, Recommendation: request.Recommendation, RecommendationRationale: request.RecommendationRationale,
+			Title: request.Title, Tradeoffs: request.Tradeoffs, Unblocks: request.Unblocks,
 			Lane: lane.ID, Generation: lane.Generation,
 		},
 	})

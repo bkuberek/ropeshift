@@ -53,7 +53,7 @@ func TestAPlanningBriefShowsEveryFormat(t *testing.T) {
 		"[[decision]]", "[[exit_criteria]]", "[[work_orders]]", "[[requirement]]", "assets", "depends_on", "shared", "uses", "documents",
 		"kind:id", "binds nothing until", "no requirement", "version",
 		"is not a milestone of its plan", "marked shared", "form a cycle", "wait for", "every contract of it names one",
-		"recommend one of them", "recommendation_rationale",
+		"recommend one of them", "recommendation_rationale", "a short title", "tradeoffs", "unblocks", "sent back",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("the brief says nothing of %q", want)
@@ -71,7 +71,7 @@ func TestAReviewBriefCarriesThePlanAndAsksForEverything(t *testing.T) {
 	}})
 	for _, want := range []string{
 		"Plan: The plan", "Contract: Alpha", "Retry twice.", "c1: It retries.", "Contract: Beta", "Log it.", ToolAsk, "blocking", "Do not change any file",
-		"recommend one of them", "recommendation_rationale",
+		"recommend one of them", "recommendation_rationale", "a short title", "tradeoffs", "unblocks", "sent back",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("the brief leaves out %q", want)

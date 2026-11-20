@@ -65,12 +65,14 @@ function sendable(item: QuestionItem, draft: Draft): boolean {
   return answerOf(draft) !== "" && (accepts(item, draft) || draft.rationale.trim() !== "");
 }
 
-function Choice({ name, value, checked, recommended, onPick, label }: {
+function Choice({ name, value, checked, recommended, onPick, label, tradeoff }: {
   name: string;
   value: string;
   checked: boolean;
   recommended: boolean;
   label: string;
+  // tradeoff is what choosing this option gives up, as the asker wrote it.
+  tradeoff?: string;
   onPick: (value: string) => void;
 }) {
   return (
@@ -78,6 +80,7 @@ function Choice({ name, value, checked, recommended, onPick, label }: {
       <input type="radio" name={name} value={value} checked={checked} onChange={() => onPick(value)} />
       <span className="option-text">{label}</span>
       {recommended ? <span className="reco-tag">Recommended</span> : null}
+      {tradeoff ? <span className="small muted option-tradeoff">{tradeoff}</span> : null}
     </label>
   );
 }
@@ -121,6 +124,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
           Scope: <ScopeName scope={item.scope} title={item.scope_title} />
         </p>
       ) : null}
+      {item.unblocks ? <p className="small muted question-unblocks">Unblocks: {item.unblocks}</p> : null}
       {options.map((option) => (
         <Choice
           key={option}
@@ -129,6 +133,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
           label={option}
           checked={draft.choice === option}
           recommended={option === item.recommendation}
+          tradeoff={item.tradeoffs?.[option]}
           onPick={(choice) => onChange({ ...draft, choice })}
         />
       ))}

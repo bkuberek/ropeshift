@@ -90,6 +90,10 @@ type Item struct {
 	// the core ran lists what it found by text, judged by nobody, so the trace says which citation is which.
 	NoOrchestrator bool   `json:"no_orchestrator,omitempty"`
 	LadderTrace    []Step `json:"ladder_trace,omitempty"`
+	// Title, Tradeoffs, and Unblocks are the question's shape, with a tradeoff only for an option it offers now.
+	Title     string            `json:"title,omitempty"`
+	Tradeoffs map[string]string `json:"tradeoffs,omitempty"`
+	Unblocks  string            `json:"unblocks,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -112,6 +116,7 @@ func Present(batch Batch, rows []Question, category string, policy Policy) Prese
 			EscalationReason: row.EscalationReason, Reversibility: policy.AnswerReversibility(row), Citations: citationsOf(row),
 			Scope: ScopeOf(row.SubjectKind, row.SubjectID), Overlaps: row.Overlaps,
 			NoOrchestrator: row.NoOrchestrator(), LadderTrace: row.LadderTrace,
+			Title: row.Title, Tradeoffs: TradeoffsOf(row), Unblocks: row.Unblocks,
 		})
 	}
 	return presented

@@ -24,6 +24,9 @@ const itemOf = (question: Question): QuestionItem => ({
   escalation_reason: question.escalation_reason,
   reversibility: question.reversibility,
   overlaps: question.overlaps,
+  title: question.title,
+  tradeoffs: question.tradeoffs,
+  unblocks: question.unblocks,
 });
 
 // AnswerForm answers one question in place, through the control Needs you answers through, and so with the

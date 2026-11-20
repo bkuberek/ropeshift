@@ -112,14 +112,18 @@ type WaitDeclaration struct {
 }
 
 // AskRequest is a lane's question. Options are what it would choose between, when it knows. Recommendation is the
-// option it would choose, one of Options when it names any, and RecommendationRationale says why.
+// option it would choose, one of Options when it names any, and RecommendationRationale says why. Title is the
+// question in a few words, Tradeoffs what each option gives up, by option, and Unblocks what the answer lets go on.
 type AskRequest struct {
-	Text                    string   `json:"text"`
-	Categories              []string `json:"categories,omitempty"`
-	Blocking                bool     `json:"blocking,omitempty"`
-	Options                 []string `json:"options,omitempty"`
-	Recommendation          string   `json:"recommendation,omitempty"`
-	RecommendationRationale string   `json:"recommendation_rationale,omitempty"`
+	Text                    string            `json:"text"`
+	Categories              []string          `json:"categories,omitempty"`
+	Blocking                bool              `json:"blocking,omitempty"`
+	Options                 []string          `json:"options,omitempty"`
+	Recommendation          string            `json:"recommendation,omitempty"`
+	RecommendationRationale string            `json:"recommendation_rationale,omitempty"`
+	Title                   string            `json:"title,omitempty"`
+	Tradeoffs               map[string]string `json:"tradeoffs,omitempty"`
+	Unblocks                string            `json:"unblocks,omitempty"`
 }
 
 // ReplyRequest is a lane's answer to one message. ReplyTo names the message, which is what makes
