@@ -24,8 +24,25 @@ export async function copyText(text: string, what: string): Promise<string> {
   }
 }
 
-// PaneTools is the toolbar above a pane's screen: copy the screen, select the pane's text, and search it.
-export function PaneTools({ onCopyScreen, onSelectAll, onSearch, searching, said }: { onCopyScreen: () => void; onSelectAll: () => void; onSearch: () => void; searching: boolean; said: string }) {
+// PaneTools is the toolbar above a pane's screen: copy the screen, select the pane's text, search it, and
+// take the whole view with it.
+export function PaneTools({
+  onCopyScreen,
+  onSelectAll,
+  onSearch,
+  searching,
+  full,
+  onFull,
+  said,
+}: {
+  onCopyScreen: () => void;
+  onSelectAll: () => void;
+  onSearch: () => void;
+  searching: boolean;
+  full: boolean;
+  onFull: () => void;
+  said: string;
+}) {
   return (
     <div className="pane-toolbar" role="toolbar" aria-label="Pane tools">
       <button className="btn btn-sm" type="button" onClick={onCopyScreen}>
@@ -36,6 +53,9 @@ export function PaneTools({ onCopyScreen, onSelectAll, onSearch, searching, said
       </button>
       <button className="btn btn-sm" type="button" aria-pressed={searching} onClick={onSearch}>
         Search
+      </button>
+      <button className="btn btn-sm" type="button" aria-pressed={full} onClick={onFull}>
+        Full view
       </button>
       <span className="pane-said small muted" aria-live="polite">
         {said}
