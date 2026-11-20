@@ -243,6 +243,15 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 			return false, clash
 		}
 	}
+	finish, err := versionFinish(tx, next)
+	if err != nil {
+		return false, err
+	}
+	if len(planning.Unfinished(finish)) != 0 {
+		// A plan that is still a placeholder is never offered for approval. The version stands in the ledger, and
+		// the commit that finishes the plan makes the next one, which is asked about as any other.
+		return true, nil
+	}
 	return true, askForPlanApproval(tx, planAsk{
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,
 		decisions: len(next.Decisions), source: next.Source, workOrder: next.WorkOrder,
