@@ -15,9 +15,9 @@ import (
 // only when its tools wrote it. Git's status leaves out every ignored file, so an ignored path, an input root's
 // among them, is never a change of either kind.
 type LaneFiles struct {
-	// Before is what the worktree held changed or untracked when the lane's first session began its first turn,
-	// as a survey names it, and Began says it was read. A lane with no reading owns every change, as a lane
-	// that ran before a worker read it did.
+	// Before is every file the worktree held changed or untracked when the lane's first session began its first
+	// turn, and Began says it was read. A lane with no reading owns every change, as a lane that ran before a
+	// worker read it did.
 	Before []string
 	Began  bool
 	// Written is every path the lane's edit and write tools named, relative to the worktree, and AllWritten says
@@ -27,37 +27,36 @@ type LaneFiles struct {
 	AllWritten bool
 }
 
-// Split divides a survey's changes into the lane's own and the rest, each sorted. A change that ends in `/` is
-// a folder git shows whole, because it holds no tracked file. A write inside a folder that was there before is
-// the lane's own, and the folder itself is still left out, so a snapshot takes the one file and nothing else.
+// Split divides a survey's changes, one file each, into the lane's own and the rest, each sorted. A file is
+// compared whole with what the reading holds, so a new file in a folder that was there before is the lane's own.
 func (f LaneFiles) Split(changes []string) (own, left []string) {
 	for _, change := range changes {
-		if !f.Began || !f.AllWritten || !f.wasThere(change) {
+		if !f.Began || !f.AllWritten || !slices.Contains(f.Before, change) || slices.Contains(f.Written, change) {
 			own = append(own, change)
 			continue
 		}
-		wrote := false
-		for _, written := range f.Written {
-			if written == change || strings.HasSuffix(change, "/") && strings.HasPrefix(written, change) {
-				own = append(own, written)
-				wrote = wrote || written == change
-			}
-		}
-		if !wrote {
-			left = append(left, change)
-		}
+		left = append(left, change)
 	}
 	return sortedSet(own), sortedSet(left)
 }
 
-// wasThere says a change lies at or under something the worktree held before the first turn.
-func (f LaneFiles) wasThere(change string) bool {
-	for _, before := range f.Before {
-		if before == change || strings.HasSuffix(before, "/") && strings.HasPrefix(change, before) {
-			return true
+// CollapseLeft is a report's view of the files left out: each file in a folder git tracks nothing in, and that holds
+// none of the lane's own files, reads as that folder, the outermost such one, which is what a .gitignore entry
+// names. Every other file reads as itself.
+func CollapseLeft(left, own, folders []string) []string {
+	var out []string
+	for _, file := range left {
+		named := file
+		for _, folder := range folders {
+			if strings.HasPrefix(file, folder) && len(folder) < len(named) && !slices.ContainsFunc(own, func(mine string) bool {
+				return strings.HasPrefix(mine, folder)
+			}) {
+				named = folder
+			}
 		}
+		out = append(out, named)
 	}
-	return false
+	return sortedSet(out)
 }
 
 func sortedSet(paths []string) []string {

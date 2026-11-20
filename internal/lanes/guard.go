@@ -15,8 +15,11 @@ type WorktreeFindings struct {
 	Head   string
 	// Dirty says a tracked or an untracked file differs from HEAD.
 	Dirty bool
-	// DirtyPaths names those files.
+	// DirtyPaths names those files, each by its exact path, a file in an untracked folder included.
 	DirtyPaths []string
+	// Folders are the folders git tracks nothing in, each ending in `/`, which a report names in place of the
+	// files they hold.
+	Folders []string
 	// Remote names where a push goes, and empty means none is configured.
 	Remote string
 	// Ahead counts the commits only this branch holds: the remote lacks them, or with no
@@ -76,8 +79,12 @@ type GuardResult struct {
 	Commit   string `json:"commit,omitempty"`
 	Pushed   bool   `json:"pushed,omitempty"`
 	Detail   string `json:"detail,omitempty"`
-	// Left names the changes that are not the lane's own, which no snapshot holds (FR-LANE-20).
-	Left []string `json:"left_out,omitempty"`
+	// Left names the changes that are not the lane's own, which no snapshot of the lane's work holds, a folder git
+	// tracks nothing in by the folder, and LeftMore counts those past the ones named (FR-LANE-20). LeftRef is the
+	// local ref that keeps their files.
+	Left     []string `json:"left_out,omitempty"`
+	LeftMore int64    `json:"left_out_more,omitempty"`
+	LeftRef  string   `json:"left_ref,omitempty"`
 }
 
 // SettleGuard decides from a second reading, and not from whether an act returned, so a
@@ -105,6 +112,12 @@ func SalvageRef(lane string, fence int64) string {
 // CheckpointRef names what a stop leaves of a generation's uncommitted changes.
 func CheckpointRef(lane string, generation int64) string {
 	return fmt.Sprintf("refs/ropeshift/checkpoints/%s/%d", lane, generation)
+}
+
+// LeftRef names what a stop keeps on this machine of the files a generation left out (FR-LANE-20). Nothing pushes
+// it, so a wrong reading can be undone, and a path decided part of the project still has its file.
+func LeftRef(lane string, generation int64) string {
+	return fmt.Sprintf("refs/ropeshift/left/%s/%d", lane, generation)
 }
 
 // HeadsRef names a branch.
