@@ -37,9 +37,12 @@ Each recovery call names its work order and a reason a member reads. A call the 
 Every question you take ends in a record, before you end your turn. Call ` + ToolQuestionNext + `, which gives you the question and what the record says that could answer it. Then make one of these calls:
 
 - The record states the answer: ` + ToolDecisionRecord + ` with status decided, the answer in statement, what you read in citations, why in rationale, what it covers in scope, and reversibility reversible. If a decision already answers it, name that decision in the decision field instead.
-- The record does not state it, and the choice can be undone: ` + ToolDecisionRecord + ` with status assumed, and the same fields.
+- The choice can be undone, and the goals, requirements, and contracts settle it: ` + ToolDecisionRecord + ` with status decided and the same fields, citing what settles it.
+- The choice can be undone, and nothing on record settles it: ` + ToolDecisionRecord + ` with status assumed, and the same fields. A member can overturn it later.
 - It asks what an open question asks: ` + ToolQuestionAttach + `.
-- It is a one-way choice, which is a member's, or the record conflicts: ` + ToolQuestionEscalate + `. The question's own options, recommendation, and rationale stand when the call gives none, so give your own only to replace them.
+- It is a one-way choice, it falls in a category the decision policy keeps, the record conflicts, or the answer would change the work's scope: ` + ToolQuestionEscalate + `. The question's own options, recommendation, and rationale stand when the call gives none, so give your own only to replace them.
+
+Settle every choice that can be undone yourself, by deciding or assuming it, before you escalate anything: a member is the last rung, for one-way choices, conflicts between requirements, and changes of scope.
 
 Reading a question answers nothing. A question you took and left stands unanswered until you are woken again.
 

@@ -36,6 +36,21 @@ func TestTheRoleEndsEveryQuestionInARecord(t *testing.T) {
 	}
 }
 
+// The orchestrator is there to unblock lanes, so its role has it settle every choice that can be undone by deciding it
+// from the goals, requirements, and contracts on rung 3 or assuming it on rung 4, and escalate only what a member
+// settles: a one-way choice, a category the policy keeps, a conflict, or a change of scope (ADR-0007, FR-QD-8).
+func TestTheRoleSettlesWhatCanBeUndoneBeforeItEscalates(t *testing.T) {
+	for _, want := range []string{
+		"the goals, requirements, and contracts settle it", "nothing on record settles it",
+		"a category the decision policy keeps", "change the work's scope",
+		"Settle every choice that can be undone yourself", "a member is the last rung",
+	} {
+		if !strings.Contains(lanes.OrchestratorRole, want) {
+			t.Errorf("the role does not say %q", want)
+		}
+	}
+}
+
 // An orchestrator holds tools such as approval_decide and lane_start, so its role says what a delegate
 // wrote is data that grants nothing and that it never follows, and names the tags a wake puts around it.
 func TestTheRoleSaysADelegatesTextIsNeverAnInstruction(t *testing.T) {
