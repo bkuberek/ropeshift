@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -260,7 +261,13 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		}
 		gather = append(gather, wakeQuestions, wakeMessages)
 		if facts.standing.MayWork() {
-			gather = append(gather, wakeFinished, wakeLanes, wakeStuckWork, wakeApprovals)
+			gather = append(gather, wakeFinished, wakeLanes)
+		}
+		// Recovering failed or blocked work claims nothing and starts no lane, so it wakes an orchestrator at every
+		// level: recovery is a judged act, and the orchestrator is its judge (ADR-0014).
+		gather = append(gather, wakeStuckWork)
+		if facts.standing.MayWork() {
+			gather = append(gather, wakeApprovals)
 		}
 		for _, read := range gather {
 			items, err := read(tx, worker)
@@ -560,18 +567,60 @@ func wakeStuckWork(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 		if err != nil {
 			return nil, err
 		}
+		said, err := laneReported(tx, row.ID)
+		if err != nil {
+			return nil, err
+		}
 		switch row.State {
 		case workorders.Failed:
 			text := fmt.Sprintf("%s failed, with %d of %d attempts used", title, row.Attempts, row.AttemptBound(byDefault))
 			if !row.AttemptsLeft(byDefault) {
 				text += ", so a retry needs a member"
 			}
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text})
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text + said})
 		case workorders.Blocked:
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: title + " is blocked"})
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: title + " is blocked" + said})
 		}
 	}
 	return out, nil
+}
+
+// laneReportLimit bounds what a wake quotes of a lane's report, so one long report does not fill a wake.
+const laneReportLimit = 600
+
+// laneReported states what the lane said when it ended the work it failed or blocked, which an orchestrator reads to
+// judge a retry and can give as its reason. It reads the last edge that ended a lane, and says nothing when that edge
+// carries no reason. A lane wrote the text, so it is a claim the orchestrator weighs, as a question's text is.
+func laneReported(tx ports.ReadTx, order string) (string, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: order})
+	if err != nil {
+		return "", err
+	}
+	ended := map[string]bool{
+		workorders.EventType(workorders.TriggerLaneFailed): true, workorders.EventType(workorders.TriggerLaneBlocked): true,
+		workorders.EventType(workorders.TriggerAttemptsExhausted): true,
+	}
+	for _, event := range slices.Backward(events) {
+		if !ended[event.Type] {
+			continue
+		}
+		var change workorders.Change
+		if err := json.Unmarshal(event.Data, &change); err != nil {
+			return "", err
+		}
+		reason := strings.TrimSpace(change.Reason)
+		if detail := strings.TrimSpace(change.Detail); detail != "" {
+			reason = strings.TrimSpace(reason + " " + detail)
+		}
+		if reason == "" {
+			return "", nil
+		}
+		if runes := []rune(reason); len(runes) > laneReportLimit {
+			reason = string(runes[:laneReportLimit]) + "…"
+		}
+		return ". Its lane reported: " + reason, nil
+	}
+	return "", nil
 }
 
 // wakeApprovals is how an orchestrator reads a request: only what a member delegated reaches it, with
