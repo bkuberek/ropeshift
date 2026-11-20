@@ -498,7 +498,7 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	if recordNewer && code == ledger.TemplateRefusedBusy {
 		// Another creation holds the path: the refusal says to preview again, and is no word on this creation, so what its own
 		// records said stands.
-		recordNewer, refusedLater, code = false, false, ""
+		refusedLater, code = false, ""
 		if latest.Finished != nil {
 			code = latest.Finished.RefusalCode
 		}

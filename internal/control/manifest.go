@@ -62,7 +62,7 @@ func (r *Repositories) registerApproved(ctx context.Context, scope ledger.Worksp
 			return err
 		}
 		if row.State == authority.ApprovalApproved && !dryRun {
-			if recorded, err = RegistrationOf(tx, row.ID); err != nil || (recorded != nil && !(again && recorded.Problem != "")) {
+			if recorded, err = RegistrationOf(tx, row.ID); err != nil || (recorded != nil && (!again || recorded.Problem == "")) {
 				if err == nil {
 					replayed, err = recordedAdded(tx.Repositories(), recorded)
 				}
