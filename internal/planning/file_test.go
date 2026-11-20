@@ -208,3 +208,12 @@ func TestEntriesThatCreateDifferentRepositoriesAreAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAManifestPathHoldsNoHiddenCharacter(t *testing.T) {
+	for _, path := range []string{"../api\u200b", "../a\u2028pi", "../a\u2029pi", "../api\u202e"} {
+		manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "api", Path: path}}}
+		if _, err := manifest.Normalize(); !errors.Is(err, planning.ErrBadFile) {
+			t.Errorf("path %q reads %v, want a bad file", path, err)
+		}
+	}
+}
