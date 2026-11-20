@@ -666,3 +666,63 @@ func checkARetryRefusesAForgeRepositoryAnotherEntryOfTheVersionCreates(r *Rig) e
 	}
 	return nil
 }
+
+func checkARunAWorkerStoppedAsBusyIsAnItemAndARetryRegistersTheRest(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("stubborn", "../stubborn", "")+creationEntry("site", "../site", ""), []string{"search", "stubborn", "site"}, nil)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"search", "site"} {
+		w.creator.passes(name, name, "main")
+	}
+	// The check of stubborn is refused as busy though it waited, so the run stops there and keeps no refusal: stubborn and
+	// every entry after it are not attempted, and the approval records the error as the problem of its registration.
+	w.creator.refuses("stubborn", ledger.TemplateRefusedBusy, "another creation on this worker writes /work/stubborn", "")
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	if _, err := r.runCreation(w, false); err == nil || !strings.Contains(err.Error(), "stubborn") {
+		return Violatedf("a busy refusal of a check that waited stopped the run with %v", err)
+	}
+	items, err := r.uncreated(s, noCreationRuns)
+	if err != nil || len(items) != 2 || items[0].Name != "stubborn" || items[1].Name != "site" {
+		return Violatedf("a run the worker stopped as busy waits for a member as %+v: %v", items, err)
+	}
+	for _, item := range items {
+		if item.State != control.CreationFailed || !strings.Contains(item.Reason, "stubborn") {
+			return Violatedf("%s waits for a member as %+v, want it not attempted because the run stopped at stubborn", item.Name, item)
+		}
+	}
+	// The member skips site, and the worker answers now. A retry of stubborn registers the version again, under the
+	// registration's lock: stubborn is created, search is the repository it was, and site stays as the member left it.
+	if _, err := w.repositories.SkipCreation(r.Ctx, r.Scope, w.request.ID, "site", "not this time", r.member()); err != nil {
+		return err
+	}
+	w.creator.passes("stubborn", "stubborn", "main")
+	created := len(w.creator.Created())
+	added, err := w.repositories.RetryCreation(r.Ctx, r.Scope, w.request.ID, "stubborn", w.machine, w.creator, "shop", r.member())
+	if err != nil {
+		return Violatedf("a retry of a run the worker stopped as busy: %v", err)
+	}
+	want := map[string]entryOutcome{
+		"search":   {outcome: ledger.AlreadyRegistered, path: "/work/search"},
+		"stubborn": {outcome: ledger.Created, path: "/work/stubborn"},
+		"api":      {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"site":     {outcome: ledger.Skipped, path: "/work/site", reason: "not this time"},
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("a retry of a run the worker stopped as busy: %v", err)
+	}
+	if jobs := asked(w.creator.Created()[created:]); !slices.Equal(jobs, []string{"stubborn"}) {
+		return Violatedf("the retry had the creator create %v, want stubborn alone: search is held and site was skipped", jobs)
+	}
+	record, err := r.registrationOf(s, w.request.ID)
+	if err != nil || record == nil || record.Problem != "" {
+		return Violatedf("the approval recorded %+v after the retry: %v, want no problem", record, err)
+	}
+	if items, err := r.uncreated(s, noCreationRuns); err != nil || len(items) != 0 {
+		return Violatedf("Needs you holds %+v after the retry", items)
+	}
+	return r.CheckProjection(s)
+}

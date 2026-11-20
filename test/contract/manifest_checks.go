@@ -63,6 +63,7 @@ var ManifestChecks = []Check{
 	{"RM44", "a retry or a skip by a delegate, a lane, an orchestrator, or a tick is refused as forbidden and changes nothing, and the creator is asked nothing", checkADelegateRetriesAndSkipsNothing},
 	{"RM59", "a retry of a run an error stopped registers the whole version again and leaves out each entry a member skipped: the creator is never asked for it, and its record stays skipped", checkARetryOfARunThatStoppedNeverCreatesWhatWasSkipped},
 	{"RM60", "a retry of one entry refuses a forge repository another entry of the version creates, as the run that registered the version did: the creator is not asked to create it", checkARetryRefusesAForgeRepositoryAnotherEntryOfTheVersionCreates},
+	{"RM61", "a run a worker stopped by refusing an approval's check as busy though it waited is an item for each entry it did not attempt, and a retry of one registers the whole version again, under the registration's lock, leaving out what a member skipped", checkARunAWorkerStoppedAsBusyIsAnItemAndARetryRegistersTheRest},
 }
 
 const manifestPlan = "platform-v1"
