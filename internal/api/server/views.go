@@ -288,6 +288,9 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 	if err := stuckOrchestrators(tx, add); err != nil {
 		return nil, err
 	}
+	if err := personalSetups(tx, f, add); err != nil {
+		return nil, err
+	}
 	slices.SortStableFunc(items, func(a, b api.StuckItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
 }
@@ -1453,7 +1456,11 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	}
 	view := api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: make([]api.FloorLane, 0, len(lanes))}
 	for _, lane := range lanes {
-		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder], Archivable: archivable(byLane[lane.ID])})
+		setup, _, err := laneSetup(tx, lane.ID)
+		if err != nil {
+			return nil, err
+		}
+		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder], Archivable: archivable(byLane[lane.ID]), Setup: setup})
 	}
 	return view, nil
 }

@@ -17,6 +17,7 @@ import { AskedQuestions } from "../planning/AskedQuestions";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
 import { LaneMessages } from "./Messages";
+import { RunsWith } from "./RunsWith";
 import { parseScreen, trimScreen } from "./screen";
 import { startingMs } from "./starting";
 
@@ -398,6 +399,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                 <p className="muted">Reading…</p>
               )}
             </Panel>
+            {lane ? <RunsWith setup={lane.setup} /> : null}
             {lane?.artifacts?.length ? (
               <Panel title="Artifacts">
                 <ul className="criteria" aria-label="Artifacts">
