@@ -22,6 +22,10 @@ const voidWords = "The subject changed since the card was prepared. Ask the dele
 // argument a card prepared earlier holds it, so the row names the value alone.
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
 
+// The caps a fleet.caps card sets are counts where zero means no limit, so a person reads a zero as that.
+const shownIn = (operation: string, value: unknown): ReactNode =>
+  operation === "fleet.caps" && value === 0 ? <span className="muted">no limit</span> : <code>{shown(value)}</code>;
+
 // short is the start of a digest a person compares by eye.
 const short = (digest: string) => digest.replace(/^sha256:/, "").slice(0, 7);
 
@@ -41,11 +45,11 @@ function Changes({ changes, operation, subject }: { changes: CardNeed["detail"][
             {": "}
             {row.from !== null && row.from !== undefined ? (
               <>
-                <code>{shown(row.from)}</code> <span aria-hidden="true">→</span>
+                {shownIn(operation, row.from)} <span aria-hidden="true">→</span>
                 <span className="visually-hidden">to</span>{" "}
               </>
             ) : null}
-            {row.from !== null && row.from !== undefined && (row.to === null || row.to === undefined) ? <em>removed</em> : <code>{shown(row.to)}</code>}
+            {row.from !== null && row.from !== undefined && (row.to === null || row.to === undefined) ? <em>removed</em> : shownIn(operation, row.to)}
           </li>
         ))}
       </ul>

@@ -204,3 +204,40 @@ describe("a practices card", () => {
     expect(row?.textContent).not.toContain("null");
   });
 });
+
+// The caps a card sets are counts where zero means no limit, which the API sends as a number in "from" and "to".
+describe("a card that sets the fleet's caps", () => {
+  const capsCard = (operation: string, changes: FieldChange[]): CardItem => {
+    const base = cardOf(cards(), "repository.raise_merge_authority");
+    const detail = { ...base.card.detail, operation, label: operation, method: "PUT", path: "/v1/fleet/caps", why: "The plan names this limit.", changes };
+    return {
+      ...base,
+      id: operation,
+      card: { ...base.card, approval: { ...base.card.approval, id: operation, summary: `Change ${operation}`, subject: `limit:${operation}`, detail: JSON.stringify(detail) }, detail },
+    };
+  };
+
+  const rowsOf = (item: CardItem) => {
+    const view = cards();
+    view.items = [item, ...view.items];
+    show(view, item);
+    const region = within(theCard(item.card.approval.summary)).getByRole("region", { name: "What it changes" });
+    return Array.from(region.querySelectorAll("li"), (row) => row.textContent);
+  };
+
+  it("reads a cap that was no limit as no limit", () => {
+    expect(rowsOf(capsCard("fleet.caps", [{ field: "wip_limit", from: 0, to: 5 }]))).toEqual(["wip_limit: no limit →to 5"]);
+  });
+
+  it("reads a cap that goes to no limit as no limit", () => {
+    expect(rowsOf(capsCard("fleet.caps", [{ field: "lanes_per_repository", from: 5, to: 0 }]))).toEqual(["lanes_per_repository: 5 →to no limit"]);
+  });
+
+  it("reads a cap that has a value on both sides as those values", () => {
+    expect(rowsOf(capsCard("fleet.caps", [{ field: "lanes_per_worker", from: 3, to: 5 }]))).toEqual(["lanes_per_worker: 3 →to 5"]);
+  });
+
+  it("leaves a practices row with a zero as the value it holds", () => {
+    expect(rowsOf(capsCard("practices.acknowledge", [{ field: "reason", from: 0, to: 5 }]))).toEqual(["reason: 0 →to 5"]);
+  });
+});
