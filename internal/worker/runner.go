@@ -8,9 +8,11 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -704,9 +706,30 @@ func failed(reason string) workorders.Report {
 	return workorders.Report{Outcome: workorders.OutcomeFailed, Reason: reason}
 }
 
+// maxFailureDetail bounds, in bytes, the cause a lane that failed to start carries in its outcome.
+const maxFailureDetail = 500
+
+// failStart ends a lane that could not start. The outcome carries the cause as its detail, so the card of the
+// failed work and the work order's lanes say more than the reason. What an error says may come from a
+// repository, a terminal, or a process, so it is plain text on one line, cut on a rune boundary.
 func (r *laneRun) failStart(reason string, err error) workorders.Report {
 	r.w.config.Report(fmt.Errorf("lane %s: %s: %w", r.lease.Lane, reason, err))
-	return failed(reason)
+	report := failed(reason)
+	report.Detail = failureDetail(err)
+	return report
+}
+
+// failureDetail writes what an error says as plain text on one line, cut at maxFailureDetail bytes.
+func failureDetail(err error) string {
+	text := strings.Join(strings.Fields(ledger.PlainText(err.Error())), " ")
+	if len(text) <= maxFailureDetail {
+		return text
+	}
+	cut := maxFailureDetail
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // recordedWorktree is the worktree the journal recorded for this lane's earlier generation, or nothing. A start

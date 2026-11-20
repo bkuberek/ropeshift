@@ -54,6 +54,19 @@ const titleOf = (row: WorkRow) => row.order.title || row.order.id;
 
 export const workAddress = (id: string, tab = "") => addressOf("/work-order", { id, tab });
 
+// laneSaid is what a lane said of why its work stopped: the reason its outcome gave, and the cause its worker added,
+// such as the error that kept the lane from starting. Work whose lane said nothing has no words.
+function laneSaid(row: WorkRow): string {
+  if (row.stuck) {
+    return row.stuck.reason === "failed" ? (row.stuck.detail ?? "") : "";
+  }
+  if (row.completed?.reason) {
+    const { reason, detail } = row.completed;
+    return detail ? `${reason}: ${detail}` : reason;
+  }
+  return "";
+}
+
 // Under is the line beneath a work order's title: what a parked lane waits for, why work stopped, or
 // what a lane said of its end.
 function Under({ row }: { row: WorkRow }) {
@@ -73,18 +86,15 @@ function Under({ row }: { row: WorkRow }) {
       </span>
     );
   }
+  const said = laneSaid(row);
   if (row.stuck) {
     // Failed work says what its lane said of why, which its state does not.
-    if (row.stuck.reason === "failed" && row.stuck.detail) {
-      return <span className="cell-note mono">{row.stuck.detail}</span>;
+    if (said) {
+      return <span className="cell-note mono">{said}</span>;
     }
     return <span className="cell-note">{row.stuck.work_order ? words(row.stuck.reason) : ""}</span>;
   }
-  if (row.completed?.reason) {
-    const { reason, detail } = row.completed;
-    return <span className="cell-note mono">{detail ? `${reason}: ${detail}` : reason}</span>;
-  }
-  return null;
+  return said ? <span className="cell-note mono">{said}</span> : null;
 }
 
 function attempts(row: WorkRow) {
@@ -536,6 +546,11 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                       <Fact name="Estimated cost">
                         <Absent>unavailable</Absent>
                       </Fact>
+                      {laneSaid(row) ? (
+                        <Fact name="Lane said" mono>
+                          {laneSaid(row)}
+                        </Fact>
+                      ) : null}
                     </Facts>
                   </Panel>
                 ) : (

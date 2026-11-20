@@ -492,6 +492,33 @@ func TestLaneFailuresBeforeASession(t *testing.T) {
 	}
 }
 
+// A lane that fails before its session says why in its outcome, so the card of its failed work shows the
+// cause and not only the reason. The cause is what an error says, which a repository or a terminal wrote, so
+// it reaches the ledger as plain text on one line, and cut.
+func TestAFailedStartCarriesItsCauseInItsOutcome(t *testing.T) {
+	t.Parallel()
+	const capped = 500
+	cause := "lane/4: no such session: tmux send-keys: command too long\x1b[31m\nsecond line\x1b[0m " + strings.Repeat("x", 3000)
+	r := newLaneRig(t)
+	r.config.Repository = func(context.Context, string, string) (string, error) { return "", errors.New(cause) }
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	change := r.outcome()
+	if change.Reason != workorders.ReasonNoRepository {
+		t.Fatalf("outcome %+v", change)
+	}
+	if !strings.HasPrefix(change.Detail, "lane/4: no such session: tmux send-keys: command too long second line xxx") {
+		t.Errorf("the outcome's detail is %q", change.Detail)
+	}
+	if strings.ContainsAny(change.Detail, "\x1b\n") {
+		t.Errorf("the detail kept an escape or a line break: %q", change.Detail)
+	}
+	if len(change.Detail) > capped || len(change.Detail) < capped-4 {
+		t.Errorf("the detail is %d bytes, want it cut at %d", len(change.Detail), capped)
+	}
+}
+
 type badProfile struct{}
 
 func (badProfile) Load(context.Context, string, string, string) (lanes.Profile, error) {
