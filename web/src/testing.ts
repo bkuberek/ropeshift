@@ -206,6 +206,11 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path.startsWith("/v1/measures/estimates")) {
       return { status: 200, body: golden("calibration") };
     }
+    // A pane's scrollback is empty unless a test answers it, so a page that shows a pane reads no history.
+    const scrollback = /^\/v1\/panes\/([^/?]+)\/scrollback(\?|$)/.exec(call.path);
+    if (call.method === "GET" && scrollback) {
+      return { status: 200, body: { lane_id: decodeURIComponent(scrollback[1] ?? ""), generation: 1, lines: "", size: 0, limit: 2000 } };
+    }
     if (call.method === "GET" && /^\/v1\/lanes\/[^/]+\/outline$/.test(call.path)) {
       return { status: 200, body: golden("outline") };
     }

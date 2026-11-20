@@ -1213,6 +1213,12 @@ details.older[open] > summary {
   color: var(--terminal-bg);
 }
 
+.pane-history {
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--s-4);
+}
+
 /* The shortcut sheet */
 .sheet {
   display: flex;
