@@ -233,8 +233,10 @@ export function headingOf(item: NeedItem): string {
       return "Did it happen?";
     case "work":
       return item.work.work_order?.title || item.work.lane?.id || (item.work.orchestrator ? `Orchestrator on ${item.work.orchestrator.worker_id}` : item.id);
-    case "plan_approval":
-      return `Approve ${item.plan_approval.title}, version ${item.plan_approval.version}?`;
+    case "plan_approval": {
+      const { title, version, branch } = item.plan_approval;
+      return `Approve ${title}, version ${version}${branch ? `, from ${branch.branch || branch.work_order}` : ""}?`;
+    }
     case "plan_revision":
       return `${item.plan_revision.title} needs revision`;
     case "contract_review":

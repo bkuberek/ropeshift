@@ -240,6 +240,10 @@ type PlanApprovalNeed struct {
 	// difference: the decisions made since the approved version, and approving this version is the word on them.
 	// It is absent when no decision moved past the approved version.
 	Revision *PlanRevisionView `json:"revision,omitempty"`
+	// Branch names the planning branch the request is about when another request that waits is about the same version
+	// of the same plan, so a member tells their cards apart: approving each approves the merge of its own branch. It is
+	// absent when no other request shares the version, and for a request that names no work order.
+	Branch *planning.PlanBranch `json:"branch,omitempty"`
 }
 
 // ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its

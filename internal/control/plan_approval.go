@@ -640,6 +640,31 @@ func PlanApprovalIsCurrent(evidence ports.EvidenceReader, order workorders.WorkO
 	return commit != "" && commit == planDetailOf(approval).Source, err
 }
 
+// RequestBranch names the planning branch a plan request is about: the work order it names, the branch that work order
+// keeps or its current attempt left, and the commit the request was raised for. A request that names no work order, or
+// one the ledger does not hold, names none.
+func RequestBranch(orders ports.WorkOrderReader, evidence ports.EvidenceReader, approval authority.Approval) (*planning.PlanBranch, error) {
+	if approval.WorkOrder == "" {
+		return nil, nil
+	}
+	order, err := orders.Get(approval.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := evidence.Artifacts(order.ID)
+	if err != nil {
+		return nil, err
+	}
+	branch := order.Branch
+	if branch == "" {
+		branch = attemptBranch(artifacts, order.Fence).URI
+	}
+	return &planning.PlanBranch{WorkOrder: order.ID, Branch: branch, Commit: requestCommit(approval)}, nil
+}
+
 // AttemptCommit is the commit a work order's branch held when its current attempt last reported it: the one a
 // member accepts, and empty when the attempt reported no branch.
 func AttemptCommit(evidence ports.EvidenceReader, order workorders.WorkOrder) (string, error) {

@@ -486,6 +486,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 			items = append(items, api.NeedItem{Kind: api.NeedApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, Approval: &approvals[i]})
 		}
 	}
+	if err := nameSharedBranches(tx, items); err != nil {
+		return nil, err
+	}
 	reviews, err := contractReviewNeeds(tx, f.orders)
 	if err != nil {
 		return nil, err
@@ -580,6 +583,42 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		items[i].Tier = api.TierOf(items[i])
 	}
 	return items, nil
+}
+
+// sharedVersion keys the version of a plan a request is about: the plan and its version, or for a branch nothing has
+// read, which the ledger holds no plan for yet, the ID the plan's file gives it and the version.
+type sharedVersion struct {
+	plan    string
+	version int64
+}
+
+func sharedVersionOf(a authority.Approval) sharedVersion {
+	if a.Plan != "" {
+		return sharedVersion{plan: a.Plan, version: a.PlanVersion}
+	}
+	return sharedVersion{plan: "ref:" + api.PlanDetailOf(a).Ref, version: a.PlanVersion}
+}
+
+// nameSharedBranches names the planning branch of each plan approval that waits beside another for the same version
+// of the same plan, because their cards read alike and approving each approves the merge of its own branch.
+func nameSharedBranches(tx ports.ReadTx, items []api.NeedItem) error {
+	waiting := map[sharedVersion]int{}
+	for _, item := range items {
+		if item.PlanApproval != nil {
+			waiting[sharedVersionOf(item.PlanApproval.Approval)]++
+		}
+	}
+	for _, item := range items {
+		if item.PlanApproval == nil || waiting[sharedVersionOf(item.PlanApproval.Approval)] < 2 {
+			continue
+		}
+		branch, err := control.RequestBranch(tx.WorkOrders(), tx.Evidence(), item.PlanApproval.Approval)
+		if err != nil {
+			return err
+		}
+		item.PlanApproval.Branch = branch
+	}
+	return nil
 }
 
 // acceptedByApproving reports whether approving one of a work order's waiting plan approvals would accept it:

@@ -332,7 +332,14 @@ export type PlanApprovalNeed = {
   revision?: PlanRevisionView;
   // unfinished lists what a placeholder version lacks. Its request cannot be approved.
   unfinished?: string[];
+  // branch names the planning branch the request is about when another waiting request is about the same version of
+  // the same plan. Approving each approves the merge of its own branch.
+  branch?: PlanBranch;
 };
+
+// PlanBranch names a planning branch: the plan work order whose lane left it, the branch, and the commit of it a
+// request was raised for, or that finishes a plan.
+export type PlanBranch = { work_order: string; branch?: string; commit?: string };
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
 

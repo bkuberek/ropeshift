@@ -2,7 +2,7 @@ import { useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { decideApproval, inProjectOf, readPlan } from "../api/client";
-import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
+import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed, PlanBranch } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
 import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "../planning/consolidation";
 import { createsLine } from "../planning/creation";
@@ -275,6 +275,26 @@ export function RegisteredRepositories({ registration, approval }: { registratio
   );
 }
 
+// SharedBranch names the branch a request is about when another request asks about the same version for another
+// branch, so the two cards read apart: approving each approves the merge of its own branch.
+function SharedBranch({ branch }: { branch: PlanBranch }) {
+  return (
+    <div role="group" aria-label="Branch">
+      <p>
+        Another request asks about this version for another branch. This one is about branch <span className="mono">{branch.branch || branch.work_order}</span> of work
+        order <span className="mono">{branch.work_order}</span>
+        {branch.commit ? (
+          <>
+            {" "}
+            at <Digest value={branch.commit} length={7} />
+          </>
+        ) : null}
+        , and approving it approves the merge of that branch only.
+      </p>
+    </div>
+  );
+}
+
 type CardProps = {
   id: string;
   need: PlanApprovalNeed;
@@ -349,6 +369,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
         {creates ? ` Approving it also ${creates}.` : ""}
       </p>
       )}
+      {need.branch ? <SharedBranch branch={need.branch} /> : null}
       <Facts>
         <Fact name="Requested by" mono>
           {need.requested_by}

@@ -285,6 +285,14 @@ type PlanDetail struct {
 	Unfinished []string `json:"unfinished,omitempty"`
 }
 
+// PlanBranch names a planning branch: the `plan` work order whose lane left it, the branch, and the commit of it a
+// request was raised for, or that finishes a plan.
+type PlanBranch struct {
+	WorkOrder string `json:"work_order"`
+	Branch    string `json:"branch,omitempty"`
+	Commit    string `json:"commit,omitempty"`
+}
+
 // DetailGoal is the goal a branch's plan names, with the statement its file holds.
 type DetailGoal struct {
 	Title           string   `json:"title"`
