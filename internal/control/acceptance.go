@@ -483,6 +483,9 @@ func reworkFor(tx ports.WriteTx, id string, note workorders.ReworkNote, failed [
 	if err := voidMergeRequests(tx, id, "", "the work went back for rework"); err != nil {
 		return "", err
 	}
+	if err := supersedePlanRequests(tx, id); err != nil {
+		return "", err
+	}
 	note.WorkOrder, note.Attempt = id, current.Fence
 	if err := tx.Evidence().RecordRework(note); err != nil {
 		return "", err

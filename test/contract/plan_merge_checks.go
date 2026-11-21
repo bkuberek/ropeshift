@@ -32,6 +32,9 @@ var PlanMergeChecks = []Check{
 	{"PM11", "a plan approved before the pull request is on record has the person's merge on the forge recorded with the pull request's number", checkPlanForgeMergeNamesItsPullRequest},
 	{"PM12", "at review_approves, a plan held for its goal that a planning branch finishes is asked about again naming the branch's work order once intake reads its accepted commit, and approving it records the merge approval", checkHeldPlanFinishedByABranchMergesAtReviewApproves},
 	{"PM13", "at person_approves, a plan held for its goal that a planning branch finishes is asked about again naming the branch's work order once intake reads its accepted commit, and approving it records the merge approval", checkHeldPlanFinishedByABranchMergesAtPersonApproves},
+	{"PM14", "a request about a planning branch is superseded when its work goes back for rework, so approving it cannot approve the merge of the next lane's commit", checkReworkedPlanRequestIsSuperseded},
+	{"PM15", "a plan approval that named one commit of a planning branch is not the approval of a later commit intake reads, which asks for an approval of its own", checkPlanApprovalBindsToItsCommit},
+	{"PM16", "a request that named an earlier commit of a planning branch is refused once the branch holds another, and approves nothing", checkPlanRequestOfAnEarlierCommitIsRefused},
 }
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -347,6 +350,8 @@ const (
 	mergedBranch   = "4d5e6f704d5e6f704d5e6f704d5e6f704d5e6f70"
 	mergedAdoption = "5e6f70815e6f70815e6f70815e6f70815e6f7081"
 	mergedByHand   = "6f7081926f7081926f7081926f7081926f708192"
+
+	mergedAfterRework = "708192a3708192a3708192a3708192a3708192a3"
 )
 
 // personsMerge is the commit a person's merge on the forge made, as a worker reads it.
@@ -798,6 +803,217 @@ func heldPlanFinishedByABranchMerges(r *Rig, level ledger.MergeAuthority) error 
 	}
 	if err := p.landed(merge, mergedPlan); err != nil {
 		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+// reworkedAndLaneAgain sends the planning work back for rework as the member, runs the next lane to its end at a new
+// commit that adds a file no plan names, and returns the commit. The plan the branch holds is the one it held.
+func (p *planMergeRig) reworkedAndLaneAgain() (string, error) {
+	ops := p.r.NewOps(p.store)
+	if state, err := ops.Rework(p.r.Ctx, p.r.Scope, p.grant.WorkOrder, reworkReason, theMember); err != nil || state != workorders.Ready {
+		return "", Violatedf("sending the planning work back left it %s: %v", state, err)
+	}
+	return p.laneAgain()
+}
+
+// laneAgain runs the next attempt of the planning work on the rig's worker, which ends at a new commit of the same
+// branch that adds a file no plan names, and returns the commit.
+func (p *planMergeRig) laneAgain() (string, error) {
+	var err error
+	if p.grant, err = p.plane.Claim(p.r.Ctx, p.auth, workorders.ClaimRequest{WorkOrder: p.grant.WorkOrder, ClaimID: p.r.ID("claim"), TTLMs: TTLMs}); err != nil {
+		return "", err
+	}
+	p.lane = p.r.ID("lane")
+	ops := p.r.NewOps(p.store)
+	if _, err := ops.Dispatch(p.r.Ctx, p.r.Scope, p.grant.WorkOrder, p.lane, p.r.Actor); err != nil {
+		return "", err
+	}
+	if _, err := ops.StartLane(p.r.Ctx, p.r.Scope, p.grant.Lease, p.lane, p.r.Actor); err != nil {
+		return "", err
+	}
+	p.head = p.r.Commit()
+	p.files["notes.md"] = "Notes on the retry budget, which no plan names.\n"
+	raw, err := json.Marshal(LaneFinished(p.head, LaneCheck("c1", true)))
+	if err != nil {
+		return "", err
+	}
+	if reply, err := p.upload(ledger.UploadLaneEnded, raw); err != nil || len(reply.Rejected) != 0 {
+		return "", Violatedf("the next lane's end was refused: %+v, %v", reply.Rejected, err)
+	}
+	return p.head, p.stands(workorders.Acceptance)
+}
+
+// acceptedByHand asks about the branch, has a member accept the work by hand, and returns the request intake raises
+// when it reads the commit the member accepted: it names the work order and the commit.
+func (p *planMergeRig) acceptedByHand() (authority.Approval, error) {
+	if _, err := p.asked(); err != nil {
+		return authority.Approval{}, err
+	}
+	if err := p.accept(); err != nil {
+		return authority.Approval{}, err
+	}
+	if _, err := p.tick(); err != nil {
+		return authority.Approval{}, err
+	}
+	request, err := p.r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return authority.Approval{}, err
+	}
+	if request.WorkOrder != p.grant.WorkOrder || request.Plan == "" || planDetailOf(request).Source != p.head {
+		return authority.Approval{}, Violatedf("the request for the plan the member accepted is %+v, want one for the plan of work order %s at %s", request, p.grant.WorkOrder, p.head)
+	}
+	return request, nil
+}
+
+// accept has the member accept the planning work by hand, which leaves it waiting in integrating.
+func (p *planMergeRig) accept() error {
+	if _, err := p.r.NewOps(p.store).Accept(p.r.Ctx, p.r.Scope, p.grant.WorkOrder, theMember); err != nil {
+		return err
+	}
+	return p.stands(workorders.Integrating)
+}
+
+// approvesNothing says a plan approval is refused with the reason, that no approval of the planning work's merge is on
+// record, and that no merge is asked for.
+func (p *planMergeRig) approvesNothing(request authority.Approval, reason error) error {
+	if _, err := p.r.approve(p.store, request, true, theMember); !errors.Is(err, reason) {
+		records, _ := p.integrations()
+		return Violatedf("approving request %s answered %v, want %v; approvals of the merge on record: %+v", request.ID, err, reason, records)
+	}
+	if records, err := p.integrations(); err != nil || len(records) != 0 {
+		return Violatedf("approvals on record after the refusal: %+v, %v", records, err)
+	}
+	return p.noMerge()
+}
+
+func checkReworkedPlanRequestIsSuperseded(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	stale, err := p.acceptedByHand()
+	if err != nil {
+		return err
+	}
+	if _, err := p.reworkedAndLaneAgain(); err != nil {
+		return err
+	}
+	// The member accepts the next lane's commit as it is, and intake reads it: the plan is the one the request showed,
+	// so no version of it is new, and the request that named the first commit is the only one that remains.
+	if err := p.accept(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if err := p.approvesNothing(stale, authority.ErrApprovalClosed); err != nil {
+		return err
+	}
+	all, err := r.planApprovals(p.store)
+	if err != nil {
+		return err
+	}
+	for _, row := range all {
+		if row.ID == stale.ID && row.State != authority.ApprovalSuperseded {
+			return Violatedf("the request about the first commit is %s after its work went back for rework, want superseded", row.State)
+		}
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkPlanApprovalBindsToItsCommit(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	first, err := p.asked()
+	if err != nil {
+		return err
+	}
+	firstCommit := p.head
+	// The member approves the first commit, and sends the work back before intake has read it.
+	if _, err := r.approve(p.store, first, true, theMember); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Integrating); err != nil {
+		return err
+	}
+	next, err := p.reworkedAndLaneAgain()
+	if err != nil {
+		return err
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	// Intake reads a commit the member's approval never named. The plan is the one that approval showed, which does
+	// not make it the approval of this commit's merge.
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if records, err := p.integrations(); err != nil || len(records) != 0 {
+		return Violatedf("the approval of %s approved the merge of %s: %+v, %v", firstCommit, next, records, err)
+	}
+	if err := p.noMerge(); err != nil {
+		return err
+	}
+	fresh, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if fresh.WorkOrder != p.grant.WorkOrder || planDetailOf(fresh).Source != next {
+		return Violatedf("the request for the commit intake read is %+v, want one for work order %s at %s", fresh, p.grant.WorkOrder, next)
+	}
+	if _, err := r.approve(p.store, fresh, true, theMember); err != nil {
+		return err
+	}
+	if _, err := p.approvedBy(next, ledger.ReviewApproves, 1); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Commit != next {
+		return Violatedf("the worker is asked to merge %+v, want %s: %v", merge, next, err)
+	}
+	if err := p.landed(merge, mergedAfterRework); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkPlanRequestOfAnEarlierCommitIsRefused(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	stale, err := p.acceptedByHand()
+	if err != nil {
+		return err
+	}
+	// Someone pushes a commit to the pull request's branch that adds a file no plan names: the work goes back to
+	// acceptance at the new head, which no rework sent it for, and the plan is the one the request showed.
+	moved := p.r.Commit()
+	p.files["notes.md"] = "Notes on the retry budget, which no plan names.\n"
+	if err := p.read(p.pullRequestAt(moved)); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Acceptance); err != nil {
+		return err
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if err := p.approvesNothing(stale, authority.ErrStaleDigest); err != nil {
+		return err
+	}
+	// The refusal leaves the request as it was.
+	if open, err := r.theOpenPlanApproval(p.store); err != nil || open.ID != stale.ID {
+		return Violatedf("the refused request left %+v, want %s waiting: %v", open, stale.ID, err)
 	}
 	return r.CheckProjection(p.store)
 }

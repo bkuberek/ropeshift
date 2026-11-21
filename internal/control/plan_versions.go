@@ -238,7 +238,7 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 		return false, err
 	}
 	ref := planFileRef(entries)
-	approved, found, err := approvedBeforeRecorded(tx, next, ref)
+	approved, found, err := approvedBeforeRecorded(tx, next, ref, origin.commit)
 	if err != nil {
 		return false, err
 	}
@@ -258,12 +258,19 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 	if err != nil {
 		return false, err
 	}
+	// A request that names the work order the version came from names the commit it was read at, which is the commit its
+	// approval would bind to the work order's merge. A version made from the repository has no work order, and its
+	// request names the file it was read from.
+	source := next.Source
+	if next.WorkOrder != "" {
+		source = origin.commit
+	}
 	// A plan that is still a placeholder is not offered for approval: its request stands only to say what is missing,
 	// which replaces any older request for the plan, so no request that can be approved is left behind. A commit that
 	// finishes the plan, or its goal, replaces it.
 	return true, askForPlanApproval(tx, planAsk{
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,
-		decisions: len(next.Decisions), source: next.Source, workOrder: next.WorkOrder, unfinished: planning.Unfinished(finish),
+		decisions: len(next.Decisions), source: source, workOrder: next.WorkOrder, unfinished: planning.Unfinished(finish),
 	})
 }
 

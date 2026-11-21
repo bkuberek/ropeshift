@@ -68,6 +68,9 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 	if missing := planning.Unfinished(finish); len(missing) != 0 {
 		return fmt.Errorf("%w: the plan is not finished: %s", workorders.ErrInvalid, strings.Join(missing, " "))
 	}
+	if err := refuseMovedBranch(tx, approval); err != nil {
+		return err
+	}
 	if err := decideDrafts(tx, version, member); err != nil {
 		return err
 	}
@@ -77,7 +80,12 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 	if _, err := passCoveredReviews(tx, member); err != nil {
 		return err
 	}
-	if err := approvePlanMerge(tx, version, approval, member, ""); err != nil {
+	// A request that names a work order approves the merge of the commit it names, which is the commit the member read.
+	commit := ""
+	if approval.WorkOrder != "" {
+		commit = requestCommit(approval)
+	}
+	if err := approvePlanMerge(tx, version, approval, member, commit); err != nil {
 		return err
 	}
 	if err := removeConsolidatedDesign(tx, approval, member); err != nil {
@@ -624,8 +632,9 @@ func AttemptCommit(evidence ports.EvidenceReader, order workorders.WorkOrder) (s
 
 // approvedBeforeRecorded finds the approval a member gave to the branch that this version came from, if
 // intake read the same files at the commit that was approved: the request is bound to the version's
-// digest, and no version has claimed it.
-func approvedBeforeRecorded(tx ports.WriteTx, version planning.PlanVersion, ref string) (authority.Approval, bool, error) {
+// digest and to the commit, and no version has claimed it. The same files at another commit are another
+// approval, because the commit may hold more than the plan, which is what the merge takes in.
+func approvedBeforeRecorded(tx ports.WriteTx, version planning.PlanVersion, ref, commit string) (authority.Approval, bool, error) {
 	if version.WorkOrder == "" {
 		return authority.Approval{}, false, nil
 	}
@@ -636,7 +645,7 @@ func approvedBeforeRecorded(tx ports.WriteTx, version planning.PlanVersion, ref 
 	for _, row := range rows {
 		named := row.Plan == "" || (row.Plan == version.PlanID && row.PlanVersion == version.Version)
 		if row.Kind == authority.KindPlan && row.State == authority.ApprovalApproved && named &&
-			row.SubjectDigest == version.Digest && planDetailOf(row).Ref == ref {
+			row.SubjectDigest == version.Digest && planDetailOf(row).Ref == ref && requestCommit(row) == commit {
 			return row, true, nil
 		}
 	}
