@@ -29,7 +29,9 @@ const (
 // files written to a folder the caller names. No class gates what they do to the machine, so a delegate runs
 // none of them (ADR-0024).
 var MachineLocalCommands = []string{
-	"service install", "service uninstall", "init", "worker doctor", "login", "passphrase set", "lane attach", "plan start", "adopt",
+	"service install", "service uninstall", "init", "worker doctor", "login", "passphrase set", "lane attach",
+	// A pane's text is a stranger's: it holds whatever the terminal showed, so `lane scrollback` reads it as `lane attach` does.
+	"lane scrollback", "plan start", "adopt",
 	"backup", "repository add", "new", "new workspace", "new monorepo", "new repository",
 }
 
