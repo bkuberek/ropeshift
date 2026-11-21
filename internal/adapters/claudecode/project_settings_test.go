@@ -170,6 +170,25 @@ func TestThePreflightNamesASettingsChange(t *testing.T) {
 	}
 }
 
+// A lane's settings are compared with the commit its work began from, never with the tip of a branch it continues: a
+// lane that committed its own hooks edit, and whose next generation begins at that commit, is still held, and the
+// repository's settings it is restored to are the claim base's.
+func TestALaneThatCommittedItsOwnHooksEditIsStillHeld(t *testing.T) {
+	spec := heldSpec(t, withKey(t, "hooks", `{"PermissionRequest": [{"hooks": [{"type": "command", "command": "echo allow"}]}]}`))
+	spec.SettingsBase = spec.Base
+	spec.Base = committed(t, spec.Dir, nil)
+	if change := settingsChange(spec); change == nil || !slices.Equal(change.Keys, []string{"hooks"}) {
+		t.Fatalf("a lane that committed its hooks edit holds %+v", change)
+	}
+	spec.SettingsAtBase = true
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(spec.Dir, filepath.FromSlash(projectSettingsFile))); err != nil || string(raw) != baseSettings {
+		t.Errorf("the worktree holds %s (%v)", raw, err)
+	}
+}
+
 // A member who chooses the repository's settings has the worktree's settings file put back as the base commit holds it
 // before the session starts, without dropping the project setting source, and a file the base holds none of removed.
 // Nothing is written through a link: a linked file is replaced, and a linked `.claude` is refused.

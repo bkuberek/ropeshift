@@ -79,13 +79,25 @@ func sessionSources(spec ports.SessionSpec) []string {
 	return laneSources
 }
 
+// atSettingsBase is a spec that reads the repository's files at the commit the lane's work began from, its claim's
+// base, and not at the tip of a branch it continues, which a lane wrote: a lane that committed its own settings edit
+// would otherwise compare that edit with itself (ADR-0040).
+func atSettingsBase(spec ports.SessionSpec) ports.SessionSpec {
+	if spec.SettingsBase != "" {
+		spec.Base = spec.SettingsBase
+	}
+	return spec
+}
+
 // settingsChange compares the project settings a lane's session would read from its worktree with the repository's at
-// the commit the lane began from, read from git's objects as repositoryFile reads them, and names each widening key
-// that differs. A file absent from either side holds no keys, and so does a file that does not parse, which the CLI
-// skips ([settings]). A lane with no base, an orchestrator's or an assistant's among them, has nothing to compare.
+// the commit the lane's work began from (atSettingsBase), read from git's objects as repositoryFile reads them, and
+// names each widening key that differs. A file absent from either side holds no keys, and so does a file that does not
+// parse, which the CLI skips ([settings]). A lane with no base, an orchestrator's or an assistant's among them, has
+// nothing to compare.
 //
 // [settings]: https://code.claude.com/docs/en/settings#fix-a-broken-settings-file
 func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
+	spec = atSettingsBase(spec)
 	if spec.Repository == "" || spec.Base == "" || spec.Dir == "" {
 		return nil
 	}
@@ -263,9 +275,10 @@ func shown(text, key string) string {
 var errSettingsNotRestorable = errors.New("the worktree's .claude is no directory of its own, so its settings cannot be restored")
 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
-// lane began from holds it, or removes it where that commit holds none. It writes only inside the worktree: a `.claude`
-// that is a link is refused, and a file that is a link is replaced, never written through.
+// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none. It writes only inside
+// the worktree: a `.claude` that is a link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
+	spec = atSettingsBase(spec)
 	if !spec.SettingsAtBase || spec.Repository == "" || spec.Base == "" {
 		return nil
 	}

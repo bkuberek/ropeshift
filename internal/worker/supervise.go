@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -546,6 +547,12 @@ func (r *laneRun) continuation() *lanes.Continuation {
 // begins is the commit a new branch for this lane begins at: the tip of the branch it continues, or else
 // the base its claim resolved. A review lane's is the commit under review.
 func (r *laneRun) begins() string { return leaseBegins(r.lease) }
+
+// settingsBase is the commit a lane's own project settings are compared with, and restored to (ADR-0040): the base its
+// claim resolved, where the branch it continues left the base, and never that branch's tip, which a lane wrote, so a lane
+// that committed its own settings edit is still held at its next generation. A claim that resolved no base compares at
+// the commit the lane begins from.
+func (r *laneRun) settingsBase() string { return cmp.Or(r.lease.BaseCommit, r.begins()) }
 
 // leaseBegins is begins for a lease, which a lane's repository layer is read at (FR-PROF-5).
 func leaseBegins(lease ledger.DesiredLease) string {

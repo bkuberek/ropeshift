@@ -3,7 +3,7 @@ package lanes
 import "strings"
 
 // SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in a key that runs code
-// or widens access, against the repository's at the commit the lane began from. A lane can edit those files, and the
+// or widens access, against the repository's at the commit the lane's work began from, its claim's base. A lane can edit those files, and the
 // next generation would run what it wrote outside every rule ropeshift gives it, so a generation that finds one is held
 // for a member before its session starts (ADR-0040).
 type SettingsChange struct {
@@ -49,7 +49,7 @@ func SettingsAdvice() (choice, rationale string) {
 // SettingsRestoredNote is what a generation whose settings a member restored to the repository's is told first: which
 // files changed under it, and why, so it does not take the change as its own.
 func SettingsRestoredNote(files []string) string {
-	return "ropeshift restored " + strings.Join(files, ", ") + " to the repository's version at the commit this lane began from, " +
+	return "ropeshift restored " + strings.Join(files, ", ") + " to the repository's version at the commit this lane's work began from, " +
 		"because a member chose to run this lane with the repository's settings: the change this lane made to them widened " +
 		"what its sessions run, such as hooks, plugins, or permissions. That change is no longer in the worktree. Do not make " +
 		"it again; if the work needs it, say so in your handoff."
