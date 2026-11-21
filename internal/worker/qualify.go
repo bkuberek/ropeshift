@@ -185,8 +185,8 @@ func (w *Worker) keepQualification(ctx context.Context, q lanes.Qualification) e
 
 // qualificationOf is what a lane whose process runs on a version reads of its worker's probes: the
 // result that holds for that version, when one does, and otherwise the check of it that runs now, which
-// the lane names.
-func (w *Worker) qualificationOf(version string) (check *ledger.CLICheck, held lanes.Qualification, holds bool) {
+// the lane names, with the source of the surfaces its process started on.
+func (w *Worker) qualificationOf(version, source string) (check *ledger.CLICheck, held lanes.Qualification, holds bool) {
 	if version == "" {
 		return nil, lanes.Qualification{}, false
 	}
@@ -197,16 +197,20 @@ func (w *Worker) qualificationOf(version string) (check *ledger.CLICheck, held l
 	case w.qual.Holds(version):
 		return nil, w.qual, true
 	case w.probe != nil && w.probe.version == version:
-		return ledger.CheckingCLI(driver, version), lanes.Qualification{}, false
+		return ledger.CheckingCLI(driver, version, source), lanes.Qualification{}, false
 	}
 	return nil, lanes.Qualification{}, false
 }
 
-// runVersion is the version the lane's process runs, and empty before its first process starts.
-func (r *laneRun) runVersion() string {
+// runVersion is the version the lane's process runs, and empty before its first process starts. The source
+// is where the surfaces that process started on come from.
+func (r *laneRun) runVersion() (version, source string) {
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
-	return r.version
+	if r.source != ledger.SurfacesShipped {
+		return r.version, ""
+	}
+	return r.version, r.source
 }
 
 // driverName is the driver this epoch advertised.
@@ -236,7 +240,7 @@ func (r *laneRun) noteProcess(handle ports.SessionHandle) {
 		return
 	}
 	r.handleLock.Lock()
-	r.version, r.degraded = handle.Version, handle.Degraded
+	r.version, r.degraded, r.source = handle.Version, handle.Degraded, handle.Source
 	r.handleLock.Unlock()
 	r.state.mu.Lock()
 	r.state.degraded = handle.Degraded

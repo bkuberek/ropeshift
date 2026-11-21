@@ -1,6 +1,10 @@
 package lanes
 
-import "time"
+import (
+	"time"
+
+	"ropeshift.com/ropeshift/internal/ledger"
+)
 
 // ActualState is what a lane is doing. Only what happened moves it: driver events, hooks,
 // and the worker's own acts. No person and no agent can set it (FR-LANE-5). Record.State
@@ -246,14 +250,22 @@ const (
 	AwaitingWake Condition = "awaiting_wake"
 )
 
-// Note is the sentence that says what a condition means for the lane that carries it, and is empty for a condition
-// whose name says it. A process uses the surfaces it started with, so the lane that runs degraded keeps the
-// condition until its next process starts on a qualified version.
-func (c Condition) Note() string {
-	if c == DegradedMode {
-		return "Runs on documented surfaces until it restarts on a qualified version."
+// Note is the sentence that says what a condition means for a lane that runs on documented surfaces, and is empty
+// for a condition whose name says it.
+func (c Condition) Note() string { return c.NoteFor("") }
+
+// NoteFor is the sentence that says what a condition means for the lane that carries it, given where the surfaces
+// its process started on come from, and is empty for a condition whose name says it. A process uses the surfaces it
+// started with, so the lane that runs degraded keeps the condition until its next process starts on a qualified
+// version, and the sentence names the surfaces that process runs on.
+func (c Condition) NoteFor(surfaces string) string {
+	if c != DegradedMode {
+		return ""
 	}
-	return ""
+	if surfaces == ledger.SurfacesShipped {
+		return "Runs on the surfaces this release qualified for its version until it restarts on a qualified version."
+	}
+	return "Runs on documented surfaces until it restarts on a qualified version."
 }
 
 // EveryCondition lists the conditions, in the design's order.

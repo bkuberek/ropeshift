@@ -8,7 +8,6 @@ import { useChange } from "../admin/parts";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { LanePane } from "../lanes/LanePane";
 import { startedAt } from "../lanes/starting";
-import { noteOf } from "../floor/states";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
 import { CheckingChip, ConditionChip, ConditionNote, EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
@@ -131,7 +130,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             <span className="row-tight">
               <LaneBadge state={found.actual_state} />
               {(found.conditions ?? []).map((condition) => (
-                <ConditionChip key={condition} name={condition} describedBy={`${noteBase}-${condition}`} />
+                <ConditionChip key={condition} name={condition} note={found.condition_notes?.[condition]} describedBy={`${noteBase}-${condition}`} />
               ))}
             </span>
           ) : null}
@@ -161,10 +160,10 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             {worker ? <> on {worker}</> : null}
           </span>
         </p>
-        {found && (found.checking || (found.conditions ?? []).some((condition) => noteOf(condition))) ? (
+        {found && (found.checking || (found.conditions ?? []).some((condition) => found.condition_notes?.[condition])) ? (
           <p className="convo-check">
             {(found.conditions ?? []).map((condition) => (
-              <ConditionNote key={condition} name={condition} id={`${noteBase}-${condition}`} />
+              <ConditionNote key={condition} note={found.condition_notes?.[condition]} id={`${noteBase}-${condition}`} />
             ))}
             {found.checking ? <CheckingChip check={found.checking} /> : null}
           </p>

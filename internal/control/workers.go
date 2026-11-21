@@ -1133,9 +1133,17 @@ func reportLane(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error
 	}
 	// A check that is no plain driver, version, and words is no reason to lose the lane's state: the status is
 	// kept without it, in the ledger and in its event.
+	// A source of surfaces that is neither the shipped matrix nor empty reads as documented surfaces.
 	payload := e.Payload
-	if status.Checking != nil && status.Checking.Validate() != nil {
-		status.Checking = nil
+	invalidCheck := status.Checking != nil && status.Checking.Validate() != nil
+	unknownSurfaces := status.Surfaces != "" && status.Surfaces != ledger.SurfacesShipped
+	if invalidCheck || unknownSurfaces {
+		if invalidCheck {
+			status.Checking = nil
+		}
+		if unknownSurfaces {
+			status.Surfaces = ""
+		}
 		kept, err := json.Marshal(status)
 		if err != nil {
 			return err
@@ -1332,6 +1340,7 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 	if row.UnpushedWork && !slices.Contains(view.Conditions, conditionUnpushed) {
 		view.Conditions = append(slices.Clone(view.Conditions), conditionUnpushed)
 	}
+	view.ConditionNotes = conditionNotes(view.Conditions, view.Surfaces)
 	now, err := tx.Now()
 	if err != nil {
 		return view, err
@@ -1533,3 +1542,18 @@ func listWorkers(ctx context.Context, installation ports.Installation) ([]ledger
 }
 
 var _ ports.WorkerLink = (*Workers)(nil)
+
+// conditionNotes words the sentence of each condition a lane carries that has one, given where the surfaces its
+// process started on come from. Every client shows these words as they are.
+func conditionNotes(conditions []string, surfaces string) map[string]string {
+	var out map[string]string
+	for _, name := range conditions {
+		if note := lanes.Condition(name).NoteFor(surfaces); note != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[name] = note
+		}
+	}
+	return out
+}

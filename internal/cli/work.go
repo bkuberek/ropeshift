@@ -770,7 +770,7 @@ func laneDetail(lane ledger.LaneView) string {
 		text += fmt.Sprintf("status\t%s\n", oneLine(lane.Checking.Words))
 	}
 	for _, condition := range lane.Conditions {
-		if note := lanes.Condition(condition).Note(); note != "" {
+		if note := lane.ConditionNotes[condition]; note != "" {
 			text += fmt.Sprintf("%s\t%s\n", condition, note)
 		}
 	}
