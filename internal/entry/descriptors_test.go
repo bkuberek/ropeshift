@@ -3,6 +3,7 @@ package entry
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -122,18 +123,35 @@ func TestTheDaemonInitStartsHoldsNoDescriptorInitWasGiven(t *testing.T) {
 	}
 }
 
-// The daemon marks what it was started with before it starts anything, a service manager's or a shell's
-// descriptors included, so no process it starts holds one.
-func TestTheDaemonMarksItsDescriptorsBeforeItStartsAnything(t *testing.T) {
-	fd := handedDown(t)
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv(api.EnvStateDir, apitest.ShortDir(t))
-	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
-	var stdout, stderr bytes.Buffer
-	if code := runSolo(nil, &stdout, &stderr); code != exitError {
-		t.Fatalf("exit %d, want %d (git is not on PATH); stderr %q", code, exitError, stderr.String())
+// Every entry point of the daemon marks what it was started with before it starts anything, a service manager's or a
+// shell's descriptors included, so no process it starts, git first and the terminal server last, holds one. Each runs
+// here to its first refusal, which is before it starts a process of its own.
+func TestEveryDaemonEntryPointMarksItsDescriptorsBeforeItStartsAnything(t *testing.T) {
+	entries := []struct {
+		name string
+		run  func(stdout, stderr io.Writer) int
+		// want is the exit that tells where the entry point stopped: git is not on PATH for the first two, and a
+		// server has no database to connect to.
+		want int
+	}{
+		{"solo", func(stdout, stderr io.Writer) int { return runSolo(nil, stdout, stderr) }, exitError},
+		{"worker", func(stdout, stderr io.Writer) int { return runWorker(nil, stdout, stderr) }, exitError},
+		{"server", func(stdout, stderr io.Writer) int { return runServer(nil, stdout, stderr) }, exitUsage},
 	}
-	if !closesOnExec(t, fd) {
-		t.Errorf("descriptor %d is still handed to the processes the daemon starts", fd)
+	for _, entry := range entries {
+		t.Run(entry.name, func(t *testing.T) {
+			fd := handedDown(t)
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv(api.EnvStateDir, apitest.ShortDir(t))
+			t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
+			t.Setenv(envDatabase, "")
+			var stdout, stderr bytes.Buffer
+			if code := entry.run(&stdout, &stderr); code != entry.want {
+				t.Fatalf("exit %d, want %d; stderr %q", code, entry.want, stderr.String())
+			}
+			if !closesOnExec(t, fd) {
+				t.Errorf("descriptor %d is still handed to the processes the daemon starts", fd)
+			}
+		})
 	}
 }

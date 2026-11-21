@@ -74,6 +74,9 @@ func runWorker(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ropeshiftd worker: unexpected argument %q\n", flags.Arg(0))
 		return exitUsage
 	}
+	// Before the worker starts anything, so no process it starts, git first and the terminal server last, holds a
+	// descriptor it was started with.
+	keepDescriptorsFromChildren()
 	paths, err := installationPaths()
 	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd worker: %v\n", err)
