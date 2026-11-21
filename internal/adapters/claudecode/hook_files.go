@@ -53,15 +53,7 @@ type ranCommand struct {
 func sessionCommands(spec ports.SessionSpec, pieces []pieceFile) []ranCommand {
 	var out []ranCommand
 	for _, file := range settingsFiles(spec) {
-		keys := settingsKeys(worktreeFile(spec, file))
-		if value := keys[keyHooks]; value != nil {
-			out = append(out, ranCommand{from: file, key: keyHooks, words: hookWords(value)})
-		}
-		for _, key := range []string{keyStatusLine, keyFileSuggestion} {
-			if value := keys[key]; value != nil {
-				out = append(out, ranCommand{from: file, key: key, words: commandWords(value)})
-			}
-		}
+		out = append(out, settingsCommands(file, settingsKeys(worktreeFile(spec, file)))...)
 	}
 	for _, piece := range pieces {
 		if !piece.whole || !bytes.Contains(piece.raw, []byte(keyHooks)) {
@@ -69,6 +61,41 @@ func sessionCommands(spec ports.SessionSpec, pieces []pieceFile) []ranCommand {
 		}
 		if value := frontmatterKeys(piece.raw).values[keyHooks]; value != nil {
 			out = append(out, ranCommand{from: piece.path, key: keyHooks, words: hookWords(value)})
+		}
+	}
+	return out
+}
+
+// settingsCommands are the commands one settings file's keys run: its hooks, status line, and file suggestion command.
+func settingsCommands(from string, keys map[string]json.RawMessage) []ranCommand {
+	var out []ranCommand
+	if value := keys[keyHooks]; value != nil {
+		out = append(out, ranCommand{from: from, key: keyHooks, words: hookWords(value)})
+	}
+	for _, key := range []string{keyStatusLine, keyFileSuggestion} {
+		if value := keys[key]; value != nil {
+			out = append(out, ranCommand{from: from, key: key, words: commandWords(value)})
+		}
+	}
+	return out
+}
+
+// baseCommands are the commands a lane's session can run as the repository holds them at the lane's base, whatever its
+// worktree says: each settings file's hooks, status line, and file suggestion command, which a restore of the
+// repository's settings puts back, and whose status line a pane runs from the base after ropeshift's own
+// (existingStatusLine), and the hooks of each held piece a restore would put back as the base holds it. A file they name that
+// the lane changed is held as one the worktree's commands name, so no restore is offered that would run it.
+func baseCommands(spec ports.SessionSpec, base *baseSide, held []heldPiece) []ranCommand {
+	var out []ranCommand
+	for _, file := range settingsFiles(spec) {
+		out = append(out, settingsCommands(file+" at the lane's base", settingsKeys(base.files[file]))...)
+	}
+	for _, piece := range held {
+		if piece.overflow || piece.blob == "" {
+			continue
+		}
+		if value := piece.base.values[keyHooks]; value != nil {
+			out = append(out, ranCommand{from: piece.path + " at the lane's base", key: keyHooks, words: hookWords(value)})
 		}
 	}
 	return out

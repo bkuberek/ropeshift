@@ -313,7 +313,8 @@ func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) 
 		}
 	}
 	pieces, within := worktreePieces(spec, nested.dirs)
-	for _, piece := range slices.Concat(comparePieces(spec, base, pieces, within), nestedOverflow(nested)) {
+	held := comparePieces(spec, base, pieces, within)
+	for _, piece := range slices.Concat(held, nestedOverflow(nested)) {
 		if !piece.overflow {
 			change.Files = append(change.Files, piece.path)
 		}
@@ -325,16 +326,16 @@ func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) 
 		change.Summary = append(change.Summary, piece.summary()...)
 		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
 	}
-	for _, held := range hookFiles(spec, base, sessionCommands(spec, pieces)) {
-		if !slices.Contains(change.Files, held.path) {
-			change.Files = append(change.Files, held.path)
+	for _, ran := range hookFiles(spec, base, slices.Concat(sessionCommands(spec, pieces), baseCommands(spec, base, held))) {
+		if !slices.Contains(change.Files, ran.path) {
+			change.Files = append(change.Files, ran.path)
 		}
-		change.Scripts = append(change.Scripts, held.path)
-		if !slices.Contains(change.Keys, held.key) {
-			change.Keys = append(change.Keys, held.key)
+		change.Scripts = append(change.Scripts, ran.path)
+		if !slices.Contains(change.Keys, ran.key) {
+			change.Keys = append(change.Keys, ran.key)
 		}
-		change.Summary = append(change.Summary, held.summary())
-		fmt.Fprintf(digest, "%s\x00ran\x00%s\x00", held.path, held.bound())
+		change.Summary = append(change.Summary, ran.summary())
+		fmt.Fprintf(digest, "%s\x00ran\x00%s\x00", ran.path, ran.bound())
 	}
 	if len(change.Keys) == 0 {
 		return nil
@@ -503,7 +504,8 @@ var errSettingsNotRestorable = errors.New("a directory on the way to a settings 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
 // lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, and each piece whose
 // frontmatter hooks the lane added or changed (restorePieces). It never puts back a file a hook runs, which is the
-// lane's work: a hold that names one offers no restore (lanes.SettingsChange.Scripts). It writes only inside the worktree: a `.claude` that is a
+// lane's work: a hold that names one offers no restore (lanes.SettingsChange.Scripts). It compares again once it is
+// done, and refuses the start if anything is still held. It writes only inside the worktree: a `.claude` that is a
 // link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
 	spec = atSettingsBase(spec)
@@ -539,8 +541,18 @@ func restoreBaseSettings(spec ports.SessionSpec) error {
 			return err
 		}
 	}
-	return restorePieces(spec)
+	if err := restorePieces(spec); err != nil {
+		return err
+	}
+	if left := settingsChange(spec); left != nil {
+		return fmt.Errorf("%w: after the restore, the lane still differs from the repository's in %s", errStillHeld, strings.Join(left.Keys, ", "))
+	}
+	return nil
 }
+
+// errStillHeld refuses a start whose restore of the repository's settings left something the hold holds, so nothing
+// starts that a member chose to run with the repository's settings and that would run otherwise.
+var errStillHeld = errors.New("the repository's settings were restored and the lane is still held")
 
 // replaceFile puts a regular file at path in one step: it writes a file of its own beside it, which it creates and
 // never opens through a link, and moves it over whatever path names, a link included.
