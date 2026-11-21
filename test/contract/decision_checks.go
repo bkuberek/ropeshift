@@ -61,12 +61,19 @@ max_assumptions_per_work_order = %d
 `
 )
 
-// publish makes a decision policy with these one-way categories and this limit.
+// publish makes a decision policy with this limit that keeps these one-way categories beside the ones every version
+// keeps.
 func (r *Rig) publish(s ports.Store, version, limit int64, oneWay ...string) (authority.PolicyVersion, error) {
 	return r.NewOps(s).PublishPolicy(r.Ctx, r.Scope, policyDraft(version, limit, oneWay...), r.Actor)
 }
 
-func policyDraft(version, limit int64, oneWay ...string) questions.PolicyDraft {
+func policyDraft(version, limit int64, extra ...string) questions.PolicyDraft {
+	oneWay := questions.DefaultPolicy().OneWayCategories
+	for _, category := range extra {
+		if !slices.Contains(oneWay, category) {
+			oneWay = append(oneWay, category)
+		}
+	}
 	quoted := make([]string, 0, len(oneWay))
 	for _, category := range oneWay {
 		quoted = append(quoted, `"`+category+`"`)

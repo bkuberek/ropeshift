@@ -131,7 +131,7 @@ func TestABatchAnswerThatExpectsAReversibilityThePolicyNoLongerGivesIsRefused(t 
 	body := `[decision_policy]
 version = 2
 reversible_default = "assume"
-one_way_categories = ["product"]
+one_way_categories = ["security", "compliance", "data", "product"]
 max_assumptions_per_work_order = 5
 `
 	if _, err := d.Client.PublishPolicy(t.Context(), body); err != nil {

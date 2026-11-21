@@ -172,7 +172,8 @@ func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Dec
 	if err != nil {
 		return err
 	}
-	if !policy.Open(categories) || (unbound && record.Reversibility == questions.OneWay) {
+	// An unattended orchestrator's one-way decision that names no category counts as kept, so it reaches a member too.
+	if !policy.Open(categories) || (record.Reversibility == questions.OneWay && (unbound || policy.KeepsOneWay(categories))) {
 		return fmt.Errorf("%w: %v", questions.ErrOneWay, categories)
 	}
 	if record.Supersedes != "" && old.Reversibility != questions.Reversible {

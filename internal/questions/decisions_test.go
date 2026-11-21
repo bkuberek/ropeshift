@@ -3,6 +3,7 @@ package questions
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -79,15 +80,20 @@ func TestPolicyCheck(t *testing.T) {
 	}{
 		{"the built-in policy", func(*Policy) {}, true},
 		{"no assumptions at all", func(p *Policy) { p.MaxAssumptionsPerWorkOrder = 0 }, true},
-		{"a category the workspace added", func(p *Policy) { p.OneWayCategories = []string{"pricing"} }, true},
+		{"a category the workspace added", func(p *Policy) { p.OneWayCategories = append(p.OneWayCategories, "pricing") }, true},
 		{"no version", func(p *Policy) { p.Version = 0 }, false},
 		{"a default the design does not define", func(p *Policy) { p.ReversibleDefault = "ask" }, false},
 		{"a limit below zero", func(p *Policy) { p.MaxAssumptionsPerWorkOrder = -1 }, false},
-		{"a misspelled category", func(p *Policy) { p.OneWayCategories = []string{"secruity"} }, false},
+		{"a misspelled category", func(p *Policy) { p.OneWayCategories = append(p.OneWayCategories, "secruity") }, false},
+		{"a version that drops security", func(p *Policy) { p.OneWayCategories = []string{CategoryCompliance, CategoryData} }, false},
+		{"a version that drops compliance", func(p *Policy) { p.OneWayCategories = []string{CategorySecurity, CategoryData, "pricing"} }, false},
+		{"a version that drops data", func(p *Policy) { p.OneWayCategories = []string{CategorySecurity, CategoryCompliance} }, false},
+		{"a version that keeps no category", func(p *Policy) { p.OneWayCategories = nil }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			policy := valid
+			policy.OneWayCategories = slices.Clone(valid.OneWayCategories)
 			tt.change(&policy)
 			err := policy.Check([]string{"pricing"})
 			if tt.valid && err != nil {
@@ -97,6 +103,26 @@ func TestPolicyCheck(t *testing.T) {
 				t.Errorf("accepted: %v", err)
 			}
 		})
+	}
+}
+
+// TestAPolicyVersionNamesTheKeptCategoriesItDrops holds the promise of the one-way acknowledgement, which says an
+// orchestrator decides no one-way choice in security, compliance, or data: a version that drops one is refused, and the
+// refusal names each one it drops (ADR-0007).
+func TestAPolicyVersionNamesTheKeptCategoriesItDrops(t *testing.T) {
+	policy := DefaultPolicy()
+	policy.OneWayCategories = []string{CategoryCompliance, "pricing"}
+	err := policy.Check([]string{"pricing"})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a version that drops security and data: %v", err)
+	}
+	for _, dropped := range []string{CategorySecurity, CategoryData} {
+		if !strings.Contains(err.Error(), dropped) {
+			t.Errorf("the refusal %q does not name %s", err, dropped)
+		}
+	}
+	if strings.Contains(err.Error(), CategoryCompliance) {
+		t.Errorf("the refusal %q names compliance, which the version keeps", err)
 	}
 }
 

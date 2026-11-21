@@ -83,6 +83,9 @@ func TestTheUnattendedGateKeepsAOneWayChoiceThePolicyLeavesOpen(t *testing.T) {
 		},
 		{"a change of scope in an open category", func(q *Question) { q.Categories, q.EscalationReason = []string{CategoryProduct}, ReasonScopeChange }, nil},
 		{"what the gate refuses still fails", func(q *Question) { q.Categories, q.Options = []string{CategoryArchitecture}, nil }, []GateCheck{GateReason, GateOptions}},
+		// A one-way choice that names no category counts as kept: the gate asks for a category, as it does at
+		// attended, and never calls the choice the orchestrator's.
+		{"a one-way choice with no category", func(q *Question) { q.Categories = nil }, []GateCheck{GateCategories}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,6 +133,38 @@ func TestAOneWayCategorySkipsRungsThreeAndFour(t *testing.T) {
 				t.Errorf("rung %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAOneWayChoiceWithNoCategoryIsKept holds a one-way choice that names no category for a member, whatever the
+// policy leaves open, while a reversible choice with no category stays the orchestrator's.
+func TestAOneWayChoiceWithNoCategoryIsKept(t *testing.T) {
+	policy := DefaultPolicy()
+	if !policy.KeepsOneWay(nil) {
+		t.Error("an orchestrator may decide a one-way choice that names no category")
+	}
+	if !policy.KeepsOneWay([]string{CategoryArchitecture, CategoryData}) {
+		t.Error("an orchestrator may decide a one-way choice in a category the policy keeps")
+	}
+	if policy.KeepsOneWay([]string{CategoryArchitecture}) {
+		t.Error("the policy keeps a one-way choice in a category it leaves open")
+	}
+	if !policy.MayDecide(Question{}) {
+		t.Error("an orchestrator may not decide a reversible choice that names no category")
+	}
+}
+
+// TestAVersionStoredWithoutAKeptCategoryStillKeepsIt reads a version published before a policy had to keep security,
+// compliance, and data as keeping them, so the one-way acknowledgement's promise holds with no migration of it.
+func TestAVersionStoredWithoutAKeptCategoryStillKeepsIt(t *testing.T) {
+	policy := Policy{OneWayCategories: []string{CategoryProduct}}
+	for _, category := range []string{CategorySecurity, CategoryCompliance, CategoryData} {
+		if policy.MayDecide(Question{Categories: []string{category}}) {
+			t.Errorf("a stored version that dropped %s leaves it open", category)
+		}
+	}
+	if !policy.MayDecide(Question{Categories: []string{CategoryArchitecture}}) {
+		t.Error("a stored version keeps a category it never named")
 	}
 }
 

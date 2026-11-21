@@ -451,6 +451,10 @@ func (w *Workers) yours(ctx context.Context, question questions.Question, actor 
 		return "This worker is unattended, but no member has accepted its one-way acknowledgement, so a one-way choice still " +
 			"goes to a member. Decide or assume a choice that can be undone, and record why. Escalate a one-way choice, a conflict " +
 			"between requirements, or a change of scope.", nil
+	case unattended && len(question.Categories) == 0:
+		return "This worker is unattended, but this question names no category, so a one-way choice in it still goes to a " +
+			"member. Decide or assume a choice that can be undone, and record why. Escalate a one-way choice with the categories " +
+			"it touches, a conflict between requirements, or a change of scope.", nil
 	case unattended:
 		return "This worker is unattended, so a member left this question to you. Decide it from the goals, requirements, and " +
 			"contracts, or assume a choice that can be undone, and record why. A one-way choice is yours too: record it decided, with " +

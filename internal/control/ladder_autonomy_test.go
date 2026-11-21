@@ -274,6 +274,25 @@ func TestAnUnattendedOrchestratorEscalatesWhatThePolicyKeeps(t *testing.T) {
 	}
 }
 
+// TestAnUnattendedOrchestratorKeepsAOneWayChoiceWithNoCategoryForAMember counts a one-way choice that names no
+// category as kept: the orchestrator of an unattended worker whose acknowledgement a member accepted cannot decide it,
+// question_next says it goes to a member, and the gate asks only for a category, as it does at attended.
+func TestAnUnattendedOrchestratorKeepsAOneWayChoiceWithNoCategoryForAMember(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	acceptOneWay(t, r)
+	call, read := ladderAtRungThree(t, r)
+	if !strings.Contains(read.Yours, "no category") {
+		t.Errorf("question_next says %q, which does not say a one-way choice with no category goes to a member", read.Yours)
+	}
+	if _, err := decideOneWay(r, call); !errors.Is(err, questions.ErrOneWay) {
+		t.Errorf("deciding a one-way choice with no category: %v, want %v", err, questions.ErrOneWay)
+	}
+	var gate *questions.GateError
+	if err := escalateOneWay(r, call); !errors.As(err, &gate) || len(gate.Failures) != 1 || gate.Failures[0].Check != questions.GateCategories {
+		t.Errorf("escalating a one-way choice with no category: %v, want only the gate's request for a category", err)
+	}
+}
+
 // TestAnAttendedOrchestratorEscalatesAOneWayChoice holds the ladder of a worker a member attends: a one-way choice
 // reaches a member whatever its category, and the orchestrator decides only what can be undone.
 func TestAnAttendedOrchestratorEscalatesAOneWayChoice(t *testing.T) {
