@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,5 +138,59 @@ func TestAReloadOfTheSettingsAMemberChoseApplies(t *testing.T) {
 	r.subject.Wait()
 	if held := r.settingsHeld(t); len(held) != 1 {
 		t.Errorf("the ledger holds %+v", held)
+	}
+}
+
+// Reloads that a session's hooks ask about at once, each of a change that widens what the lane runs, are each blocked,
+// and hold the lane once: one park, one security item, and one handoff, for the generation that ran. The reloads wait
+// until the worker reads the lane working, because a session runs ahead of the worker that follows it, and a lane the
+// worker still reads as briefing cannot park, so its next generation's start holds it instead.
+func TestConcurrentBlockedReloadsHoldTheLaneOnce(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, handoffProfile)
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.waitForTheLane(t)
+	})
+	ready, g := newGate(), newGate()
+	r.gates(ready, g)
+	const reloads = 8
+	replies := make(chan lanes.Reply, reloads)
+	burst := fake.DriverStep{Do: func(ports.SessionSpec) {
+		r.driver.ChangeSettings(widened())
+		var asked sync.WaitGroup
+		for range reloads {
+			asked.Go(func() { replies <- r.reload() })
+		}
+		asked.Wait()
+	}}
+	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
+	r.driver.Play(script(
+		[]fake.DriverStep{{Bound: true}, aToolCall(), ready.step(), burst, g.step(), aToolCall(), completed(0.2)},
+		[]fake.DriverStep{answer, completed(0.3)},
+	))
+	r.start()
+	r.reach(t, ready)
+	r.eventually("the lane reads working", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	close(ready.release)
+	for range reloads {
+		if reply := answered(t, replies); !reply.OK || reply.Reload != lanes.ReloadBlock {
+			t.Fatalf("a reload that widens what the lane runs was answered %+v", reply)
+		}
+	}
+	r.reach(t, g)
+	r.eventually("the next tool call is held", func(ledger.LaneView) bool { return len(r.driver.Holds()) == 1 })
+	close(g.release)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+
+	if held := r.settingsHeld(t); len(held) != 1 || held[0].Generation != 1 || held[0].Digest != widened().Digest {
+		t.Errorf("%d blocked reloads held the lane as %+v", reloads, held)
+	}
+	if holds := slices.DeleteFunc(r.driver.Holds(), func(reason string) bool { return reason == "" }); len(holds) != 1 {
+		t.Errorf("the lane's tools were held for %q", holds)
+	}
+	if specs := r.driver.Specs(); len(specs) != 1 {
+		t.Errorf("%d sessions started, and a held lane starts none until a member chooses", len(specs))
 	}
 }
