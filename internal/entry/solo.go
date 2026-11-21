@@ -142,7 +142,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 		fmt.Fprintf(stderr, "ropeshiftd solo: unexpected argument %q\n", flags.Arg(0))
 		return opts, false
 	}
-	opts.noProbe = os.Getenv(envInitDaemon) == "1"
+	opts.noProbe = initMarked()
 	return opts, true
 }
 

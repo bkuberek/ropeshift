@@ -85,6 +85,9 @@ type Options struct {
 	Panes Panes
 	// StateDir is the installation's own directory, where a first run writes its sample contract.
 	StateDir string
+	// InitMarked says this process's environment holds the mark of the daemon `ropeshift init` starts, so a daemon
+	// started from it is such a daemon: it qualifies no agent CLI and takes no work. The doctor says so.
+	InitMarked bool
 	// DaemonLog is where the daemon StartDaemon runs writes its output. An init that fails after it started that
 	// daemon says where the log is and keeps it, and one that succeeds removes it.
 	DaemonLog string
@@ -106,6 +109,7 @@ type invocation struct {
 	startDaemon    func(context.Context) (func() error, error)
 	stateDir       string
 	daemonLog      string
+	initMarked     bool
 	install        func(context.Context, string, []string) (Service, error)
 	uninstall      func(context.Context, string) (Service, error)
 	ctx            context.Context
@@ -146,7 +150,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor, worktree: opts.Worktree, git: opts.Git,
 		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
-		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, daemonLog: opts.DaemonLog, install: opts.InstallService, uninstall: opts.UninstallService,
+		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, daemonLog: opts.DaemonLog, initMarked: opts.InitMarked, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,
 		cloneTop: opts.CloneTop, cloneIgnores: opts.CloneIgnores, newProjectRun: opts.NewProject, readForgeAccount: opts.ReadForgeAccount,
 	}

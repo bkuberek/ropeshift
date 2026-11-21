@@ -30,6 +30,9 @@ const (
 // line, so it appears in no help and no reference, and no command line a person types turns qualification off.
 const envInitDaemon = "ROPESHIFT_INIT_DAEMON"
 
+// initMarked says this process's environment holds the mark of the daemon `ropeshift init` starts.
+func initMarked() bool { return os.Getenv(envInitDaemon) == "1" }
+
 // startDaemonForInit runs `ropeshiftd solo` for the length of one ropeshift init. Its first start
 // registers the worker, which is solo mode's one registration path, and it binds neither the web
 // port nor the telemetry port while it runs. It stays in the caller's process group, so an

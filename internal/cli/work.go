@@ -1120,12 +1120,19 @@ func qualification(driver ledger.DriverManifest) string {
 }
 
 // doctorReport is what `worker doctor --json` prints: the worker's manifest, which names each agent CLI, and the
-// git and worktree sections, which a build with no check leaves out.
+// git and worktree sections, which a build with no check leaves out. InitDaemon says the environment holds the mark
+// of the daemon `ropeshift init` starts.
 type doctorReport struct {
 	ledger.Manifest
-	Git      *lanes.GitReport      `json:"git,omitempty"`
-	Worktree *lanes.WorktreeReport `json:"worktree,omitempty"`
+	InitDaemon bool                  `json:"init_daemon,omitempty"`
+	Git        *lanes.GitReport      `json:"git,omitempty"`
+	Worktree   *lanes.WorktreeReport `json:"worktree,omitempty"`
 }
+
+// initDaemonLine says the environment holds the mark of the daemon `ropeshift init` starts, and what that does to a
+// daemon started from it.
+const initDaemonLine = "init daemon\tmarked\tROPESHIFT_INIT_DAEMON is set in this environment, so a daemon started from it is the one ropeshift init starts: " +
+	"it qualifies no agent CLI and takes no work. Unset it before you start the daemon.\n"
 
 // worktreeSection asks the machine where lane worktrees go. A build with no check has no section.
 func (c *invocation) worktreeSection() (*lanes.WorktreeReport, error) {
@@ -1160,10 +1167,13 @@ func (c *invocation) workerDoctor(args []string) int {
 		git = c.gitSection()
 		section, err = c.worktreeSection()
 	}
-	code := c.finish(err, doctorReport{Manifest: manifest, Git: git, Worktree: section}, func() string {
+	code := c.finish(err, doctorReport{Manifest: manifest, InitDaemon: c.initMarked, Git: git, Worktree: section}, func() string {
 		var out strings.Builder
 		for _, driver := range manifest.Drivers {
 			out.WriteString(doctorLine(driver))
+		}
+		if c.initMarked {
+			out.WriteString(initDaemonLine)
 		}
 		if git != nil {
 			out.WriteString(gitText(*git))
