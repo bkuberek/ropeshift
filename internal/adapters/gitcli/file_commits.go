@@ -228,8 +228,9 @@ func (w Worktrees) Commits(ctx context.Context, worktree, base string) ([]ports.
 	git := w.git(worktree)
 	git.Config = plainNames
 	// Only the branch's own line, and a merge as what it changed against its first parent: the history a merge
-	// brings in is the other repository's, and listing every commit of it would read its whole past.
-	args := []string{"log", "--no-color", "--first-parent", "-m", "--name-only", "--format=%x01%H%x1f%P%x1f%s"}
+	// brings in is the other repository's, and listing every commit of it would read its whole past. Names come
+	// NUL-terminated, so a name with a line break in it is one name.
+	args := []string{"log", "--no-color", "--first-parent", "-m", "--name-only", "-z", "--format=%x01%H%x1f%P%x1f%s"}
 	if base == "" {
 		args = append(args, "-n", fmt.Sprint(recentCommits), "HEAD", "--")
 	} else {
@@ -247,14 +248,15 @@ func (w Worktrees) Commits(ctx context.Context, worktree, base string) ([]ports.
 	}
 	var commits []ports.Commit
 	for block := range bytes.SplitSeq(out, []byte{0x01}) {
-		head, names, _ := strings.Cut(string(block), "\n")
-		hash, rest, found := strings.Cut(head, "\x1f")
+		// A commit's line ends in a NUL, and its names follow on the next line, each ending in a NUL.
+		line, names, _ := strings.Cut(string(block), "\x00")
+		hash, rest, found := strings.Cut(line, "\x1f")
 		parents, subject, joined := strings.Cut(rest, "\x1f")
 		if !found || !joined {
 			continue
 		}
 		commit := ports.Commit{Hash: hash, Subject: subject, Parents: strings.Fields(parents)}
-		for name := range strings.SplitSeq(names, "\n") {
+		for name := range strings.SplitSeq(strings.TrimPrefix(names, "\n"), "\x00") {
 			if name != "" {
 				commit.Files = append(commit.Files, name)
 			}

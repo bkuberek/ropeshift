@@ -185,3 +185,15 @@ func TestCommitsListsTheBranchBeyondItsBase(t *testing.T) {
 		t.Error("a base that is an option was accepted")
 	}
 }
+
+// TestCommitsNameAFileWithALineBreakAsOneFile reads names NUL-separated, so a name with a line break in it is one name
+// and never two.
+func TestCommitsNameAFileWithALineBreakAsOneFile(t *testing.T) {
+	r := newGuardRig(t)
+	base := r.inWorktree("rev-parse", "HEAD")
+	r.commit("x\ny", "a\n")
+	got, err := r.worktrees.Commits(t.Context(), r.path, base)
+	if err != nil || len(got) != 1 || len(got[0].Files) != 1 || got[0].Files[0] != "x\ny" {
+		t.Errorf("the branch holds %+v beyond its base: %v", got, err)
+	}
+}
