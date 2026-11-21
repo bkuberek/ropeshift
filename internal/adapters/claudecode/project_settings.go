@@ -148,6 +148,8 @@ type baseSide struct {
 	pieces map[string]string
 	// nested holds the blob of each piece of each nested skills directory read, by the directory, under mu.
 	nested map[string]map[string]string
+	// trees holds the blob of each file below each plugin directory read, by the directory, under mu (treeAt).
+	trees map[string]map[string]string
 	// mu guards hooks, the frontmatter hooks read of each piece blob, and ran, each file a hook runs (fileAt).
 	mu    sync.Mutex
 	hooks map[string]pieceFront
@@ -157,7 +159,7 @@ type baseSide struct {
 // newBaseSide is a repository's side that holds nothing yet.
 func newBaseSide() *baseSide {
 	return &baseSide{
-		files: map[string][]byte{}, pieces: map[string]string{}, nested: map[string]map[string]string{},
+		files: map[string][]byte{}, pieces: map[string]string{}, nested: map[string]map[string]string{}, trees: map[string]map[string]string{},
 		hooks: map[string]pieceFront{}, ran: map[string]baseFile{},
 	}
 }
@@ -325,6 +327,14 @@ func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) 
 		}
 		change.Summary = append(change.Summary, piece.summary()...)
 		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
+	}
+	for _, plugin := range comparePlugins(spec, base, worktreePlugins(spec, slices.Concat([]string{skillsDir}, nested.dirs))) {
+		change.Files = append(change.Files, plugin.path)
+		if !slices.Contains(change.Keys, keyPlugins) {
+			change.Keys = append(change.Keys, keyPlugins)
+		}
+		change.Summary = append(change.Summary, plugin.summary())
+		fmt.Fprintf(digest, "%s\x00%s\x00", plugin.path, plugin.bound())
 	}
 	for _, ran := range hookFiles(spec, base, slices.Concat(sessionCommands(spec, pieces), baseCommands(spec, base, held))) {
 		if !slices.Contains(change.Files, ran.path) {
@@ -502,8 +512,9 @@ func shown(text, key string) string {
 var errSettingsNotRestorable = errors.New("a directory on the way to a settings file or a piece in the worktree is a link or no directory, so it cannot be restored")
 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
-// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, and each piece whose
-// frontmatter hooks the lane added or changed (restorePieces). It never puts back a file a hook runs, which is the
+// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, each piece whose
+// frontmatter hooks the lane added or changed (restorePieces), and each plugin under a skills directory whose files it
+// added or changed (restorePlugins). It never puts back a file a hook runs, which is the
 // lane's work: a hold that names one offers no restore (lanes.SettingsChange.Scripts). It compares again once it is
 // done, and refuses the start if anything is still held. It writes only inside the worktree: a `.claude` that is a
 // link is refused, and a file that is a link is replaced, never written through.
@@ -542,6 +553,9 @@ func restoreBaseSettings(spec ports.SessionSpec) error {
 		}
 	}
 	if err := restorePieces(spec); err != nil {
+		return err
+	}
+	if err := restorePlugins(spec, slices.Concat([]string{skillsDir}, nestedSkillDirs(spec).dirs)); err != nil {
 		return err
 	}
 	if left := settingsChange(spec); left != nil {
