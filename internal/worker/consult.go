@@ -160,6 +160,7 @@ func (w *Worker) consult(ctx context.Context, lane lanes.Record, call ledger.Orc
 	w.consults.begin(grant.ID)
 	kept := ledger.ConsultationRun{Grant: grant, Project: call.Project, Orchestrator: lane.ID, StartedAt: w.clock.Now().UnixMilli()}
 	if err := w.journal.BeginConsultation(ctx, kept); err != nil {
+		w.endUnstarted(ctx, run)
 		w.consults.finish(grant.ID)
 		return nil, fmt.Errorf("keeping %s in the journal: %w", ledger.ConsultationCitation(grant.ID), err)
 	}
@@ -207,10 +208,44 @@ func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 	w.recordConsultationEnd(ctx, run, end)
 }
 
-// recordConsultationEnd journals how a consultation ended, in the one write that forgets its start, and sends it. An end
-// that does not hold together is sent as a failure that keeps the cost, because the ledger refuses what it cannot keep,
-// and a refused end would leave the question held until the hold ran out.
+// recordConsultationEnd journals how a consultation ended, in the one write that forgets its start, and sends it. A
+// journal that cannot make that write keeps the end alone, so the ledger lets go of the question now rather than when its
+// hold runs out: the start it still holds is ended again at the next start, and the ledger keeps the first end.
 func (w *Worker) recordConsultationEnd(ctx context.Context, run *consultation, end ledger.ConsultationEnd) {
+	event, ok := w.consultationEndEvent(run, end)
+	if !ok {
+		return
+	}
+	persist := context.WithoutCancel(ctx)
+	_, journaled, err := w.journal.EndConsultation(persist, run.grant.ID, event)
+	if err != nil {
+		w.config.Report(fmt.Errorf("consultation %s: forgetting its start with its end: %w", run.grant.ID, err))
+		journaled = w.journalEndAlone(persist, run, event)
+	}
+	if journaled {
+		w.uploadConsultationEnd(persist, run)
+	}
+}
+
+// endUnstarted records the end of a consultation whose start the journal could not keep, as a failure that cost nothing,
+// because its session never starts. The ledger holds its question from the grant on, and without this end it would hold
+// it until the hold ran out.
+func (w *Worker) endUnstarted(ctx context.Context, run *consultation) {
+	end := ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: "Its worker could not keep its start in its journal, so its session never started."}
+	event, ok := w.consultationEndEvent(run, end)
+	if !ok {
+		return
+	}
+	persist := context.WithoutCancel(ctx)
+	if w.journalEndAlone(persist, run, event) {
+		w.uploadConsultationEnd(persist, run)
+	}
+}
+
+// consultationEndEvent is the event that carries how a consultation ended. An end that does not hold together is sent
+// as a failure that keeps the cost, because the ledger refuses what it cannot keep, and a refused end would leave the
+// question held until the hold ran out.
+func (w *Worker) consultationEndEvent(run *consultation, end ledger.ConsultationEnd) (ledger.UploadEvent, bool) {
 	end.ID, end.Question, end.Agent, end.Class, end.Approval = run.grant.ID, run.grant.Question, run.grant.Agent.Name, run.grant.Agent.Class, run.grant.Agent.Approval
 	if err := end.Check(); err != nil {
 		end = ledger.ConsultationEnd{
@@ -221,16 +256,25 @@ func (w *Worker) recordConsultationEnd(ctx context.Context, run *consultation, e
 	payload, err := json.Marshal(end)
 	if err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: %w", run.grant.ID, err))
-		return
+		return ledger.UploadEvent{}, false
 	}
-	persist := context.WithoutCancel(ctx)
-	if _, journaled, err := w.journal.EndConsultation(persist, run.grant.ID, w.event(ledger.UploadConsultationEnded, lanes.Record{Project: run.project}, payload)); err != nil {
+	return w.event(ledger.UploadConsultationEnded, lanes.Record{Project: run.project}, payload), true
+}
+
+// journalEndAlone journals a consultation's end as an event of its own, with no start to forget, and reports whether it
+// did. An end it cannot journal leaves the question held until the hold runs out.
+func (w *Worker) journalEndAlone(ctx context.Context, run *consultation, event ledger.UploadEvent) bool {
+	if _, err := w.journal.Append(ctx, event); err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: its end stayed unrecorded: %w", run.grant.ID, err))
-		return
-	} else if !journaled {
-		return
+		return false
 	}
-	uploading, cancel := context.WithTimeout(persist, consultUploadDeadline)
+	return true
+}
+
+// uploadConsultationEnd sends what the journal holds, a consultation's end with it. An upload that fails leaves the end
+// to the next heartbeat's.
+func (w *Worker) uploadConsultationEnd(ctx context.Context, run *consultation) {
+	uploading, cancel := context.WithTimeout(ctx, consultUploadDeadline)
 	defer cancel()
 	if err := w.Upload(uploading); err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: %w", run.grant.ID, err))
