@@ -1,6 +1,8 @@
 package server_test
 
 import (
+	"errors"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -85,5 +87,55 @@ func TestAMembersChoiceEndsTheHold(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// scriptChange is a hold that comes from a script a hook of the repository runs, which the lane changed.
+func scriptChange() lanes.SettingsChange {
+	return lanes.SettingsChange{
+		Files: []string{"scripts/check.sh"}, Keys: []string{"hooks"}, Scripts: []string{"scripts/check.sh"}, Digest: "sha256:script",
+		Summary: []string{"scripts/check.sh: changed, and a hook in .claude/settings.json runs it"},
+	}
+}
+
+// A hold that comes from a script a hook runs offers no restore, because putting the script back would revert the
+// lane's work: the item offers running with the lane's version or stopping, recommends stopping, and the control plane
+// refuses a restore with its own code, while the lane's own version is still taken. A hold from a settings file still
+// offers and takes the restore.
+func TestAHoldFromAScriptAHookRunsOffersNoRestore(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	script := w.Running("wo-script", "Script work")
+	script.Upload(ledger.UploadLaneSettingsHeld, scriptChange())
+	script.Park(lanes.HumanWake())
+	settings := w.Running("wo-settings", "Settings work")
+	settings.Upload(ledger.UploadLaneSettingsHeld, heldChange())
+	settings.Park(lanes.HumanWake())
+	needs := map[string]*api.LaneSettingsNeed{}
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Kind == api.NeedLaneSettings {
+			needs[item.ID] = item.LaneSettings
+		}
+	}
+	if need := needs[script.ID]; need == nil || !slices.Equal(need.Actions, []string{api.ActSettingsLane, api.ActSettingsStop}) ||
+		need.Recommendation != lanes.SettingsStop || !slices.Equal(need.Change.Scripts, []string{"scripts/check.sh"}) {
+		t.Errorf("a script's hold is offered as %+v", need)
+	}
+	if need := needs[settings.ID]; need == nil || !slices.Equal(need.Actions, api.LaneSettingsActions) || need.Recommendation != lanes.SettingsBase {
+		t.Errorf("a settings file's hold is offered as %+v", need)
+	}
+
+	_, err := d.Client.DecideLaneSettings(t.Context(), "wo-script", api.DecideLaneSettings{Lane: script.ID, Digest: "sha256:script", Choice: lanes.SettingsBase})
+	var refused *api.Error
+	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Detail.Code != api.CodeSettingsNotRestorable ||
+		!strings.Contains(refused.Detail.Message, "scripts/check.sh") {
+		t.Errorf("a restore of a script's hold gave %v", err)
+	}
+	if decided, err := d.Client.DecideLaneSettings(t.Context(), "wo-script", api.DecideLaneSettings{Lane: script.ID, Digest: "sha256:script", Choice: lanes.SettingsLane}); err != nil || decided.State != "ready" {
+		t.Errorf("running a script's hold with the lane's version left %+v (%v)", decided, err)
+	}
+	if decided, err := d.Client.DecideLaneSettings(t.Context(), "wo-settings", api.DecideLaneSettings{Lane: settings.ID, Digest: "sha256:held", Choice: lanes.SettingsBase}); err != nil || decided.State != "ready" {
+		t.Errorf("a restore of a settings file's hold left %+v (%v)", decided, err)
 	}
 }

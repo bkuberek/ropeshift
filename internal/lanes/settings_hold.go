@@ -1,6 +1,9 @@
 package lanes
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
 
 // SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in any key not known to
 // be harmless, and of the hooks its skills, subagents, and commands declare, against the repository's at the
@@ -20,6 +23,10 @@ type SettingsChange struct {
 	Summary []string `json:"summary,omitempty"`
 	// Digest names what the worktree's files hold in those keys, so a member's choice binds to the change they read.
 	Digest string `json:"digest"`
+	// Scripts are the files of the worktree that a hook, a status line, or a file suggestion command of the repository
+	// runs, which the lane changed. Putting one back would revert the lane's work, so a hold that names any offers no
+	// restore (Restorable).
+	Scripts []string `json:"scripts,omitempty"`
 }
 
 // The bounds of what a hold records: the lines its summary keeps, and the bytes of each.
@@ -32,7 +39,8 @@ const (
 // orchestrator's or a delegate's.
 const (
 	// SettingsBase runs the lane with the repository's settings: the files are restored to the base commit's before
-	// its session starts, and the lane is told so. It is the recommended choice.
+	// its session starts, and the lane is told so. It is the recommended choice, and a hold from a script a hook runs
+	// does not offer it (SettingsChange.Restorable).
 	SettingsBase = "base"
 	// SettingsLane runs the lane with the settings it wrote, recorded as the member's decision for that change.
 	SettingsLane = "lane"
@@ -43,8 +51,21 @@ const (
 // SettingsChoices lists the choices, the recommended one first.
 var SettingsChoices = []string{SettingsBase, SettingsLane, SettingsStop}
 
-// SettingsAdvice is the choice a member is recommended for a lane whose settings widen what it can run, and why.
-func SettingsAdvice() (choice, rationale string) {
+// Restorable says a member may run the lane with the repository's settings: its hold names no script a hook or a
+// setting of the repository runs, which a restore would put back over the lane's work.
+func (c SettingsChange) Restorable() bool { return len(c.Scripts) == 0 }
+
+// ErrSettingsNotRestorable refuses to run a lane with the repository's settings when its hold comes from a script a
+// hook or a setting of the repository runs (SettingsChange.Restorable).
+var ErrSettingsNotRestorable = errors.New("this hold offers no restore")
+
+// SettingsAdvice is the choice a member is recommended for a lane whose settings widen what it can run, and why: the
+// repository's settings, or stopping the lane for a hold that offers no restore, whose change the member either trusts
+// or sends back.
+func SettingsAdvice(change SettingsChange) (choice, rationale string) {
+	if !change.Restorable() {
+		return SettingsStop, "the lane changed a script that a hook or a setting of the repository runs, which no restore puts back without reverting the lane's work, so run the lane with it only if you trust what it wrote"
+	}
 	return SettingsBase, "the lane wrote what its next session would run outside every rule ropeshift gives it, and the repository's settings run what was reviewed and merged"
 }
 

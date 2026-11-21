@@ -39,7 +39,8 @@ type SettingsHold struct {
 }
 
 // Decide records a member's choice for the change a lane is held on, bound to the change they read by its digest, so a
-// lane that changed its settings again since is held again. Running with the repository's settings or with the lane's
+// lane that changed its settings again since is held again. A hold from a script a hook runs refuses the repository's
+// settings (lanes.ErrSettingsNotRestorable), because putting the script back would revert the lane's work. Running with the repository's settings or with the lane's
 // own wakes the lane, whose next generation runs as chosen; stopping blocks the work with the reason
 // `settings_changed`, ends the parked lane, and retires its wake, as a spend stop's block does. It returns the work
 // order's state.
@@ -61,6 +62,10 @@ func (s *LaneSettings) Decide(ctx context.Context, scope ledger.WorkspaceID, wor
 		}
 		if hold.Change.Digest != decision.Digest {
 			return fmt.Errorf("%w: lane %s is held on another settings change than the one named, so read it again", workorders.ErrInvalid, lane)
+		}
+		if decision.Choice == lanes.SettingsBase && !hold.Change.Restorable() {
+			return fmt.Errorf("%w: lane %s changed %s, which a hook or a setting of the repository runs, and a restore would revert that work, so run the lane with its own version or stop it",
+				lanes.ErrSettingsNotRestorable, lane, strings.Join(hold.Change.Scripts, ", "))
 		}
 		decision.Generation = hold.Change.Generation
 		data, err := json.Marshal(decision)
@@ -251,6 +256,9 @@ func recordedSettings(in lanes.SettingsChange) lanes.SettingsChange {
 	}
 	for _, line := range in.Summary[:min(len(in.Summary), lanes.MaxSettingsLines)] {
 		out.Summary = append(out.Summary, clipText(setupText(line), lanes.MaxSettingsText))
+	}
+	for _, script := range in.Scripts[:min(len(in.Scripts), lanes.MaxSettingsLines)] {
+		out.Scripts = append(out.Scripts, setupText(script))
 	}
 	return out
 }

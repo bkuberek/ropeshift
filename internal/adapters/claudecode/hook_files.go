@@ -6,9 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -292,41 +289,4 @@ func (b *baseSide) fileAt(spec ports.SessionSpec, path string) (baseFile, error)
 	b.ran[path] = file
 	b.mu.Unlock()
 	return file, nil
-}
-
-// restoreHookFiles puts each file a hook runs that the lane changed back as the commit the lane's work began from holds
-// it, or removes it where that commit holds none, once the settings and pieces are restored, so the hooks it reads are
-// the repository's. It writes only through directories of the worktree's own: a link on the way is refused.
-func restoreHookFiles(spec ports.SessionSpec) error {
-	base := newBaseSide()
-	pieces, _ := worktreePieces(spec, nestedSkillDirs(spec).dirs)
-	for _, held := range hookFiles(spec, base, sessionCommands(spec, pieces)) {
-		path := filepath.Join(spec.Dir, filepath.FromSlash(held.path))
-		if held.unread {
-			return fmt.Errorf("the repository's %s at %s could not be read, so it is not restored", held.path, spec.Base)
-		}
-		if !held.based {
-			present, err := ownParents(spec.Dir, held.path, false)
-			if err != nil {
-				return err
-			}
-			if present {
-				if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-					return err
-				}
-			}
-			continue
-		}
-		at, err := base.fileAt(spec, held.path)
-		if err != nil {
-			return err
-		}
-		if _, err := ownParents(spec.Dir, held.path, true); err != nil {
-			return err
-		}
-		if err := replaceFile(path, at.raw); err != nil {
-			return err
-		}
-	}
-	return nil
 }

@@ -25,10 +25,26 @@ const held: LaneSettingsNeed = {
   actions: ["settings_base", "settings_lane", "settings_stop"],
 };
 
-function show(after: () => Promise<void> = async () => {}) {
+// scriptHeld is a lane held because it changed a script a hook of the repository runs, which no restore puts back.
+const scriptHeld: LaneSettingsNeed = {
+  ...held,
+  change: {
+    generation: 2,
+    files: ["scripts/check.sh"],
+    keys: ["hooks"],
+    scripts: ["scripts/check.sh"],
+    summary: ["scripts/check.sh: changed, and a hook in .claude/settings.json runs it"],
+    digest: "sha256:script",
+  },
+  recommendation: "stop",
+  recommendation_rationale: "the lane changed a script a hook runs, and a restore would revert its work",
+  actions: ["settings_lane", "settings_stop"],
+};
+
+function show(after: () => Promise<void> = async () => {}, need: LaneSettingsNeed = held) {
   return render(
     <CurrentProject.Provider value={testProject}>
-      <LaneSettingsCard need={held} after={after} frame={{ title: "Lane lane-1 changed its own hooks/permissions" }} />
+      <LaneSettingsCard need={need} after={after} frame={{ title: "Lane lane-1 changed its own hooks/permissions" }} />
     </CurrentProject.Provider>,
   );
 }
@@ -74,6 +90,28 @@ describe("a lane held on its own settings", () => {
     await userEvent.click(screen.getByRole("button", { name: press }));
     await waitFor(() => expect(after).toHaveBeenCalled());
     expect(sent.find((call) => call.method === "POST")?.body).toEqual({ lane: "lane-1", digest: "sha256:held", choice });
+  });
+});
+
+describe("a lane held on a script a hook runs", () => {
+  it("offers no restore, says why, and keeps the lane's version and stop", () => {
+    show(async () => {}, scriptHeld);
+    expect(screen.queryByRole("button", { name: "Run with the repository's settings (base)" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Run with this lane's settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    const choices = within(screen.getByRole("list", { name: "Choices" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent ?? "");
+    expect(choices).toHaveLength(2);
+    expect(choices.some((choice) => choice.startsWith("Run with the repository's settings"))).toBe(false);
+    expect(screen.getByText(/No restore is offered: the lane changed scripts\/check\.sh, which a hook or a setting of the repository runs/)).toBeTruthy();
+    expect(screen.getByText(/Recommended: Stop, because/)).toBeTruthy();
+  });
+
+  it("offers the restore for a hold from a settings file", () => {
+    show();
+    expect(screen.getByRole("button", { name: "Run with the repository's settings (base)" })).toBeTruthy();
+    expect(screen.queryByText(/No restore is offered/)).toBeNull();
   });
 });
 

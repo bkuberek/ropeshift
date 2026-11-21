@@ -329,6 +329,7 @@ func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) 
 		if !slices.Contains(change.Files, held.path) {
 			change.Files = append(change.Files, held.path)
 		}
+		change.Scripts = append(change.Scripts, held.path)
 		if !slices.Contains(change.Keys, held.key) {
 			change.Keys = append(change.Keys, held.key)
 		}
@@ -500,9 +501,9 @@ func shown(text, key string) string {
 var errSettingsNotRestorable = errors.New("a directory on the way to a settings file or a piece in the worktree is a link or no directory, so it cannot be restored")
 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
-// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, each piece whose
-// frontmatter hooks the lane added or changed (restorePieces), and then each file a hook runs that the lane changed
-// (restoreHookFiles). It writes only inside the worktree: a `.claude` that is a
+// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, and each piece whose
+// frontmatter hooks the lane added or changed (restorePieces). It never puts back a file a hook runs, which is the
+// lane's work: a hold that names one offers no restore (lanes.SettingsChange.Scripts). It writes only inside the worktree: a `.claude` that is a
 // link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
 	spec = atSettingsBase(spec)
@@ -538,10 +539,7 @@ func restoreBaseSettings(spec ports.SessionSpec) error {
 			return err
 		}
 	}
-	if err := restorePieces(spec); err != nil {
-		return err
-	}
-	return restoreHookFiles(spec)
+	return restorePieces(spec)
 }
 
 // replaceFile puts a regular file at path in one step: it writes a file of its own beside it, which it creates and

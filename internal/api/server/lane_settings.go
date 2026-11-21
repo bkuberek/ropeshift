@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"slices"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
@@ -12,7 +11,8 @@ import (
 )
 
 // laneSettingsNeeds lists the lanes held on their own settings, as items of Needs you in the security category (ADR-0040):
-// one for each lane, with the change it made and the three choices, the repository's settings first. It also says which
+// one for each lane, with the change it made and its choices, the repository's settings first where the hold offers a
+// restore. It also says which
 // work orders they are, so the plain items a parked work order would raise, a resume and a long park, are left to the
 // hold that answers them.
 func laneSettingsNeeds(tx ports.ReadTx) ([]api.NeedItem, map[string]bool, error) {
@@ -25,10 +25,10 @@ func laneSettingsNeeds(tx ports.ReadTx) ([]api.NeedItem, map[string]bool, error)
 	for i := range holds {
 		hold := &holds[i]
 		held[hold.WorkOrder.ID] = true
-		choice, why := lanes.SettingsAdvice()
+		choice, why := lanes.SettingsAdvice(hold.Change)
 		items = append(items, api.NeedItem{Kind: api.NeedLaneSettings, ID: hold.Lane, Since: hold.Since, LaneSettings: &api.LaneSettingsNeed{
 			Lane: hold.Lane, WorkOrder: &hold.WorkOrder, Category: api.CategorySecurity, Change: hold.Change,
-			Recommendation: choice, RecommendationRationale: why, Actions: slices.Clone(api.LaneSettingsActions),
+			Recommendation: choice, RecommendationRationale: why, Actions: api.LaneSettingsActionsFor(hold.Change),
 		}})
 	}
 	return items, held, nil

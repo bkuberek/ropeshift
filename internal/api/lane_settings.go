@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -30,8 +31,22 @@ const (
 // held to knowing each one.
 var LaneSettingsActions = []string{ActSettingsBase, ActSettingsLane, ActSettingsStop}
 
+// LaneSettingsActionsFor is what a hold offers: every action, less running with the repository's settings for a hold
+// that offers no restore (lanes.SettingsChange.Restorable).
+func LaneSettingsActionsFor(change lanes.SettingsChange) []string {
+	if change.Restorable() {
+		return slices.Clone(LaneSettingsActions)
+	}
+	return []string{ActSettingsLane, ActSettingsStop}
+}
+
+// CodeSettingsNotRestorable refuses a choice to run a lane with the repository's settings when its hold comes from a
+// script a hook or a setting of the repository runs, which a restore would revert with the lane's work.
+const CodeSettingsNotRestorable = "settings_not_restorable"
+
 // LaneSettingsNeed is a lane held on its own settings: the lane and its work, what it changed, which is what a member's
-// choice binds to, the category that keeps it with a member, and the choice recommended, lanes.SettingsBase, with why.
+// choice binds to, the category that keeps it with a member, the choice recommended (lanes.SettingsAdvice) with why, and
+// the actions it offers (LaneSettingsActionsFor).
 type LaneSettingsNeed struct {
 	Lane                    string                `json:"lane"`
 	WorkOrder               *workorders.WorkOrder `json:"work_order"`
