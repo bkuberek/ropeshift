@@ -130,6 +130,39 @@ func TestAPieceThatAddsNoHookHoldsNothing(t *testing.T) {
 	}
 }
 
+// A frontmatter that opens with `---` and cannot be read as one block is held, and not taken for a file with no hooks,
+// because the CLI may read what this cannot: an opening line that is more than the three dashes, and a block no line
+// closes.
+func TestAFrontmatterThatOpensButCannotBeReadHoldsTheLane(t *testing.T) {
+	file := pieceFiles[0]
+	for name, body := range map[string]string{
+		"a block no line closes":                "---\nname: deploy\nhooks:\n  PreToolUse: []\nDeploy the service.\n",
+		"an opening line with a word on it":     "---yaml\nname: deploy\n---\nDeploy the service.\n",
+		"an opening line of more dashes":        "----\nname: deploy\n---\nDeploy the service.\n",
+		"an opening line with a trailing space": "--- \nname: deploy\n---\nDeploy the service.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := pieceSpec(t, nil)
+			writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(file)), body)
+			change := settingsChange(spec)
+			if change == nil || !slices.Equal(change.Files, []string{file}) || !slices.Contains(change.Summary, file+" hooks: frontmatter that cannot be read, held as a change") {
+				t.Errorf("%s holds %+v", name, change)
+			}
+		})
+	}
+	for name, body := range map[string]string{
+		"no frontmatter":                "Deploy the service.\n",
+		"a block that closes":           plainPiece,
+		"a block with carriage returns": strings.ReplaceAll(plainPiece, "\n", "\r\n"),
+	} {
+		spec := pieceSpec(t, nil)
+		writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(file)), body)
+		if change := settingsChange(spec); change != nil {
+			t.Errorf("%s holds %+v", name, change)
+		}
+	}
+}
+
 // A piece reached through a link in the worktree is read as the CLI reads it, so a link to a hooked skill holds the lane.
 func TestAHookBehindALinkHoldsTheLane(t *testing.T) {
 	spec := pieceSpec(t, nil)

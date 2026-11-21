@@ -52,25 +52,31 @@ func isPiece(path string) bool {
 	return strings.EqualFold(pathpkg.Ext(name), ".md")
 }
 
-// pieceHooks are the hooks one piece's frontmatter declares, as JSON, nil for none. A frontmatter that does not parse,
-// and a file past the bound a repository's file holds to, is not readable, and nothing says it declares none.
+// pieceHooks are the hooks one piece's frontmatter declares, as JSON, nil for none. A frontmatter that does not parse or
+// that opens and is not closed, and a file past the bound a repository's file holds to, is not readable, and nothing
+// says it declares none.
 type pieceHooks struct {
 	value    json.RawMessage
 	readable bool
 }
 
-// frontmatterHooks reads the hooks a piece's frontmatter declares: the YAML between a first line of `---` and the next,
-// with an empty or absent `hooks` declaring none, and a file with no such block declaring none.
+// frontmatterHooks reads the hooks a piece's frontmatter declares: the YAML between a first line of exactly `---` and the
+// next, with an empty or absent `hooks` declaring none, and a file that does not begin with `---` declaring none. A file
+// that begins with `---` and is no such block, whose first line has more on it than the three dashes or whose block no
+// line closes, is not readable: the CLI may read as a block what this cannot, and nothing says it declares none.
 func frontmatterHooks(raw []byte) pieceHooks {
 	text := strings.ReplaceAll(strings.TrimPrefix(string(raw), "\ufeff"), "\r\n", "\n")
-	first, rest, _ := strings.Cut(text, "\n")
-	if strings.TrimRight(first, " \t") != "---" {
+	if !strings.HasPrefix(text, "---") {
 		return pieceHooks{readable: true}
+	}
+	first, rest, _ := strings.Cut(text, "\n")
+	if first != "---" {
+		return pieceHooks{}
 	}
 	lines := strings.Split(rest, "\n")
 	end := slices.IndexFunc(lines, func(line string) bool { return strings.TrimRight(line, " \t") == "---" })
 	if end < 0 {
-		return pieceHooks{readable: true}
+		return pieceHooks{}
 	}
 	var front map[string]any
 	if err := yaml.Unmarshal([]byte(strings.Join(lines[:end], "\n")), &front); err != nil {

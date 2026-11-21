@@ -118,3 +118,43 @@ func TestAPieceALaneAddsHidesNoneOfTheMembers(t *testing.T) {
 		t.Errorf("the member's own pieces are\n %+v\nwant\n %+v", event.Setup.Personal, want)
 	}
 }
+
+// A piece a lane committed to the branch its next generation continues is not the repository's either: the pieces the
+// repository supplies are those its `.claude` directory holds at the lane's base, so a lane cannot commit a skill, a
+// subagent, or a plugin of the same name as the member's own and hide it from the report of what leaked.
+func TestAPieceALaneCommittedHidesNoneOfTheMembers(t *testing.T) {
+	home := t.TempDir()
+	spec := laneSpec(t)
+	spec.Env = []string{"HOME=" + home}
+	config := filepath.Join(home, ".claude")
+	writeFile(t, filepath.Join(config, "agents", "reviewer.md"), "---\nname: reviewer\n---\nMine.\n")
+	writeFile(t, filepath.Join(config, "skills", "pdf", "SKILL.md"), "---\nname: pdf\n---\nMine.\n")
+	writeFile(t, filepath.Join(config, "commands", "deploy.md"), "Mine.\n")
+	writeFile(t, filepath.Join(config, "settings.json"), `{"enabledPlugins":{"formatter@market":true}}`)
+	spec.Repository = spec.Dir
+	spec.SettingsBase = committed(t, spec.Dir, map[string]string{"README.md": "the base"})
+	spec.Base = committed(t, spec.Dir, map[string]string{
+		".claude/agents/reviewer.md":  "---\nname: reviewer\n---\nThe lane's.\n",
+		".claude/skills/pdf/SKILL.md": "---\nname: pdf\n---\nThe lane's.\n",
+		".claude/commands/deploy.md":  "The lane's.\n",
+		".claude/settings.json":       `{"enabledPlugins":{"formatter@market":true}}`,
+	})
+	s := &session{events: make(chan ports.DriverEvent, 4), setup: setupContextOf(spec)}
+	s.take([]byte(`{"type":"system","subtype":"init","session_id":"s-1","model":"m","claude_code_version":"2.1.330",
+		"mcp_servers":[{"name":"ropeshift","status":"connected","source":"dynamic"}],
+		"agents":["reviewer"],"skills":["pdf"],"slash_commands":["deploy"],
+		"plugins":[{"name":"formatter","path":"/x/formatter"}]}`), 1)
+	event := <-s.events
+	if event.Setup == nil {
+		t.Fatalf("the init gave %+v", event)
+	}
+	want := []lanes.PersonalItem{
+		{Kind: lanes.PiecePlugin, Name: "formatter", From: "~/.claude/settings.json"},
+		{Kind: lanes.PieceAgent, Name: "reviewer", From: "~/.claude/agents/reviewer.md"},
+		{Kind: lanes.PieceSkill, Name: "pdf", From: "~/.claude/skills/pdf"},
+		{Kind: lanes.PieceCommand, Name: "deploy", From: "~/.claude/commands/deploy.md"},
+	}
+	if !slices.Equal(event.Setup.Personal, want) {
+		t.Errorf("the member's own pieces are\n %+v\nwant\n %+v", event.Setup.Personal, want)
+	}
+}

@@ -133,10 +133,12 @@ const (
 )
 
 // repositoryPieces are the agents, skills, commands, and enabled plugins the repository's `.claude` directory holds at
-// the commit the lane began from, read as repositoryFile reads a file, so a piece a lane adds to its worktree is never
-// the repository's until it is merged, and never hides one of the member's own. A directory that cannot be read holds
-// none, so each piece the member's directory names reads as theirs.
+// the lane's base (atSettingsBase), read as repositoryFile reads a file, so a piece a lane adds to its worktree or
+// commits to a branch it continues is never the repository's until it is merged, and never hides one of the member's
+// own: what the repository supplies decides which pieces are the member's, and so what the leak report says. A
+// directory that cannot be read holds none, so each piece the member's directory names reads as theirs.
 func repositoryPieces(spec ports.SessionSpec) pieces {
+	spec = atSettingsBase(spec)
 	out := newPieces()
 	if spec.Repository == "" || spec.Base == "" {
 		return out
