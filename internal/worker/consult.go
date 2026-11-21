@@ -144,10 +144,10 @@ func (w *Worker) lifeOr(ctx context.Context) context.Context {
 // that a failed upload left is sent again with the next.
 func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 	end := w.consultSession(ctx, run)
-	end.ID, end.Question, end.Agent, end.Class = run.grant.ID, run.grant.Question, run.grant.Agent.Name, run.grant.Agent.Class
+	end.ID, end.Question, end.Agent, end.Class, end.Approval = run.grant.ID, run.grant.Question, run.grant.Agent.Name, run.grant.Agent.Class, run.grant.Agent.Approval
 	if err := end.Check(); err != nil {
 		end = ledger.ConsultationEnd{
-			ID: end.ID, Question: end.Question, Agent: end.Agent, Class: end.Class, Model: end.Model, CostUSD: max(end.CostUSD, 0),
+			ID: end.ID, Question: end.Question, Agent: end.Agent, Class: end.Class, Approval: end.Approval, Model: end.Model, CostUSD: max(end.CostUSD, 0),
 			Outcome: ledger.ConsultationFailed, Detail: "the consultation's end did not hold together",
 		}
 	}

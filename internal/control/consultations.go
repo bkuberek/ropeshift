@@ -271,7 +271,7 @@ func consultationUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEven
 	if ended != nil {
 		return nil
 	}
-	end.Agent, end.Class = started.Agent.Name, started.Agent.Class
+	end.Agent, end.Class, end.Approval = started.Agent.Name, started.Agent.Class, started.Agent.Approval
 	data, err := json.Marshal(end)
 	if err != nil {
 		return err
@@ -327,8 +327,8 @@ func wakeConsultations(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error
 // the role names, because the agent read records a delegate may have written, and its text grants nothing.
 func consultationText(end ledger.ConsultationEnd) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "Consultation %s of question %s, by %s (%s, %s, $%.2f), ended %s.", end.ID, end.Question, end.Agent, end.Class, end.Model,
-		end.CostUSD, end.Outcome)
+	fmt.Fprintf(&out, "Consultation %s of question %s, by %s (%s, approval %s, %s, $%.2f), ended %s.", end.ID, end.Question, end.Agent, end.Class,
+		end.Approval, end.Model, end.CostUSD, end.Outcome)
 	if end.Outcome == ledger.ConsultationReported {
 		for i, option := range end.Options {
 			fmt.Fprintf(&out, " Option %d: %s", i+1, lanes.DelegateText(option))

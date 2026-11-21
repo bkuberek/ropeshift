@@ -217,7 +217,7 @@ func TestADecisionCitesItsConsultationWhoseEventHoldsTheAgentAndTheCost(t *testi
 	ended := r.awaitConsulted(t, "q1")
 	spec := r.consultSpecs()[0]
 	// The session asks for the model the profile maps the agent's class to, and the event holds the one it ran on.
-	if ended.Agent != "consultant" || ended.Class != "frontier" || spec.Model != "opus" || ended.Model != "resolved-model" || math.Abs(ended.CostUSD-0.4) > 1e-9 {
+	if ended.Agent != "consultant" || ended.Class != "frontier" || ended.Approval != "per_use" || spec.Model != "opus" || ended.Model != "resolved-model" || math.Abs(ended.CostUSD-0.4) > 1e-9 {
 		t.Errorf("the consultation's event holds %+v, and its session asked for %q", ended, spec.Model)
 	}
 	if spent := r.workSpentToday(t) - before; math.Abs(spent-0.4) > 1e-9 {

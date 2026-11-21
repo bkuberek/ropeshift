@@ -145,12 +145,15 @@ func (r ConsultationReport) Check() error {
 }
 
 // ConsultationEnd is the data of EventConsulted: the consultation, the question, the agent it ran with its class and
-// the model its session ran on, what it cost, how it ended, and what its agent reported.
+// approval, the model its session ran on, what it cost, how it ended, and what its agent reported.
 type ConsultationEnd struct {
-	ID       string  `json:"id"`
-	Question string  `json:"question"`
-	Agent    string  `json:"agent"`
-	Class    string  `json:"class"`
+	ID       string `json:"id"`
+	Question string `json:"question"`
+	Agent    string `json:"agent"`
+	Class    string `json:"class"`
+	// Approval is the agent's approval, per_use for one that asks for each start: a consultation within
+	// `consultation_limit` counts as the approved use.
+	Approval string  `json:"approval,omitempty"`
 	Model    string  `json:"model,omitempty"`
 	CostUSD  float64 `json:"cost_usd"`
 	Outcome  string  `json:"outcome"`
