@@ -134,5 +134,6 @@ func harborLanes() map[string]any {
 func laneQuestion(text string, blocking bool, options ...string) step {
 	return step{"mcp": "ask", "arguments": map[string]any{
 		"text": text, "categories": []string{"product"}, "blocking": blocking, "options": options,
+		"recommendation": options[0], "recommendation_rationale": "It is the answer the work can go on with.",
 	}}
 }

@@ -92,6 +92,10 @@ type Item struct {
 	LadderTrace    []Step `json:"ladder_trace,omitempty"`
 	// AskedBy is who asked the question, so a member can discuss it with them.
 	AskedBy string `json:"asked_by,omitempty"`
+	// Title, Tradeoffs, and Unblocks are the question's shape, with a tradeoff only for an option it offers now.
+	Title     string            `json:"title,omitempty"`
+	Tradeoffs map[string]string `json:"tradeoffs,omitempty"`
+	Unblocks  string            `json:"unblocks,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -114,6 +118,7 @@ func Present(batch Batch, rows []Question, category string, policy Policy) Prese
 			EscalationReason: row.EscalationReason, Reversibility: policy.AnswerReversibility(row), Citations: citationsOf(row),
 			Scope: ScopeOf(row.SubjectKind, row.SubjectID), Overlaps: row.Overlaps,
 			NoOrchestrator: row.NoOrchestrator(), LadderTrace: row.LadderTrace, AskedBy: row.AskedBy,
+			Title: row.Title, Tradeoffs: TradeoffsOf(row), Unblocks: row.Unblocks,
 		})
 	}
 	return presented

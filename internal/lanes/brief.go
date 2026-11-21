@@ -196,8 +196,11 @@ func intakeNotice(directory string) string {
 	return "Keep plan files in `plan/`; intake reads every committed `.md` file whose first line is `+++`."
 }
 
-// askAdvice is what a brief says to put in a question so that a person can answer it once.
-const askAdvice = "Give the options you would choose between, and recommend one of them with the reason in recommendation_rationale."
+// askAdvice is what a brief says to put in a question so that a person can answer it once, by agreeing with its
+// recommendation. The ask tool sends back a question with no recommendation.
+const askAdvice = "Ask each question in the shape a person answers in one step: a short title, the options you would choose between " +
+	"with what each one trades off in tradeoffs, recommend one of them in recommendation with the reason in " +
+	"recommendation_rationale, and say what the answer unblocks in unblocks. A question with no recommendation is sent back to you."
 
 // reviewNotice tells a review lane what a review is for. It finds, and it decides nothing.
 const reviewNotice = "This is a contract review. Read the plan and each contract below as the lane that will do the work would, and " +

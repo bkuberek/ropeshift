@@ -10,7 +10,7 @@
     ],
     [
       {"init": true},
-      {"mcp": "ask", "arguments": {"text": "rs5 headless question"}},
+      {"mcp": "ask", "arguments": {"text": "rs5 headless question", "recommendation": "Go on", "recommendation_rationale": "The lane can go on with what it has."}},
       {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "stand-in", "passed": true}]}},
       {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
     ]
