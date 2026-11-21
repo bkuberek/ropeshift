@@ -18,6 +18,9 @@ const (
 	JournalFileName = "journal.db"
 	// TerminalSocketName is short, because a socket path has a 104-byte limit.
 	TerminalSocketName = "tmux"
+	// InitDaemonLogName is the log of the daemon that ropeshift init runs for its own length, inside the state
+	// directory. A run that fails keeps it.
+	InitDaemonLogName = "init-daemon.log"
 )
 
 // Environment names that move the directories, for a second installation on one
@@ -65,6 +68,9 @@ func (p Paths) TerminalSocket() string { return filepath.Join(p.RunDir, Terminal
 
 // ControlSocket is the control plane's socket.
 func (p Paths) ControlSocket() string { return filepath.Join(p.RunDir, ControlSocketName) }
+
+// InitDaemonLog is where the daemon ropeshift init starts writes its output.
+func (p Paths) InitDaemonLog() string { return filepath.Join(p.StateDir, InitDaemonLogName) }
 
 // ResolvePaths applies D19. It takes the operating system, the environment, and the
 // home directory as inputs, so a test can check every platform on any machine.

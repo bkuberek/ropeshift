@@ -122,6 +122,7 @@ func cliOptions() cli.Options {
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx) }
 	opts.Worktree = func(ctx context.Context) (lanes.WorktreeReport, error) { return worktreeReport(ctx, paths) }
 	opts.StartDaemon = startDaemonForInit(paths)
+	opts.DaemonLog = paths.InitDaemonLog()
 	opts.StateDir = paths.StateDir
 	return opts
 }

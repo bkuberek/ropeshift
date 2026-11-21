@@ -1,23 +1,26 @@
 package entry
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
-	"sync"
+	"strings"
 	"syscall"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
 )
 
 // How long ropeshift init waits for the daemon it started to answer, and then to stop.
 const (
 	initDaemonReady = 60 * time.Second
 	initDaemonStop  = 15 * time.Second
+	// initDaemonLogTail is how much of the end of the daemon's log a failed start shows.
+	initDaemonLogTail = 4096
 	// initDaemonOutputGrace is how long the wait for the daemon goes on after it ended, for a process it left
 	// holding its output.
 	initDaemonOutputGrace = 2 * time.Second
@@ -33,26 +36,64 @@ func startDaemonForInit(paths api.Paths) func(context.Context) (func() error, er
 		if err != nil {
 			return nil, err
 		}
-		output := &lockedOutput{}
-		cmd := initDaemonCommand(executable)
-		cmd.Stdout, cmd.Stderr = output, output
-		daemon, err := launchInitDaemon(cmd, initDaemonStop)
-		if err != nil {
-			return nil, err
-		}
-		if err := awaitDaemon(ctx, paths, daemon.exited); err != nil {
-			_ = daemon.stop()
-			return nil, fmt.Errorf("%w\n%s", err, output.String())
-		}
-		return daemon.stop, nil
+		return startInitDaemon(ctx, paths, initDaemonCommand(executable))
 	}
+}
+
+// startInitDaemon runs cmd as the daemon of one init, and returns how to stop it once it answers. The daemon's
+// output goes to a log in the state directory, which a start that fails names and keeps, and which init removes
+// when its run succeeds, so a run that was slow or failed can be read afterwards.
+func startInitDaemon(ctx context.Context, paths api.Paths, cmd *exec.Cmd) (func() error, error) {
+	if err := server.PrivateDir(paths.StateDir); err != nil {
+		return nil, err
+	}
+	path := paths.InitDaemonLog()
+	log, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	// The log is the daemon's own and a person's to read, whatever mode an earlier file had.
+	_ = log.Chmod(0o600)
+	cmd.Stdout, cmd.Stderr = log, log
+	daemon, err := launchInitDaemon(cmd, initDaemonStop)
+	// The daemon holds the descriptors it needs, and a file is no pipe, so nothing the daemon leaves behind
+	// holds init's wait for it.
+	_ = log.Close()
+	if err != nil {
+		_ = os.Remove(path)
+		return nil, err
+	}
+	if err := awaitDaemon(ctx, paths, daemon.exited); err != nil {
+		_ = daemon.stop()
+		return nil, fmt.Errorf("%w\n%s\nThe daemon's log is kept at %s", err, logTail(path), path)
+	}
+	return daemon.stop, nil
+}
+
+// logTail is the end of what the daemon wrote, which a start that failed shows.
+func logTail(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return "the daemon's log could not be read: " + err.Error()
+	}
+	defer file.Close()
+	if end, err := file.Seek(0, io.SeekEnd); err == nil && end > initDaemonLogTail {
+		_, _ = file.Seek(end-initDaemonLogTail, io.SeekStart)
+	} else {
+		_, _ = file.Seek(0, io.SeekStart)
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, initDaemonLogTail))
+	if err != nil {
+		return "the daemon's log could not be read: " + err.Error()
+	}
+	return strings.TrimSpace(strings.ToValidUTF8(string(raw), ""))
 }
 
 // initDaemonCommand is the daemon an init runs, before its output is set. It starts no probe of the agent CLI:
 // the probe starts real sessions that spend turns, and this daemon is stopped, and the probe cancelled, within
 // seconds of its start. A process the daemon leaves behind can hold its output open after the daemon ended,
-// and the wait for the daemon would wait for that process too, so the wait is bounded, as the installed-build
-// read's is.
+// and a wait on output that is not a file would wait for that process too, so the wait is bounded, as the
+// installed-build read's is.
 func initDaemonCommand(executable string) *exec.Cmd {
 	return &exec.Cmd{
 		Path:      executable,
@@ -119,22 +160,4 @@ func awaitDaemon(ctx context.Context, paths api.Paths, exited chan error) error 
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
-}
-
-// lockedOutput keeps what the daemon printed, for the error that explains a start that failed.
-type lockedOutput struct {
-	mu  sync.Mutex
-	raw bytes.Buffer
-}
-
-func (o *lockedOutput) Write(p []byte) (int, error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.raw.Write(p)
-}
-
-func (o *lockedOutput) String() string {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.raw.String()
 }

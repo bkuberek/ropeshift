@@ -35,9 +35,11 @@ func killLeftover(t *testing.T, file string) {
 	})
 }
 
-// TestInitStopsADaemonWhoseChildHoldsItsOutput holds init's wait for its daemon to a bound. The daemon's
-// output is read through a pipe, and a wait on a daemon that left a child holding that pipe returns only
-// when the child lets go, so a stop that waits for the end of the daemon waits for the child.
+// TestInitStopsADaemonWhoseChildHoldsItsOutput holds init's wait for its daemon to a bound, whatever its output
+// goes to. Output that goes to a pipe is copied by a goroutine, and a wait on a daemon that left a child
+// holding that pipe returns only when the child lets go, so a stop that waits for the end of the daemon waits
+// for the child. Init writes the output to a file, which no child can hold up, and this holds the bound apart
+// from that.
 func TestInitStopsADaemonWhoseChildHoldsItsOutput(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "child")
@@ -118,5 +120,44 @@ func TestADaemonInitStopsEndsWithinTheLimitInitGivesIt(t *testing.T) {
 	t.Parallel()
 	if got := soloShutdownGrace + workerStopGrace; got >= initDaemonStop {
 		t.Errorf("a stopping daemon waits %v for its server and its worker, and init kills it after %v", got, initDaemonStop)
+	}
+}
+
+// An init whose daemon never answers keeps the daemon's log and says where it is, so a start that was slow or
+// failed can be read afterwards. The log holds both of the daemon's streams.
+func TestInitKeepsTheLogOfADaemonThatNeverAnswered(t *testing.T) {
+	t.Parallel()
+	root := apitest.ShortDir(t)
+	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run")}
+	cmd := initDaemonCommand("/bin/sh")
+	cmd.Args = []string{"sh", "-c", "echo said on stdout; echo said on stderr >&2; exit 3"}
+	_, err := startInitDaemon(t.Context(), paths, cmd)
+	if err == nil {
+		t.Fatal("a daemon that exited before it answered was taken for one that runs")
+	}
+	log := paths.InitDaemonLog()
+	for _, want := range []string{"exited before it answered", "said on stdout", "said on stderr", log} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the failure lacks %q:\n%v", want, err)
+		}
+	}
+	raw, readErr := os.ReadFile(log)
+	if readErr != nil || !strings.Contains(string(raw), "said on stdout") || !strings.Contains(string(raw), "said on stderr") {
+		t.Errorf("the kept log holds %q (%v)", raw, readErr)
+	}
+	if info, statErr := os.Stat(log); statErr == nil && info.Mode().Perm()&0o077 != 0 {
+		t.Errorf("the log of a daemon is readable by others: %v", info.Mode())
+	}
+}
+
+// The command line learns where the daemon it starts for init writes its log, because the log is the
+// installation's own file in its state directory.
+func TestTheCommandLineNamesTheLogOfTheDaemonInitStarts(t *testing.T) {
+	state := apitest.ShortDir(t)
+	t.Setenv(api.EnvStateDir, state)
+	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
+	opts := cliOptions()
+	if want := filepath.Join(state, api.InitDaemonLogName); opts.DaemonLog != want {
+		t.Errorf("the log is %q, want %q", opts.DaemonLog, want)
 	}
 }

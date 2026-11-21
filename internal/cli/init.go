@@ -156,6 +156,10 @@ func (c *invocation) initMachine(args []string) int {
 	if !done {
 		return code
 	}
+	if stop != nil && c.daemonLog != "" {
+		// The run is over and nothing failed, so the log of the daemon it started has nothing to say.
+		_ = os.Remove(c.daemonLog)
+	}
 	if c.asJSON {
 		if err := json.NewEncoder(c.stdout).Encode(result); err != nil {
 			return c.failure(err)
@@ -183,6 +187,9 @@ func (c *invocation) reachDaemon(client *api.Client, result *initResult) (func()
 		return nil, err
 	}
 	result.Daemon = "started"
+	if c.daemonLog != "" {
+		c.errorNote = fmt.Sprintf(" The daemon this run started wrote its log to %s.", c.daemonLog)
+	}
 	c.say("Daemon: started for this run, and stopped at its end.\n")
 	return stop, nil
 }
