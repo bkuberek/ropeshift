@@ -39,6 +39,9 @@ const AttachedWaits = attachedWaits
 // ConsultHoldMargin is how long before the ledger's hold on a question ends its consultation's session is stopped.
 const ConsultHoldMargin = consultHoldMargin
 
+// ConsultClockSkew is how much earlier again than that margin a session is stopped, for a clock that runs behind the ledger's.
+const ConsultClockSkew = consultClockSkew
+
 // PublishSettle is how long a lane's moves settle before a running worker publishes them.
 const PublishSettle = publishSettle
 

@@ -34,6 +34,10 @@ const (
 	// consultHoldMargin is how long before the ledger's hold on the question ends a consultation's session is stopped, so
 	// its end reaches the ledger while the consultation still holds the question.
 	consultHoldMargin = 2 * time.Minute
+	// consultClockSkew is how far this machine's clock may run behind the ledger's, which the hold's end is counted on.
+	// It stands beside consultHoldMargin: a session is stopped this much earlier again, so a worker whose clock is slow
+	// by that much still stops it while the consultation holds the question.
+	consultClockSkew = time.Minute
 	// consultStopTries is how many times a consultation's session is asked to stop while each stop reads no end of it.
 	consultStopTries = 3
 	// consultStopGrace is how long a stopped consultation's session has to end before the worker stops reading it.
@@ -161,7 +165,7 @@ func (w *Worker) lifeOr(ctx context.Context) context.Context {
 func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 	// The session, from its preparation to its stop, never outlasts the ledger's hold on the question, or the question
 	// could be decided on while the session still reads it.
-	bounded, release := context.WithDeadlineCause(ctx, time.UnixMilli(run.grant.HoldUntil).Add(-consultHoldMargin), errConsultHoldEnded)
+	bounded, release := context.WithDeadlineCause(ctx, holdCutoff(run.grant), errConsultHoldEnded)
 	end := w.consultSession(bounded, run)
 	release()
 	end.ID, end.Question, end.Agent, end.Class, end.Approval = run.grant.ID, run.grant.Question, run.grant.Agent.Name, run.grant.Agent.Class, run.grant.Agent.Approval
@@ -198,7 +202,7 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 		return ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: fmt.Sprintf(format, args...)}
 	}
 	if heldOut(ctx) {
-		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin)
+		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin+consultClockSkew)
 	}
 	dir := filepath.Join(rt.StateDir, "consultations", run.grant.ID)
 	private, config := filepath.Join(dir, "session"), filepath.Join(dir, "config")
@@ -373,6 +377,13 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 type consultStop struct {
 	atCap, timedOut, heldOut bool
 	limit                    time.Duration
+}
+
+// holdCutoff is when a consultation's session is stopped, wherever it has got to: before the ledger's hold on its question
+// ends by the margin that lets its end reach the ledger, and by the skew a clock that runs behind the ledger's may have.
+// The hold's end is the ledger's clock, and the cutoff is read on this machine's.
+func holdCutoff(grant ledger.ConsultGrant) time.Time {
+	return time.UnixMilli(grant.HoldUntil).Add(-consultHoldMargin - consultClockSkew)
 }
 
 // heldOut says the ledger's hold on a consultation's question is about to end, which is what bounds its session's context.
