@@ -179,6 +179,9 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 	}
 	dir := filepath.Join(rt.StateDir, "consultations", run.grant.ID)
 	private, config := filepath.Join(dir, "session"), filepath.Join(dir, "config")
+	// Nothing reads what the session left once it ends. This runs last, after the worktree below is removed, and the
+	// consultation's own directory goes with them when that tree is gone.
+	defer w.forgetConsultation(dir, private, config, rt.tempDir(run.lane))
 	for _, made := range []string{private, config} {
 		if err := os.MkdirAll(made, 0o700); err != nil {
 			return failed("making its directory: %v", err)
@@ -254,6 +257,21 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 		end.Model = model
 	}
 	return end
+}
+
+// forgetConsultation removes what a consultation's session kept on this machine: its private directory, its settings, and
+// its short directory for sockets. The consultation's own directory is removed too, unless its read-only tree is still in
+// it, which the worktrees port removes.
+func (w *Worker) forgetConsultation(dir string, paths ...string) {
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			w.config.Report(fmt.Errorf("consultation: removing %s: %w", path, err))
+		}
+	}
+	_ = os.Remove(dir)
 }
 
 // followConsultation reads a consultation's session to its end. Its one turn is the consultation, so the session stops at
