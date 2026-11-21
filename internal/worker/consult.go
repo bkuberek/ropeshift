@@ -155,12 +155,14 @@ func (w *Worker) consult(ctx context.Context, lane lanes.Record, call ledger.Orc
 	}
 	run := &consultation{grant: grant, project: call.Project, orchestrator: lane.ID, lane: consultLanePrefix + grant.ID}
 	// The start is journaled before the session starts, so a worker that goes away with the session running leaves a
-	// record that the next start finds the session by.
+	// record that the next start finds the session by. This process takes the consultation first, so a recovery that
+	// reads the journal meanwhile leaves the start to it.
+	w.consults.begin(grant.ID)
 	kept := ledger.ConsultationRun{Grant: grant, Project: call.Project, Orchestrator: lane.ID, StartedAt: w.clock.Now().UnixMilli()}
 	if err := w.journal.BeginConsultation(ctx, kept); err != nil {
+		w.consults.finish(grant.ID)
 		return nil, fmt.Errorf("keeping %s in the journal: %w", ledger.ConsultationCitation(grant.ID), err)
 	}
-	w.consults.begin(grant.ID)
 	life := w.lifeOr(ctx)
 	w.goTracked(trackedConsultation, func() { w.runConsultation(life, run) })
 	return json.Marshal(ledger.ConsultStarted{

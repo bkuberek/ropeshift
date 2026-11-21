@@ -30,7 +30,14 @@ type toolRig struct {
 // aToolRig is a toolRig whose ledger holds the repositories its rulings name.
 func aToolRig(t *testing.T) *toolRig {
 	t.Helper()
-	o := newOrchestratorRig(t, aSession())
+	return aToolRigOn(t, newRig(t))
+}
+
+// aToolRigOn is aToolRig on a rig a test has already set up, such as one whose worker reads the journal through a
+// wrapper.
+func aToolRigOn(t *testing.T, base *rig) *toolRig {
+	t.Helper()
+	o := newOrchestratorRigOn(t, base, aSession())
 	o.wokenOnce(t)
 	for _, id := range []string{"retries", "keys", "logging"} {
 		holdRepository(t, o.store, id)
