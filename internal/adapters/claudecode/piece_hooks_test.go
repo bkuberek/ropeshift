@@ -396,13 +396,13 @@ func TestASubagentsUserMemoryHoldsNothingBecauseAutoMemoryIsOff(t *testing.T) {
 	}
 }
 
-// bigIgnoredTree is a lane whose base ignores node_modules, and whose worktree holds more directories there than the
-// walk for nested skills once counted, as a JavaScript repository's does.
-func bigIgnoredTree(t *testing.T) ports.SessionSpec {
+// ignoredTree is a lane whose base ignores node_modules, and whose worktree holds a few hundred directories there, as a
+// JavaScript repository's does. The walk has no count to reach, so the tree's size proves nothing past this.
+func ignoredTree(t *testing.T) ports.SessionSpec {
 	t.Helper()
 	spec := pieceSpec(t, map[string]string{".gitignore": "node_modules/\n"})
-	for a := range 257 {
-		for b := range 256 {
+	for a := range 16 {
+		for b := range 16 {
 			if err := os.MkdirAll(filepath.Join(spec.Dir, "node_modules", fmt.Sprintf("a%03d", a), fmt.Sprintf("b%03d", b)), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -418,19 +418,21 @@ func waitAtMost(t *testing.T, bound time.Duration) {
 	t.Cleanup(func() { nestedWalkWait = was })
 }
 
-// The directories git ignores, such as node_modules, are walked by their names alone, so a large tree of them with no
-// skills holds nothing, and a skills directory in one holds the lane for what it holds and is named, whatever the size
-// of the tree around it. The bound is a minute here, so the outcome does not hang on how fast the machine is.
+// The directories git ignores, such as node_modules, are walked by their names alone: a file there outside a skills
+// directory is not read, even one that would hold the lane as a skill, so a tree with no skills directory holds
+// nothing, and a skills directory in one holds the lane for what it holds and is named. The bound is a minute here, so
+// the outcome does not hang on how fast the machine is.
 func TestAnIgnoredTreeIsWalkedForSkillsByName(t *testing.T) {
 	waitAtMost(t, time.Minute)
-	spec := bigIgnoredTree(t)
-	t.Run("a large ignored tree with no skills holds nothing", func(t *testing.T) {
+	spec := ignoredTree(t)
+	writeFile(t, filepath.Join(spec.Dir, "node_modules", "a000", "b000", "SKILL.md"), hookedPiece)
+	t.Run("an ignored tree with no skills directory holds nothing", func(t *testing.T) {
 		if change := settingsChange(spec); change != nil {
-			t.Errorf("an ignored tree with no skills holds %+v", change)
+			t.Errorf("an ignored tree with no skills directory holds %+v", change)
 		}
 	})
 	t.Run("a skill under node_modules holds and is named", func(t *testing.T) {
-		const skill = "node_modules/a256/b255/.claude/skills/deploy/SKILL.md"
+		const skill = "node_modules/a015/b015/.claude/skills/deploy/SKILL.md"
 		writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(skill)), hookedPiece)
 		change := settingsChange(spec)
 		if change == nil || !slices.Equal(change.Files, []string{skill}) || !slices.Contains(change.Summary, skill+" hooks.PreToolUse: added") {
