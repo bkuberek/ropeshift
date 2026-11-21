@@ -647,8 +647,8 @@ func TestPrepareRefusesADetachedWorktreeFromAStoreThatMakesOnlyBranches(t *testi
 	}
 }
 
-// A lane reads its repository's layer at the commit its worktree begins from (FR-PROF-5), and a lane with a layer
-// of its own reads the layers below it at that commit too. A review lane's commit is the one under review.
+// A lane reads its repository's layer at the commit its request names for it, and a lane with a layer of its own reads
+// the layers below it at that commit too. A request that names none reads it at the commit its worktree begins from.
 func TestPrepareReadsTheRepositoryLayerAtTheLanesBase(t *testing.T) {
 	t.Parallel()
 	p, source, _ := provisioner(nil)
@@ -670,6 +670,37 @@ func TestPrepareReadsTheRepositoryLayerAtTheLanesBase(t *testing.T) {
 		if load.Repository != "/work/app" || (load.Base != "c1" && load.Base != "c2") {
 			t.Errorf("a layer was read with %+v", load)
 		}
+	}
+}
+
+// A lane reads its repository's layer at the commit its work began from, not the one its worktree begins at, which a
+// lane wrote: a review's worktree is the commit under review and a continued lane's the tip of its branch. A lane
+// with no such commit reads no layer of its repository, and still gets its worktree at its base.
+func TestPrepareReadsTheRepositoryLayerAtTheProfileBase(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	source.PutAt("/work/app", "fork", "[agent]\nmodel = \"merged\"\n")
+	source.PutAt("/work/app", "tip", "[agent]\nmodel = \"written\"\n[hooks]\non_lane_created = [\"./setup.sh\"]\n")
+	for name, request := range map[string]worker.LaneRequest{
+		"a lane that continues a branch": {Lane: "c1", Repository: "/work/app", Base: "tip", ProfileBase: "fork"},
+		"a review":                       {Lane: "r1", Repository: "/work/app", Base: "tip", ProfileBase: "fork", Detached: true},
+	} {
+		lane, err := p.Prepare(t.Context(), request)
+		if err != nil || lane.Profile.Agent.Model != "merged" || len(lane.Profile.Hooks) != 0 {
+			t.Errorf("%s runs %q with hooks %v (%v), want the layer at fork", name, lane.Profile.Agent.Model, lane.Profile.Hooks, err)
+		}
+	}
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "r2", Repository: "/work/app", Base: "tip", ProfileUnbased: true, Detached: true})
+	if err != nil || lane.Profile.Agent.Model == "written" || lane.Profile.Agent.Model == "merged" {
+		t.Errorf("a review with no base runs %q (%v), want no layer of its repository", lane.Profile.Agent.Model, err)
+	}
+	for _, load := range source.Loaded() {
+		if load.Base != "fork" {
+			t.Errorf("a layer was read with %+v", load)
+		}
+	}
+	if created := worktrees.Created(); len(created) != 3 || created[2].Base != "tip" {
+		t.Errorf("the worker asked for %+v", created)
 	}
 }
 

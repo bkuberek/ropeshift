@@ -2,6 +2,7 @@ package worker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -35,6 +36,14 @@ type LaneRequest struct {
 	// when it granted the claim. A branch that exists keeps the commit it has. Empty begins a new
 	// branch at the checkout's HEAD, which only a claim made before bases were resolved leaves.
 	Base string
+	// ProfileBase is the commit the repository's profile layer is read at: the lane's settings base, the commit its
+	// work began from, and never a commit a lane wrote, such as the tip of a branch it continues or the commit a review
+	// reads, so a layer a lane commits, and the hooks it names, reach no lane until it is merged. Empty reads the layer
+	// at Base.
+	ProfileBase string
+	// ProfileUnbased says the lane has no commit to read the repository's profile layer at, as a review of a lane that
+	// recorded no base has none, so its profile has no repository layer.
+	ProfileUnbased bool
 	// Tags are ropeshift's own variables for this lane.
 	Tags map[string]string
 	// Bracket records the worktree's creation as an external effect. It reports false
@@ -149,16 +158,17 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 	return laneModel, laneEffort, nil
 }
 
-// load resolves the lane's profile, reading its repository's layer at the commit its worktree begins from
-// (FR-PROF-5). A lane with no work of its own has a directory and no repository, so it has no layer. A lane that
-// another machine ran, and a review of a head another clone pushed, begin at a commit this machine has yet to
-// fetch, so a commit it does not hold is fetched for as the lane's worktree would and read once more.
+// load resolves the lane's profile, reading its repository's layer at the commit the lane's work began from
+// (ProfileBase), never at a commit a lane wrote. A lane with no work of its own has a directory and no repository,
+// and a lane with no such commit (ProfileUnbased) reads none, so neither has a layer. A lane that another machine ran,
+// and a review of a head another clone pushed, can name a commit this machine has yet to fetch, so a commit it does not
+// hold is fetched for as the lane's worktree would and read once more.
 func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
-	repository := request.Repository
-	if request.Private {
+	repository, base := request.Repository, cmp.Or(request.ProfileBase, request.Base)
+	if request.Private || request.ProfileUnbased {
 		repository = ""
 	}
-	profile, err := p.Profiles.Load(ctx, repository, request.Base, overrides)
+	profile, err := p.Profiles.Load(ctx, repository, base, overrides)
 	if !errors.Is(err, ports.ErrNotFound) || repository == "" {
 		return profile, err
 	}
@@ -169,8 +179,8 @@ func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides st
 		}
 		fetched = true
 	}
-	if trees, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && offered && request.Base != "" {
-		if err := trees.FetchCommit(ctx, repository, request.Base); err != nil {
+	if trees, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && offered && base != "" {
+		if err := trees.FetchCommit(ctx, repository, base); err != nil {
 			return lanes.Profile{}, err
 		}
 		fetched = true
@@ -178,7 +188,7 @@ func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides st
 	if !fetched {
 		return profile, err
 	}
-	return p.Profiles.Load(ctx, repository, request.Base, overrides)
+	return p.Profiles.Load(ctx, repository, base, overrides)
 }
 
 // Prepare resolves the profile first, because a bad profile should stop a lane

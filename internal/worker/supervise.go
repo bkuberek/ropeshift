@@ -39,7 +39,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
 	}
-	base := r.begins()
+	repository, base := profileLayer(r.lease, repository)
 	if r.orchestrating() {
 		repository, base = "", ""
 	}
@@ -549,28 +549,48 @@ func (r *laneRun) continuation() *lanes.Continuation {
 func (r *laneRun) begins() string { return leaseBegins(r.lease) }
 
 // settingsBase is the commit a lane's own project settings are compared with, and restored to, and the repository's
-// `.mcp.json` and status line are read at (ADR-0040): the base its claim resolved, where the branch it continues left
-// the base, and never that branch's tip, which a lane wrote, so a lane that committed its own settings edit is still held
-// at its next generation. A claim that resolved no base compares at the commit the lane begins from.
+// `.mcp.json`, status line, and profile layer are read at (ADR-0040): the base its claim resolved, where the branch it
+// continues left the base, and never that branch's tip, which a lane wrote, so a lane that committed its own settings
+// or profile edit is still held at its next generation, and runs no hook it committed. A claim that resolved no base
+// compares at the commit the lane begins from.
 //
 // A review lane's claim base is the commit under review, which its writer wrote, so a review's is the commit the
 // reviewed lane began from, where the review's diff starts. It has no fallback: a review of a lane that recorded no base
 // has none (settingsUnbased), and never compares its settings with the writer's own commit.
-func (r *laneRun) settingsBase() string {
-	if r.reviewing() {
-		if r.lease.Attempt == nil {
-			return ""
-		}
-		return r.lease.Attempt.BaseCommit
-	}
-	return cmp.Or(r.lease.BaseCommit, r.begins())
-}
+func (r *laneRun) settingsBase() string { return leaseSettingsBase(r.lease) }
 
 // settingsUnbased says this lane is a review with no commit its settings can be compared with, so its driver reads none
-// of the repository's own files and holds every setting the worktree holds that runs code.
-func (r *laneRun) settingsUnbased() bool { return r.reviewing() && r.settingsBase() == "" }
+// of the repository's own files and holds every setting the worktree holds that runs code, and its profile has no
+// repository layer.
+func (r *laneRun) settingsUnbased() bool { return leaseSettingsUnbased(r.lease) }
 
-// leaseBegins is begins for a lease, which a lane's repository layer is read at (FR-PROF-5).
+// leaseSettingsBase is settingsBase for a lease.
+func leaseSettingsBase(lease ledger.DesiredLease) string {
+	if workorders.Kind(lease.Kind) == workorders.KindReview {
+		if lease.Attempt == nil {
+			return ""
+		}
+		return lease.Attempt.BaseCommit
+	}
+	return cmp.Or(lease.BaseCommit, leaseBegins(lease))
+}
+
+// leaseSettingsUnbased is settingsUnbased for a lease.
+func leaseSettingsUnbased(lease ledger.DesiredLease) bool {
+	return workorders.Kind(lease.Kind) == workorders.KindReview && leaseSettingsBase(lease) == ""
+}
+
+// profileLayer is the repository and the commit a lane's profile reads the repository's layer at: its settings base
+// (leaseSettingsBase), so a layer a lane commits reaches no lane, its review and a lane that continues its branch among
+// them, until it is merged, and no repository for a review with no base, whose profile then has no repository layer.
+func profileLayer(lease ledger.DesiredLease, repository string) (string, string) {
+	if leaseSettingsUnbased(lease) {
+		return "", ""
+	}
+	return repository, leaseSettingsBase(lease)
+}
+
+// leaseBegins is begins for a lease, the commit its worktree begins at.
 func leaseBegins(lease ledger.DesiredLease) string {
 	if lease.ContinuesCommit != "" {
 		return lease.ContinuesCommit
