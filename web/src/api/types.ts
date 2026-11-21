@@ -250,6 +250,10 @@ export type WorkNeed = {
   actions: (WorkAction | OrchestratorAction)[];
   // extra_attempt says the retry that failed work waits for adds an attempt, which only a member can give.
   extra_attempt?: boolean;
+  // unfinished lists what a planning branch's plan lacks, when ropeshift held it back from approval and sent it back once.
+  // send_back_reason is the reason Send back offers, which says the same.
+  unfinished?: string[];
+  send_back_reason?: string;
 };
 
 export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
@@ -326,6 +330,8 @@ export type PlanApprovalNeed = {
   // The plan's open revision, which a member reads beside the difference: approving this version is the word on
   // the decisions made since the approved version.
   revision?: PlanRevisionView;
+  // unfinished lists what a placeholder version lacks. Its request cannot be approved.
+  unfinished?: string[];
 };
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
@@ -1327,6 +1333,8 @@ export type PlanApprovalDetail = {
   body_cut?: boolean;
   goal?: { title: string; statement?: string; success_measures?: string[] };
   contracts?: { id: string; title: string; statement?: string; criteria?: Criterion[] }[];
+  // unfinished lists what a placeholder version lacks. Its request cannot be approved.
+  unfinished?: string[];
 };
 
 // CreationStep is one step of a repository's creation on the forge: create, origin, or push, and whether it is done,

@@ -137,12 +137,17 @@ export function WorkCard({
     if (action === "start_orchestrator") {
       void act(() => startOrchestrator(work.orchestrator?.worker_id ?? id));
     } else if (workActions[action].needsReason) {
+      if (action === "rework" && work.send_back_reason) {
+        setReason(work.send_back_reason);
+      }
       setAsking(action);
     } else {
       void send(action, "");
     }
   };
-  const primary = leading.find((action) => work.actions.includes(action));
+  // A plan ropeshift held back as unfinished leads with Send back, because accepting it would accept what is missing.
+  const unfinished = work.unfinished ?? [];
+  const primary = unfinished.length > 0 && work.actions.includes("rework") ? "rework" : leading.find((action) => work.actions.includes(action));
   const ordered = [...work.actions.filter((action) => action === "cancel"), ...work.actions.filter((action) => action !== "cancel" && action !== primary), ...(primary ? [primary] : [])];
   return (
     <DecisionCard
@@ -171,6 +176,16 @@ export function WorkCard({
       }
     >
       <Lead work={work} />
+      {unfinished.length > 0 ? (
+        <>
+          <p>Ropeshift did not offer this plan for approval, because it is not finished. Still missing:</p>
+          <ul>
+            {unfinished.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {work.standing && !inPage ? <Verdicts standing={work.standing} /> : null}
       {work.orchestrator ? (
         <Facts>

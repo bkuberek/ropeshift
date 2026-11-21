@@ -280,6 +280,9 @@ type PlanDetail struct {
 	// Shown is what the request showed of the plan's open revision at the moment a member approved the version.
 	// It is nil until a member approves, and for an approval recorded before this was kept.
 	Shown *ShownDecisions `json:"shown,omitempty"`
+	// Unfinished lists what a plan version still lacks, when its request stands only to say so: ropeshift read the version
+	// as a placeholder, so approving it is refused, and a version that finishes the plan replaces the request.
+	Unfinished []string `json:"unfinished,omitempty"`
 }
 
 // DetailGoal is the goal a branch's plan names, with the statement its file holds.

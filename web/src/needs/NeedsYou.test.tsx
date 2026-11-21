@@ -1356,6 +1356,43 @@ describe("waiting work", () => {
     expect(within(card).getByRole("button", { name: "Send back for rework" })).toBeTruthy();
   });
 
+  // Ropeshift sends an unfinished plan back once itself. When the next version is still unfinished, the card names what is
+  // missing and leads with Send back, which offers that list as its reason, so a member is called only when needed.
+  it("lists what an unfinished plan lacks, leads with Send back, and prefills its reason", async () => {
+    const sent = serveApi(() => ({ status: 200, body: { work_order: "wo-trim", state: "ready" } }));
+    const view = goldenNeedsYou();
+    const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
+    if (accept?.kind !== "work") {
+      throw new Error("no acceptance item in the golden view");
+    }
+    const lines = ["The plan's title is still the template's, \"State the plan in one line\".", "The goal's text is still the template's, which says why the goal matters."];
+    accept.work.unfinished = lines;
+    accept.work.send_back_reason = `The plan is not finished:\n- ${lines.join("\n- ")}`;
+    show(view);
+    const card = await cardNamed(/Trim the log/);
+    expect(within(card).getByText(/Ropeshift did not offer this plan for approval/)).toBeTruthy();
+    for (const line of lines) {
+      expect(within(card).getByText(line)).toBeTruthy();
+    }
+    const buttons = within(card).getAllByRole("button");
+    expect(buttons[buttons.length - 1]?.textContent).toBe("Send back for rework");
+    expect(buttons[buttons.length - 1]?.className).toContain("btn-primary");
+    expect(within(card).getByRole("button", { name: "Accept" }).className).not.toContain("btn-primary");
+    await userEvent.click(within(card).getByRole("button", { name: "Send back for rework" }));
+    const why = within(card).getByRole("textbox", { name: "Why (required)" }) as HTMLTextAreaElement;
+    expect(why.value).toBe(accept.work.send_back_reason);
+    await userEvent.click(within(card).getByRole("button", { name: "Send back for rework" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", body: { reason: accept.work.send_back_reason } });
+  });
+
+  it("leads with Accept on finished work whose plan nothing held back", async () => {
+    show();
+    const card = await cardNamed(/Trim the log/);
+    const buttons = within(card).getAllByRole("button");
+    expect(buttons[buttons.length - 1]?.textContent).toBe("Accept");
+  });
+
   it("says a verdict in text for every kind, never by colour alone", async () => {
     const view = goldenNeedsYou();
     const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
@@ -1515,6 +1552,21 @@ describe("a plan approval", () => {
     expect(since.textContent).toContain("Reversible, binds plan:");
     expect(within(shown).getByText(/1 work order waits in contract review until a member confirms version 1 or approves a later one/)).toBeTruthy();
     expect(within(shown).getByRole("button", { name: "Approve this plan" })).toBeTruthy();
+  });
+
+  it("lists what a placeholder plan lacks and offers no Approve, because ropeshift refuses to approve it", async () => {
+    const view = goldenNeedsYou();
+    const item = view.items.find((row) => row.kind === "plan_approval");
+    if (item?.kind !== "plan_approval") {
+      throw new Error("no plan approval in the golden view");
+    }
+    item.plan_approval.unfinished = ["The plan's title is still the template's, \"State the plan in one line\"."];
+    show(view, undefined, "plan_approval");
+    const shown = await card();
+    expect(within(shown).getByText(/Ropeshift did not offer this plan version for approval/)).toBeTruthy();
+    expect(within(shown).getByText(/title is still the template's/)).toBeTruthy();
+    expect(within(shown).queryByRole("button", { name: "Approve this plan" })).toBeNull();
+    expect(within(shown).getByRole("button", { name: "Deny" })).toBeTruthy();
   });
 
   it("shows no decisions since when none moved past the approved version", async () => {

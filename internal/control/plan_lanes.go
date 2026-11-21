@@ -319,6 +319,9 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 			return err
 		}
 		// An approval of this branch that no version claimed was bound to files intake did not read.
-		return voidUnclaimed(tx, plan.order.ID)
+		if err := voidUnclaimed(tx, plan.order.ID); err != nil {
+			return err
+		}
+		return askForTheMerge(tx, plan.order.ID, plan.commit, batch)
 	})
 }

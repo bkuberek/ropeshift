@@ -537,6 +537,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 				return nil, err
 			}
 			need.Standing = &standing
+			if need.Unfinished, need.SendBackReason, err = control.UnfinishedOf(tx, *order); err != nil {
+				return nil, err
+			}
 		case order.State == workorders.Parked && need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) && !seen[order.ID]:
 			need.Reason, need.Actions, need.Wakes = api.ReasonResume, []string{api.ActResume}, wakeViews(wakes[need.Lane.ID])
 		default:
@@ -614,7 +617,7 @@ func planApprovalNeed(tx ports.ReadTx, a authority.Approval) (*api.PlanApprovalN
 	}
 	need := &api.PlanApprovalNeed{
 		Approval: a, Title: detail.Title, Version: a.PlanVersion, RequestedBy: a.RequestedBy, Counts: counts, Decisions: detail.Decisions,
-		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(), Adoption: detail.Adoption,
+		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(), Adoption: detail.Adoption, Unfinished: detail.Unfinished,
 	}
 	if a.Plan == "" {
 		return need, nil

@@ -102,7 +102,7 @@ func orderParts(file planning.ContractFile) []planning.Part {
 // newest version's is only read, so a poll that changes nothing appends nothing. A poll that stops
 // before it runs leaves the cursor where it was, and the next poll runs it (FR-PLAN-9, FR-PLAN-11).
 func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.WorkspaceID, files map[string]planFileRead, origin planOrigin) (int, error) {
-	var drifted []string
+	var drifted, retry []string
 	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		plans, err := tx.Planning().Plans()
 		if err != nil {
@@ -128,6 +128,11 @@ func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.Workspa
 			if err != nil {
 				return err
 			}
+			if _, held, err := unfinishedRequest(tx.Approvals(), plan.ID, latest.Version); err != nil {
+				return err
+			} else if held {
+				retry = append(retry, plan.ID)
+			}
 		}
 		return nil
 	})
@@ -135,6 +140,12 @@ func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.Workspa
 		return 0, err
 	}
 	made := 0
+	for _, plan := range retry {
+		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error { return offerHeldVersion(tx, plan, origin) })
+		if err != nil {
+			return made, err
+		}
+	}
 	for _, plan := range drifted {
 		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error {
 			// The plan is read again under the revision, because another writer may have moved it since.
@@ -227,7 +238,7 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 		return false, err
 	}
 	ref := planFileRef(entries)
-	approved, found, err := approvedBeforeRecorded(tx, next, ref)
+	approved, found, err := approvedBeforeRecorded(tx, next, ref, origin.commit)
 	if err != nil {
 		return false, err
 	}
@@ -243,9 +254,23 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 			return false, clash
 		}
 	}
+	finish, err := versionFinish(tx, next)
+	if err != nil {
+		return false, err
+	}
+	// A request that names the work order the version came from names the commit it was read at, which is the commit its
+	// approval would bind to the work order's merge. A version made from the repository has no work order, and its
+	// request names the file it was read from.
+	source := next.Source
+	if next.WorkOrder != "" {
+		source = origin.commit
+	}
+	// A plan that is still a placeholder is not offered for approval: its request stands only to say what is missing,
+	// which replaces any older request for the plan, so no request that can be approved is left behind. A commit that
+	// finishes the plan, or its goal, replaces it.
 	return true, askForPlanApproval(tx, planAsk{
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,
-		decisions: len(next.Decisions), source: next.Source, workOrder: next.WorkOrder,
+		decisions: len(next.Decisions), source: source, workOrder: next.WorkOrder, unfinished: planning.Unfinished(finish),
 	})
 }
 
@@ -331,6 +356,8 @@ type planAsk struct {
 	contracts []planning.DetailContract
 	// adoption groups a plan that adopts a project, for a branch of an adopt lane.
 	adoption *planning.Adoption
+	// unfinished is what a placeholder version lacks. A request that holds it cannot be approved.
+	unfinished []string
 }
 
 // planDetailOf reads what a plan approval says of its version.
@@ -343,8 +370,9 @@ func planDetailOf(a authority.Approval) planning.PlanDetail {
 }
 
 // askForPlanApproval asks for one plan version to be approved, bound to its digest, and closes the
-// request for an older version that nobody decided. Approval is never delegated, so the request has no
-// time to expire in: it waits for a member (FR-PLAN-12).
+// request for an older version that nobody decided. A request for the same version that names another
+// planning branch stays, because approving it approves that branch's merge, which this request cannot.
+// Approval is never delegated, so the request has no time to expire in: it waits for a member (FR-PLAN-12).
 func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	rows, err := tx.Approvals().All()
 	if err != nil {
@@ -356,7 +384,8 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 		}
 		samePlan := ask.plan != "" && row.Plan == ask.plan
 		sameBranch := ask.workOrder != "" && row.WorkOrder == ask.workOrder && planDetailOf(row).Ref == ask.ref
-		if !samePlan && !sameBranch {
+		otherBranch := row.PlanVersion == ask.version && row.WorkOrder != "" && row.WorkOrder != ask.workOrder && len(planDetailOf(row).Unfinished) == 0
+		if (!samePlan || otherBranch) && !sameBranch {
 			continue
 		}
 		next, err := row.Supersede()
@@ -378,7 +407,7 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	detail, err := json.Marshal(planning.PlanDetail{
 		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Drafts: ask.drafts,
 		Manifest: ask.manifest, Targets: ask.targets, Difference: difference, Source: ask.source, Adoption: ask.adoption,
-		Body: ask.body, BodyCut: ask.bodyCut, Goal: ask.goal, Contracts: ask.contracts,
+		Body: ask.body, BodyCut: ask.bodyCut, Goal: ask.goal, Contracts: ask.contracts, Unfinished: ask.unfinished,
 	})
 	if err != nil {
 		return err
