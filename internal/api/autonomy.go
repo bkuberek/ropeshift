@@ -18,6 +18,12 @@ type AcknowledgeRisk struct {
 	Digest string `json:"digest"`
 }
 
+// AcknowledgeOneWay accepts the one-way acknowledgement a digest names, for one worker (FR-QD-8). The digest is the
+// one `worker autonomy` prints.
+type AcknowledgeOneWay struct {
+	Digest string `json:"digest"`
+}
+
 // OpenWindow opens a run window. The client generates ID, so a retry returns the first answer, and
 // a length of zero takes the default.
 type OpenWindow struct {
@@ -56,6 +62,11 @@ func (c *Client) Risk(ctx context.Context) (RiskStatement, error) {
 // AcknowledgeRisk records a member's acknowledgement.
 func (c *Client) AcknowledgeRisk(ctx context.Context, worker string, in AcknowledgeRisk) error {
 	return c.Do(ctx, http.MethodPost, workerPath(worker, "autonomy", "acknowledgement"), in, nil)
+}
+
+// AcknowledgeOneWay records a member's acceptance of a worker's one-way acknowledgement.
+func (c *Client) AcknowledgeOneWay(ctx context.Context, worker string, in AcknowledgeOneWay) error {
+	return c.Do(ctx, http.MethodPost, workerPath(worker, "autonomy", "one-way-acknowledgement"), in, nil)
 }
 
 // OpenWindow opens a run window for one worker.

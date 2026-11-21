@@ -198,6 +198,8 @@ var operations = map[string]string{
 	"POST /v1/conversations/{id}/messages":               "chat send",
 	"GET /v1/lanes/{id}/stream":                          "lane attach",
 	"GET /v1/orchestrators/{worker}/stream":              "orchestrator attach",
+
+	"POST /v1/workers/{id}/autonomy/one-way-acknowledgement": "worker acknowledge-one-way",
 }
 
 // namedRoutes are the routes the source spells through a constant.

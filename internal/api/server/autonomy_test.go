@@ -226,3 +226,20 @@ func TestAnAutonomyPolicyStatesEveryKey(t *testing.T) {
 		})
 	}
 }
+
+// TestADelegateCannotAcceptTheOneWayAcknowledgement holds the acceptance to a member's own session: a delegate, which is
+// how a member's assistant calls, is refused, and the worker's acknowledgement still waits for a member (FR-QD-8).
+func TestADelegateCannotAcceptTheOneWayAcknowledgement(t *testing.T) {
+	t.Parallel()
+	d, _, _ := aWorld(t)
+	delegate := asDelegate(t, d.Socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	err := delegate.AcknowledgeOneWay(t.Context(), apitest.WorldWorker, api.AcknowledgeOneWay{Digest: authority.OneWayDigest()})
+	refusedWith(t, err, http.StatusForbidden, api.CodeOutsideProject)
+	view, err := d.Client.Autonomy(t.Context(), apitest.WorldWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.OneWay.Accepted != nil {
+		t.Errorf("a delegate's refused call accepted the acknowledgement: %+v", view.OneWay.Accepted)
+	}
+}

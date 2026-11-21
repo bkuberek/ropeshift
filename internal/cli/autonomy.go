@@ -23,6 +23,12 @@ func autonomyLine(view authority.AutonomyView) string {
 	} else {
 		out.WriteString(", claims nothing now\n")
 	}
+	switch {
+	case view.OneWay.Accepted != nil:
+		fmt.Fprintf(&out, "one-way acknowledgement accepted by %s: %s\n", view.OneWay.Accepted.By, view.OneWay.Statement)
+	case view.OneWay.Digest != "":
+		fmt.Fprintf(&out, "one-way acknowledgement not accepted: %s\n%s\n", view.OneWay.Statement, view.OneWay.Digest)
+	}
 	return out.String()
 }
 
@@ -85,6 +91,28 @@ func (c *invocation) workerAcknowledge(args []string) int {
 	defer client.Close()
 	err := client.AcknowledgeRisk(c.ctx, positional[0], api.AcknowledgeRisk{Digest: *digest})
 	return c.finish(err, api.AcknowledgeRisk{Digest: *digest}, func() string { return "acknowledged for " + positional[0] + "\n" })
+}
+
+// workerAcknowledgeOneWay takes the digest `worker autonomy` prints beside the one-way acknowledgement, so a person
+// names the statement they read. It lets the worker's orchestrator at unattended decide a one-way question the decision
+// policy leaves it, and it is asked of every worker, one on an API key too (FR-QD-8).
+func (c *invocation) workerAcknowledgeOneWay(args []string) int {
+	set := c.flags()
+	digest := set.String("digest", "", "the digest `worker autonomy` printed")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("this takes one worker")
+	}
+	if *digest == "" {
+		return c.usageError("--digest is required: run ropeshift worker autonomy, and read the one-way acknowledgement it prints")
+	}
+	client := c.client()
+	defer client.Close()
+	err := client.AcknowledgeOneWay(c.ctx, positional[0], api.AcknowledgeOneWay{Digest: *digest})
+	return c.finish(err, api.AcknowledgeOneWay{Digest: *digest}, func() string { return "one-way acknowledgement accepted for " + positional[0] + "\n" })
 }
 
 func (c *invocation) workerWindowOpen(args []string) int {

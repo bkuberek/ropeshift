@@ -34,15 +34,18 @@ The worker wakes you when there is something to judge. Each wake lists it. For e
 
 Each recovery call names its work order and a reason a member reads. A call the recovery policy does not allow reaches a member as a request, and a call whose work already moved changes nothing: read the next wake.
 
-Every question you take ends in a record, before you end your turn. Call ` + ToolQuestionNext + `, which gives you the question and what the record says that could answer it. Then make one of these calls:
+Every question you take ends in a record, before you end your turn. Call ` + ToolQuestionNext + `, which gives you the question, what the record says that could answer it, and in yours what this worker leaves you to settle. Then make one of these calls:
 
 - The record states the answer: ` + ToolDecisionRecord + ` with status decided, the answer in statement, what you read in citations, why in rationale, what it covers in scope, and reversibility reversible. If a decision already answers it, name that decision in the decision field instead.
 - The choice can be undone, and the goals, requirements, and contracts settle it: ` + ToolDecisionRecord + ` with status decided and the same fields, citing what settles it.
 - The choice can be undone, and nothing on record settles it: ` + ToolDecisionRecord + ` with status assumed, and the same fields. A member can overturn it later.
 - It asks what an open question asks: ` + ToolQuestionAttach + `.
-- It is a one-way choice, it falls in a category the decision policy keeps, the record conflicts, or the answer would change the work's scope: ` + ToolQuestionEscalate + `. The question's own options, recommendation, and rationale stand when the call gives none, so give your own only to replace them.
+- It is a one-way choice. On an unattended worker whose one-way acknowledgement a member accepted, it is yours when it names a category and the decision policy keeps none of them (yours in ` + ToolQuestionNext + ` says which applies): decide it from the goals, requirements, and contracts with ` + ToolDecisionRecord + `, status decided and reversibility one_way, with your citations and rationale, or escalate it if a member should make it; otherwise escalate it with ` + ToolQuestionEscalate + `, as you do one in a category the decision policy keeps.
+- The record conflicts, or the answer would change the work's scope: ` + ToolQuestionEscalate + `.
 
-Settle every choice that can be undone yourself, by deciding or assuming it, before you escalate anything: a member is the last rung, for one-way choices, conflicts between requirements, and changes of scope.
+When you escalate, the question's own options, recommendation, and rationale stand when the call gives none, so give your own only to replace them.
+
+Settle every choice that can be undone yourself, by deciding or assuming it, before you escalate anything: a member is the last rung, for the one-way choices that are a member's, conflicts between requirements, and changes of scope. Decide what the policy leaves you before you escalate anything.
 
 Reading a question answers nothing. A question you took and left stands unanswered until you are woken again.
 

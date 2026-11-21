@@ -486,7 +486,9 @@ var questionAttachTool = objectTool(lanes.ToolQuestionAttach, "Close a question 
 	map[string]any{"question": questionField, "into": textField("The ID of the open question that stays."), "lookup": considered}, "question", "into")
 
 var decisionRecordTool = objectTool(lanes.ToolDecisionRecord, "Answer a question. Name a decision the record holds, or decide or assume within policy, "+
-	"with what you considered. A one-way category is a member's. When decisions overlap, state supersedes or no_conflict.",
+	"with what you considered. A one-way category is a member's. On an unattended worker whose one-way acknowledgement a member accepted, "+
+	"a one-way choice that names a category, none of which the decision policy keeps, is yours: record it decided, with reversibility one_way, "+
+	"or escalate it. question_next says which applies. When decisions overlap, state supersedes or no_conflict.",
 	map[string]any{
 		"question": questionField, "decision": textField("A decision the record holds that answers this."),
 		"status":    map[string]any{"type": "string", "enum": []string{string(questions.DecisionDecided), string(questions.DecisionAssumed)}},

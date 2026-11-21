@@ -381,7 +381,11 @@ export type Autonomy = {
   may_claim: boolean;
   max_lanes?: number;
   max_respawns_per_day?: number;
+  // one_way is the worker's one-way acknowledgement, which every worker needs before its orchestrator at unattended decides a
+  // one-way question itself, apart from the stated risk (FR-QD-8). accepted is absent until a member accepts it.
+  one_way?: OneWayStanding;
 };
+export type OneWayStanding = { statement: string; digest: string; accepted?: { worker_id: string; by: string; digest: string; at: number } };
 export type Risk = { statement: string; digest: string };
 
 // Health is what the daemon says of itself: the build it runs, the release installed at its own path when it could
@@ -450,6 +454,7 @@ export const adminPaths = {
   templateWrites: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/template-writes`,
   templateWrite: (worker: string, request: string) => `/v1/workers/${encodeURIComponent(worker)}/template-writes/${encodeURIComponent(request)}`,
   acknowledge: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy/acknowledgement`,
+  acknowledgeOneWay: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy/one-way-acknowledgement`,
   windows: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/windows`,
   risk: () => "/v1/autonomy/risk",
   health: () => "/v1/health",
@@ -554,6 +559,9 @@ export const setCaps = (worker: string, caps: LaneCapSettings) => call<WorkerCap
 export const readRisk = () => call<Risk>("GET", adminPaths.risk());
 export const readHealth = () => call<Health>("GET", adminPaths.health());
 export const acknowledgeRisk = (worker: string, digest: string) => call<Autonomy>("POST", adminPaths.acknowledge(worker), { digest });
+// acknowledgeOneWay accepts a worker's one-way acknowledgement, the statement its digest names, as
+// `ropeshift worker acknowledge-one-way` does.
+export const acknowledgeOneWay = (worker: string, digest: string) => call<void>("POST", adminPaths.acknowledgeOneWay(worker), { digest });
 // A window's ID makes a second press of the same open find the first.
 export const openWindow = (worker: string, id: string, lengthMs: number) => call<RunWindow>("POST", adminPaths.windows(worker), { id, length_ms: lengthMs });
 export const closeWindow = (worker: string) => call<void>("DELETE", adminPaths.windows(worker), {});

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 )
@@ -43,17 +44,23 @@ type PolicyDraft struct {
 	Policy Policy
 }
 
+// keptAlways are the categories every version of the policy keeps for a member. The one-way acknowledgement promises
+// them (authority.OneWayStatement), so a version that drops one is refused, and a version stored before that rule
+// reads as keeping them (ADR-0007).
+var keptAlways = []string{CategorySecurity, CategoryCompliance, CategoryData}
+
 // DefaultPolicy is what BuiltInPolicyBody says.
 func DefaultPolicy() Policy {
 	return Policy{
 		Version: 1, ReversibleDefault: ReversibleAssume,
-		OneWayCategories:           []string{CategorySecurity, CategoryCompliance, CategoryData},
+		OneWayCategories:           slices.Clone(keptAlways),
 		MaxAssumptionsPerWorkOrder: builtInMaxAssumptions,
 	}
 }
 
 // Check accepts a policy a workspace can run on. An unknown category is refused, because a
-// misspelled one would silently leave a gate open.
+// misspelled one would silently leave a gate open, and so is a version that drops a category
+// every version keeps, which the refusal names.
 func (p Policy) Check(added []string) error {
 	if p.Version < 1 {
 		return fmt.Errorf("%w: a decision policy names its version", ErrInvalid)
@@ -63,6 +70,15 @@ func (p Policy) Check(added []string) error {
 	}
 	if p.MaxAssumptionsPerWorkOrder < 0 {
 		return fmt.Errorf("%w: max_assumptions_per_work_order is below zero", ErrInvalid)
+	}
+	var dropped []string
+	for _, category := range keptAlways {
+		if !slices.Contains(p.OneWayCategories, category) {
+			dropped = append(dropped, category)
+		}
+	}
+	if len(dropped) != 0 {
+		return fmt.Errorf("%w: one_way_categories drops %s, which every version keeps for a member", ErrInvalid, strings.Join(dropped, ", "))
 	}
 	return CheckCategories(p.OneWayCategories, added)
 }
@@ -93,14 +109,20 @@ func ReadPolicy(version authority.PolicyVersion) (Policy, error) {
 }
 
 // Open reports categories an orchestrator may decide in. One category the policy forces to
-// one-way is enough to refuse.
+// one-way is enough to refuse, and a category every version keeps is never open.
 func (p Policy) Open(categories []string) bool {
 	for _, category := range categories {
-		if slices.Contains(p.OneWayCategories, category) {
+		if slices.Contains(p.OneWayCategories, category) || slices.Contains(keptAlways, category) {
 			return false
 		}
 	}
 	return true
+}
+
+// KeepsOneWay reports a one-way choice in these categories as one only a member decides: one in a category the policy
+// keeps, and one that names no category, because nobody said which promise it falls under.
+func (p Policy) KeepsOneWay(categories []string) bool {
+	return len(categories) == 0 || !p.Open(categories)
 }
 
 // MayDecide reports whether an orchestrator may decide or assume a question.

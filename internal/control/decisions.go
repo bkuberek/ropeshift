@@ -33,6 +33,10 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 	if err != nil {
 		return questions.Decision{}, err
 	}
+	by, err := readParty(ctx, q.store, scope, actor)
+	if err != nil {
+		return questions.Decision{}, err
+	}
 	err = q.store.Write(ctx, scope, "question.rule", func(tx ports.WriteTx) error {
 		question, err := tx.Questions().Question(id)
 		if err != nil {
@@ -65,7 +69,7 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := checkCategories(tx.Questions(), record.Categories); err != nil {
 			return err
 		}
-		if err := admit(tx, &record, policy, actor); err != nil {
+		if err := admit(tx, &record, policy, by); err != nil {
 			return err
 		}
 		if err := q.recordAdmitted(tx, record, boundAnswered, actor, ""); err != nil {
@@ -116,16 +120,28 @@ func checkRung(tx ports.WriteTx, question questions.Question, record questions.D
 // decision is deciding its question again, so that decision's categories count too, and an
 // orchestrator replaces only what is recorded as reversible (FR-QD-8). A delegate's decision runs
 // outside those bounds only when the delegate policy exempted it, and never in a one-way category.
-func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, by party) error {
 	// A scope is in the grammar whoever records it, so a worker of an older build cannot store one outside it
 	// after the migration that rewrote the scopes stored before (ADR-0030).
 	if _, err := questions.ParseScope(record.Scope); err != nil && !acceptsAnyScope() {
 		return err
 	}
-	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, actor)
+	unattended, err := runsUnattended(tx.Policies(), tx.Workers(), by, tx.Now())
+	if err != nil {
+		return err
+	}
+	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, recorder{actor: by.Actor, unattended: unattended})
 }
 
-func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+// recorder is who records a decision, and whether a member set its worker to unattended and accepted its one-way
+// acknowledgement, which lets an orchestrator decide a one-way choice the policy leaves it.
+type recorder struct {
+	actor      ledger.Actor
+	unattended bool
+}
+
+func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Decision, policy questions.Policy, by recorder) error {
+	actor := by.actor
 	if err := stamp(reader, facts, record, policy); err != nil {
 		return err
 	}
@@ -144,7 +160,11 @@ func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Dec
 		return nil
 	}
 	if !unbound {
-		if err := record.CheckBound(); err != nil {
+		check := record.CheckBound
+		if by.unattended {
+			check = record.CheckBoundUnattended
+		}
+		if err := check(); err != nil {
 			return err
 		}
 	}
@@ -152,7 +172,8 @@ func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Dec
 	if err != nil {
 		return err
 	}
-	if !policy.Open(categories) || (unbound && record.Reversibility == questions.OneWay) {
+	// An unattended orchestrator's one-way decision that names no category counts as kept, so it reaches a member too.
+	if !policy.Open(categories) || (record.Reversibility == questions.OneWay && (unbound || policy.KeepsOneWay(categories))) {
 		return fmt.Errorf("%w: %v", questions.ErrOneWay, categories)
 	}
 	if record.Supersedes != "" && old.Reversibility != questions.Reversible {
@@ -248,7 +269,7 @@ func (q *Questions) Weigh(ctx context.Context, scope ledger.WorkspaceID, draft q
 		standing.OneWay = !policy.Open(categories) || record.Reversibility == questions.OneWay ||
 			(record.Supersedes != "" && old.Reversibility != questions.Reversible)
 		probe := record
-		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), &probe, policy, policyProbe) == nil
+		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), &probe, policy, recorder{actor: policyProbe}) == nil
 		return nil
 	})
 	return standing, err
@@ -280,15 +301,20 @@ func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, 
 	if err := insertDecisionFrom(tx, record, actor, channel); err != nil {
 		return err
 	}
-	if err := q.applyBinding(tx, record, how, actor); err != nil {
-		return err
-	}
 	if record.Supersedes == "" {
-		return nil
+		return q.applyBinding(tx, record, how, actor)
 	}
 	old, err := tx.Questions().Decision(record.Supersedes)
 	if err != nil {
 		return err
+	}
+	// A decision that replaces one with the same content, as a member's Keep of an orchestrator's one-way decision does,
+	// binds nothing the decision it replaces did not bind already, so the work it reaches stands as it was: no hold, no
+	// park, no rework, and no plan revision (FR-QD-8).
+	if !record.SameContent(old) {
+		if err := q.applyBinding(tx, record, how, actor); err != nil {
+			return err
+		}
 	}
 	touched, err := reachOf(tx, old)
 	if err != nil {

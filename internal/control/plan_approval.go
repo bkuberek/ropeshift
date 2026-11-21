@@ -245,7 +245,7 @@ func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.
 			continue
 		}
 		decision.Supersedes = standing.supersedes()
-		if _, err := asked.decideInTx(tx, decision, member); err != nil {
+		if _, err := asked.decideInTx(tx, decision, party{Actor: member}); err != nil {
 			return err
 		}
 	}

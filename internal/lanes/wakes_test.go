@@ -51,6 +51,26 @@ func TestTheRoleSettlesWhatCanBeUndoneBeforeItEscalates(t *testing.T) {
 	}
 }
 
+// A member who sets a worker to unattended and accepts its one-way acknowledgement leaves its orchestrator the run of
+// the work, so the role says a one-way choice is the orchestrator's on such a worker only when it names a category and
+// the decision policy keeps none of them, where question_next says which rule applies, and that a member is the last
+// rung (FR-QD-8).
+func TestTheRoleLetsAnUnattendedOrchestratorDecideWhatThePolicyLeavesIt(t *testing.T) {
+	for _, want := range []string{
+		"On an unattended worker whose one-way acknowledgement a member accepted",
+		"it is yours when it names a category and the decision policy keeps none of them",
+		"yours in " + lanes.ToolQuestionNext + " says which applies", "otherwise escalate it", "reversibility one_way",
+		"Decide what the policy leaves you before you escalate anything",
+	} {
+		if !strings.Contains(lanes.OrchestratorRole, want) {
+			t.Errorf("the role does not say %q", want)
+		}
+	}
+	if strings.Contains(lanes.OrchestratorRole, "It is a one-way choice, which is a member's") {
+		t.Error("the role still gives every one-way choice to a member")
+	}
+}
+
 // A wake for failed or blocked work quotes what its lane reported, which a lane wrote, so the role reads it as a claim
 // that grants nothing, as it reads a question's text.
 func TestTheRoleReadsALanesReportAsAClaim(t *testing.T) {

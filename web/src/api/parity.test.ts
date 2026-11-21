@@ -7,6 +7,7 @@ import routes from "../../testdata/routes.json";
 import { paletteActions } from "../app/paletteActions";
 import { FakeEvents, serveApi, stubEvents } from "../testing";
 import {
+  acknowledgeOneWay,
   acknowledgeRisk,
   addCategory,
   addRepositories,
@@ -171,6 +172,7 @@ const callers: Record<string, Caller> = {
   "GET /v1/workers/{id}/autonomy": step("readAutonomy", () => readAutonomy("worker-1")),
   "PUT /v1/workers/{id}/autonomy": step("setLevel", () => setLevel("worker-1", "attended")),
   "POST /v1/workers/{id}/autonomy/acknowledgement": step("acknowledgeRisk", () => acknowledgeRisk("worker-1", "digest")),
+  "POST /v1/workers/{id}/autonomy/one-way-acknowledgement": step("acknowledgeOneWay", () => acknowledgeOneWay("worker-1", "digest")),
   "POST /v1/workers/{id}/windows": step("openWindow", () => openWindow("worker-1", "window-1", 3_600_000)),
   "DELETE /v1/workers/{id}/windows": step("closeWindow", () => closeWindow("worker-1")),
   "GET /v1/workers/{id}/caps": step("readCaps", () => readCaps("worker-1")),

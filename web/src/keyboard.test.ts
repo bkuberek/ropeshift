@@ -89,7 +89,7 @@ async function dialog(keys: Keys, page: Page, title: string, query?: string): Pr
 // a run window open or none.
 const autonomy = (window?: unknown) =>
   reply(
-    [/\/v1\/workers\/worker-1\/autonomy$/, { as_of: 1790000000000, worker_id: "worker-1", sign_in: "subscription", level: "attended", chosen_level: "attended", risk_acknowledged: false, may_claim: true, window }],
+    [/\/v1\/workers\/worker-1\/autonomy$/, { as_of: 1790000000000, worker_id: "worker-1", sign_in: "subscription", level: "attended", chosen_level: "attended", risk_acknowledged: false, may_claim: true, window, one_way: { statement: "The orchestrator will make one-way decisions outside security, compliance and data for you.", digest: "sha256:def" } }],
     [/\/v1\/autonomy\/risk$/, { statement: "A worker at this level runs the agent's commands without asking.", digest: "sha256:abc" }],
   );
 
@@ -667,6 +667,14 @@ const paths: Record<string, KeyPath> = {
       await k.palette("Settings: Autonomy and run windows");
       await k.activate(page.getByRole("button", { name: "Read the stated risk" }));
       await k.activate(inDialog(page).getByRole("button", { name: "I stand behind it" }));
+    },
+  },
+  "POST /v1/workers/{id}/autonomy/one-way-acknowledgement": {
+    sent: post(/^\/v1\/workers\/worker-1\/autonomy\/one-way-acknowledgement$/),
+    answers: autonomy(),
+    run: async (k, page) => {
+      await k.palette("Settings: Autonomy and run windows");
+      await k.activate(page.getByRole("button", { name: "Accept the one-way acknowledgement" }));
     },
   },
   "POST /v1/projects/{project}/policies": {

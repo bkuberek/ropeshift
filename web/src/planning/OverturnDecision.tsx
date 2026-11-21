@@ -1,12 +1,12 @@
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 import { newID } from "../admin/logic";
 import { useChange } from "../admin/parts";
-import { overturnDecision } from "../api/client";
+import { inProjectOf, overturnDecision } from "../api/client";
 import type { Decision, Overturned } from "../api/types";
 import { usePageActions } from "../app/pageActions";
-import { addressOf, Link } from "../app/route";
+import { addressOf, ItemProject, Link } from "../app/route";
 import { plural } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
@@ -58,8 +58,10 @@ function OverturnResult({ result, heading, onClose }: { result: Overturned; head
 // OverturnDialog reverses a decision in force, as `ropeshift decision overturn` does: what stands instead, and
 // why. The overturned decision stays on record as overturned, and the decision that takes its place records
 // the member as its author. Each completed work order that rested on the old one goes to rework, and each lane
-// that read it is told, in one step that stands or does not.
+// that read it is told, in one step that stands or does not. On a card of the combined Needs you, it overturns the
+// decision in the item's project.
 function OverturnDialog({ decision, onClose }: { decision: Decision; onClose: () => void }) {
+  const project = useContext(ItemProject);
   const [draft, setDraft] = useState<OverturnDraft>(noOverturn);
   const [tried, setTried] = useState(false);
   const [result, setResult] = useState<Overturned | null>(null);
@@ -78,7 +80,8 @@ function OverturnDialog({ decision, onClose }: { decision: Decision; onClose: ()
     if (stopped.statement || stopped.id) {
       return;
     }
-    const done = await change.run(() => overturnDecision(decision.id, overturnRequest(id.current, draft)));
+    const send = () => overturnDecision(decision.id, overturnRequest(id.current, draft));
+    const done = await change.run(() => (project ? inProjectOf(project, send) : send()));
     if (done) {
       setResult(done);
     }
@@ -150,9 +153,14 @@ function OverturnDialog({ decision, onClose }: { decision: Decision; onClose: ()
 }
 
 // OverturnDecisionButton is the button on a decision in force, which opens the dialog. A decision that was
-// replaced or overturned has none, because the ledger overturns a decision once.
-export function OverturnDecisionButton({ decision }: { decision: Decision }) {
+// replaced or overturned has none, because the ledger overturns a decision once. after, when given, reads again
+// once the dialog closes, as a card of Needs you does.
+export function OverturnDecisionButton({ decision, after }: { decision: Decision; after?: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const close = () => {
+    setOpen(false);
+    void after?.();
+  };
   // The command palette lists it while the decision stands, and opens the same dialog.
   usePageActions(
     inForce(decision)
@@ -167,7 +175,7 @@ export function OverturnDecisionButton({ decision }: { decision: Decision }) {
       <Button small aria-label={`Overturn ${decision.id}`} onClick={() => setOpen(true)}>
         Overturn
       </Button>
-      {open ? <OverturnDialog decision={decision} onClose={() => setOpen(false)} /> : null}
+      {open ? <OverturnDialog decision={decision} onClose={close} /> : null}
     </>
   );
 }

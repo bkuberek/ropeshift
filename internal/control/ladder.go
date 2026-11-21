@@ -372,6 +372,8 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 			}
 			record.Categories = escalation.Categories
 		}
+		// The gate is the same for every orchestrator: one on an unattended worker may decide a one-way choice the
+		// policy leaves it, and may take it to a member instead, from any rung (FR-QD-8).
 		if failures := questions.Gate(record); len(failures) != 0 {
 			return &questions.GateError{Failures: failures}
 		}
