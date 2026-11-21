@@ -310,7 +310,7 @@ Amounts are US dollars at list price, and 0 means no limit or no warning, except
 | `project_weekly_limit` | The same for a week. By default a week is the ISO week, which starts on Monday at midnight UTC | 0.0 | 0 to 1,000,000 |
 | `project_warn_share` | The share of each ceiling where a notice sits | 0.8 | 0 to 1 |
 | `assistant_daily_warn` | The assistant's daily warning, per project | 0.0 | 0 to 1,000,000 |
-| `consultation_limit` | The most one consultation may spend: a session of a stronger read-only agent the orchestrator asks to explore a question it cannot settle. It spends within what the project's daily and weekly limits leave, and counts toward them. 0 turns consultations off ([how it works](how-it-works.md#the-orchestrator-and-lanes)) | 2.0 | 0 to 1,000,000 |
+| `consultation_limit` | The most one consultation may spend: a session of a stronger read-only agent, the built-in `consultant` unless the orchestrator names another, that the orchestrator asks to explore a question it cannot settle. A consultation within this limit counts as an approved use of a per-use agent. It spends within what the project's daily and weekly limits leave, and counts toward them. 0 turns consultations off ([how it works](how-it-works.md#the-orchestrator-and-lanes)) | 2.0 | 0 to 1,000,000 |
 | `budget_flag_headroom_share` | The room a headless session's budget flag has over a hard limit | 0.1 | 0 to 1 |
 | `repeat_limit` | How many identical calls a lane may repeat before the next is denied | 3 | 2 to 20 |
 | `repeat_denials_to_park` | How many denials park the lane | 2 | 1 to 10 |
