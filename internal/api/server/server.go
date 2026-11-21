@@ -43,8 +43,8 @@ type Config struct {
 	Projects ports.Projects
 	// Installation holds the records every project shares. Nil reaches them through Store.
 	Installation ports.Installation
-	// HoldsOrchestrator keeps a worker's session from asking for its orchestrator, which a daemon's does, so that a
-	// test daemon starts one only when a test asks (FR-ORCH-1).
+	// HoldsOrchestrator keeps a worker's session and the first passphrase from asking for an orchestrator, which a
+	// daemon's do once a member exists, so that a test daemon starts one only when a test asks (FR-ORCH-1).
 	HoldsOrchestrator bool
 	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
 	// the first no candidates.
@@ -344,7 +344,7 @@ func newHandler(config Config) *handler {
 		fleet:         control.NewFleet(config.Store),
 		wakes:         control.NewWakes(config.Store),
 		messages:      control.NewMessages(config.Store, config.Windows).Hosting(config.AssistantHosts),
-		sessions:      control.NewSessions(config.Store, config.Identity),
+		sessions:      control.NewSessions(config.Store, config.Identity).StartingOrchestrators(!config.HoldsOrchestrator),
 		approvals:     control.NewApprovals(config.Store),
 		autonomy:      control.NewAutonomy(config.Store),
 		effects:       control.NewEffects(config.Store),

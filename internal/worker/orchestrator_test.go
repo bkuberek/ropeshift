@@ -11,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -182,11 +183,31 @@ func (o *orchestratorRig) awaitRest(t *testing.T) {
 	o.await(t, "a rest", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Idle) })
 }
 
+// enrollMember records the member the first passphrase makes, which a plane that starts the orchestrator waits for.
+func enrollMember(t *testing.T, store *fake.Store) {
+	t.Helper()
+	err := store.Installation(scope).Write(t.Context(), "test.enroll", func(tx ports.SharedTx) error {
+		err := tx.Members().SaveMember(authority.MemberRecord{
+			Member:      authority.Member{ID: "member-1", IdentitySubject: "local", DisplayName: "M", Status: authority.MemberActive},
+			ProofDigest: "hash",
+		})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "member.proof_set", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "first-enrollment"}, Subject: ledger.Subject{Kind: "member", ID: "member-1"}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The orchestrator is there to unblock lanes, so it runs with its worker: a plane that starts it asks for it when the
-// worker's session opens, a question wakes it with no member's Start, and a crash brings it back under its breaker
-// (FR-ORCH-1).
+// worker's session opens once a member exists, a question wakes it with no member's Start, and a crash brings it back
+// under its breaker (FR-ORCH-1).
 func TestAnOrchestratorRunsWithItsWorker(t *testing.T) {
 	base := newRig(t)
+	enrollMember(t, base.store)
 	base.plane = control.NewWorkers(base.store, scope, control.WorkerOptions{
 		HeartbeatMs: 20, LeaseTTLMs: 60_000, Matcher: lexical.Matcher{Store: base.store}, StartsOrchestrator: true,
 	})

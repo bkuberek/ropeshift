@@ -17,6 +17,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
+	"ropeshift.com/ropeshift/internal/adapters/localauth"
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
@@ -222,6 +223,12 @@ type Options struct {
 	Knowledge []ports.KnowledgeSource
 	// NoMember leaves the daemon with no passphrase and the client with no session.
 	NoMember bool
+	// StartsOrchestrator serves the daemon as the entry does, so a worker's session and the first passphrase ask
+	// for an orchestrator. The harness otherwise holds it, and a test starts one when it asks.
+	StartsOrchestrator bool
+	// LocalPassphrase keeps the passphrase in the installation's records, as the entry's provider does, so a
+	// member exists in them once it is set. The harness otherwise keeps it in memory, which leaves them empty.
+	LocalPassphrase bool
 	// Windows says how long a message stays useful, per kind.
 	Windows messages.Windows
 	// Telemetry is the local telemetry store the API reads. Nil has none.
@@ -295,9 +302,12 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: Scope, Name: "Test"}, actor); err != nil {
 		t.Fatal(err)
 	}
-	identity := fake.NewIdentityProvider().Within(store)
+	var identity ports.IdentityProvider = fake.NewIdentityProvider().Within(store)
+	if options.LocalPassphrase {
+		identity = localauth.New(store, localauth.Params{Time: 1, MemoryKiB: 8, Threads: 1})
+	}
 	config := server.Config{
-		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs, HoldsOrchestrator: true,
+		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs, HoldsOrchestrator: !options.StartsOrchestrator,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,

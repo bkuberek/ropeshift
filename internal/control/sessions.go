@@ -43,11 +43,42 @@ type SessionGrant struct {
 type Sessions struct {
 	store    ports.Store
 	identity ports.IdentityProvider
+	// startsOrchestrators has the first passphrase ask for the orchestrator of each registered worker that has none.
+	startsOrchestrators bool
 }
 
 // NewSessions returns the use cases over a Store and a provider.
 func NewSessions(store ports.Store, identity ports.IdentityProvider) *Sessions {
 	return &Sessions{store: store, identity: identity}
+}
+
+// StartingOrchestrators sets whether the first passphrase asks for the orchestrator of each registered worker that has
+// none, in the transaction that stores it. A worker's session asks for none until a member exists, so the first
+// passphrase is what starts the orchestrator of a worker that connected before it. A daemon sets this as it sets
+// WorkerOptions.StartsOrchestrator, and a test harness that starts an orchestrator only when a test asks leaves it off.
+func (s *Sessions) StartingOrchestrators(on bool) *Sessions {
+	s.startsOrchestrators = on
+	return s
+}
+
+// startOrchestrators is what runs in the transaction that stores the first passphrase, or nil when these use cases
+// start no orchestrator. A worker that has a record of its orchestrator keeps it.
+func (s *Sessions) startOrchestrators() func(ports.SharedTx, string) error {
+	if !s.startsOrchestrators {
+		return nil
+	}
+	return func(tx ports.SharedTx, _ string) error {
+		workers, err := tx.Workers().List()
+		if err != nil {
+			return err
+		}
+		for _, worker := range workers {
+			if err := askForOrchestrator(tx, worker.ID, firstEnrollment); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
 // SignIn checks a proof and issues a session. The provider checks outside any transaction, because a hash is slow on
@@ -275,7 +306,8 @@ func (s *Sessions) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool
 }
 
 // Enroll sets a passphrase. A caller with no session counts as the first enrollment, and
-// the provider refuses that once a passphrase is set.
+// the provider refuses that once a passphrase is set. The first enrollment asks for the orchestrator of each registered
+// worker that has none, in the transaction that stores the passphrase, when StartingOrchestrators is on.
 //
 // A later one comes from a member's session on the socket, which a terminal holds and no cookie carries, so that
 // session cannot go on under a new token as it does after a change from the web UI. In the transaction that stores the
@@ -285,7 +317,7 @@ func (s *Sessions) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool
 func (s *Sessions) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, token string) (PassphraseChange, error) {
 	actor, err := s.Member(ctx, scope, token)
 	if errors.Is(err, authority.ErrNoSession) {
-		return PassphraseChange{}, s.identity.Enroll(ctx, scope, proof, firstEnrollment, nil)
+		return PassphraseChange{}, s.identity.Enroll(ctx, scope, proof, firstEnrollment, s.startOrchestrators())
 	}
 	if err != nil {
 		return PassphraseChange{}, err

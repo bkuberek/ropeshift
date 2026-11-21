@@ -77,8 +77,9 @@ type WorkerOptions struct {
 	// Warn hears what could not be read for a lease and was left out of it, which is no reason to withhold the lease.
 	// Nil says nothing.
 	Warn func(string)
-	// StartsOrchestrator has a worker's session ask for its orchestrator when no member has said otherwise, so it runs
-	// with its worker (FR-ORCH-1). A daemon sets it, and a test rig leaves it off and starts one when a test asks.
+	// StartsOrchestrator has a worker's session ask for its orchestrator once a member exists and when no member has
+	// said otherwise, so it runs with its worker (FR-ORCH-1). A daemon sets it, and a test rig leaves it off and starts
+	// one when a test asks.
 	StartsOrchestrator bool
 }
 
@@ -386,10 +387,26 @@ func openSession(ctx context.Context, installation ports.Installation, options W
 // workerStart is who asks for an orchestrator when its worker's session opens.
 var workerStart = ledger.Actor{Kind: ledger.ActorSystem, ID: "worker-start"}
 
-// startWithWorker asks for a worker's orchestrator when its session opens and no member has said anything of it yet.
-// The orchestrator is there to unblock lanes, so it runs with its worker, and its session still starts only when
-// there is something to judge (FR-ORCH-1). A member's Stop is a record of its own, which this never replaces.
+// startWithWorker asks for a worker's orchestrator when its session opens, once a member exists, and no member has said
+// anything of it yet. The orchestrator is there to unblock lanes, so it runs with its worker, and its session still
+// starts only when there is something to judge (FR-ORCH-1). A member's Stop is a record of its own, which this never
+// replaces.
+//
+// It asks for none while no member exists. The first passphrase needs no session, which is safe only while no agent
+// runs before it exists, and a worker that opens its session on a copy of a ledger that already holds ready work would
+// otherwise run an orchestrator that claims it. The first passphrase asks for the orchestrator of each registered
+// worker in the transaction that stores it (Sessions.StartingOrchestrators).
 func startWithWorker(tx ports.SharedTx, worker string) error {
+	members, err := tx.Members().CountMembers()
+	if err != nil || members == 0 {
+		return err
+	}
+	return askForOrchestrator(tx, worker, workerStart)
+}
+
+// askForOrchestrator records, as the system, that a worker's orchestrator runs, unless the worker has a record of its
+// orchestrator already, which is a member's word or an earlier request and stands.
+func askForOrchestrator(tx ports.SharedTx, worker string, asker ledger.Actor) error {
 	_, err := tx.Workers().Orchestrator(worker)
 	if !errors.Is(err, ports.ErrNotFound) {
 		return err
@@ -403,7 +420,7 @@ func startWithWorker(tx ports.SharedTx, worker string) error {
 		return err
 	}
 	_, err = tx.Append(ledger.EventDraft{
-		Type: ledger.EventOrchestratorDesired, Actor: workerStart, Data: data,
+		Type: ledger.EventOrchestratorDesired, Actor: asker, Data: data,
 		Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: row.ID},
 	})
 	return err
