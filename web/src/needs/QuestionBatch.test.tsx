@@ -229,6 +229,13 @@ describe("a question in its shape", () => {
     expect(within(group).getByText("Unblocks: The forge client's retry policy.")).toBeTruthy();
   });
 
+  it("says what the recommendation trades off before the other options are shown", () => {
+    show(one(shaped));
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.getByText("It may give up early.")).toBeTruthy();
+    expect(screen.queryByText("It holds a lane longer.")).toBeNull();
+  });
+
   it("says nothing of tradeoffs or what it unblocks when the asker gave neither", () => {
     show(one({ ...shaped, tradeoffs: undefined, unblocks: undefined }));
     expect(screen.queryByText(/^Unblocks:/)).toBeNull();

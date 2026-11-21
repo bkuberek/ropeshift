@@ -98,10 +98,12 @@ export const hasRecommendation = (item: QuestionItem) => (item.recommendation ??
 // askerOf names who asked a question, as a person reads it: the lane, or whoever the ledger recorded.
 const askerOf = (item: QuestionItem) => (item.lane ? `lane ${item.lane}` : (item.asked_by ?? ""));
 
-// Recommendation leads a question's card: the answer the asker recommends, why, and who asked. A question that came
-// with none says so, and asks for an answer.
-function Recommendation({ item, draft }: { item: QuestionItem; draft: Draft }) {
+// Recommendation leads a question's card: the answer the asker recommends, why, and who asked. While the other options
+// are folded, it also says what the recommendation trades off, so agreeing never hides what is agreed to. A question
+// that came with none says so, and asks for an answer.
+function Recommendation({ item, draft, folded }: { item: QuestionItem; draft: Draft; folded: boolean }) {
   const asker = askerOf(item);
+  const tradeoff = item.recommendation ? item.tradeoffs?.[item.recommendation] : undefined;
   if (!hasRecommendation(item)) {
     return (
       <p className="small muted question-reason">
@@ -114,6 +116,7 @@ function Recommendation({ item, draft }: { item: QuestionItem; draft: Draft }) {
       <p className="reco-line">
         <span className="reco-tag">Recommended</span> <strong>{item.recommendation}</strong>
       </p>
+      {folded && tradeoff ? <p className="small muted option-tradeoff">{tradeoff}</p> : null}
       {item.recommendation_rationale ? <p className="small question-reason">Why it is recommended: {item.recommendation_rationale}</p> : null}
       {asker ? <p className="small muted">Asked by {asker}</p> : null}
       {isOneWay(item) && answerOf(draft) === "" ? <p className="small muted">Nothing is chosen: a one-way answer is always your own choice.</p> : null}
@@ -156,7 +159,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
           </span>
         ))}
       </div>
-      {lead ? <Recommendation item={item} draft={draft} /> : null}
+      {lead ? <Recommendation item={item} draft={draft} folded={folded} /> : null}
       {item.scope ? (
         <p className="small muted">
           Scope: <ScopeName scope={item.scope} title={item.scope_title} />
