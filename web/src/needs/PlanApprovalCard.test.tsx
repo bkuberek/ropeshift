@@ -38,6 +38,42 @@ describe("plan cards that share a version", () => {
     expect(within(card).getByText(/Another request asks about this version for another branch/)).toBeTruthy();
   });
 
+  it("say the other request is main's when it names no planning branch", () => {
+    const view = golden<View>("needs-you-shared-version");
+    const [main, branch] = planItems(view);
+    if (!main || !branch) {
+      throw new Error("the golden view holds fewer than two plan approvals");
+    }
+    // The ledger holds the plan, and the first request is the one for the plan as main holds it: it names no work order,
+    // and so no branch.
+    main.plan_approval.approval.plan_id = branch.plan_approval.approval.plan_id = "plan-1";
+    main.plan_approval.approval.work_order_id = "";
+    delete main.plan_approval.branch;
+    show(view, branch);
+    const card = screen.getByRole("article", { name: "Approve Retry budget, version 1, from plan/retry-b?" });
+    expect(within(card).getByText(/Another request asks about this version for main\./)).toBeTruthy();
+    expect(within(card).queryByText(/for another branch/)).toBeNull();
+    expect(within(card).getByRole("group", { name: "Branch" }).textContent).toContain("approves the merge of that branch only");
+  });
+
+  it("say both when main's request and another branch's wait beside it", () => {
+    const view = golden<View>("needs-you-shared-version");
+    const [main, branch] = planItems(view);
+    if (!main || !branch) {
+      throw new Error("the golden view holds fewer than two plan approvals");
+    }
+    main.plan_approval.approval.plan_id = branch.plan_approval.approval.plan_id = "plan-1";
+    const third: PlanItem = structuredClone(main);
+    third.id = `${main.id}-third`;
+    third.plan_approval.approval.id = third.id;
+    main.plan_approval.approval.work_order_id = "";
+    delete main.plan_approval.branch;
+    view.items.push(third);
+    show(view, branch);
+    const card = screen.getByRole("article", { name: "Approve Retry budget, version 1, from plan/retry-b?" });
+    expect(within(card).getByText(/Another request asks about this version for main and for another branch\./)).toBeTruthy();
+  });
+
   it("name no branch when no other request shares the version", () => {
     const view = golden<View>("needs-you");
     const [item] = planItems(view);

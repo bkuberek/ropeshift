@@ -2,7 +2,7 @@ import { useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { decideApproval, inProjectOf, readPlan } from "../api/client";
-import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed, PlanBranch } from "../api/types";
+import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, NeedItem, PartDifference, PlanApprovalNeed, PlanBranch } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
 import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "../planning/consolidation";
 import { createsLine } from "../planning/creation";
@@ -275,13 +275,50 @@ export function RegisteredRepositories({ registration, approval }: { registratio
   );
 }
 
-// SharedBranch names the branch a request is about when another request asks about the same version for another
-// branch, so the two cards read apart: approving each approves the merge of its own branch.
-function SharedBranch({ branch }: { branch: PlanBranch }) {
+// Sharing says who else waits to approve the version a request is about: main, whose request names no planning work
+// order, and other planning branches.
+export type Sharing = { main: boolean; branches: boolean };
+
+// sharingVersion reads who waits beside a plan request for the same version of the same plan, in its project. A request
+// that names a work order is a planning branch's, and one that names none is the plan as main holds it.
+export function sharingVersion(item: NeedItem, items: NeedItem[]): Sharing {
+  const sharing = { main: false, branches: false };
+  if (item.kind !== "plan_approval" || !item.plan_approval.approval.plan_id) {
+    return sharing;
+  }
+  const own = item.plan_approval.approval;
+  for (const other of items) {
+    if (other === item || other.kind !== "plan_approval" || other.project?.name !== item.project?.name) {
+      continue;
+    }
+    const approval = other.plan_approval.approval;
+    if (approval.plan_id === own.plan_id && approval.plan_version === own.plan_version) {
+      if (approval.work_order_id) {
+        sharing.branches = true;
+      } else {
+        sharing.main = true;
+      }
+    }
+  }
+  return sharing;
+}
+
+// sharedWith says for whom another request asks about the same version: for main when main's request waits, and
+// otherwise for another planning branch, which is what the server names a shared version for when it is not main's.
+function sharedWith({ main, branches }: Sharing): string {
+  if (main) {
+    return branches ? "for main and for another branch" : "for main";
+  }
+  return "for another branch";
+}
+
+// SharedBranch names the branch a request is about when another request asks about the same version for main or for
+// another branch, so the two cards read apart: approving each approves the merge of its own branch.
+function SharedBranch({ branch, sharing }: { branch: PlanBranch; sharing: Sharing }) {
   return (
     <div role="group" aria-label="Branch">
       <p>
-        Another request asks about this version for another branch. This one is about branch <span className="mono">{branch.branch || branch.work_order}</span> of work
+        Another request asks about this version {sharedWith(sharing)}. This one is about branch <span className="mono">{branch.branch || branch.work_order}</span> of work
         order <span className="mono">{branch.work_order}</span>
         {branch.commit ? (
           <>
@@ -334,9 +371,11 @@ type CardProps = {
   onRegistered?: (registration: ManifestRegistration) => void;
   // onDecided hands up what the person decided, as the ledger recorded it, for the same reason.
   onDecided?: (decided: Decided) => void;
+  // sharing is who else waits to approve the version, which the card names beside the branch it is about.
+  sharing?: Sharing;
 };
 
-export function PlanApprovalCard({ id, need, after, frame, registered, onRegistered, onDecided }: CardProps) {
+export function PlanApprovalCard({ id, need, after, frame, registered, onRegistered, onDecided, sharing = { main: false, branches: false } }: CardProps) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const approval = need.approval;
@@ -398,7 +437,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
         {creates ? ` Approving it also ${creates}.` : ""}
       </p>
       )}
-      {need.branch ? <SharedBranch branch={need.branch} /> : null}
+      {need.branch ? <SharedBranch branch={need.branch} sharing={sharing} /> : null}
       <Facts>
         <Fact name="Requested by" mono>
           {need.requested_by}

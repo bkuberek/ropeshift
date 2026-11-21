@@ -28,7 +28,7 @@ import { nextStepOf } from "./next";
 import type { NextStep } from "./next";
 import { arrange, flatten, gateRequests, orderOf, orders, permissionRequests, tierNames } from "./order";
 import type { Entry, Order } from "./order";
-import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
+import { PlanApprovalCard, RegisteredRepositories, sharingVersion } from "./PlanApprovalCard";
 import { PlanRevisionCard } from "./PlanRevisionCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { OneWayReviewCard } from "./OneWayReviewCard";
@@ -63,7 +63,7 @@ type Registered = { registration?: ManifestRegistration; onRegistered: (registra
 
 type Settled = { onAnswered: (answered: Answered) => void; onDecided: (decided: Decided) => void; onResolved: (words: string) => void; onRetried: (order: WorkOrder) => void };
 
-function Card({ item, after, frame, registered, settled }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered; settled: Settled }) {
+function Card({ item, items, after, frame, registered, settled }: { item: NeedItem; items: NeedItem[]; after: () => Promise<void>; frame: Frame; registered: Registered; settled: Settled }) {
   const assistant = useAssistantCard(item);
   switch (item.kind) {
     case "questions":
@@ -75,7 +75,7 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
     case "work":
       return <WorkCard id={item.id} work={item.work} after={after} frame={frame} onRetried={settled.onRetried} />;
     case "plan_approval":
-      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} onDecided={settled.onDecided} />;
+      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} onDecided={settled.onDecided} sharing={sharingVersion(item, items)} />;
     case "plan_revision":
       return <PlanRevisionCard need={item.plan_revision} after={after} frame={frame} />;
     case "contract_review":
@@ -737,6 +737,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
               <ItemProject.Provider value={item.project?.name ?? ""}>
                 <Card
                   item={item}
+                  items={view.items}
                   after={async (ok?: boolean) => {
                     // Only a change the server took is a decision made here; a refused one leaves the card to say why.
                     if (ok !== false) {
