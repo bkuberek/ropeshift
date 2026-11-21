@@ -145,7 +145,8 @@ func (w *Worker) leaveEffect(key string) {
 }
 
 // markUnknown runs once in a process, before it begins any effect: whatever an earlier
-// process left started may or may not have happened.
+// process left started may or may not have happened, and a consultation whose session an
+// earlier process left running is ended.
 func (w *Worker) markUnknown(ctx context.Context) error {
 	var err error
 	w.marked.Do(func() {
@@ -154,6 +155,7 @@ func (w *Worker) markUnknown(ctx context.Context) error {
 		if err == nil {
 			err = w.recordLeftDigests(ctx)
 		}
+		w.recoverConsultations(ctx)
 	})
 	return err
 }

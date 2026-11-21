@@ -153,3 +153,7 @@ func (c *Crossing) Restore() {
 	c.run.reached.Store(c.reached)
 	c.run.sessionOver.Store(c.over)
 }
+
+// MarkUnknown is what a worker does once at a start, before it begins any effect: it marks what a crash left, and ends the
+// consultations a worker that went away left running.
+func (w *Worker) MarkUnknown(ctx context.Context) error { return w.markUnknown(ctx) }
