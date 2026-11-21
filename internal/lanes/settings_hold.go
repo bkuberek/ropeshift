@@ -2,8 +2,8 @@ package lanes
 
 import "strings"
 
-// SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in a key that runs code
-// or widens access, and of the hooks its skills, subagents, and commands declare, against the repository's at the
+// SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in any key not known to
+// be harmless, and of the hooks its skills, subagents, and commands declare, against the repository's at the
 // commit the lane's work began from, its claim's base. A lane can edit those files, and its sessions would run what it
 // wrote outside every rule ropeshift gives it, so a generation that finds one is held for a member before its session
 // starts, and a session whose reload would apply one is held where it stands (ADR-0040).

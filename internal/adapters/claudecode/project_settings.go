@@ -43,16 +43,16 @@ const (
 // sourceLocal is the setting source of the member's own settings for a project, which a lane never names.
 const sourceLocal = "local"
 
-// widening are the settings keys whose change runs code or widens what a session may do ([settings reference]): the
-// hooks it runs, the plugins it enables, which carry hooks and servers of their own, its permission rules, the
-// environment its commands run in, the command that makes its API key, its status line command, and the MCP servers it
-// trusts or names. A change to any other key holds nothing.
+// safeSettings are the settings keys known to be harmless: a change to one holds nothing, because none can run code or
+// widen what a session may do. Each sets text, a display, or the name of a model, or names the schema an editor checks
+// the file against ([settings reference]). A change to any other key holds the lane: a key that runs a command, such as
+// `hooks`, `statusLine`, `fileSuggestion`, `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`, `awsCredentialExport`,
+// and `gcpAuthRefresh`; a key that widens access, such as `permissions`, `env`, `enabledPlugins`, and the MCP server
+// keys; and a key no list here knows, which a later version of the CLI may give a meaning. A list of the keys that run
+// code would stay one release behind the CLI, so this is the list of the harmless ones, and it stays short.
 //
 // [settings reference]: https://code.claude.com/docs/en/settings-reference
-var widening = []string{
-	"apiKeyHelper", "disabledMcpjsonServers", "enableAllProjectMcpServers", "enabledMcpjsonServers", "enabledPlugins", "env",
-	"hooks", "mcpServers", "permissions", "statusLine",
-}
+var safeSettings = []string{"$schema", "attribution", "includeCoAuthoredBy", "language", "model", "outputStyle", "theme"}
 
 // secretValues are the keys whose values the summary never shows, because each value can be a credential: an
 // environment variable's value.
@@ -97,7 +97,7 @@ func atSettingsBase(spec ports.SessionSpec) ports.SessionSpec {
 
 // settingsChange compares the project settings a lane's session would read from its worktree with the repository's at
 // the commit the lane's work began from (atSettingsBase), read from git's objects as repositoryFile reads them, and
-// names each widening key that differs. A file absent from either side holds no keys, and so does a file that does not
+// names each key not known to be harmless (safeSettings) that differs. A file absent from either side holds no keys, and so does a file that does not
 // parse, which the CLI skips ([settings]). A lane with no base, an orchestrator's or an assistant's among them, has
 // nothing to compare, and a review with no commit to compare with (SettingsUnbased) compares with an empty repository:
 // every setting its worktree holds that runs code holds it.
@@ -231,16 +231,18 @@ func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 	return side
 }
 
-// compareSettings names each widening key the worktree's settings files hold otherwise than the repository's side, and
-// each piece whose frontmatter hooks the lane added or changed, which runs a command as a settings hook does.
+// compareSettings names each key not known to be harmless (safeSettings) that the worktree's settings files hold
+// otherwise than the repository's side, and each piece whose frontmatter hooks the lane added or changed, which runs a
+// command as a settings hook does.
 func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
 	for _, file := range settingsFiles(spec) {
 		lane := settingsKeys(worktreeFile(spec, file))
 		at := settingsKeys(base.files[file])
+		keys := heldKeys(lane, at)
 		changed := false
-		for _, key := range widening {
+		for _, key := range keys {
 			if canonical(lane[key]) == canonical(at[key]) {
 				continue
 			}
@@ -253,7 +255,7 @@ func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChan
 		if changed {
 			change.Files = append(change.Files, file)
 		}
-		for _, key := range widening {
+		for _, key := range keys {
 			fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", file, key, canonical(lane[key]))
 		}
 	}
@@ -276,6 +278,20 @@ func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChan
 	}
 	change.Digest = "sha256:" + hex.EncodeToString(digest.Sum(nil))
 	return change
+}
+
+// heldKeys are the top-level keys of a lane's settings file and of the repository's, sorted, that are not known to be
+// harmless (safeSettings): the keys a change to which holds the lane.
+func heldKeys(lane, base map[string]json.RawMessage) []string {
+	keys := map[string]bool{}
+	for _, side := range []map[string]json.RawMessage{lane, base} {
+		for key := range side {
+			if !slices.Contains(safeSettings, key) {
+				keys[key] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(keys))
 }
 
 // worktreeFile reads one file of a lane's worktree as the CLI would, following its links, up to the bound a repository's
