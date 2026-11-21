@@ -161,7 +161,7 @@ export const oneWayReviewKind: { icon: IconName; name: string } = { icon: "decis
 export const setupKind: { icon: IconName; name: string } = { icon: "sliders", name: "Your CLI setup in lanes" };
 
 // pieceWords names each kind of a member's own setup as a heading says it.
-export const pieceWords: Record<string, string> = { mcp_server: "MCP server", plugin: "plugin", agent: "agent", skill: "skill", command: "command" };
+export const pieceWords: Record<string, string> = { mcp_server: "MCP server", plugin: "plugin", agent: "agent", skill: "skill", command: "command", instruction: "instruction file" };
 
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {

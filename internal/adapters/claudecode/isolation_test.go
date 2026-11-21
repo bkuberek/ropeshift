@@ -372,17 +372,70 @@ func TestALaneLeavesOutTheMembersOwnInstructions(t *testing.T) {
 	spec := laneSpec(t)
 	spec.Env = []string{"HOME=/home/member"}
 	want := []string{"/home/member/.claude/CLAUDE.md", "/home/member/.claude/rules/**"}
-	if got := generateSettings(spec).ClaudeMdExcludes; !slices.Equal(got, want) {
-		t.Errorf("a lane excludes %v, want %v", got, want)
+	if got := generateSettings(spec).ClaudeMdExcludes; len(got) < 2 || !slices.Equal(got[:2], want) {
+		t.Errorf("a lane excludes %v, want %v first", got, want)
 	}
 	spec.Env = append(spec.Env, "CLAUDE_CONFIG_DIR=/config/claude")
 	want = []string{"/config/claude/CLAUDE.md", "/config/claude/rules/**"}
-	if got := generateSettings(spec).ClaudeMdExcludes; !slices.Equal(got, want) {
-		t.Errorf("a lane with a configuration directory excludes %v, want %v", got, want)
+	if got := generateSettings(spec).ClaudeMdExcludes; len(got) < 2 || !slices.Equal(got[:2], want) {
+		t.Errorf("a lane with a configuration directory excludes %v, want %v first", got, want)
 	}
 	for _, pattern := range generateSettings(spec).ClaudeMdExcludes {
 		if matched, _ := filepath.Match(pattern, filepath.Join(spec.Dir, "CLAUDE.md")); matched {
 			t.Errorf("a lane leaves out the repository's own CLAUDE.md with %s", pattern)
 		}
+	}
+}
+
+// The instruction files of every directory above a lane's worktree are neither the repository's nor the member's, so a
+// lane's settings leave each out, by the path it is given and the path its links resolve to, and keep every instruction
+// file of the worktree's own. A character a glob reads is escaped, so a pattern names its one path.
+func TestALaneLeavesOutTheInstructionsAboveItsWorktree(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "state")
+	if err := os.MkdirAll(filepath.Join(real, "lanes", "l1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	spec := laneSpec(t)
+	spec.Env = []string{"HOME=/home/member"}
+	spec.Dir = filepath.Join(root, "linked", "lanes", "l1")
+	excludes := generateSettings(spec).ClaudeMdExcludes
+	resolved, err := filepath.EvalSymlinks(filepath.Join(real, "lanes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, above := range []string{filepath.Join(root, "linked", "lanes"), resolved, filepath.Dir(resolved), "/"} {
+		for _, name := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude/CLAUDE.md", ".claude/AGENTS.md", ".claude/rules/**"} {
+			want := strings.TrimSuffix(globPath(above), "/") + "/" + name
+			if !slices.Contains(excludes, want) {
+				t.Errorf("a lane loads %s: %v", want, excludes)
+			}
+		}
+	}
+	for _, own := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude/CLAUDE.md", ".claude/rules/go.md", "docs/CLAUDE.md"} {
+		for _, dir := range []string{spec.Dir, filepath.Join(resolved, "l1")} {
+			for _, pattern := range excludes {
+				if matched, _ := filepath.Match(pattern, filepath.Join(dir, own)); matched {
+					t.Errorf("a lane leaves out its worktree's own %s with %s", own, pattern)
+				}
+			}
+		}
+	}
+	spec.Dir = "/srv/a[1]/lane"
+	if excludes := generateSettings(spec).ClaudeMdExcludes; !slices.Contains(excludes, `/srv/a\[1\]/CLAUDE.md`) {
+		t.Errorf("a directory with a glob character is not escaped: %v", excludes)
+	} else if matched, _ := filepath.Match(`/srv/a\[1\]/CLAUDE.md`, "/srv/a1/CLAUDE.md"); matched {
+		t.Error("the escaped pattern names another path")
+	}
+}
+
+// A lane's session reports each instruction file it loads, so one that loaded despite the excludes is named as a leak.
+func TestALaneReportsEachInstructionFileItLoads(t *testing.T) {
+	settings := generateSettings(laneSpec(t))
+	if len(settings.Hooks["InstructionsLoaded"]) == 0 {
+		t.Errorf("a lane's settings register no InstructionsLoaded hook: %v", slices.Sorted(maps.Keys(settings.Hooks)))
 	}
 }

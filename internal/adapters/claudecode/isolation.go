@@ -79,7 +79,71 @@ func personalInstructions(spec ports.SessionSpec) []string {
 	if config == "" {
 		return nil
 	}
-	return []string{filepath.Join(config, "CLAUDE.md"), filepath.Join(config, "rules") + "/**"}
+	return []string{globPath(filepath.Join(config, "CLAUDE.md")), globPath(filepath.Join(config, "rules")) + "/**"}
+}
+
+// instructionExcludes are a lane's `claudeMdExcludes`: the member's own instructions, and every instruction file above
+// the lane's worktree.
+func instructionExcludes(spec ports.SessionSpec) []string {
+	var out []string
+	for _, pattern := range slices.Concat(personalInstructions(spec), aboveTheWorktree(spec)) {
+		if !slices.Contains(out, pattern) {
+			out = append(out, pattern)
+		}
+	}
+	return out
+}
+
+// aboveInstructions are the instruction files the CLI loads at launch from each directory above its working directory:
+// `CLAUDE.md` and `CLAUDE.local.md` ([how CLAUDE.md files load]), `.claude/CLAUDE.md`, which counts as one, and
+// `AGENTS.md` and `.claude/AGENTS.md` ([AGENTS.md]), whose loads `claudeMdExcludes` holds too. A directory's
+// `.claude/rules/` is named as well, so no rule of a directory above loads either.
+//
+// [how CLAUDE.md files load]: https://code.claude.com/docs/en/memory#how-claude-md-files-load
+// [AGENTS.md]: https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md
+var aboveInstructions = []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md", ".claude/AGENTS.md", ".claude/rules/**"}
+
+// aboveTheWorktree are the instruction files of every directory above a lane's worktree, which are neither the
+// repository's nor the member's: a lane loads only the repository's own instructions, from its worktree (ADR-0040). The
+// CLI loads them "from your current working directory and every directory above it" ([memory]), and `claudeMdExcludes`
+// matches "absolute file paths using glob syntax" ([exclude]), so each directory is named as given and as its links
+// resolve, and a character a glob reads is escaped. An instruction file of a directory above that loads anyway is
+// reported as a leak, from what the session's `InstructionsLoaded` hook says it loaded.
+//
+// [memory]: https://code.claude.com/docs/en/memory#how-claude-md-files-load
+// [exclude]: https://code.claude.com/docs/en/memory#exclude-specific-claude-md-files
+func aboveTheWorktree(spec ports.SessionSpec) []string {
+	if spec.Dir == "" {
+		return nil
+	}
+	dirs := []string{filepath.Clean(spec.Dir)}
+	if real, err := filepath.EvalSymlinks(spec.Dir); err == nil && real != dirs[0] {
+		dirs = append(dirs, real)
+	}
+	var out []string
+	for _, dir := range dirs {
+		for parent := filepath.Dir(dir); ; parent = filepath.Dir(parent) {
+			for _, name := range aboveInstructions {
+				out = append(out, strings.TrimSuffix(globPath(parent), "/")+"/"+name)
+			}
+			if parent == filepath.Dir(parent) {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// globPath escapes each character of a path that a glob pattern reads, so a pattern names that path alone.
+func globPath(path string) string {
+	var out strings.Builder
+	for _, r := range path {
+		if strings.ContainsRune(patternCharacters, r) {
+			out.WriteByte('\\')
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 // memberConfig is the member's configuration directory: the one `CLAUDE_CONFIG_DIR` names, or `~/.claude`

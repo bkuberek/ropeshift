@@ -1,5 +1,10 @@
 package lanes
 
+import (
+	"path"
+	"strings"
+)
+
 // Setup is what a lane's session loaded at its start, as its agent CLI reported it, and the pieces of the member's own
 // CLI setup among them. A lane runs clean of that setup, so Personal names what reached it despite the flags that keep
 // it out: the CLI's own record of a session is what tells a leak from a clean start.
@@ -51,7 +56,35 @@ const (
 	PieceAgent     = "agent"
 	PieceSkill     = "skill"
 	PieceCommand   = "command"
+	// PieceInstruction is an instruction file a session loaded from outside its worktree: a CLAUDE.md of a directory
+	// above the clone, or the member's own, which a lane's settings leave out.
+	PieceInstruction = "instruction"
 )
+
+// EventInstructionsLoaded is the hook that names each instruction file a session loads, with the scope the agent CLI
+// gives it ([hooks]).
+//
+// [hooks]: https://code.claude.com/docs/en/hooks#instructionsloaded
+const EventInstructionsLoaded = "InstructionsLoaded"
+
+// scopeManaged is the scope of an organization's instruction file, which no member's setting can leave out.
+const scopeManaged = "Managed"
+
+// InstructionLeak says an instruction file a session loaded is none of the repository's: a file outside every directory
+// the lane's worktree is known by, unless it is the organization's. A lane loads only the repository's own
+// instructions, so any other is a leak (ADR-0040).
+func InstructionLeak(worktrees []string, file, scope string) (PersonalItem, bool) {
+	if file == "" || scope == scopeManaged {
+		return PersonalItem{}, false
+	}
+	clean := path.Clean(file)
+	for _, dir := range worktrees {
+		if dir != "" && strings.HasPrefix(clean, strings.TrimSuffix(path.Clean(dir), "/")+"/") {
+			return PersonalItem{}, false
+		}
+	}
+	return PersonalItem{Kind: PieceInstruction, Name: file, From: scope}, true
+}
 
 // What a member can do about a piece of their own setup that leaked into a machine's lanes (ADR-0040). Lanes keep
 // running whichever they choose.
@@ -65,14 +98,14 @@ const (
 )
 
 // SetupAdvice is the choice a member is recommended for one piece of their own setup that leaked, and why. An agent, a
-// skill, or a command adds context, and the lane's generated rules still bound its tool calls, so the lane keeps moving
-// with it accepted. Any other piece, an MCP server or a plugin, which can carry hooks and servers, and a kind this build
+// skill, a command, or an instruction file adds context, and the lane's generated rules still bound its tool calls, so
+// the lane keeps moving with it accepted. Any other piece, an MCP server or a plugin, which can carry hooks and servers, and a kind this build
 // does not know, can run commands or reach data outside the project with no person watching, so the recommendation is
 // the separate configuration directory, the one choice that keeps it out of unattended lanes without changing the
 // member's own sessions.
 func SetupAdvice(item PersonalItem) (choice, rationale string) {
 	switch item.Kind {
-	case PieceAgent, PieceSkill, PieceCommand:
+	case PieceAgent, PieceSkill, PieceCommand, PieceInstruction:
 		return SetupAccept, "it adds context, and the lane's generated rules still bound every tool call it leads to, so lanes keep moving with it named on each"
 	}
 	return SetupSeparateDirectory, "it can run commands or reach data outside the project with no person watching, and a separate configuration directory keeps it out of unattended lanes without changing your own sessions"

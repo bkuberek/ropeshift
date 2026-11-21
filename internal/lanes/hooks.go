@@ -45,7 +45,8 @@ type HookEvent struct {
 	// Path.
 	Digest string `json:"digest,omitempty"`
 	// Path is the path a file-writing tool is called with, on its `PreToolUse`. It is the one thing a hook takes
-	// from a call's input besides a question, and it is what a generation's digest lists as written.
+	// from a call's input besides a question, and it is what a generation's digest lists as written. On an
+	// `InstructionsLoaded`, it is the instruction file the session loaded, and Detail is its scope.
 	Path string `json:"path,omitempty"`
 	// Message names the message a prompt opened with, which is the admission signal. It is the
 	// one thing a hook takes from a prompt.
@@ -106,7 +107,10 @@ type hookPayload struct {
 	// counted and never read: a task's description and command say what the session asked of it. It is kept raw, so
 	// a value in a shape this build does not know counts nothing and costs nothing else of the Stop.
 	BackgroundTasks json.RawMessage `json:"background_tasks"`
-	ToolInput       struct {
+	// FilePath and MemoryType are the instruction file an `InstructionsLoaded` names, and its scope.
+	FilePath   string `json:"file_path"`
+	MemoryType string `json:"memory_type"`
+	ToolInput  struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		Questions    []struct {
@@ -206,6 +210,9 @@ func NewHookEvent(event string, input []byte) HookEvent {
 	}
 	if event == EventStop {
 		out.Background = countTasks(payload.BackgroundTasks)
+	}
+	if event == EventInstructionsLoaded {
+		out.Path, out.Detail = payload.FilePath, payload.MemoryType
 	}
 	if payload.ToolName == ToolQuestion {
 		for _, question := range payload.ToolInput.Questions {

@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -77,5 +78,37 @@ func TestASessionThatReportedNothingRecordsNoSetup(t *testing.T) {
 	}
 	if setups := r.laneSetups("lane-1"); len(setups) != 0 {
 		t.Errorf("the lane recorded %+v", setups)
+	}
+}
+
+// An instruction file a lane's session loaded from outside its worktree, such as a CLAUDE.md above the clone, is a leak:
+// the lane's setup record names it among the member's own pieces, beside what the session's start reported. The
+// worktree's own files and the organization's are not, and a file named again is named once.
+func TestAnInstructionFileFromOutsideTheWorktreeIsALeak(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	loaded := func(path, scope string) lanes.HookEvent {
+		return lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: lanes.EventInstructionsLoaded, Path: path, Detail: scope}
+	}
+	step := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		r.hook(t, loaded(filepath.Join(spec.Dir, "CLAUDE.md"), "Project"))
+		r.hook(t, loaded("/srv/development/CLAUDE.md", "Project"))
+		r.hook(t, loaded("/srv/development/CLAUDE.md", "Project"))
+		r.hook(t, loaded("/etc/claude-code/CLAUDE.md", "Managed"))
+	}}
+	played := script([]fake.DriverStep{{Bound: true}, step, r.reports(workorders.OutcomeCompleted), completed(0.1)})
+	played.Setup = &lanes.Setup{Model: "resolved-model"}
+	r.driver.Play(played)
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	setups := r.laneSetups("lane-1")
+	if len(setups) == 0 {
+		t.Fatal("the lane recorded no setup")
+	}
+	got := setups[len(setups)-1]
+	want := []lanes.PersonalItem{{Kind: lanes.PieceInstruction, Name: "/srv/development/CLAUDE.md", From: "Project"}}
+	if got.Model != "resolved-model" || !slices.Equal(got.Personal, want) {
+		t.Errorf("the lane recorded %+v, want the start's report with %+v", got, want)
 	}
 }

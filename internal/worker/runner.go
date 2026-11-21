@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -117,6 +118,11 @@ type laneRun struct {
 	// reads beside it (ADR-0022). The handle's lock guards both.
 	worktree string
 	reads    []lanes.ReadTree
+	// loaded is what this generation's session reported it loaded at its start, and leaks the instruction files it
+	// loaded from outside its worktree, which the lane's setup record names among the member's own pieces. The
+	// handle's lock guards both, and a generation's start clears them.
+	loaded *lanes.Setup
+	leaks  []lanes.PersonalItem
 	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
 	maxReviewRounds int64
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
@@ -828,6 +834,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)
+	r.clearSetup()
 	r.setReads(r.prepareReads(ctx, prepared.Worktree.Path))
 	if r.assisting() {
 		grant := r.assistant().grantNow()
@@ -1231,6 +1238,57 @@ func (r *laneRun) recordSetup(ctx context.Context, setup *lanes.Setup) {
 	if setup == nil || r.assisting() || r.orchestrating() {
 		return
 	}
+	r.handleLock.Lock()
+	r.loaded = setup
+	r.handleLock.Unlock()
+	r.uploadSetup(ctx)
+}
+
+// noteInstruction keeps an instruction file a lane's session loaded from outside its worktree as a leak on the lane's
+// setup record, beside what its start reported, or alone where the session reports nothing, such as in a pane. The
+// session's hook names each file once a load, so a file it names again changes nothing (ADR-0040).
+func (r *laneRun) noteInstruction(ctx context.Context, event lanes.HookEvent) {
+	if r.assisting() || r.orchestrating() {
+		return
+	}
+	worktree := r.worktreePath()
+	dirs := []string{worktree}
+	if real, err := filepath.EvalSymlinks(worktree); err == nil {
+		dirs = append(dirs, real)
+	}
+	leak, ok := lanes.InstructionLeak(dirs, event.Path, event.Detail)
+	if !ok {
+		return
+	}
+	r.handleLock.Lock()
+	known := slices.ContainsFunc(r.leaks, func(item lanes.PersonalItem) bool { return item.Name == leak.Name })
+	if !known {
+		r.leaks = append(r.leaks, leak)
+	}
+	r.handleLock.Unlock()
+	if !known {
+		r.uploadSetup(ctx)
+	}
+}
+
+// clearSetup forgets what an earlier generation's session loaded, before a generation starts.
+func (r *laneRun) clearSetup() {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	r.loaded, r.leaks = nil, nil
+}
+
+// uploadSetup records what this generation's session loaded, with the instruction files that leaked among the member's
+// own pieces.
+func (r *laneRun) uploadSetup(ctx context.Context) {
+	r.handleLock.Lock()
+	setup := lanes.Setup{Version: r.version}
+	if r.loaded != nil {
+		setup = *r.loaded
+		setup.Personal = slices.Clone(r.loaded.Personal)
+	}
+	setup.Personal = append(setup.Personal, r.leaks...)
+	r.handleLock.Unlock()
 	lane := r.record()
 	payload, err := json.Marshal(setup)
 	if err != nil {

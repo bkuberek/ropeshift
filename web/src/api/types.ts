@@ -1218,7 +1218,7 @@ export type WorkerLine = {
 export type SetupServer = { name: string; from: string };
 
 // PersonalItem is one piece of the member's own agent CLI setup that a lane's session loaded: an mcp_server, a plugin,
-// an agent, a skill, or a command, and where it is set up.
+// an agent, a skill, a command, or an instruction file from outside its worktree, and where it is set up.
 export type PersonalItem = { kind: string; name: string; from?: string };
 
 // LaneSetup is what a lane's latest session that reported it loaded at its start. personal names the member's own

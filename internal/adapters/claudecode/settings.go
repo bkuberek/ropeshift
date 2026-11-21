@@ -32,6 +32,7 @@ const (
 var hookEvents = []string{
 	"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PermissionDenied", "PostToolUse",
 	"PostToolUseFailure", "Notification", "PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
+	lanes.EventInstructionsLoaded,
 }
 
 type hookCommand struct {
@@ -74,7 +75,8 @@ type settingsFile struct {
 	// hold.
 	CrossSessionInbound string      `json:"crossSessionInbound"`
 	StatusLine          *statusLine `json:"statusLine,omitempty"`
-	// ClaudeMdExcludes leaves out the member's own instructions and keeps the repository's (personalInstructions).
+	// ClaudeMdExcludes leaves out the member's own instructions and those above the worktree, and keeps the
+	// repository's (instructionExcludes).
 	ClaudeMdExcludes []string `json:"claudeMdExcludes,omitempty"`
 }
 
@@ -216,7 +218,7 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 			DisableBypassPermissionsMode: bypassOff,
 		},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
-		ClaudeMdExcludes: personalInstructions(spec),
+		ClaudeMdExcludes: instructionExcludes(spec),
 	}
 	if spec.Binary == "" {
 		return out

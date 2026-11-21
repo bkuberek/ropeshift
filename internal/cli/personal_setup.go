@@ -7,7 +7,7 @@ import "ropeshift.com/ropeshift/internal/api"
 func (c *invocation) workerAcceptSetup(args []string) int {
 	set := c.flags()
 	version := set.String("version", "", "the agent CLI version the lanes ran")
-	kind := set.String("kind", "", "the piece's kind: mcp_server, plugin, agent, skill, or command")
+	kind := set.String("kind", "", "the piece's kind: mcp_server, plugin, agent, skill, command, or instruction")
 	name := set.String("name", "", "the piece's name")
 	positional, ok := c.parse(set, args)
 	if !ok {

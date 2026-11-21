@@ -8,6 +8,7 @@ const pieceWords: Record<string, string> = {
   agent: "Agent",
   skill: "Skill",
   command: "Command",
+  instruction: "Instruction file",
 };
 
 // personalLine says one piece of the member's own setup and where it is set up.
