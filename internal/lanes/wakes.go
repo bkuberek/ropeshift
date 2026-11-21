@@ -40,7 +40,7 @@ Every question you take ends in a record, before you end your turn. Call ` + Too
 - The choice can be undone, and the goals, requirements, and contracts settle it: ` + ToolDecisionRecord + ` with status decided and the same fields, citing what settles it.
 - The choice can be undone, and nothing on record settles it: ` + ToolDecisionRecord + ` with status assumed, and the same fields. A member can overturn it later.
 - It asks what an open question asks: ` + ToolQuestionAttach + `.
-- It is a one-way choice. On an unattended worker it is yours unless the decision policy keeps one of its categories: decide it from the goals, requirements, and contracts with ` + ToolDecisionRecord + `, status decided and reversibility one_way, with your citations and rationale. On any other worker, and in a category the decision policy keeps, it is a member's: ` + ToolQuestionEscalate + `.
+- It is a one-way choice. On an unattended worker whose one-way acknowledgement a member accepted, it is yours when it names a category and the decision policy keeps none of them (yours in ` + ToolQuestionNext + ` says which applies): decide it from the goals, requirements, and contracts with ` + ToolDecisionRecord + `, status decided and reversibility one_way, with your citations and rationale, or escalate it if a member should make it; otherwise escalate it with ` + ToolQuestionEscalate + `, as you do one in a category the decision policy keeps.
 - The record conflicts, or the answer would change the work's scope: ` + ToolQuestionEscalate + `.
 
 When you escalate, the question's own options, recommendation, and rationale stand when the call gives none, so give your own only to replace them.

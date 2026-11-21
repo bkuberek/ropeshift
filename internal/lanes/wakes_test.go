@@ -51,12 +51,15 @@ func TestTheRoleSettlesWhatCanBeUndoneBeforeItEscalates(t *testing.T) {
 	}
 }
 
-// A member who sets a worker to unattended leaves its orchestrator the run of the work, so the role says a one-way
-// choice the decision policy leaves open is the orchestrator's to decide on such a worker, where question_next says
-// which rule applies, and that a member is the last rung (FR-QD-8).
+// A member who sets a worker to unattended and accepts its one-way acknowledgement leaves its orchestrator the run of
+// the work, so the role says a one-way choice is the orchestrator's on such a worker only when it names a category and
+// the decision policy keeps none of them, where question_next says which rule applies, and that a member is the last
+// rung (FR-QD-8).
 func TestTheRoleLetsAnUnattendedOrchestratorDecideWhatThePolicyLeavesIt(t *testing.T) {
 	for _, want := range []string{
-		"unattended", "reversibility one_way", "yours", "the decision policy keeps",
+		"On an unattended worker whose one-way acknowledgement a member accepted",
+		"it is yours when it names a category and the decision policy keeps none of them",
+		"yours in " + lanes.ToolQuestionNext + " says which applies", "otherwise escalate it", "reversibility one_way",
 		"Decide what the policy leaves you before you escalate anything",
 	} {
 		if !strings.Contains(lanes.OrchestratorRole, want) {
