@@ -27,6 +27,9 @@ type batchRefs struct {
 	// plans are the plan files this batch changed, by the plan's ID in the ledger, which the end of the
 	// batch gives a plan version.
 	plans map[string]planFileRead
+	// goals are the goals this batch changed, by their ID in the ledger. A plan's digest does not cover its goal, so a
+	// batch that changed only the goal changed the plan all the same.
+	goals map[string]bool
 	// missing are the work orders that continue a branch their repository does not hold, by the ID the
 	// file gives each, with what a person reads of it.
 	missing map[string]string
@@ -41,7 +44,7 @@ type batchContract struct {
 }
 
 func refsOf(batch ports.ChangeBatch) *batchRefs {
-	refs := &batchRefs{milestones: map[string]string{}, existing: map[string]bool{}, contracts: map[string]batchContract{}, plans: map[string]planFileRead{}}
+	refs := &batchRefs{milestones: map[string]string{}, existing: map[string]bool{}, contracts: map[string]batchContract{}, plans: map[string]planFileRead{}, goals: map[string]bool{}}
 	for _, item := range batch.Records {
 		if file := item.File.Milestone; file != nil {
 			refs.milestones[file.ID] = file.Plan

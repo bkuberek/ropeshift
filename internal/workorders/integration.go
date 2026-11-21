@@ -79,7 +79,8 @@ func unmergedText(unmerged []Unmerged) string {
 
 // PlanStanding is what plan approval says of a planning branch's commit.
 type PlanStanding struct {
-	// Waiting names each plan on the branch whose approval no member has decided yet.
+	// Waiting names each plan on the branch that holds its merge: one whose approval no member has decided yet, and one
+	// whose requests at the commit all closed with none open or approved, with why.
 	Waiting []string
 }
 

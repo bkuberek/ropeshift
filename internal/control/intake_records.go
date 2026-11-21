@@ -116,6 +116,7 @@ func (r *fileRecorder) goal() (itemOutcome, error) {
 		return itemOutcome{}, err
 	}
 	next.ID = id
+	r.refs.goals[id] = true
 	return itemOutcome{records: 1}, r.writer().goal(next)
 }
 

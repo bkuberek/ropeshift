@@ -1,0 +1,110 @@
+{
+  "as_of": 1790000060000,
+  "revision": 30,
+  "items": [
+    {
+      "kind": "plan_approval",
+      "id": "generated-1",
+      "since": 1790000000000,
+      "tier": 3,
+      "plan_approval": {
+        "approval": {
+          "id": "generated-1",
+          "lane_id": "",
+          "work_order_id": "wo-a",
+          "generation": 0,
+          "kind": "plan",
+          "subject": "retry@1",
+          "subject_digest": "sha256:7a5f720a104a4bce50a3098096f20b3f2fcacbc96111c54545f270bfd9488b11",
+          "summary": "Plan Retry budget, version 1: 1 contract, 1 spec, 1 draft decisions",
+          "requested_by": "lane:lane-wo-a-1",
+          "state": "pending",
+          "raised_at": 1790000000000,
+          "plan_version": 1,
+          "detail": "{\"title\":\"Retry budget\",\"ref\":\"retry\",\"counts\":{\"contract\":1,\"spec\":1},\"decisions\":1,\"drafts\":[{\"id\":\"d1\",\"question\":\"Which provider first?\",\"answer\":\"Stripe\",\"rationale\":\"It is the one with an account.\"}],\"difference\":{\"added\":[\"contract:budget\",\"plan:retry\",\"spec:api\"]},\"source\":\"abc1230000000000000000000000000000000000\",\"body\":\"How.\\n\",\"contracts\":[{\"id\":\"budget\",\"title\":\"The budget\",\"statement\":\"The budget.\\n\",\"criteria\":[{\"id\":\"c1\",\"text\":\"It retries\"}]}]}"
+        },
+        "title": "Retry budget",
+        "version": 1,
+        "requested_by": "lane:lane-wo-a-1",
+        "counts": {
+          "contract": 1,
+          "spec": 1
+        },
+        "decisions": 1,
+        "drafts": [
+          {
+            "id": "d1",
+            "question": "Which provider first?",
+            "answer": "Stripe",
+            "rationale": "It is the one with an account."
+          }
+        ],
+        "difference": {
+          "added": [
+            "contract:budget",
+            "plan:retry",
+            "spec:api"
+          ]
+        },
+        "summary": "a first version with 3 records",
+        "branch": {
+          "work_order": "wo-a",
+          "branch": "plan/retry-a",
+          "commit": "abc1230000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "kind": "plan_approval",
+      "id": "generated-2",
+      "since": 1790000060000,
+      "tier": 3,
+      "plan_approval": {
+        "approval": {
+          "id": "generated-2",
+          "lane_id": "",
+          "work_order_id": "wo-b",
+          "generation": 0,
+          "kind": "plan",
+          "subject": "retry@1",
+          "subject_digest": "sha256:7a5f720a104a4bce50a3098096f20b3f2fcacbc96111c54545f270bfd9488b11",
+          "summary": "Plan Retry budget, version 1: 1 contract, 1 spec, 1 draft decisions",
+          "requested_by": "lane:lane-wo-b-1",
+          "state": "pending",
+          "raised_at": 1790000060000,
+          "plan_version": 1,
+          "detail": "{\"title\":\"Retry budget\",\"ref\":\"retry\",\"counts\":{\"contract\":1,\"spec\":1},\"decisions\":1,\"drafts\":[{\"id\":\"d1\",\"question\":\"Which provider first?\",\"answer\":\"Stripe\",\"rationale\":\"It is the one with an account.\"}],\"difference\":{\"added\":[\"contract:budget\",\"plan:retry\",\"spec:api\"]},\"source\":\"def4560000000000000000000000000000000000\",\"body\":\"How.\\n\",\"contracts\":[{\"id\":\"budget\",\"title\":\"The budget\",\"statement\":\"The budget.\\n\",\"criteria\":[{\"id\":\"c1\",\"text\":\"It retries\"}]}]}"
+        },
+        "title": "Retry budget",
+        "version": 1,
+        "requested_by": "lane:lane-wo-b-1",
+        "counts": {
+          "contract": 1,
+          "spec": 1
+        },
+        "decisions": 1,
+        "drafts": [
+          {
+            "id": "d1",
+            "question": "Which provider first?",
+            "answer": "Stripe",
+            "rationale": "It is the one with an account."
+          }
+        ],
+        "difference": {
+          "added": [
+            "contract:budget",
+            "plan:retry",
+            "spec:api"
+          ]
+        },
+        "summary": "a first version with 3 records",
+        "branch": {
+          "work_order": "wo-b",
+          "branch": "plan/retry-b",
+          "commit": "def4560000000000000000000000000000000000"
+        }
+      }
+    }
+  ]
+}

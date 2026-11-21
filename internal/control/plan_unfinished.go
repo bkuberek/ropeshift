@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -221,10 +222,13 @@ func unfinishedRequest(approvals ports.ApprovalReader, plan string, version int6
 
 // offerHeldVersion asks again about the newest version of a plan that stands as a placeholder, when something other than
 // its digest finished it, such as the plan's goal, which the digest does not cover. A version that is still unfinished
-// keeps its request, with what is missing now. When intake read the commit of an accepted plan work order, that work
-// order's commit is what changed the plan, so the request names it: approving the request is then the approval of the
-// branch's merge, which a version made from the repository, with no work order of its own, could not be.
-func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin) error {
+// keeps its request, with what is missing now. When intake read the commit of an accepted plan work order and that
+// commit changed the plan's goal, which goals holds of the batch, the work order's commit is what changed the plan, so
+// the request names it: approving the request is then the approval of the branch's merge, which a version made from the
+// repository, with no work order of its own, could not be. A commit that left the plan as the ledger holds it changed
+// nothing of it, such as a branch read before a poll of the repository that stopped short asked about the goal the poll
+// recorded, so its request names the version's own work order and source, and approving it approves no branch's merge.
+func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin, goals map[string]bool) error {
 	latest, err := tx.Planning().LatestPlanVersion(plan)
 	if err != nil {
 		return err
@@ -241,7 +245,55 @@ func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin) error {
 	if slices.Equal(missing, planDetailOf(request).Unfinished) {
 		return nil
 	}
+	if origin.workOrder != "" {
+		record, err := tx.Planning().Plan(plan)
+		if err != nil {
+			return err
+		}
+		if record.GoalID == "" || !goals[record.GoalID] {
+			origin = planOrigin{}
+		}
+	}
 	return askAboutVersion(tx, latest, origin, missing)
+}
+
+// pointHeldRequest has the request that holds a version back as a placeholder name the planning branch whose commit
+// finishes it, which raised no request of its own because its plan's digest is the version's. The branch's plans are
+// all finished, or askAboutBranch would have held the branch back, so its commit finishes the version: what it changed
+// is what the digest does not cover, such as the plan's goal. A request that names that branch at that commit already
+// is left as it is, and a version with no such request has nothing to point.
+func pointHeldRequest(tx ports.WriteTx, version planning.PlanVersion, branch acceptedPlan) error {
+	request, held, err := unfinishedRequest(tx.Approvals(), version.PlanID, version.Version)
+	if err != nil || !held {
+		return err
+	}
+	artifacts, err := tx.Evidence().Artifacts(branch.order.ID)
+	if err != nil {
+		return err
+	}
+	name := cmp.Or(branch.order.Branch, attemptBranch(artifacts, branch.order.Fence).URI)
+	finishing := planning.PlanBranch{WorkOrder: branch.order.ID, Branch: name, Commit: branch.commit}
+	detail := planDetailOf(request)
+	if detail.FinishedBy != nil && *detail.FinishedBy == finishing {
+		return nil
+	}
+	detail.FinishedBy = &finishing
+	data, err := json.Marshal(detail)
+	if err != nil {
+		return err
+	}
+	next := request
+	next.Detail = string(data)
+	saved, err := tx.Approvals().Save(next, request.State)
+	if err != nil || !saved {
+		return err
+	}
+	event, err := authority.ApprovalEvent(next, intakeActor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
 }
 
 // askAboutVersion asks about a version the ledger holds again, saying what it lacks, if anything. A request made when

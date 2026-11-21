@@ -211,6 +211,9 @@ func (a *Approvals) DecideFrom(ctx context.Context, scope ledger.WorkspaceID, de
 		if record.Kind == authority.KindPlan && record.State == authority.ApprovalApproved {
 			return approvePlan(tx, record, actor)
 		}
+		if record.Kind == authority.KindPlan && record.State == authority.ApprovalDenied {
+			return denyPlan(tx, record, actor)
+		}
 		if record.Kind == authority.KindRecovery && record.State == authority.ApprovalApproved {
 			return grantRecovery(tx, record, actor)
 		}

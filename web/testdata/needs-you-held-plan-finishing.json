@@ -1,0 +1,168 @@
+{
+  "as_of": 1790000060000,
+  "revision": 29,
+  "items": [
+    {
+      "kind": "plan_approval",
+      "id": "generated-1",
+      "since": 1790000000000,
+      "tier": 3,
+      "plan_approval": {
+        "approval": {
+          "id": "generated-1",
+          "lane_id": "",
+          "work_order_id": "",
+          "generation": 0,
+          "kind": "plan",
+          "subject": "generated-2@1",
+          "subject_digest": "sha256:81da677cb26decdbd3ab359c66e8199d00e3c49f670dd08c3b068b51a1266e36",
+          "summary": "Plan Harbor berth booking, version 1: 1 requirements",
+          "requested_by": "system:intake",
+          "state": "pending",
+          "raised_at": 1790000000000,
+          "plan_id": "generated-2",
+          "plan_version": 1,
+          "detail": "{\"title\":\"Harbor berth booking\",\"ref\":\"harbor-v1\",\"counts\":{\"requirements\":1},\"difference\":{\"added\":[\"plan:harbor-v1\",\"requirements:harbor-requirements\"]},\"source\":\"plan/plan.md@3\",\"unfinished\":[\"The goal's title is still the template's, \\\"State the goal in one line\\\".\",\"A success measure is still the template's, \\\"State one measurable sign that the goal is met\\\".\",\"The goal's text is still the template's, which says why the goal matters.\"],\"finished_by\":{\"work_order\":\"wo-plan\",\"branch\":\"plan/harbor\",\"commit\":\"abc1230000000000000000000000000000000000\"}}"
+        },
+        "title": "Harbor berth booking",
+        "version": 1,
+        "requested_by": "system:intake",
+        "counts": {
+          "requirements": 1
+        },
+        "decisions": 0,
+        "drafts": [],
+        "unfinished": [
+          "The goal's title is still the template's, \"State the goal in one line\".",
+          "A success measure is still the template's, \"State one measurable sign that the goal is met\".",
+          "The goal's text is still the template's, which says why the goal matters."
+        ],
+        "difference": {
+          "added": [
+            "plan:harbor-v1",
+            "requirements:harbor-requirements"
+          ]
+        },
+        "summary": "a first version with 2 records",
+        "finished_by": {
+          "work_order": "wo-plan",
+          "branch": "plan/harbor",
+          "commit": "abc1230000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "kind": "work",
+      "id": "wo-plan",
+      "since": 1790000060000,
+      "tier": 3,
+      "work": {
+        "reason": "acceptance",
+        "work_order": {
+          "id": "wo-plan",
+          "kind": "plan",
+          "state": "acceptance",
+          "title": "Plan the harbor",
+          "size": "unknown",
+          "contract_id": "generated-3",
+          "contract_version": 1,
+          "fence": 2,
+          "max_attempts": 3,
+          "reviewed_by": "member-1"
+        },
+        "lane": {
+          "id": "lane-wo-plan-1",
+          "work_order": "wo-plan",
+          "generation": 1,
+          "actual_state": "ended",
+          "liveness": "dead",
+          "model_reach": "unknown",
+          "ledger_reach": "unknown",
+          "as_of": 1790000060000,
+          "freshness": "observed",
+          "reported_by_epoch": 0,
+          "artifacts": [
+            {
+              "id": "generated-4",
+              "lane_id": "lane-wo-plan-1",
+              "kind": "branch",
+              "uri": "plan/harbor",
+              "digest": "abc1230000000000000000000000000000000000",
+              "fence": 2,
+              "created_at": 1790000060000
+            },
+            {
+              "id": "generated-5",
+              "lane_id": "lane-wo-plan-1",
+              "kind": "report",
+              "uri": "notes.md",
+              "fence": 2,
+              "created_at": 1790000060000
+            }
+          ],
+          "generations": [
+            {
+              "lane_id": "lane-wo-plan-1",
+              "number": 1,
+              "start_reason": "initial",
+              "end_reason": "completed",
+              "started_at": 1790000060000,
+              "ended_at": 1790000060000
+            }
+          ]
+        },
+        "standing": {
+          "work_order_id": "wo-plan",
+          "state": "acceptance",
+          "assessment": {
+            "criteria": [
+              {
+                "criterion_id": "c1",
+                "standing": "second_principal"
+              }
+            ],
+            "needs": "second_principal"
+          },
+          "artifacts": [
+            {
+              "id": "generated-4",
+              "lane_id": "lane-wo-plan-1",
+              "kind": "branch",
+              "uri": "plan/harbor",
+              "digest": "abc1230000000000000000000000000000000000",
+              "fence": 2,
+              "created_at": 1790000060000
+            },
+            {
+              "id": "generated-5",
+              "lane_id": "lane-wo-plan-1",
+              "kind": "report",
+              "uri": "notes.md",
+              "fence": 2,
+              "created_at": 1790000060000
+            }
+          ],
+          "checks": [
+            {
+              "id": "generated-6",
+              "work_order_id": "wo-plan",
+              "lane_id": "lane-wo-plan-1",
+              "fence": 2,
+              "artifact_id": "generated-4",
+              "criterion_id": "c1",
+              "name": "unit",
+              "status": "passed",
+              "source": "lane",
+              "created_at": 1790000060000
+            }
+          ],
+          "authority": "person_merges"
+        },
+        "actions": [
+          "accept",
+          "rework"
+        ]
+      }
+    }
+  ]
+}

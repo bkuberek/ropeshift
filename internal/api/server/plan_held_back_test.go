@@ -162,6 +162,12 @@ const (
 // aPlanLane walks a `plan` work order through one more lane that ends with a branch at head.
 func aPlanLane(t *testing.T, d *apitest.Daemon, id string, attempt int, head string) {
 	t.Helper()
+	aPlanLaneOn(t, d, id, attempt, head, laneEnd().Branch)
+}
+
+// aPlanLaneOn walks a `plan` work order through one more lane that ends with the branch named at head.
+func aPlanLaneOn(t *testing.T, d *apitest.Daemon, id string, attempt int, head, branch string) {
+	t.Helper()
 	ctx := t.Context()
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	if attempt == 1 {
@@ -190,7 +196,7 @@ func aPlanLane(t *testing.T, d *apitest.Daemon, id string, attempt int, head str
 		t.Fatal(err)
 	}
 	result := laneEnd(workorders.CheckResult{Name: "unit", Criterion: "c1", Passed: true})
-	result.Head = head
+	result.Head, result.Branch = head, branch
 	if err := leases.EndLane(ctx, apitest.Scope, workorders.Holder{Lease: grant.Lease, Lane: lane, Generation: generation}, result, worker); err != nil {
 		t.Fatal(err)
 	}

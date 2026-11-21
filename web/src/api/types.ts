@@ -337,7 +337,17 @@ export type PlanApprovalNeed = {
   revision?: PlanRevisionView;
   // unfinished lists what a placeholder version lacks. Its request cannot be approved.
   unfinished?: string[];
+  // branch names the planning branch the request is about when another waiting request is about the same version of
+  // the same plan. Approving each approves the merge of its own branch.
+  branch?: PlanBranch;
+  // finished_by names the planning branch whose commit finishes a placeholder version, while its work order waits for
+  // acceptance beside this request. Accepting it asks about the version again, finished.
+  finished_by?: PlanBranch;
 };
+
+// PlanBranch names a planning branch: the plan work order whose lane left it, the branch, and the commit of it a
+// request was raised for, or that finishes a plan.
+export type PlanBranch = { work_order: string; branch?: string; commit?: string };
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
 
@@ -1343,6 +1353,8 @@ export type PlanApprovalDetail = {
   contracts?: { id: string; title: string; statement?: string; criteria?: Criterion[] }[];
   // unfinished lists what a placeholder version lacks. Its request cannot be approved.
   unfinished?: string[];
+  // finished_by names the planning branch whose commit finishes a placeholder version without moving its digest.
+  finished_by?: PlanBranch;
 };
 
 // CreationStep is one step of a repository's creation on the forge: create, origin, or push, and whether it is done,

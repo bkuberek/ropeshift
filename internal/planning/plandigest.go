@@ -283,6 +283,19 @@ type PlanDetail struct {
 	// Unfinished lists what a plan version still lacks, when its request stands only to say so: ropeshift read the version
 	// as a placeholder, so approving it is refused, and a version that finishes the plan replaces the request.
 	Unfinished []string `json:"unfinished,omitempty"`
+	// FinishedBy names the planning branch whose commit finishes a placeholder version without moving its digest, such as
+	// by writing the plan's goal, which the digest does not cover. The branch raises no request of its own, because
+	// approving the version could not accept its work order, so its work order waits for acceptance, and reading its
+	// accepted commit asks about the version again. It is nil until a branch's commit finishes the version.
+	FinishedBy *PlanBranch `json:"finished_by,omitempty"`
+}
+
+// PlanBranch names a planning branch: the `plan` work order whose lane left it, the branch, and the commit of it a
+// request was raised for, or that finishes a plan.
+type PlanBranch struct {
+	WorkOrder string `json:"work_order"`
+	Branch    string `json:"branch,omitempty"`
+	Commit    string `json:"commit,omitempty"`
 }
 
 // DetailGoal is the goal a branch's plan names, with the statement its file holds.

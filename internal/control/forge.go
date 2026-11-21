@@ -370,6 +370,12 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 // remote now holds what its worktree held, so its worktree is taken away, which frees the branch for the
 // next attempt's worktree.
 func keepPullRequestBranch(tx ports.WriteTx, request ledger.ForgeRequest) error {
+	return keepBranch(tx, request, forgeActor)
+}
+
+// keepBranch has the work keep the branch of a commit it left, as the actor that decided it continues there, and
+// takes away the worktree of the ended lane that left the commit.
+func keepBranch(tx ports.WriteTx, request ledger.ForgeRequest, actor ledger.Actor) error {
 	order, err := tx.WorkOrders().Get(request.WorkOrder)
 	if err != nil {
 		return err
@@ -378,7 +384,7 @@ func keepPullRequestBranch(tx ports.WriteTx, request ledger.ForgeRequest) error 
 		if err := tx.WorkOrders().KeepBranch(order.ID, request.Branch); err != nil {
 			return err
 		}
-		event, err := workorders.ChangeEvent(workorders.EventBranchKept, order.ID, workorders.Change{Branch: request.Branch}, forgeActor)
+		event, err := workorders.ChangeEvent(workorders.EventBranchKept, order.ID, workorders.Change{Branch: request.Branch}, actor)
 		if err != nil {
 			return err
 		}
@@ -402,7 +408,7 @@ func keepPullRequestBranch(tx ports.WriteTx, request ledger.ForgeRequest) error 
 			return err
 		}
 		_, err = tx.Append(ledger.EventDraft{
-			Type: ledger.EventLaneArchiveRequested, Actor: forgeActor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: artifact.Lane},
+			Type: ledger.EventLaneArchiveRequested, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: artifact.Lane},
 		})
 		return err
 	}

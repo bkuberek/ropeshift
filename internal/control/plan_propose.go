@@ -228,7 +228,10 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 				// version could not accept the work order, and approving it would approve the version as the ledger
 				// holds it. A branch that only finished a goal, which the digest does not cover, is accepted as any
 				// work order is, and reading its commit records the goal and asks about the held version again
-				// (offerHeldVersion).
+				// (offerHeldVersion). Until then the request that holds the version back names the branch.
+				if err := pointHeldRequest(tx, latest, branch); err != nil {
+					return err
+				}
 				continue
 			} else if err == nil {
 				ask.version = latest.Version + 1

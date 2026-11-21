@@ -1,8 +1,11 @@
 package control
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -92,13 +95,14 @@ func refuseMovedBranch(tx ports.WriteTx, approval authority.Approval) error {
 }
 
 // askForTheMerge asks for the approval of a planning branch's merge at the commit intake took in, when the work waits in
-// integrating and no request can give it: none that is open or approved, for a version the ledger holds, names the
-// work order and that commit. A commit that holds the plan the ledger holds makes no version, so nothing else asks
-// about it after a send-back, a moved head, or a second branch of the same plan, and the work would wait for an
-// approval no request could give. The request is for the newest version of the first plan the commit holds, naming
-// the work order and the commit, as offerHeldVersion names them, and says what that version lacks, if anything. It runs
-// after voidUnclaimed, so an approval of the branch that no version claimed does not count. A request that stands is
-// enough, so reading the commit again asks nothing new.
+// integrating and no request can give it. A commit that holds the plan the ledger holds makes no version, so nothing
+// else asks about it after a send-back, a moved head, or a second branch of the same plan, and the work would wait for
+// an approval no request could give. When no request that is open or approved, for a version the ledger holds, names the
+// work order and that commit, it asks about the first plan the commit holds; and it asks about each plan the commit holds
+// whose every request there closed, which the merge gate waits for (unaskedPlans). Each request is for the newest version
+// of its plan, naming the work order and the commit, as offerHeldVersion names them, and says what that version lacks, if
+// anything. It runs after voidUnclaimed, so an approval of the branch that no version claimed does not count. A request
+// that stands is enough, so reading the commit again asks nothing new.
 func askForTheMerge(tx ports.WriteTx, workOrder, commit string, batch ports.ChangeBatch) error {
 	order, err := tx.WorkOrders().Get(workOrder)
 	if err != nil || order.Kind != workorders.KindPlan || order.State != workorders.Integrating {
@@ -107,11 +111,20 @@ func askForTheMerge(tx ports.WriteTx, workOrder, commit string, batch ports.Chan
 	if held, err := AttemptCommit(tx.Evidence(), order); err != nil || held != commit {
 		return err
 	}
-	if asked, err := mergeAsked(tx.Approvals(), workOrder, commit); err != nil || asked {
+	asked, err := mergeAsked(tx.Approvals(), workOrder, commit)
+	if err != nil {
 		return err
 	}
+	requests, err := tx.Approvals().OfWorkOrder(workOrder)
+	if err != nil {
+		return err
+	}
+	plans := askedAt(requests, commit)
 	for _, item := range batch.Records {
 		if item.Plan == nil {
+			continue
+		}
+		if closed := plans[item.Plan.ID]; asked && (closed == nil || closed.live) {
 			continue
 		}
 		link, err := tx.Planning().Link(planning.SubjectPlan, item.Key)
@@ -132,7 +145,10 @@ func askForTheMerge(tx ports.WriteTx, workOrder, commit string, batch ports.Chan
 		if err != nil {
 			return err
 		}
-		return askAboutVersion(tx, latest, planOrigin{workOrder: workOrder, commit: commit}, planning.Unfinished(finish))
+		if err := askAboutVersion(tx, latest, planOrigin{workOrder: workOrder, commit: commit}, planning.Unfinished(finish)); err != nil {
+			return err
+		}
+		asked = true
 	}
 	return nil
 }
@@ -151,6 +167,60 @@ func mergeAsked(approvals ports.ApprovalReader, workOrder, commit string) (bool,
 		}
 	}
 	return false, nil
+}
+
+// planAsked is what the requests of a planning work order at one commit say of one plan: its title, whether any of them is
+// open or approved, and the state of the newest.
+type planAsked struct {
+	title string
+	live  bool
+	last  authority.ApprovalState
+}
+
+// askedAt reads the plan requests of a planning work order raised for a commit, by the ID the file of the plan each is
+// about gives it.
+func askedAt(requests []authority.Approval, commit string) map[string]*planAsked {
+	asked := map[string]*planAsked{}
+	if commit == "" {
+		return asked
+	}
+	for _, request := range requests {
+		if request.Kind != authority.KindPlan || requestCommit(request) != commit {
+			continue
+		}
+		detail := planDetailOf(request)
+		plan := asked[detail.Ref]
+		if plan == nil {
+			plan = &planAsked{}
+			asked[detail.Ref] = plan
+		}
+		plan.title = cmp.Or(plan.title, detail.Title, detail.Ref)
+		plan.live = plan.live || request.Live()
+		plan.last = request.State
+	}
+	return asked
+}
+
+// unaskedPlans names, for the merge gate, each plan that a request of a planning work order names at the commit its branch
+// holds while no request for that plan at that commit is open or approved, with what became of its request: denied,
+// superseded, or closed another way. The merge waits only for what its requests say, and a plan whose every request at the
+// commit closed says nothing, so without this the branch would merge with a plan nobody approved. A plan the requests name
+// only at other commits is not on this commit's account.
+func unaskedPlans(requests []authority.Approval, commit string) []string {
+	asked := askedAt(requests, commit)
+	var out []string
+	for _, ref := range slices.Sorted(maps.Keys(asked)) {
+		plan := asked[ref]
+		if plan.live {
+			continue
+		}
+		became := string(plan.last)
+		if plan.last == authority.ApprovalVoid {
+			became = "voided"
+		}
+		out = append(out, fmt.Sprintf("plan %q (its request at %s was %s, and no request for it is open or approved)", plan.title, short(commit), became))
+	}
+	return out
 }
 
 // supersedePlanRequests closes the requests to approve a plan that name a work order that goes back for rework. Each was
@@ -176,4 +246,92 @@ func supersedePlanRequests(tx ports.WriteTx, workOrder string) error {
 		}
 	}
 	return nil
+}
+
+// sendBackBehindMain sends each planning branch that waits in integrating for the approval of an earlier version of a
+// plan back for rework on the same branch, when intake reads a new version of the plan from the repository: main changed
+// the plan. The branch's request names a version a member can no longer approve, because approving a plan approves the
+// one the ledger holds now, and the plan on the branch is behind main's, as a branch whose merge conflicts with main is.
+// So it goes back the way a conflict sends it (reworkConflict): it keeps its branch, the ended lane's worktree is taken
+// away, and the brief says why and asks the lane to merge main into the branch. The send-back closes the branch's
+// request, and the branch's next commit asks for the approval of main's version naming it, once a member accepts it.
+func sendBackBehindMain(tx ports.WriteTx, version planning.PlanVersion, title string) error {
+	rows, err := tx.Approvals().All()
+	if err != nil {
+		return err
+	}
+	sent := map[string]bool{}
+	for _, row := range rows {
+		if row.Kind != authority.KindPlan || !row.Open() || row.Plan != version.PlanID || row.PlanVersion >= version.Version || row.WorkOrder == "" || sent[row.WorkOrder] {
+			continue
+		}
+		order, err := tx.WorkOrders().Get(row.WorkOrder)
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if order.Kind != workorders.KindPlan || order.State != workorders.Integrating {
+			continue
+		}
+		f, err := readIntegration(readersOf(tx), order)
+		if err != nil {
+			return err
+		}
+		if f.commit() == "" || f.commit() != requestCommit(row) {
+			continue
+		}
+		sent[order.ID] = true
+		if err := reworkBehindMain(tx, f, version, title); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// denyPlan sends the planning branch a denied plan request names back for rework on the same branch, with the member's
+// reason in its brief, while its work waits in acceptance or integrating at the commit the request names. Nothing asks
+// again about a plan a member denied, so its branch would wait for an approval no request can give, and approving the
+// request of another plan the branch holds would accept it with the denied plan in it. It goes back the way a change of
+// the plan on main sends it (reworkBehindMain): it keeps its branch, the ended lane's worktree is taken away, and the
+// requests that name it close. A request that names no work order, or a commit the branch no longer holds, denies the
+// plan and nothing else.
+func denyPlan(tx ports.WriteTx, denied authority.Approval, member ledger.Actor) error {
+	if denied.WorkOrder == "" {
+		return nil
+	}
+	order, err := tx.WorkOrders().Get(denied.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil || order.Kind != workorders.KindPlan || (order.State != workorders.Acceptance && order.State != workorders.Integrating) {
+		return err
+	}
+	f, err := readIntegration(readersOf(tx), order)
+	if err != nil || f.commit() == "" || f.commit() != requestCommit(denied) {
+		return err
+	}
+	if err := keepBranch(tx, ledger.ForgeRequest{WorkOrder: order.ID, Branch: f.branch.URI, Commit: f.commit()}, member); err != nil {
+		return err
+	}
+	detail := planDetailOf(denied)
+	reason := fmt.Sprintf("a member declined the plan %q on %s at %s: %s. Revise the plan on this branch to meet that reason, and commit the change on this branch.",
+		cmp.Or(detail.Title, detail.Ref), f.branch.URI, short(f.commit()), cmp.Or(strings.TrimSpace(denied.Reason), "no reason given"))
+	_, err = reworkFor(tx, order.ID, workorders.ReworkNote{Reason: reason}, nil, member, func() {})
+	return err
+}
+
+// reworkBehindMain sends one waiting planning branch back for rework against the plan main holds now. The branch waits in
+// integrating for its approval, or in acceptance when it holds another plan whose request would otherwise accept it.
+func reworkBehindMain(tx ports.WriteTx, f integrationFacts, version planning.PlanVersion, title string) error {
+	if err := keepBranch(tx, ledger.ForgeRequest{WorkOrder: f.order.ID, Branch: f.branch.URI, Commit: f.commit()}, intakeActor); err != nil {
+		return err
+	}
+	reason := fmt.Sprintf("the plan %q changed on %s while this branch waited in %s for its approval: %s holds version %d of it now, "+
+		"and the plan on %s at %s is behind it, so approving it could no longer approve this branch's merge. "+
+		"Merge the current %s into this branch, bring the plan up to date with %s's, and commit the merge on this branch.",
+		title, f.base, f.order.State, f.base, version.Version, f.branch.URI, short(f.commit()), f.base, f.base)
+	_, err := reworkFor(tx, f.order.ID, workorders.ReworkNote{Reason: reason}, nil, intakeActor, func() {})
+	return err
 }

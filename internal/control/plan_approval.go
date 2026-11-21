@@ -81,9 +81,15 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 		return err
 	}
 	// A request that names a work order approves the merge of the commit it names, which is the commit the member read.
+	// One whose planning work still waits for acceptance at that commit accepts it first, as approving a branch nothing
+	// has read does: Needs you asks for this approval in place of that acceptance, such as for a second branch that
+	// proposed the version another branch's accepted commit recorded.
 	commit := ""
 	if approval.WorkOrder != "" {
 		commit = requestCommit(approval)
+		if err := acceptNamedPlan(tx, approval, member); err != nil {
+			return err
+		}
 	}
 	if err := approvePlanMerge(tx, version, approval, member, commit); err != nil {
 		return err
@@ -613,11 +619,73 @@ func acceptLanesPlan(tx ports.WriteTx, approval authority.Approval, member ledge
 	return accept(tx, order.ID, assessment, member, func() {})
 }
 
+// acceptNamedPlan accepts the `plan` work order a request for a version the ledger holds names, when it waits for
+// acceptance, as acceptLanesPlan does for a branch nothing has read. A request that names no such work order accepts
+// nothing.
+func acceptNamedPlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
+	order, err := tx.WorkOrders().Get(approval.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil || order.Kind != workorders.KindPlan || order.State != workorders.Acceptance {
+		return err
+	}
+	return acceptLanesPlan(tx, approval, member)
+}
+
 // PlanApprovalIsCurrent reports whether a request to approve a plan was raised for the commit a work order's
-// branch holds in its current attempt, which approving it needs to accept the work order.
+// branch holds in its current attempt, which approving it needs to accept the work order. The request names that commit
+// as the commit itself or as a file read at it, "path@commit", which requestCommit reads either way.
 func PlanApprovalIsCurrent(evidence ports.EvidenceReader, order workorders.WorkOrder, approval authority.Approval) (bool, error) {
 	commit, err := AttemptCommit(evidence, order)
-	return commit != "" && commit == planDetailOf(approval).Source, err
+	return commit != "" && commit == requestCommit(approval), err
+}
+
+// RequestBranch names the planning branch a plan request is about: the work order it names, the branch that work order
+// keeps or its current attempt left, and the commit the request was raised for. A request that names no work order, or
+// one the ledger does not hold, names none.
+func RequestBranch(orders ports.WorkOrderReader, evidence ports.EvidenceReader, approval authority.Approval) (*planning.PlanBranch, error) {
+	if approval.WorkOrder == "" {
+		return nil, nil
+	}
+	order, err := orders.Get(approval.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := evidence.Artifacts(order.ID)
+	if err != nil {
+		return nil, err
+	}
+	branch := order.Branch
+	if branch == "" {
+		branch = attemptBranch(artifacts, order.Fence).URI
+	}
+	return &planning.PlanBranch{WorkOrder: order.ID, Branch: branch, Commit: requestCommit(approval)}, nil
+}
+
+// FinishingBranch names the planning branch whose commit finishes the placeholder version a request holds back, while
+// that branch's work order waits for acceptance at that commit, which is when Needs you asks for its acceptance beside
+// the request. A request no branch finishes, and one whose branch was sent back, accepted, or moved on, names none.
+func FinishingBranch(orders ports.WorkOrderReader, evidence ports.EvidenceReader, approval authority.Approval) (*planning.PlanBranch, error) {
+	finishing := planDetailOf(approval).FinishedBy
+	if finishing == nil || len(planDetailOf(approval).Unfinished) == 0 {
+		return nil, nil
+	}
+	order, err := orders.Get(finishing.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil || order.Kind != workorders.KindPlan || order.State != workorders.Acceptance {
+		return nil, err
+	}
+	commit, err := AttemptCommit(evidence, order)
+	if err != nil || commit != finishing.Commit {
+		return nil, err
+	}
+	return finishing, nil
 }
 
 // AttemptCommit is the commit a work order's branch held when its current attempt last reported it: the one a
