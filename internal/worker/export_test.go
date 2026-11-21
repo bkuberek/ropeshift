@@ -36,6 +36,9 @@ const MaxBriefAttempts = maxBriefAttempts
 // AttachedWaits is how many waits in a row a terminal attached with no input keeps a planning lane.
 const AttachedWaits = attachedWaits
 
+// ConsultHoldMargin is how long before the ledger's hold on a question ends its consultation's session is stopped.
+const ConsultHoldMargin = consultHoldMargin
+
 // PublishSettle is how long a lane's moves settle before a running worker publishes them.
 const PublishSettle = publishSettle
 

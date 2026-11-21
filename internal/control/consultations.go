@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -19,10 +20,8 @@ import (
 // opConsult is the operation that begins a consultation.
 const opConsult = "question.consult"
 
-// consultHoldMs is how long a consultation holds its question. It outlasts the longest session a worker lets a
-// consultation run, so a consultation that ends lets the question go itself, and one whose worker went away leaves the
-// question held no longer than this (FR-ORCH-9).
-const consultHoldMs = 45 * 60 * 1000
+// consultHoldMs is how long a consultation holds its question (FR-ORCH-9), in the milliseconds the ledger's clock counts.
+const consultHoldMs = int64(ledger.ConsultHold / time.Millisecond)
 
 // consult begins a consultation of a question this worker's orchestrator could not settle (FR-ORCH-9). The ledger
 // chooses the agent, a read-only one of a class above the orchestrator's, sets the budget from `consultation_limit` and

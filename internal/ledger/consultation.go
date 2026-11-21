@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/roster"
 )
@@ -40,6 +41,11 @@ func ConsultationHolder(id string) string { return "consultation:" + id }
 
 // ConsultationCitation is how a decision cites a consultation, which the consultation's event explains.
 func ConsultationCitation(id string) string { return "consultation:" + id }
+
+// ConsultHold is how long a consultation holds its question. It outlasts the longest session a worker lets a
+// consultation run, so a consultation that ends lets the question go itself, and one whose worker went away leaves the
+// question held no longer than this (FR-ORCH-9).
+const ConsultHold = 45 * time.Minute
 
 // The bounds of what a consultation reports, so its wake stays a wake.
 const (

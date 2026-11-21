@@ -31,6 +31,9 @@ const (
 	// defaultConsultDeadline is the longest a consultation's session runs, unless the runtime says otherwise. It ends well
 	// inside the ledger's hold on the question.
 	defaultConsultDeadline = 20 * time.Minute
+	// consultHoldMargin is how long before the ledger's hold on the question ends a consultation's session is stopped, so
+	// its end reaches the ledger while the consultation still holds the question.
+	consultHoldMargin = 2 * time.Minute
 	// consultStopTries is how many times a consultation's session is asked to stop while each stop reads no end of it.
 	consultStopTries = 3
 	// consultStopGrace is how long a stopped consultation's session has to end before the worker stops reading it.
@@ -139,6 +142,9 @@ func (rt *LaneRuntime) consultDeadline() time.Duration {
 // errNoConsultation is a consultation this worker cannot run now.
 var errNoConsultation = errors.New("no consultation")
 
+// errConsultHoldEnded is why a consultation's session was stopped when the ledger's hold on its question was about to end.
+var errConsultHoldEnded = errors.New("the hold on the question is about to end")
+
 // lifeOr is the context a session outlives the call that started it under: the worker's own, once it started, and
 // otherwise the call's with its deadline taken off, because the call ends long before the session.
 func (w *Worker) lifeOr(ctx context.Context) context.Context {
@@ -153,7 +159,11 @@ func (w *Worker) lifeOr(ctx context.Context) context.Context {
 // runConsultation runs a consultation's session and records how it ended, in the journal and then the ledger, so an end
 // that a failed upload left is sent again with the next.
 func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
-	end := w.consultSession(ctx, run)
+	// The session, from its preparation to its stop, never outlasts the ledger's hold on the question, or the question
+	// could be decided on while the session still reads it.
+	bounded, release := context.WithDeadlineCause(ctx, time.UnixMilli(run.grant.HoldUntil).Add(-consultHoldMargin), errConsultHoldEnded)
+	end := w.consultSession(bounded, run)
+	release()
 	end.ID, end.Question, end.Agent, end.Class, end.Approval = run.grant.ID, run.grant.Question, run.grant.Agent.Name, run.grant.Agent.Class, run.grant.Agent.Approval
 	if err := end.Check(); err != nil {
 		end = ledger.ConsultationEnd{
@@ -171,9 +181,9 @@ func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 		w.config.Report(fmt.Errorf("consultation %s: its end stayed unrecorded: %w", run.grant.ID, err))
 		return
 	}
-	bounded, cancel := context.WithTimeout(persist, consultUploadDeadline)
+	uploading, cancel := context.WithTimeout(persist, consultUploadDeadline)
 	defer cancel()
-	if err := w.Upload(bounded); err != nil {
+	if err := w.Upload(uploading); err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: %w", run.grant.ID, err))
 	}
 }
@@ -186,6 +196,9 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 	rt := w.config.Lanes
 	failed := func(format string, args ...any) ledger.ConsultationEnd {
 		return ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: fmt.Sprintf(format, args...)}
+	}
+	if heldOut(ctx) {
+		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin)
 	}
 	dir := filepath.Join(rt.StateDir, "consultations", run.grant.ID)
 	private, config := filepath.Join(dir, "session"), filepath.Join(dir, "config")
@@ -311,27 +324,28 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 	defer deadline.Stop()
 	var grace <-chan time.Time
 	done := ctx.Done()
-	atCap, timedOut := false, false
+	why := consultStop{limit: limit}
 	budget := run.grant.BudgetUSD
 	for {
 		select {
 		case <-deadline.C:
-			timedOut = true
+			why.timedOut = true
 			stop(ports.StopNow)
 			grace = time.After(consultStopGrace)
 			continue
 		case <-done:
 			done = nil
+			why.heldOut = heldOut(ctx)
 			stop(ports.StopNow)
 			if grace == nil {
 				grace = time.After(consultStopGrace)
 			}
 			continue
 		case <-grace:
-			return consultationEnded(run, end, atCap, timedOut, limit)
+			return consultationEnded(run, end, why)
 		case event, open := <-events:
 			if !open {
-				return consultationEnded(run, end, atCap, timedOut, limit)
+				return consultationEnded(run, end, why)
 			}
 			switch event.Kind {
 			case ports.EventSessionBound:
@@ -346,26 +360,38 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 				}
 				stop(ports.StopAtRest)
 			}
-			if budget > 0 && end.CostUSD >= budget && !atCap {
-				atCap = true
+			if budget > 0 && end.CostUSD >= budget && !why.atCap {
+				why.atCap = true
 				stop(ports.StopInterrupt)
 			}
 		}
 	}
 }
 
+// consultStop is why a consultation's session was stopped when its own end did not come first: it reached its budget, it
+// outlasted its deadline of limit, or the ledger's hold on its question was about to end.
+type consultStop struct {
+	atCap, timedOut, heldOut bool
+	limit                    time.Duration
+}
+
+// heldOut says the ledger's hold on a consultation's question is about to end, which is what bounds its session's context.
+func heldOut(ctx context.Context) bool { return errors.Is(context.Cause(ctx), errConsultHoldEnded) }
+
 // consultationEnded says how a consultation ended: with its agent's report when it gave one, and otherwise at its budget,
-// at its deadline, or with no report.
-func consultationEnded(run *consultation, end ledger.ConsultationEnd, atCap, timedOut bool, limit time.Duration) ledger.ConsultationEnd {
+// at its deadline, where the ledger's hold on its question was about to end, or with no report.
+func consultationEnded(run *consultation, end ledger.ConsultationEnd, why consultStop) ledger.ConsultationEnd {
 	if report := run.reported(); report != nil {
 		end.Outcome, end.ConsultationReport = ledger.ConsultationReported, *report
 		return end
 	}
 	switch {
-	case atCap:
+	case why.atCap:
 		end.Outcome, end.Detail = ledger.ConsultationAtCap, fmt.Sprintf("It reached its budget of $%.2f before it reported.", run.grant.BudgetUSD)
-	case timedOut:
-		end.Outcome, end.Detail = ledger.ConsultationUnreported, fmt.Sprintf("It ran %s and reported nothing.", limit)
+	case why.timedOut:
+		end.Outcome, end.Detail = ledger.ConsultationUnreported, fmt.Sprintf("It ran %s and reported nothing.", why.limit)
+	case why.heldOut:
+		end.Outcome, end.Detail = ledger.ConsultationUnreported, "It was stopped where the hold on its question was about to end, and reported nothing."
 	default:
 		end.Outcome, end.Detail = ledger.ConsultationUnreported, "Its session ended with no report."
 	}
