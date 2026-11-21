@@ -28,6 +28,7 @@ func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/decisions", h.member(h.recordDecision))
 	mux.HandleFunc("GET /v1/decisions/{id}", h.showDecision)
 	mux.HandleFunc("POST /v1/decisions/{id}/overturn", h.member(h.overturnDecision))
+	mux.HandleFunc("POST /v1/decisions/{id}/keep", h.member(h.keepDecision))
 	mux.HandleFunc("GET /v1/policies", h.listPolicies)
 	mux.HandleFunc("POST /v1/policies", h.member(h.publishPolicy))
 	mux.HandleFunc("GET /v1/policies/{version}", h.showPolicy)
@@ -336,6 +337,17 @@ func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request, actor l
 		Scope: in.Scope, Reversibility: in.Reversibility, Categories: in.Categories, Supersedes: in.Supersedes,
 		QuestionID: in.QuestionID, NoConflict: in.NoConflict,
 	}, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, record)
+}
+
+// keepDecision records a decision in force again as the member's, in its place, which takes no body: the decision to
+// keep is the one the path names.
+func (h *handler) keepDecision(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	record, err := h.questions.Keep(r.Context(), h.Scope, r.PathValue("id"), actor)
 	if err != nil {
 		fail(w, err)
 		return

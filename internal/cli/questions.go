@@ -574,6 +574,26 @@ func (c *invocation) decisionOverturn(args []string) int {
 	})
 }
 
+// decisionKeep records a decision in force again as the member's, in its place, so a member keeps a one-way decision an
+// orchestrator made without wording it again.
+func (c *invocation) decisionKeep(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one decision ID")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	row, err := client.KeepDecision(c.ctx, positional[0])
+	return c.finish(err, row, func() string { return decisionLine(api.DecisionView{Decision: row}) })
+}
+
 func policyLine(p authority.PolicyVersion) string {
 	return fmt.Sprintf("%d\t%s\t%s\n", p.Version, p.AuthoredBy, p.Digest)
 }

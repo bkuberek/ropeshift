@@ -227,6 +227,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/batches/{id}/answers":                     fixed(authority.OpQuestionAnswerBatch),
 	"POST /v1/decisions":                                resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(decisionID),
 	"POST /v1/decisions/{id}/overturn":                  fixed(authority.OpDecisionOverturn).about(subjectDecision).checked(decisionID),
+	"POST /v1/decisions/{id}/keep":                      fixed(authority.OpDecisionKeep).about(subjectDecision),
 	"POST /v1/policies":                                 resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish, authority.OpInstallationSpendPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                               fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
 	"POST /v1/repositories":                             resolved(repositoryAddOperation, authority.OpRepositoryRegister, authority.OpRepositoryRegisterManifest),

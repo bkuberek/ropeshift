@@ -126,6 +126,7 @@ const (
 	OpDecisionAssume                      = "decision.assume"
 	OpDecisionRecord                      = "decision.record"
 	OpDecisionOverturn                    = "decision.overturn"
+	OpDecisionKeep                        = "decision.keep"
 	OpPolicyPublish                       = "policy.publish"
 	OpDelegatePolicyPublish               = "delegate_policy.publish"
 	OpCategoryAdd                         = "category.add"
@@ -334,6 +335,10 @@ var operations = append(onInstallation(
 	consent(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),
 	oneWay(consent(OpDecisionRecord, "Record a decision", ActionRecordDecision, ActionDecideUnbound)),
 	consent(OpDecisionOverturn, "Overturn a decision", ActionOverturn),
+	// Keeping a decision records it as the member's own, in its place, which is how a member takes on a one-way choice an
+	// orchestrator made (FR-QD-8). It is the member's word that the decision stands, so a delegate's call, the assistant's
+	// included, is refused, and no card stands in for it.
+	memberOnly(OpDecisionKeep, "Keep a decision as the member's own", ActionDecideUnbound),
 	never(OpPolicyPublish, "Publish a policy", neverPolicy, ActionPublishPolicy),
 	// A work order's hard limit stops spending more than twice what its estimate expects, so raising it, and
 	// resuming a lane the limit parked, are a person's word whoever asks (ADR-0037, FR-SPEND-8): an orchestrator

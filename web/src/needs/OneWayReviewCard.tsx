@@ -1,5 +1,6 @@
 import { keepDecision } from "../api/client";
 import type { OneWayReviewAction, OneWayReviewNeed } from "../api/types";
+import { usePageActions } from "../app/pageActions";
 import { plainLine } from "../planning/creation";
 import { OverturnDecisionButton } from "../planning/OverturnDecision";
 import { Button } from "../ui/controls";
@@ -27,9 +28,15 @@ export function OneWayReviewCard({ need, after, frame, onResolved }: Props) {
   const decider = deciderOf(need);
   const keep = () =>
     void act(async () => {
-      await keepDecision(decision);
+      await keepDecision(decision.id);
       onResolved?.("you kept it as your decision");
     });
+  // The command palette lists Keep while the review offers it, and presses it as the button does.
+  usePageActions(
+    offers("decision_keep")
+      ? [{ key: `action:keep:${decision.id}`, group: "Actions", id: decision.id, title: `Keep decision: ${decision.statement}`, icon: "decision", keywords: "review one-way accept", run: keep }]
+      : [],
+  );
   return (
     <DecisionCard
       kind={oneWayReviewKind}

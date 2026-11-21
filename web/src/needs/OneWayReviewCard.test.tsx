@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { NeedItem, NeedsYou as View } from "../api/types";
 import { CurrentProject } from "../app/route";
 import { needsYouItems } from "../browserApp";
-import { here, serveApi, testProject } from "../testing";
+import { openPage } from "../opening";
+import { here, serveApi, serveViews, testProject } from "../testing";
 import { cardKindOf, cardKinds, contextOf, filterOf, headingOf, keyOf, kindOf } from "./kinds";
 import { NeedsYou } from "./NeedsYou";
 
@@ -54,25 +55,15 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     expect(within(card).getByRole("button", { name: "Overturn d-repositories" })).toBeTruthy();
   });
 
-  it("keeps the decision by recording the same decision as the member's in its place", async () => {
-    const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { ...review().one_way_review.decision, id: "kept-d-repositories" } } : { status: 200, body: {} }));
+  it("keeps the decision by naming it to the Keep route, which records the same decision as the member's in its place", async () => {
+    const sent = serveApi((call) => (call.method === "POST" ? { status: 201, body: { ...review().one_way_review.decision, id: "kept-d-repositories" } } : { status: 200, body: {} }));
     const later = vi.fn(async () => {});
     show(review(), later);
     await userEvent.click(within(theCard()).getByRole("button", { name: "Keep" }));
     await waitFor(() => expect(later).toHaveBeenCalled());
     const posted = sent.filter((call) => call.method === "POST");
-    expect(posted.map((call) => call.path)).toEqual(["/v1/decisions"]);
-    expect(posted[0]?.body).toEqual({
-      id: "kept-d-repositories",
-      status: "decided",
-      statement: "Keep one repository per service.",
-      rationale: "The plan fixes one repository per service, and the lane recommends it.",
-      citations: ["wo:wo-running", "requirement:FAC-2"],
-      scope: "wo:wo-running",
-      reversibility: "one_way",
-      categories: ["architecture"],
-      supersedes: "d-repositories",
-    });
+    expect(posted.map((call) => call.path)).toEqual(["/v1/decisions/d-repositories/keep"]);
+    expect(posted[0]?.body).toEqual({});
   });
 
   it("keeps a decision of another project in that project", async () => {
@@ -82,7 +73,7 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     await userEvent.click(within(theCard()).getByRole("button", { name: "Keep" }));
     await waitFor(() => expect(later).toHaveBeenCalled());
     const posted = sent.filter((call) => call.method === "POST");
-    expect(posted.map((call) => [call.project, call.path])).toEqual([["harbor", "/v1/decisions"]]);
+    expect(posted.map((call) => [call.project, call.path])).toEqual([["harbor", "/v1/decisions/d-repositories/keep"]]);
   });
 
   it("overturns the decision from the dialog Decisions uses", async () => {
@@ -94,5 +85,25 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     await userEvent.type(within(dialog).getByLabelText(/New statement/), "One repository.");
     await userEvent.click(within(dialog).getByRole("button", { name: "Overturn decision" }));
     await waitFor(() => expect(sent.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/v1/decisions/d-repositories/overturn"]));
+  });
+});
+
+describe("the palette", () => {
+  it("offers Keep decision for the review, and presses Keep as the button does", async () => {
+    const item = review();
+    const sent = serveViews((call) => {
+      if (call.path === "/v1/needs-you") {
+        return { status: 200, body: { as_of: 1790000700000, revision: 1, items: [item] } };
+      }
+      return call.method === "POST" ? { status: 201, body: { ...item.one_way_review.decision, id: "kept-d-repositories" } } : undefined;
+    });
+    openPage(`/needs-you?item=${encodeURIComponent(keyOf(item))}`);
+    await screen.findByRole("heading", { level: 1, name: "Needs you" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.type(within(palette).getByRole("combobox"), "keep decision");
+    expect(within(palette).getAllByRole("option").map((option) => option.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("Keep decision: Keep one repository per service.")]));
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(sent.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/v1/decisions/d-repositories/keep"]));
   });
 });

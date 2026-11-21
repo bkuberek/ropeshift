@@ -1076,6 +1076,39 @@ func TestDecisionOverturn(t *testing.T) {
 	}
 }
 
+// TestDecisionKeep holds that a member keeps a decision in force as their own by its ID alone: the same decision is
+// recorded in its place and the old one reads as replaced, a second Keep finds the first, a decision nobody recorded is
+// not found, and one that ended cannot be kept.
+func TestDecisionKeep(t *testing.T) {
+	s := newSession(t)
+	s.daemon.HoldRepository(t, "checkout")
+	s.must("decision", "record", "--id", "d1", "--statement", "One repository per service.", "--rationale", "The plan fixes it.",
+		"--scope", "repo:checkout", "--category", "architecture", "--citation", "PAY-12", "--reversibility", "one_way")
+	kept := s.must("decision", "keep", "d1", "--json")
+	for _, want := range []string{`"id":"kept-d1"`, `"supersedes":"d1"`, `"statement":"One repository per service."`, `"reversibility":"one_way"`, `"citations":["PAY-12"]`} {
+		if !strings.Contains(kept, want) {
+			t.Errorf("decision keep printed %q, which lacks %s", kept, want)
+		}
+	}
+	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "replaced") {
+		t.Errorf("the kept decision reads %q, want replaced", text)
+	}
+	if text := s.must("decision", "keep", "d1"); !strings.HasPrefix(text, "kept-d1\tdecided\t") {
+		t.Errorf("a second keep printed %q, want the first", text)
+	}
+	if code, _, _ := s.run("decision", "keep", "no-such-decision"); code != cli.ExitNotFound {
+		t.Errorf("exit %d for a decision nobody recorded", code)
+	}
+	if code, _, _ := s.run("decision", "keep"); code != cli.ExitUsage {
+		t.Errorf("exit %d with no decision", code)
+	}
+	s.must("decision", "record", "--id", "d2", "--statement", "Retries log at info.", "--scope", "repo:checkout", "--no-conflict", "kept-d1")
+	s.must("decision", "overturn", "d2", "--id", "d3", "--statement", "Retries log at warn.")
+	if code, _, _ := s.run("decision", "keep", "d2"); code != cli.ExitConflict {
+		t.Errorf("exit %d for a decision that was overturned", code)
+	}
+}
+
 // TestAQuestionNamesWhatItsAnswerBinds holds that list, show, and batches name the scope an answer to a question
 // takes, with the title of the record it names, and that a question about nothing names none.
 func TestAQuestionNamesWhatItsAnswerBinds(t *testing.T) {

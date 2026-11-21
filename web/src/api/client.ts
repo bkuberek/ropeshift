@@ -73,6 +73,7 @@ export const paths = {
   decideNow: (id: string) => project(`/questions/${encodeURIComponent(id)}/decide-now`),
   decisions: () => project("/decisions"),
   overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
+  keep: (id: string) => project(`/decisions/${encodeURIComponent(id)}/keep`),
   candidates: (text: string, limit: number) => project(`/candidates?${new URLSearchParams({ text, kinds: candidateKinds.join(","), limit: String(limit) })}`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   retryRepository: (approval: string, name: string) => project(`/approvals/${encodeURIComponent(approval)}/repositories/${encodeURIComponent(name)}/retry`),
@@ -381,36 +382,13 @@ export function recordDecision(request: RecordDecision): Promise<RecordedDecisio
   return call("POST", paths.decisions(), request);
 }
 
-// keptIDOf names the decision a member's Keep records in place of another, so a second press finds the first. An ID
-// whose name would not fit gives a digest of it instead, under a prefix the plain form never makes.
-export async function keptIDOf(decision: string): Promise<string> {
-  const named = `kept-${decision}`;
-  if (plainID.test(named)) {
-    return named;
-  }
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(decision));
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `kept_${hex.slice(0, 40)}`;
-}
-
-// keepDecision records a decision again as the member's, in its place and with nothing else changed, as
-// `ropeshift decision record --supersedes` does. A decision that replaces one with the same content binds nothing anew,
-// so the work it reaches stands as it was. It is how a member keeps a one-way decision an orchestrator made (FR-QD-8).
-// The path is built before the ID is, because inProjectOf names an item's project only until the first await.
-export async function keepDecision(decision: RecordedDecision): Promise<RecordedDecision> {
-  const path = paths.decisions();
-  const request: RecordDecision = {
-    id: await keptIDOf(decision.id),
-    status: decision.status === "assumed" ? "assumed" : "decided",
-    statement: decision.statement,
-    ...(decision.rationale ? { rationale: decision.rationale } : {}),
-    ...(decision.citations?.length ? { citations: decision.citations } : {}),
-    ...(decision.scope ? { scope: decision.scope } : {}),
-    ...(decision.reversibility ? { reversibility: decision.reversibility } : {}),
-    ...(decision.categories?.length ? { categories: decision.categories } : {}),
-    supersedes: decision.id,
-  };
-  return call<RecordedDecision>("POST", path, request);
+// keepDecision keeps a decision in force as the member's own, in its place and with nothing else changed, as
+// `ropeshift decision keep` does: the member names the decision, and the server records the same decision as theirs under
+// an ID it derives from the old one's, so a second press finds the first. A decision that replaces one with the same
+// content binds nothing anew, so the work it reaches stands as it was. It is how a member keeps a one-way decision an
+// orchestrator made (FR-QD-8).
+export function keepDecision(id: string): Promise<RecordedDecision> {
+  return call<RecordedDecision>("POST", paths.keep(id), {});
 }
 
 // overturnDecision reverses a decision with what takes its place, as `ropeshift decision overturn` does. It
