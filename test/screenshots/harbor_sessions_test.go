@@ -131,10 +131,12 @@ func shared(mark string, first, second []step) []step {
 	}
 }
 
-// ask asks the person one blocking product question, with the options to choose from.
+// ask asks the person one blocking product question, with the options to choose from. It recommends the first, as the
+// ask tool sends back a question with no recommendation.
 func ask(text string, options ...string) step {
 	return step{"mcp": "ask", "arguments": map[string]any{
 		"text": text, "categories": []string{"product"}, "blocking": true, "options": options,
+		"recommendation": options[0], "recommendation_rationale": "It is the answer the work can go on with.",
 	}}
 }
 

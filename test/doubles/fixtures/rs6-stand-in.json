@@ -10,7 +10,7 @@
     ],
     [
       {"init": true},
-      {"mcp": "ask", "arguments": {"text": "what should this lane do next", "blocking": true}},
+      {"mcp": "ask", "arguments": {"text": "what should this lane do next", "blocking": true, "recommendation": "Go on", "recommendation_rationale": "The lane can go on with what it has."}},
       {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
     ],
     [

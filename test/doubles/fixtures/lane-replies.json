@@ -6,7 +6,7 @@
     [
       {"init": true},
       {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
-      {"mcp": "ask", "arguments": {"text": "When may this lane go on?", "blocking": true}},
+      {"mcp": "ask", "arguments": {"text": "When may this lane go on?", "blocking": true, "recommendation": "Go on", "recommendation_rationale": "The lane can go on with what it has."}},
       {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
     ],
     [
