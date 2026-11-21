@@ -89,6 +89,14 @@ type LaneGuard struct {
 	Ref          string `json:"ref,omitempty"`
 	Commit       string `json:"commit,omitempty"`
 	Detail       string `json:"detail,omitempty"`
+	// LeftOut names each changed or untracked path the lane's session did not make, which the guard left out of
+	// every snapshot of the lane's work and the lane did not commit, and LeftOutMore counts those past the ones
+	// named (FR-LANE-20). LeftRef is the ref on the worker's machine that keeps their files, which is never
+	// pushed. Unasked names the paths the control plane could not make a question of.
+	LeftOut     []string `json:"left_out,omitempty"`
+	LeftOutMore int64    `json:"left_out_more,omitempty"`
+	LeftRef     string   `json:"left_ref,omitempty"`
+	Unasked     []string `json:"unasked,omitempty"`
 }
 
 // StateEnded is a lane's last state, which the ledger records for itself.

@@ -90,6 +90,9 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 		return lanes.UnreadGuard(err)
 	}
 	crashpoint.Hit("worker.guard", "surveyed")
+	files := w.laneFiles(ctx, record)
+	own, left := w.ownChanges(files, found)
+	found = owned(found, own, left)
 	rules := lanes.GuardRules{Fenced: fenced, Push: w.pushesOnStop(ctx) || pushesUnasked()}
 	acts := lanes.GuardActs{Plan: lanes.PlanGuard(found, rules), Fenced: fenced}
 	failed := func(step string, err error) {
@@ -105,13 +108,14 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 	}
 	crashpoint.Hit("worker.guard", "pushed")
 	if acts.Plan.Snapshot {
-		commit, err := worktrees.Snapshot(ctx, record.Worktree, ref)
+		commit, err := w.snapshot(ctx, record.Worktree, ref, own, left)
 		if err != nil {
 			failed("taking a snapshot", err)
 		} else {
 			acts.Ref, acts.Commit = ref, commit
 		}
 	}
+	leftRef, leftSaved := w.saveLeft(ctx, record, left, failed)
 	crashpoint.Hit("worker.guard", "snapshotted")
 	if acts.Plan.PushSnapshot && acts.Ref != "" {
 		if err := worktrees.Push(ctx, record.Worktree, found.Remote, ref); err != nil {
@@ -125,10 +129,46 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 	if err != nil {
 		failed("reading the worktree again", err)
 		result := lanes.SettleGuard(found, acts)
-		result.Unpushed = true
+		result.Unpushed, result.LeftRef = true, leftRef
+		result.Left, result.LeftMore = leftOut(own, left, found)
 		return result
 	}
-	return lanes.SettleGuard(after, acts)
+	ownAfter, leftAfter := w.ownChanges(files, after)
+	result := lanes.SettleGuard(owned(after, ownAfter, leftAfter), acts)
+	result.Left, result.LeftMore = leftOut(ownAfter, leftAfter, after)
+	result.LeftRef = leftRef
+	// Files left out that no ref holds would be lost with the worktree, so it stays.
+	result.Unpushed = result.Unpushed || len(leftAfter) != 0 && !leftSaved
+	return result
+}
+
+// saveLeft keeps the files a generation left out on a ref of this machine that nothing pushes, before anything can
+// remove the worktree, so a wrong reading can be undone and a path decided part of the project still has its file.
+// It says whether the files are kept, which nothing left out counts as.
+func (w *Worker) saveLeft(ctx context.Context, record lanes.Record, left []string, failed func(string, error)) (string, bool) {
+	if len(left) == 0 {
+		return "", true
+	}
+	scoped, offered := w.config.Lanes.Provisioner.Worktrees.(ports.PathSnapshots)
+	if !offered {
+		return "", false
+	}
+	ref := lanes.LeftRef(record.ID, record.Generation)
+	if _, err := scoped.SnapshotPaths(ctx, record.Worktree, ref, left); err != nil {
+		failed("keeping the files left out", err)
+		return "", false
+	}
+	return ref, true
+}
+
+// snapshot saves the lane's own changes under ref: the whole worktree when nothing is left out, which is the
+// snapshot a store with no named paths takes too, and only the named paths when something is.
+func (w *Worker) snapshot(ctx context.Context, worktree, ref string, own, left []string) (string, error) {
+	worktrees := w.config.Lanes.Provisioner.Worktrees
+	if scoped, offered := worktrees.(ports.PathSnapshots); offered && len(left) != 0 {
+		return scoped.SnapshotPaths(ctx, worktree, ref, own)
+	}
+	return worktrees.Snapshot(ctx, worktree, ref)
 }
 
 // pushesOnStop reads the user's choice to send a lane's work to its remote (push_on_stop). Only
@@ -179,6 +219,8 @@ func (w *Worker) guardPass(ctx context.Context, record lanes.Record, fenced bool
 // guardBeforeStop reads the worktree while the session still runs, as the design orders, so
 // a stop that goes badly has already saved what was there.
 func (r *laneRun) guardBeforeStop(ctx context.Context) {
+	// The guard reads the lane's writes from the journal, so the digest so far is kept first.
+	r.saveDigest(ctx)
 	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
@@ -269,13 +311,14 @@ func (w *Worker) baseOf(ctx context.Context, record lanes.Record) string {
 	return ""
 }
 
-// reportGuard journals what the ledger should know. A clean stop says nothing.
+// reportGuard journals what the ledger should know. A clean stop that left nothing out says nothing.
 func (w *Worker) reportGuard(ctx context.Context, record lanes.Record, result lanes.GuardResult) error {
-	if !result.Unpushed && result.Ref == "" {
+	if !result.Unpushed && result.Ref == "" && len(result.Left) == 0 {
 		return nil
 	}
 	payload, err := json.Marshal(ledger.LaneGuard{
 		UnpushedWork: result.Unpushed, Ref: result.Ref, Commit: result.Commit, Detail: result.Detail,
+		LeftOut: result.Left, LeftOutMore: result.LeftMore, LeftRef: result.LeftRef,
 	})
 	if err != nil {
 		return err

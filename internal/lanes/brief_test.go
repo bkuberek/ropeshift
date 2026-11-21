@@ -413,3 +413,20 @@ func TestAPlanningBriefPlansEachRepositorysIgnoredFiles(t *testing.T) {
 		t.Error("a change's brief plans ignored files")
 	}
 }
+
+// FR-LANE-20: a lane that commits is told to commit only what it created or edited, and to leave the rest to the
+// report, and a review lane, which commits nothing, is told nothing of it.
+func TestABriefTellsALaneToCommitOnlyItsOwnFiles(t *testing.T) {
+	for _, kind := range []workorders.Kind{workorders.KindChange, workorders.KindPlan} {
+		brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Change it", Kind: kind})
+		for _, want := range []string{"Commit only the files you created or edited", "git add -A", "the orchestrator decides"} {
+			if !strings.Contains(brief, want) {
+				t.Errorf("a %s brief leaves out %q", kind, want)
+			}
+		}
+	}
+	review := Brief(BriefSpec{WorkOrder: "rv-1", Title: "Review", Kind: workorders.KindReview, Attempt: reviewedAttempt()})
+	if strings.Contains(review, "Commit only the files") {
+		t.Error("a review lane is told how to commit")
+	}
+}

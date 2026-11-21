@@ -202,6 +202,15 @@ type BranchTrees interface {
 	CheckedOut(ctx context.Context, repository, branch string) (string, error)
 }
 
+// PathSnapshots is what a worktrees store offers to save only a lane's own files (FR-LANE-20). A worker whose store
+// does not offer it snapshots the whole worktree and leaves nothing out.
+type PathSnapshots interface {
+	// SnapshotPaths is Snapshot of only the named paths: the commit holds HEAD with each named path as the worktree
+	// has it, a path that ends in `/` naming a folder whole and a path that is gone recorded as removed. Paths are
+	// relative to the worktree and read literally, and no path leaves HEAD's tree as it is.
+	SnapshotPaths(ctx context.Context, path, ref string, paths []string) (string, error)
+}
+
 // ChangeSizes is what a worktrees store offers to measure a lane's change (FR-OBS-13). A worker whose store
 // does not offer it records no change size.
 type ChangeSizes interface {

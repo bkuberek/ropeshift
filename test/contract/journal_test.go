@@ -956,7 +956,7 @@ func TestJournalKeepsAGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := journal.Lane(ctx, "lane")
-	if err != nil || got.Guard != want || got.State != lanes.StateArchived {
+	if err != nil || !reflect.DeepEqual(got.Guard, want) || got.State != lanes.StateArchived {
 		t.Errorf("lane %+v: %v", got, err)
 	}
 }

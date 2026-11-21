@@ -136,6 +136,9 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return refused(lanes.CodeUnavailable, err.Error())
 		}
+		if run := w.runOf(lane.ID); run != nil && run.currentGeneration() == event.Generation {
+			run.readStart(ctx, event)
+		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
 		w.recordWaitDenied(ctx, lane, event)
@@ -184,6 +187,7 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 	if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation {
 		run.observeHook(ctx, event)
+		run.heardCall(ctx, event)
 		run.foldHook(ctx, event)
 		if event.Event == lanes.EventInstructionsLoaded {
 			run.noteInstruction(ctx, event)
@@ -366,7 +370,7 @@ func (w *Worker) DrainSpool(ctx context.Context) error {
 // ends the token its line needs.
 //
 // spoolLock is the outermost lock. Its callers are a run's goroutine between two stream events, a socket
-// handler, and the worker's pass, and none holds another lock here. A drain writes the journal, holds a run's or
+// handler, the survey of a lane's start once it comes back, and the worker's pass, and none holds another lock here. A drain writes the journal, holds a run's or
 // the worker's mutex briefly, and starts goroutines it does not wait for, so it waits on nothing its callers
 // hold. It delivers hooks, which a driver turns into stream events for the run's goroutine to read once the
 // drain has returned, so it never asks for the lock it holds.
@@ -401,6 +405,9 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		event = w.ofItsGeneration(ctx, event)
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return err
+		}
+		if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation && event.Event == lanes.EventUserPromptSubmit {
+			run.leaveUnread(ctx)
 		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)

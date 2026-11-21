@@ -445,13 +445,14 @@ func (w *Worker) Unfinished() []string {
 }
 
 // The kinds of work goTracked counts: a call on the worker socket, an upload sent ahead of the next
-// heartbeat, and a question tool's question carried to the control plane.
+// heartbeat, a question tool's question carried to the control plane, and the survey of a lane's start.
 const (
 	trackedSocketCall = "socket call"
 	trackedUpload     = "upload"
 	trackedConversion = "question conversion"
 	// trackedSettingsHold is the hold of a lane whose session's reload of its own settings was blocked.
 	trackedSettingsHold = "settings hold"
+	trackedReading      = "start reading"
 )
 
 // goTracked runs work that outlasts the call that started it, and writes the journal or reaches the

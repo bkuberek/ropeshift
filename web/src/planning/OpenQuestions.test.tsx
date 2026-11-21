@@ -93,7 +93,7 @@ describe("the category filter", () => {
     openPage("/questions");
     const links = within(await filters()).getAllByRole("link");
     expect(links.map((link) => link.textContent)).toEqual([
-      "All", "Architecture", "Business", "Compliance", "Data", "Design", "Operations", "Product", "Security",
+      "All", "Architecture", "Business", "Compliance", "Data", "Design", "Files", "Operations", "Product", "Security",
     ]);
   });
 

@@ -63,9 +63,9 @@ describe("recording a question", () => {
     openPage("/questions");
     await userEvent.click(await pageButton());
     const group = within(await dialog()).getByRole("group", { name: "Categories" });
-    await waitFor(() => expect(within(group).getAllByRole("checkbox").length).toBe(8));
+    await waitFor(() => expect(within(group).getAllByRole("checkbox").length).toBe(9));
     expect(within(group).getAllByRole("checkbox").map((box) => (box as HTMLInputElement).labels?.[0]?.textContent)).toEqual([
-      "Architecture", "Business", "Compliance", "Data", "Design", "Operations", "Product", "Security",
+      "Architecture", "Business", "Compliance", "Data", "Design", "Files", "Operations", "Product", "Security",
     ]);
   });
 
