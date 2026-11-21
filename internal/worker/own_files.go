@@ -18,8 +18,15 @@ const maxLeftOut = 100
 // digest that has seen no turn and no call takes it, and only from a prompt that reaches the worker live. A reading
 // that fails, or one too late to take, leaves the lane unread for good, so it owns every change and nothing it made
 // can read as there before.
+//
+// A first turn whose hooks missed their acks waits in the spool, and reads as no turn until the spool is taken, so
+// the spool is taken before a prompt that could take the reading is read.
 func (r *laneRun) readStart(ctx context.Context, event lanes.HookEvent) {
-	if event.Event != lanes.EventUserPromptSubmit || r.currentGeneration() != firstGeneration || !r.readable(ctx) {
+	if event.Event != lanes.EventUserPromptSubmit || r.currentGeneration() != firstGeneration || r.startSettled(ctx) {
+		return
+	}
+	r.w.drainBeforeActing(ctx)
+	if !r.readable(ctx) {
 		return
 	}
 	worktree := r.worktreePath()
@@ -39,6 +46,14 @@ func (r *laneRun) readStart(ctx context.Context, event lanes.HookEvent) {
 		builder.Begin(found.DirtyPaths)
 		r.keepDigest(ctx, builder, false)
 	}
+}
+
+// startSettled says the reading was kept or given up on, or that this run has no digest to keep one in.
+func (r *laneRun) startSettled(ctx context.Context) bool {
+	r.digestLock.Lock()
+	defer r.digestLock.Unlock()
+	builder := r.openDigest(ctx)
+	return builder == nil || builder.Settled()
 }
 
 // readable says this is the moment for the reading: none was kept or given up on, and the digest has seen nothing

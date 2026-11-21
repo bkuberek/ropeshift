@@ -3,6 +3,8 @@ package worker_test
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -125,6 +127,37 @@ func TestAFailedFirstReadingLeavesTheLaneOwningEverything(t *testing.T) {
 	r.worktrees().FailSurvey(errors.New("the worktree is busy"))
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 1000})
 	r.worktrees().FailSurvey(nil)
+	r.worktrees().ChangeFiles(ownWorktree, cacheFile, "gen/out.go")
+	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s-2", AtMs: 1050})
+	r.endOwning(t, g)
+	r.savesEverything(t)
+}
+
+// spoolAll leaves sealed lines in the spool, in order, as hooks whose acks came too late leave them, and drains
+// nothing.
+func (r *laneRig) spoolAll(t *testing.T, events ...lanes.HookEvent) {
+	t.Helper()
+	var raw []byte
+	for _, event := range events {
+		raw = append(raw, sealedLine(t, r.token(t), event)...)
+		raw = append(raw, '\n')
+	}
+	if err := os.WriteFile(filepath.Join(r.dir, "spool"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestASpooledFirstTurnLeavesALaterPromptUnread is a first turn whose every hook missed its ack, so the spool holds its
+// prompt, a call whose shell made a file, and its end, when the session's next prompt reaches the worker live. The spool
+// is taken before that prompt is read, so it reads as a second prompt, and the lane owns every change.
+func TestASpooledFirstTurnLeavesALaterPromptUnread(t *testing.T) {
+	t.Parallel()
+	r, g := owningLane(t)
+	r.spoolAll(t,
+		lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 1000},
+		lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: lanes.EventPreToolUse, Subject: "t-0", Tool: "Bash", AtMs: 1010},
+		lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: lanes.EventStop, Subject: "s", AtMs: 1040},
+	)
 	r.worktrees().ChangeFiles(ownWorktree, cacheFile, "gen/out.go")
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s-2", AtMs: 1050})
 	r.endOwning(t, g)
