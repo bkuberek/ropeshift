@@ -252,6 +252,8 @@ type Options struct {
 	// Warn hears what a request leaves out of its answer, such as a practices check that could not be requested. Nil
 	// hears none.
 	Warn func(string)
+	// OutsideEdits reads what each repository's clone holds that intake and lanes cannot read. Nil reads none.
+	OutsideEdits *control.OutsideEdits
 	// Starts places the lane of every claim, and Branches opens a repository at a lane's branch, which the
 	// outline of a planning session reads. LaneBranchPrefix is what a lane's branch name begins with.
 	Starts           *control.Starts
@@ -301,7 +303,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		AssistantHosts: options.AssistantHosts, LocalWorker: options.LocalWorker, Warn: options.Warn,
 		Checkouts: options.Checkouts, Creator: options.Creator, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
-		Attempts: options.Attempts, WebhookAttempts: options.WebhookAttempts, Templates: options.Templates, Hashes: options.Hashes,
+		OutsideEdits: options.OutsideEdits, Attempts: options.Attempts, WebhookAttempts: options.WebhookAttempts, Templates: options.Templates, Hashes: options.Hashes,
 		WorkerURL: options.WorkerURL, CAFingerprint: options.CAFingerprint,
 	}
 	daemon := serve(t, config, options.Wrap)

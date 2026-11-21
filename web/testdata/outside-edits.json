@@ -1,0 +1,117 @@
+{
+  "as_of": 1794000000000,
+  "limit": 500,
+  "clones": [
+    {
+      "repository": "repository-1",
+      "name": "app",
+      "planning": true,
+      "path": "/srv/repository-1",
+      "branch": "main",
+      "head": "4f1c2a9e0b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3e",
+      "remote": "origin",
+      "edits": [
+        {
+          "path": "docs/design.md",
+          "state": "unpushed",
+          "steps": [
+            "push",
+            "copy"
+          ]
+        },
+        {
+          "path": "plans/notes on retries.md",
+          "state": "untracked",
+          "steps": [
+            "commit",
+            "copy"
+          ]
+        },
+        {
+          "path": "plans/retry.md",
+          "state": "uncommitted",
+          "steps": [
+            "commit",
+            "copy"
+          ]
+        },
+        {
+          "path": "plans/dm.yrter",
+          "state": "untracked",
+          "steps": [],
+          "hidden": true
+        }
+      ],
+      "steps": [
+        {
+          "kind": "commit",
+          "title": "Commit them to a new branch",
+          "detail": "Commits these files as the clone holds them now on the new branch edits/20260921-141320, from the commit the clone has checked out. The clone's checkout, index, and files stay as they are. The last command pushes the branch to origin.",
+          "branch": "edits/20260921-141320",
+          "paths": [
+            "plans/notes on retries.md",
+            "plans/retry.md"
+          ],
+          "commands": [
+            "(cd /srv/repository-1 &&",
+            "  export GIT_INDEX_FILE=\"$(git rev-parse --absolute-git-dir)/ropeshift-edits-index\" &&",
+            "  git read-tree HEAD &&",
+            "  git update-index --add --remove -- 'plans/notes on retries.md' plans/retry.md &&",
+            "  git branch edits/20260921-141320 \"$(git commit-tree \"$(git write-tree)\" -p HEAD -m 'Commit files from a clone that ropeshift could not read')\"",
+            "  code=$?; rm -f \"$GIT_INDEX_FILE\"; exit $code)",
+            "git -C /srv/repository-1 push origin refs/heads/edits/20260921-141320:refs/heads/edits/20260921-141320"
+          ]
+        },
+        {
+          "kind": "push",
+          "title": "Push the commits",
+          "detail": "Pushes main to origin, which holds no commit that changed these files yet. Git refuses a push that would drop the remote's commits.",
+          "branch": "main",
+          "paths": [
+            "docs/design.md"
+          ],
+          "commands": [
+            "git -C /srv/repository-1 push origin refs/heads/main:refs/heads/main"
+          ]
+        },
+        {
+          "kind": "copy",
+          "title": "Copy them into the planning branch lane/lane-plan-1",
+          "detail": "Commits these files as the clone holds them now on the new branch edits/20260921-141320-lane-plan-1, from the tip of lane/lane-plan-1, which the planning lane lane-plan-1 works on, and tells the lane to merge it in its own worktree. Ropeshift never moves a branch a worktree has checked out.",
+          "branch": "edits/20260921-141320-lane-plan-1",
+          "paths": [
+            "docs/design.md",
+            "plans/notes on retries.md",
+            "plans/retry.md"
+          ],
+          "commands": [
+            "(cd /srv/repository-1 &&",
+            "  export GIT_INDEX_FILE=\"$(git rev-parse --absolute-git-dir)/ropeshift-edits-index\" &&",
+            "  git read-tree refs/heads/lane/lane-plan-1 &&",
+            "  git update-index --add --remove -- docs/design.md 'plans/notes on retries.md' plans/retry.md &&",
+            "  git branch edits/20260921-141320-lane-plan-1 \"$(git commit-tree \"$(git write-tree)\" -p refs/heads/lane/lane-plan-1 -m 'Commit files from a clone that ropeshift could not read')\"",
+            "  code=$?; rm -f \"$GIT_INDEX_FILE\"; exit $code)",
+            "ropeshift message send lane-plan-1 --project default --kind instruction --body 'Merge the branch edits/20260921-141320-lane-plan-1 into your branch in your own worktree. A member copied these files onto it from their clone of the planning repository: docs/design.md, plans/notes on retries.md, plans/retry.md.'"
+          ]
+        }
+      ]
+    },
+    {
+      "repository": "repository-2",
+      "name": "app-2",
+      "path": "/srv/repository-2",
+      "branch": "main",
+      "head": "9e8f7a6b5c4d3e4f1c2a9e0b7d6c5e4f3a2b1c0d",
+      "remote": "origin",
+      "edits": [],
+      "steps": []
+    },
+    {
+      "repository": "repository-3",
+      "name": "app-3",
+      "edits": [],
+      "steps": [],
+      "problem": "This machine keeps no clone of it: not found: this worker keeps no checkout of repository-3"
+    }
+  ]
+}

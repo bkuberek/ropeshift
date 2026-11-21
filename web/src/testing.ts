@@ -220,6 +220,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path === "/v1/repositories") {
       return { status: 200, body: golden("repositories") };
     }
+    // What each registered clone holds that intake and lanes cannot read, as Repositories and Plans list it.
+    if (call.method === "GET" && call.path === "/v1/outside-edits") {
+      return { status: 200, body: golden("outside-edits") };
+    }
     // The practices check's latest result of each repository, as the Overview's panel and the Repositories view read it.
     if (call.method === "GET" && /^\/v1\/practices(\?|$)/.test(call.path)) {
       return { status: 200, body: golden("practices") };

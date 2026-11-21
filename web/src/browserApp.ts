@@ -411,6 +411,7 @@ export async function answer(route: Route): Promise<void> {
   // What the projects, repositories, settings, agents, members, and audit pages read.
   const admin: Record<string, string | undefined> = {
     "/v1/repositories": goldens.repositories,
+    "/v1/outside-edits": goldens["outside-edits"],
     "/v1/fleet": goldens.fleet,
     "/v1/policies": goldens["policies-recovery"],
     "/v1/roster": goldens.roster,

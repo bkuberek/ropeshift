@@ -27,3 +27,14 @@ func TestASoloDaemonsServerConfigCarriesItsWorkerAsTheCreator(t *testing.T) {
 		t.Error("the worker's machine is not wired beside the creator")
 	}
 }
+
+// A solo daemon lists what the clones on its own machine hold that intake and lanes cannot read (FR-UI-14).
+func TestASoloDaemonsServerReadsItsOwnClonesForTheOutsideEdits(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run"), WorktreeDir: filepath.Join(root, "worktrees")}
+	config := soloConfig(soloWiring{paths: paths, kept: soloCheckouts(paths), local: &soloWorker{}, state: &sqlite.State{}, stderr: io.Discard})
+	if config.OutsideEdits == nil {
+		t.Fatal("a solo daemon's server configuration reads no clone for the outside edits")
+	}
+}

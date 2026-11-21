@@ -590,6 +590,7 @@ func soloConfig(w soloWiring) server.Config {
 		Branches: branchSource(w.opts, w.kept), LaneBranchPrefix: soloLaneBranchPrefix(w.paths),
 		Checkouts: w.kept, Layouts: w.kept, PracticeSources: practiceSources(), Creator: w.local, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(w.paths),
 		Profile: soloProfiles(w.paths), Profiles: soloProfiles(w.paths), LocalWorker: w.local.id, Reserved: reservedFolders(w.paths),
+		OutsideEdits: control.NewOutsideEdits(soloStarts(w.opts, w.kept), gitcli.Worktrees{}, soloLaneBranchPrefix(w.paths)),
 		// The keys of the CI webhooks are in the daemon's environment. The route is on the control socket, which a
 		// solo daemon does not expose, so a delivery reaches it only where a person forwards the socket to GitHub.
 		Env: os.LookupEnv, Warn: warnTo(w.stderr),

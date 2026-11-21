@@ -135,6 +135,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPatch, "/v1/repositories/{id}", "repository set"},
 		{http.MethodPost, "/v1/repositories", "repository add"},
 		{http.MethodPost, "/v1/repositories/{id}/remove", "repository remove"},
+		{http.MethodGet, OutsideEditsPath, "repository edits"},
 		{http.MethodPost, AdoptionPlanPath, "adopt"},
 		{http.MethodGet, "/v1/fleet", "fleet show"},
 		{http.MethodPut, "/v1/fleet/mode", "fleet pause"},
