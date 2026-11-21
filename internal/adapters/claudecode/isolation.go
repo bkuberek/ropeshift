@@ -31,7 +31,11 @@ import (
 //     connectors do not load either ([setting sources]).
 //   - Auto memory loads whatever the setting sources say ([setting sources]), and is the person's own notes,
 //     kept per repository and shared across its worktrees ([memory]), so `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
-//     turns it off ([environment variables]).
+//     turns it off ([environment variables]). It turns a subagent's `memory` off too, whose `user` scope is a
+//     directory in the member's `~/.claude/agent-memory/`: "Subagent memory is part of auto memory: if you turn auto
+//     memory off, with the `autoMemoryEnabled` setting or `CLAUDE_CODE_DISABLE_AUTO_MEMORY`, the `memory` field has no
+//     effect" ([subagent memory]), so a subagent a lane writes with `memory: user` reads nothing of the member's and
+//     holds nothing.
 //
 // `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` is documented too, but it drops every CLAUDE.md, the repository's own
 // among them ([environment variables]), and the repository's instructions are what a lane works by, so a
@@ -42,6 +46,7 @@ import (
 // [skills]: https://code.claude.com/docs/en/skills
 // [memory]: https://code.claude.com/docs/en/memory
 // [environment variables]: https://code.claude.com/docs/en/env-vars
+// [subagent memory]: https://code.claude.com/docs/en/sub-agents#enable-persistent-memory
 
 const (
 	flagStrictMCP = "--strict-mcp-config"

@@ -398,3 +398,19 @@ func TestShellCommandsALaneWritesInASkillBodyHoldIt(t *testing.T) {
 		t.Errorf("a ! after a character, which runs nothing, holds %+v", change)
 	}
 }
+
+// A subagent's `memory: user` reads a directory of the member's own, but every session runs with auto memory off, which
+// leaves the field with no effect ([subagent memory]), so a lane that adds it holds nothing, and every session states
+// the switch.
+//
+// [subagent memory]: https://code.claude.com/docs/en/sub-agents#enable-persistent-memory
+func TestASubagentsUserMemoryHoldsNothingBecauseAutoMemoryIsOff(t *testing.T) {
+	spec := pieceSpec(t, nil)
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(pieceFiles[1])), strings.Replace(plainPiece, "description: Takes notes\n", "description: Takes notes\nmemory: user\n", 1))
+	if change := settingsChange(spec); change != nil {
+		t.Errorf("a subagent's user memory holds %+v", change)
+	}
+	if env := sessionEnv(spec, Use{}); !slices.Contains(env, envNoMemory) {
+		t.Errorf("a session starts with auto memory on: %v", env)
+	}
+}
