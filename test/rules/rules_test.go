@@ -328,8 +328,20 @@ func TestNoShellInTheSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The worker's approval reader parses the commands an agent asks to run, to tell a gate from the rest. Its
+	// `"-c",` is git's own `-c` option in the list of options that take a value, so it parses a shell command and
+	// never runs one. The exemption is this one file and this one phrase: every other phrase still applies to it.
+	const exempt = `internal/worker/approvals.go holds "-c",`
+	used := false
 	for _, hit := range found {
+		if filepath.ToSlash(hit) == exempt {
+			used = true
+			continue
+		}
 		t.Error(hit)
+	}
+	if !used {
+		t.Errorf("the exemption for %s no longer matches, so remove it", exempt)
 	}
 }
 
