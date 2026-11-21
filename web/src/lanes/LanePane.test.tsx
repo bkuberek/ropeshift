@@ -1,8 +1,9 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { InProgress, OnHold, ShopFloor } from "../api/types";
+import { go } from "../app/route";
 import { openPage } from "../opening";
 import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 import type { Sent } from "../testing";
@@ -381,6 +382,256 @@ describe("a lane's facts", () => {
     const facts = await screen.findByRole("complementary", { name: "Lane facts" });
     await within(facts).findByText("State");
     expect(within(facts).queryByText(/^Checking /)).toBeNull();
+  });
+});
+
+describe("a lane's pane, copied, selected, and searched", () => {
+  const named = { name: `Screen of lane ${lane}` };
+  const text = "Should the berths page list berths that are \x1b[1mclosed\x1b[0m?\nA Closed berth has no sailings.\nclosed: 2 of 14";
+
+  it("copies the screen as text", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Copy screen" }));
+    expect(await navigator.clipboard.readText()).toBe("Should the berths page list berths that are closed?\nA Closed berth has no sailings.\nclosed: 2 of 14");
+    expect(within(screen.getByRole("toolbar", { name: "Pane tools" })).getByText("Copied the screen: 3 lines.")).toBeTruthy();
+  });
+
+  it("selects the pane's text and nothing else, from Select all and from the shortcut on the screen", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    const log = screen.getByRole("log", named);
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    expect(window.getSelection()?.toString()).toBe(log.textContent);
+    expect(document.activeElement).toBe(log);
+    window.getSelection()?.removeAllRanges();
+    await user.keyboard("{Control>}a{/Control}");
+    expect(window.getSelection()?.toString()).toBe(log.textContent);
+  });
+
+  it("searches the pane's text, one match after another, in case or apart from it", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    const search = screen.getByRole("search", { name: "Search the pane" });
+    const field = within(search).getByRole("searchbox", { name: "Find in the pane" });
+    expect(document.activeElement).toBe(field);
+    await user.type(field, "closed");
+    const log = screen.getByRole("log", named);
+    expect(log.querySelectorAll("mark")).toHaveLength(3);
+    expect(search.querySelector(".pane-count")?.textContent).toBe("1 of 3");
+    expect(log.querySelector("mark.is-current")?.textContent).toBe("closed");
+    await user.keyboard("{Enter}");
+    expect(search.querySelector(".pane-count")?.textContent).toBe("2 of 3");
+    expect(log.querySelector("mark.is-current")?.textContent).toBe("Closed");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(search.querySelector(".pane-count")?.textContent).toBe("1 of 3");
+    await user.click(within(search).getByRole("button", { name: "Match case" }));
+    expect(search.querySelector(".pane-count")?.textContent).toBe("1 of 2");
+    expect(log.textContent).toBe("Should the berths page list berths that are closed?\nA Closed berth has no sailings.\nclosed: 2 of 14");
+    await user.click(field);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("search", { name: "Search the pane" })).toBeNull();
+    expect(log.querySelectorAll("mark")).toHaveLength(0);
+    expect(document.activeElement).toBe(log);
+  });
+
+  it("opens the search from the find shortcut on the screen", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), text);
+    const user = userEvent.setup();
+    act(() => screen.getByRole("log", named).focus());
+    await user.keyboard("{Control>}f{/Control}");
+    expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Find in the pane" }));
+  });
+});
+
+describe("a lane's pane, scrolled and sized", () => {
+  const named = { name: `Screen of lane ${lane}` };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // geometry stands for the browser's layout, which jsdom has none of: how tall the screen's text is, and
+  // how tall the screen shows it.
+  function geometry(sizes: { scrollHeight: number; clientHeight: number }) {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(() => sizes.scrollHeight);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => sizes.clientHeight);
+    return sizes;
+  }
+
+  async function scrolledPane() {
+    const sizes = geometry({ scrollHeight: 1000, clientHeight: 200 });
+    serve();
+    openPage(page);
+    const stream = await opened();
+    show(stream, "line\n".repeat(60) + "the newest line");
+    return { sizes, stream, log: screen.getByRole("log", named) };
+  }
+
+  it("opens scrolled to the newest line", async () => {
+    const { log } = await scrolledPane();
+    expect(log.scrollTop).toBe(800);
+  });
+
+  it("stays at the newest line as output arrives", async () => {
+    const { sizes, stream, log } = await scrolledPane();
+    sizes.scrollHeight = 1500;
+    show(stream, "line\n".repeat(90) + "a newer line");
+    expect(log.scrollTop).toBe(1300);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  });
+
+  it("stays where the member scrolled up to as output arrives, and offers Jump to latest", async () => {
+    const { sizes, stream, log } = await scrolledPane();
+    log.scrollTop = 100;
+    fireEvent.scroll(log);
+    const jump = await screen.findByRole("button", { name: "Jump to latest" });
+    sizes.scrollHeight = 1500;
+    show(stream, "line\n".repeat(90) + "a newer line");
+    expect(log.scrollTop).toBe(100);
+    await userEvent.setup().click(jump);
+    expect(log.scrollTop).toBe(1300);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+    expect(document.activeElement).toBe(log);
+  });
+
+  it("follows the newest line again once the member scrolls back to the bottom", async () => {
+    const { sizes, stream, log } = await scrolledPane();
+    log.scrollTop = 100;
+    fireEvent.scroll(log);
+    await screen.findByRole("button", { name: "Jump to latest" });
+    log.scrollTop = 800;
+    fireEvent.scroll(log);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull());
+    sizes.scrollHeight = 1500;
+    show(stream, "line\n".repeat(90) + "a newer line");
+    expect(log.scrollTop).toBe(1300);
+  });
+
+  it("fills the height under the page's header down to the bottom of the view", async () => {
+    geometry({ scrollHeight: 0, clientHeight: 900 });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const box = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) });
+      if (this.classList.contains("main")) {
+        return box(60, 960);
+      }
+      if (this.classList.contains("pane-screen")) {
+        return box(300, 500);
+      }
+      if (this.classList.contains("pane")) {
+        return box(280, 700);
+      }
+      return box(0, 0);
+    });
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    // 900 visible, less the 240 above the screen, the 200 of controls under it, and a 16 gap.
+    expect(screen.getByRole("log", named).style.height).toBe("444px");
+  });
+
+  it("takes the whole view in Full view, keeps Escape for the session, and leaves on Exit full view", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const region = screen.getByRole("region", { name: `Pane of lane ${lane}` });
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    expect(region.classList.contains("is-full")).toBe(true);
+    const exit = screen.getByRole("button", { name: "Exit full view" });
+    await user.keyboard("{Escape}");
+    expect(region.classList.contains("is-full")).toBe(true);
+    await user.click(exit);
+    expect(region.classList.contains("is-full")).toBe(false);
+    expect(screen.getByRole("button", { name: "Full view" })).toBeTruthy();
+    expect(typed).toEqual([]);
+  });
+
+  // WCAG 2.2 SC 2.4.11: what Full view covers takes no focus. The test reads the mechanism, because the
+  // test DOM does not skip inert content when it tabs.
+  it("leaves no covered control able to take focus in Full view", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const region = screen.getByRole("region", { name: `Pane of lane ${lane}` });
+    const focusable = () => [...document.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1'])")];
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    const toasts = document.querySelector(".toasts");
+    const outside = focusable().filter((element) => !region.contains(element) && !toasts?.contains(element));
+    expect(outside.length).toBeGreaterThan(0);
+    for (const element of outside) {
+      expect(element.closest("[inert]"), element.outerHTML.slice(0, 80)).not.toBeNull();
+    }
+    for (const element of focusable().filter((element) => region.contains(element))) {
+      expect(element.closest("[inert]")).toBeNull();
+    }
+    await user.click(screen.getByRole("button", { name: "Exit full view" }));
+    expect(document.querySelector("[inert]")).toBeNull();
+  });
+
+  // WCAG 2.2 SC 4.1.3: a toast still speaks over Full view, and its Dismiss can still be pressed.
+  it("leaves the toasts out of what Full view covers", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    const toasts = document.querySelector(".toasts");
+    expect(toasts?.getAttribute("aria-live")).toBe("polite");
+    expect(toasts?.closest("[inert]")).toBeNull();
+    expect(document.querySelector(".skip-link")?.closest("[inert]")).not.toBeNull();
+  });
+
+  it("keeps inert what was inert before Full view", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const before = document.body.appendChild(document.createElement("button"));
+    before.setAttribute("inert", "");
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    await user.click(screen.getByRole("button", { name: "Exit full view" }));
+    expect(before.hasAttribute("inert")).toBe(true);
+    expect(document.querySelectorAll("[inert]")).toHaveLength(1);
+    before.remove();
+  });
+
+  it("takes its marks away when the pane goes while in Full view", async () => {
+    serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    const beside = document.body.appendChild(document.createElement("button"));
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    expect(beside.hasAttribute("inert")).toBe(true);
+    act(() => go("/floor"));
+    await screen.findByRole("heading", { level: 1, name: "Floor" });
+    expect(screen.queryByRole("region", { name: `Pane of lane ${lane}` })).toBeNull();
+    expect(beside.hasAttribute("inert")).toBe(false);
+    expect(document.querySelector("[inert]")).toBeNull();
+    beside.remove();
+  });
+
+  it("sends Escape to the session from the empty line field, and stays in Full view", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Full view" }));
+    await user.click(screen.getByRole("textbox", { name: "Type into the session" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(typed.map((sent) => sent.body)).toEqual([{ key: "Escape" }]));
+    expect(screen.getByRole("region", { name: `Pane of lane ${lane}` }).classList.contains("is-full")).toBe(true);
   });
 });
 

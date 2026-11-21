@@ -1093,6 +1093,7 @@ details.older[open] > summary {
 }
 
 .pane-frame {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1146,6 +1147,70 @@ details.older[open] > summary {
 .pane-chord {
   display: inline-flex;
   gap: 2px;
+}
+
+/* A screen the page sizes to fill the view takes the height it is given, not the cap of a short one. */
+.pane-screen.is-filled {
+  max-height: none;
+}
+
+.pane-latest {
+  position: absolute;
+  right: var(--s-12);
+  bottom: var(--s-12);
+}
+
+/* Full view takes the whole view, under menus and dialogs, so the command palette still opens over it. */
+.pane.is-full {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-drawer) + 1);
+  margin: 0;
+  padding: var(--s-12) var(--s-16);
+  background: var(--bg);
+  overflow: auto;
+}
+
+.pane.is-full .pane-frame {
+  flex: 1;
+}
+
+.pane.is-full .pane-screen {
+  flex: 1;
+  max-height: none;
+}
+
+/* The toolbar and the search sit above the screen, and the strip that names the release key joins the
+   screen, so they space themselves instead of the frame doing it. */
+.pane-toolbar,
+.pane-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
+}
+
+.pane-find-field {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.pane-said {
+  margin-left: auto;
+}
+
+/* A match keeps the colour of the text it spans; the current one is marked apart from the rest. */
+.pane-match {
+  background: var(--terminal-match);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.pane-match.is-current,
+.pane-match.is-current > span {
+  background: var(--terminal-match-current);
+  color: var(--terminal-bg);
 }
 
 /* The shortcut sheet */

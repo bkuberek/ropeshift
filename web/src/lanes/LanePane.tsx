@@ -1,11 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent, RefObject } from "react";
 
 import { followPane, paneRefusal } from "../api/client";
 import { readView } from "../api/client";
 import type { PaneLane, PaneScreen, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { onMac } from "../app/keys";
 import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
 import { SpendPanel } from "../floor/SpendPanel";
@@ -19,6 +20,8 @@ import { Button } from "../ui/controls";
 import { chordOf, isRelease, releaseKey } from "./chords";
 import { KeyCaps, KeyComposer } from "./KeyComposer";
 import { LaneMessages } from "./Messages";
+import { findIn, markRuns } from "./find";
+import { copyText, FindBar, PaneTools, selectContents } from "./PaneTools";
 import { parseScreen, trimScreen } from "./screen";
 import { PaneSender } from "./sender";
 import { startingMs } from "./starting";
@@ -168,25 +171,145 @@ type Sends = Pick<PaneSender, "keys" | "text">;
 
 const plainKey = (event: KeyboardEvent) => !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
 
-// Screen is the pane's screen. A click on it, or Enter while it has focus, captures the keys: every key then
-// goes to the session, Tab, Shift-Tab, Escape, and Ctrl combinations included, and single-key shortcuts are
-// off. The release key, a click outside the pane, or Release gives the keys back and leaves focus on the
-// screen, so Tab moves on from there (WCAG 2.1.2, https://www.w3.org/TR/WCAG21/#no-keyboard-trap). Command
-// shortcuts on a Mac stay with the browser and the page. Opening a page never captures keys.
-function Screen({ lane, text, keys }: { lane: string; text: string; keys: ScreenKeys }) {
+// bottomSlack is how near the bottom, in pixels, a screen counts as showing the newest line.
+const bottomSlack = 4;
+
+// The least height a filled screen takes, and the gap it leaves under the controls below it.
+const fillLeast = 240;
+const fillGap = 16;
+
+// fitScreen sizes a screen so the pane, with the controls under the screen, fills what the page's scroll
+// area shows below the screen's top, as the screen sits with the page scrolled to its top.
+function fitScreen(pre: HTMLElement, pane: HTMLElement): void {
+  const scroller = pre.closest<HTMLElement>(".main") ?? document.documentElement;
+  const shown = scroller === document.documentElement ? 0 : scroller.getBoundingClientRect().top;
+  const top = pre.getBoundingClientRect().top - shown + scroller.scrollTop;
+  const below = pane.getBoundingClientRect().bottom - pre.getBoundingClientRect().bottom;
+  pre.style.height = `${Math.max(fillLeast, Math.round(scroller.clientHeight - top - below - fillGap))}px`;
+}
+
+// Screen is the pane's screen, with the toolbar above it. A click on the screen, or Enter while it has
+// focus, captures the keys: every key then goes to the session, Tab, Shift-Tab, Escape, and Ctrl
+// combinations included, and single-key shortcuts are off. The release key, a click outside the pane, or
+// Release gives the keys back and leaves focus on the screen, so Tab moves on from there (WCAG 2.1.2,
+// https://www.w3.org/TR/WCAG21/#no-keyboard-trap). Command shortcuts on a Mac stay with the browser and the
+// page. Opening a page never captures keys.
+//
+// The screen opens at the newest line and stays there as output arrives, until the member scrolls up; it
+// then stays where they are and offers Jump to latest, and scrolling back to the bottom follows the newest
+// line again. Select all, and the select-all shortcut while the screen has focus, select the pane's text
+// and nothing else on the page; Search, and the find shortcut while the screen has focus, search it. While
+// the screen holds the keys those shortcuts, written with Ctrl, go to the session, and the Command ones on
+// a Mac stay with the page. A filled screen takes the height the page shows under it, and Full view gives
+// the pane the whole view.
+function Screen({
+  lane,
+  text,
+  keys,
+  fill,
+  full,
+  onFull,
+  pane,
+}: {
+  lane: string;
+  text: string;
+  keys: ScreenKeys;
+  fill: boolean;
+  full: boolean;
+  onFull: () => void;
+  pane: RefObject<HTMLElement | null>;
+}) {
   const screen = useRef<HTMLPreElement>(null);
   const [captured, setCaptured] = useState(false);
+  const following = useRef(true);
+  const [away, setAway] = useState(false);
+  const [said, setSaid] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const runs = parseScreen(trimScreen(text));
+  const plain = runs.map((run) => run.text).join("");
+  const starts = searching ? findIn(plain, query, matchCase) : [];
+  const at = starts.length === 0 ? 0 : Math.min(current, starts.length - 1);
   useEffect(() => {
     if (!keys) {
       setCaptured(false);
     }
   }, [keys]);
   const holding = captured && keys !== null;
+  useEffect(() => {
+    screen.current?.querySelector(".pane-match.is-current")?.scrollIntoView?.({ block: "nearest" });
+  }, [at, query, matchCase, searching]);
+
+  const toLatest = () => {
+    const pre = screen.current;
+    if (pre) {
+      pre.scrollTop = pre.scrollHeight - pre.clientHeight;
+    }
+  };
+  useLayoutEffect(() => {
+    const pre = screen.current;
+    const frame = pane.current;
+    if (!pre || !frame) {
+      return;
+    }
+    const fit = () => {
+      if (fill && !full) {
+        fitScreen(pre, frame);
+      } else {
+        pre.style.height = "";
+      }
+      if (following.current) {
+        toLatest();
+      }
+    };
+    fit();
+    // The page's scroll area and the pane resize the screen: the view, and the controls under the screen.
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", fit);
+      return () => window.removeEventListener("resize", fit);
+    }
+    const sizes = new ResizeObserver(fit);
+    sizes.observe(pre.closest<HTMLElement>(".main") ?? document.documentElement);
+    sizes.observe(frame);
+    return () => sizes.disconnect();
+  }, [fill, full, pane]);
+  useLayoutEffect(() => {
+    if (following.current) {
+      toLatest();
+    }
+  }, [text]);
+  const scrolled = () => {
+    const pre = screen.current;
+    if (!pre) {
+      return;
+    }
+    following.current = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - bottomSlack;
+    setAway(!following.current);
+  };
+  // Jump to latest goes once it has jumped, so it leaves focus on the screen.
+  const jump = () => {
+    following.current = true;
+    setAway(false);
+    toLatest();
+    screen.current?.focus();
+  };
 
   const release = () => {
     setCaptured(false);
     screen.current?.focus();
   };
+
+  const selectAll = () => {
+    screen.current?.focus();
+    selectContents(screen.current);
+  };
+  const closeSearch = () => {
+    setSearching(false);
+    screen.current?.focus();
+  };
+  const move = (by: number) => setCurrent(starts.length === 0 ? 0 : (at + by + starts.length) % starts.length);
   // A click that ends a selection leaves the keys with the page, so the selection can be copied.
   const click = () => {
     const selection = window.getSelection();
@@ -194,34 +317,74 @@ function Screen({ lane, text, keys }: { lane: string; text: string; keys: Screen
       setCaptured(true);
     }
   };
-  const keyDown = (event: KeyboardEvent<HTMLPreElement>) => {
-    if (!keys) {
+  // pageShortcut is select all and find, which the page keeps for the screen while the keys are not held,
+  // and, on a Mac, while they are.
+  const pageShortcut = (event: KeyboardEvent<HTMLPreElement>) => {
+    const mod = onMac() ? event.metaKey : event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (!mod || event.altKey || event.shiftKey) {
       return;
     }
-    if (!holding) {
-      if (event.key === "Enter" && plainKey(event)) {
-        event.preventDefault();
-        setCaptured(true);
-      }
-      return;
-    }
-    if (isRelease(event)) {
+    if (key === "a") {
       event.preventDefault();
-      event.stopPropagation();
-      setCaptured(false);
+      selectContents(screen.current);
+    } else if (key === "f") {
+      event.preventDefault();
+      setSearching(true);
+    }
+  };
+  const keyDown = (event: KeyboardEvent<HTMLPreElement>) => {
+    if (keys && holding) {
+      if (isRelease(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        setCaptured(false);
+        return;
+      }
+      const chord = chordOf(event);
+      if (chord !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        keys.send(chord);
+        return;
+      }
+    } else if (keys && event.key === "Enter" && plainKey(event)) {
+      event.preventDefault();
+      setCaptured(true);
       return;
     }
-    const chord = chordOf(event);
-    if (chord === null) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    keys.send(chord);
+    pageShortcut(event);
   };
 
   return (
     <div className={holding ? "pane-frame is-captured" : "pane-frame"}>
+      <PaneTools
+        onCopyScreen={() => void copyText(plain, "the screen").then(setSaid)}
+        onSelectAll={selectAll}
+        onSearch={() => (searching ? closeSearch() : setSearching(true))}
+        searching={searching}
+        full={full}
+        onFull={onFull}
+        said={said}
+      />
+      {searching ? (
+        <FindBar
+          words={query}
+          matchCase={matchCase}
+          current={at}
+          count={starts.length}
+          onWords={(next) => {
+            setQuery(next);
+            setCurrent(0);
+          }}
+          onMatchCase={(next) => {
+            setMatchCase(next);
+            setCurrent(0);
+          }}
+          onMove={move}
+          onClose={closeSearch}
+        />
+      ) : null}
       {holding ? (
         <div className="pane-capture">
           <span>
@@ -238,7 +401,7 @@ function Screen({ lane, text, keys }: { lane: string; text: string; keys: Screen
           its name says how to leave. */}
       <pre
         ref={screen}
-        className="pane-screen"
+        className={fill && !full ? "pane-screen is-filled" : "pane-screen"}
         role={holding ? "application" : "log"}
         aria-label={holding ? `Screen of lane ${lane}. Keys go to the session; ${releaseKey} releases them.` : `Screen of lane ${lane}`}
         aria-live="off"
@@ -246,14 +409,26 @@ function Screen({ lane, text, keys }: { lane: string; text: string; keys: Screen
         title={keys ? `Click, or press Enter, to send keys to the session. ${releaseKey} releases them.` : undefined}
         onClick={click}
         onKeyDown={keyDown}
+        onScroll={scrolled}
         onBlur={() => setCaptured(false)}
       >
-        {parseScreen(trimScreen(text)).map((run, at) => (
-          <span key={at} className={run.className || undefined}>
-            {run.text}
-          </span>
-        ))}
+        {markRuns(runs, starts, query.length).map((run, place) =>
+          run.match === null ? (
+            <span key={place} className={run.className || undefined}>
+              {run.text}
+            </span>
+          ) : (
+            <mark key={place} className={run.match === at ? "pane-match is-current" : "pane-match"}>
+              <span className={run.className || undefined}>{run.text}</span>
+            </mark>
+          ),
+        )}
       </pre>
+      {away ? (
+        <button className="btn btn-sm pane-latest" type="button" onClick={jump}>
+          Jump to latest
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -360,11 +535,51 @@ function Typing({ lane, live, sender }: { lane: string; live: boolean; sender: S
   );
 }
 
+// spoken is an overlay Full view leaves uncovered: the toasts, whose messages must still be announced
+// (WCAG 2.2 SC 4.1.3) and dismissed while they show above it.
+const spoken = ".toasts";
+
+// inertOutside makes everything outside an element inert, from the element up to the body, so nothing Full
+// view covers takes focus (WCAG 2.2 SC 2.4.11), and returns how to undo it. What holds the toasts is
+// covered around them, what was inert stays inert, and what opens later, such as the command palette, is
+// not covered.
+function inertOutside(element: HTMLElement): () => void {
+  const made: Element[] = [];
+  const cover = (node: Element) => {
+    if (node.hasAttribute("inert") || node.matches(spoken)) {
+      return;
+    }
+    if (node.querySelector(spoken)) {
+      for (const child of node.children) {
+        cover(child);
+      }
+      return;
+    }
+    node.setAttribute("inert", "");
+    made.push(node);
+  };
+  for (let at: Element = element; at.parentElement && at !== document.body; at = at.parentElement) {
+    for (const sibling of at.parentElement.children) {
+      if (sibling !== at) {
+        cover(sibling);
+      }
+    }
+  }
+  return () => {
+    for (const node of made) {
+      node.removeAttribute("inert");
+    }
+  };
+}
+
 // LanePane is a lane's live pane. A page that holds it may say the person is detached, which takes the
 // typing away and leaves the screen, and the state the ledger gives the lane, which labels the last screen
 // received when the lane is parked and has no process to show. A page sent to a lane that was just started
 // gives the time of the start, so the pane waits for the ledger to hold it; 0 says the lane was not just started.
 // The target colours the ring the screen takes while it holds the keys.
+// A page that fills the pane gives its screen the height the page shows under it. Full view gives the pane
+// the whole view, with everything it covers inert, and its toolbar's Exit full view leaves it. Escape stays
+// with the pane, so it can still reach the session.
 export function LanePane({
   lane,
   live,
@@ -372,6 +587,7 @@ export function LanePane({
   state = "",
   startedAt = 0,
   target = "lane",
+  fill = false,
 }: {
   lane: string;
   live: Live;
@@ -379,8 +595,11 @@ export function LanePane({
   state?: string;
   startedAt?: number;
   target?: TargetKind;
+  fill?: boolean;
 }) {
   const shown = usePane(lane, live, startedAt);
+  const pane = useRef<HTMLElement>(null);
+  const [full, setFull] = useState(false);
   const [failure, setFailure] = useState("");
   // Each input clears the last refusal, and a refusal of this one shows in its place.
   const sender = useMemo<Sends>(() => {
@@ -400,8 +619,9 @@ export function LanePane({
   const keys = useMemo<ScreenKeys>(() => (typing ? { send: (chord) => sender.keys(chord) } : null), [typing, sender]);
   const screen = shown.kind === "screen" || shown.kind === "away" || shown.kind === "refused" ? shown.screen : "";
   const parked = shown.kind !== "screen" && (state === "parked" || (shown.kind === "away" && shown.state === "parked"));
+  useEffect(() => (full && pane.current ? inertOutside(pane.current) : undefined), [full]);
   return (
-    <section className={`pane t-${target}`} aria-label={`Pane of lane ${lane}`} data-keys="own">
+    <section ref={pane} className={full ? `pane is-full t-${target}` : `pane t-${target}`} aria-label={`Pane of lane ${lane}`} data-keys="own">
       <p className="pane-status" role="status">
         {statusOf(shown)}
       </p>
@@ -418,7 +638,7 @@ export function LanePane({
           <span className="small muted">The last screen this page received.</span>
         </p>
       ) : null}
-      {screen ? <Screen lane={lane} text={screen} keys={keys} /> : null}
+      {screen ? <Screen lane={lane} text={screen} keys={keys} fill={fill} full={full} onFull={() => setFull((was) => !was)} pane={pane} /> : null}
       {attached ? <Typing lane={lane} live={typing} sender={sender} /> : null}
       {failure ? (
         <p className="msg msg-error refusal" role="alert">
@@ -476,7 +696,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                   A terminal attached with <span className="mono">ropeshift lane attach {id}</span> shows the same conversation, and what you type here reaches it
                   too.
                 </p>
-                <LanePane lane={id} live={live} />
+                <LanePane lane={id} live={live} fill />
               </div>
             </Panel>
             {lane?.generations?.length ? (

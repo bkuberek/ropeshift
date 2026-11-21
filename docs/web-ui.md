@@ -264,7 +264,13 @@ The facts give the lane's state beside its conditions, and while the lane's work
 
 ## Lane panes
 
-The Lane page, the Planning page, and the conversation panel show an interactive lane's terminal pane: its screen as text, the key row, and Type into the session. A terminal attached with `ropeshift lane attach` shows the same session, and what you send from the page reaches it too.
+The Lane page, the Planning page, and the conversation panel show an interactive lane's terminal pane: its screen as text with a toolbar above it, the key row, and Type into the session. A terminal attached with `ropeshift lane attach` shows the same session, and what you send from the page reaches it too.
+
+On the Lane page and the Planning page the screen takes the height the page shows under its header, with the key row and Type into the session under it. The screen opens at the newest line and stays there as output arrives. Scroll up and it stays where you are while output goes on, with Jump to latest to go back; scrolling back to the bottom follows the newest line again. Full view on the toolbar gives the pane the whole view, and nothing it covers takes focus. Exit full view, in the same place on the toolbar, leaves it. Escape does not leave Full view, so it still reaches the session, as from an empty Type into the session.
+
+A toolbar above the screen holds Copy screen, which copies the screen as text and says how many lines it copied, Select all, which selects the pane's text and nothing else on the page, Search, and Full view. While the screen has focus, the select-all shortcut, `⌘ A` on macOS and `Ctrl A` elsewhere, selects the pane's text too, and the find shortcut, `⌘ F` or `Ctrl F`, opens the search. While the screen holds the keys, `Ctrl A` and `Ctrl F` go to the session like any other Ctrl combination, so use the toolbar or give the keys back first; on macOS the `⌘` shortcuts keep working.
+
+The search finds text in the pane, apart from case unless Match case is on, and says which match is current and how many there are, such as "1 of 3". Enter goes to the next match and Shift-Enter to the previous one, and each match keeps the colours of the text it spans. Escape or Close ends the search, with focus back on the screen. Using the toolbar or the search gives the keys back, because focus leaves the screen.
 
 A click on the screen, or `Enter` while the screen has focus, gives the keys to the session. The pane's frame takes a ring in its target's colour, and a strip above the screen says "Keys go to the session. Ctrl ] releases." Every key you press then goes to the session, Tab, Shift-Tab, Escape, and Ctrl combinations included, and single-key shortcuts are off. A shortcut the browser or the operating system keeps for itself never reaches the page, so it never reaches the session either. On macOS, Command shortcuts stay with the browser and the page, so `⌘ K` still opens the command palette and `⌘ C` copies.
 
