@@ -273,8 +273,9 @@ const (
 
 // TierOf is how much an item holds, from its kind and state alone: a call or an artifact a lane waits to run, or a
 // question that blocks its lane, holds a running session; stuck, failed, or parked work, a recovery act, an uncertain
-// effect, a spend stop, CI that asks a person, and a repository a plan approval did not create are stopped work; a
-// design history check can wait; and everything else, a kind this build does not know included, waits for a decision.
+// effect, a spend stop, CI that asks a person, a repository a plan approval did not create, and a conflict that holds a
+// lane's merge until a member settles it are stopped work; a design history check can wait; and everything else, a kind
+// this build does not know included, waits for a decision.
 func TierOf(item NeedItem) int {
 	switch item.Kind {
 	case NeedApproval:
@@ -302,7 +303,7 @@ func TierOf(item NeedItem) int {
 			return TierLater
 		}
 		return TierStopped
-	case NeedEffect, NeedSpend, NeedCI, NeedRepositoryCreation:
+	case NeedEffect, NeedSpend, NeedCI, NeedRepositoryCreation, NeedConflict:
 		return TierStopped
 	}
 	return TierDecision

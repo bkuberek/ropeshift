@@ -34,6 +34,7 @@ func TestATierSaysHowMuchAnItemHolds(t *testing.T) {
 		"a design history check":               {api.NeedItem{Kind: api.NeedWork, Work: work(api.ReasonHistoryUnread)}, api.TierLater},
 		"a design history that went missing":   {api.NeedItem{Kind: api.NeedWork, Work: work(api.ReasonHistoryMissing)}, api.TierLater},
 		"an uncertain effect":                  {api.NeedItem{Kind: api.NeedEffect}, api.TierStopped},
+		"a conflict that holds a merge":        {api.NeedItem{Kind: api.NeedConflict}, api.TierStopped},
 		"a spend stop":                         {api.NeedItem{Kind: api.NeedSpend}, api.TierStopped},
 		"CI that asks a person":                {api.NeedItem{Kind: api.NeedCI}, api.TierStopped},
 		"a repository a plan did not create":   {api.NeedItem{Kind: api.NeedRepositoryCreation}, api.TierStopped},
