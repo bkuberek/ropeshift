@@ -34,7 +34,7 @@ var AutonomyChecks = []Check{
 	{"AU15", "a retry opens one window, and a second is refused while one stands", checkWindowRetry},
 	{"AU16", "only a member publishes the policy, and a default is no acknowledgement", checkOnlyMemberPublishesAutonomy},
 	{"AU17", "a wake reads no work this worker cannot claim", checkDigestFollowsStanding},
-	{"AU18", "an orchestrator at manual works the ladder and recovers failed and blocked work, and claims, starts, and stops nothing", checkManualKeepsToTheLadder},
+	{"AU18", "an orchestrator at manual is offered no candidates, and claims, starts, stops, and decides nothing", checkManualActsOnNothing},
 	{"AU19", "a woken lane past the day's respawns waits for a member", checkWokenLaneIsBounded},
 	{"AU20", "an orchestrator's respawn past the day's bound is refused", checkOrchestratorRespawnIsBounded},
 	{"AU21", "a worker reads the bound its level holds it to", checkDesiredCarriesTheBound},
@@ -777,7 +777,7 @@ func checkDigestFollowsStanding(r *Rig) error {
 	return nil
 }
 
-func checkManualKeepsToTheLadder(r *Rig) error {
+func checkManualActsOnNothing(r *Rig) error {
 	a, err := newAutonomyRig(r, UsableManifest)
 	if err != nil {
 		return err
