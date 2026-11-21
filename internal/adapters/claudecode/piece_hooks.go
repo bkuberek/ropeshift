@@ -150,48 +150,68 @@ func nestedDirOf(path string) string {
 	return path[:at+len("/"+skillsDir)]
 }
 
-// pieceHooks are the hooks one piece's frontmatter declares, as JSON, nil for none. A frontmatter that does not parse or
-// that opens and is not closed, and a file past the bound a repository's file holds to, is not readable, and nothing
-// says it declares none.
-type pieceHooks struct {
-	value    json.RawMessage
+// keyAllowedTools is the frontmatter key of a skill or a command that names the "Tools Claude can use without asking
+// permission during the turn that invokes this skill" ([skills]), which widens what a session may do as a permission
+// rule does.
+//
+// [skills]: https://code.claude.com/docs/en/skills#frontmatter-reference
+const keyAllowedTools = "allowed-tools"
+
+// heldFrontmatter are the frontmatter keys of a piece that widen what a session runs, sorted: its tools allowed with no
+// prompt, and its hooks, which run a command as a settings hook does.
+var heldFrontmatter = []string{keyAllowedTools, keyHooks}
+
+// pieceFront is what one piece's frontmatter declares of the keys that widen what a session runs (heldFrontmatter),
+// each as JSON, and none for a key it leaves out or leaves empty. A frontmatter that does not parse or that opens and is
+// not closed, and a file past the bound a repository's file holds to, is not readable, and nothing says it declares
+// none.
+type pieceFront struct {
+	values   map[string]json.RawMessage
 	readable bool
 }
 
-// frontmatterHooks reads the hooks a piece's frontmatter declares: the YAML between a first line of exactly `---` and the
-// next, with an empty or absent `hooks` declaring none, and a file that does not begin with `---` declaring none. A file
-// that begins with `---` and is no such block, whose first line has more on it than the three dashes or whose block no
-// line closes, is not readable: the CLI may read as a block what this cannot, and nothing says it declares none.
-func frontmatterHooks(raw []byte) pieceHooks {
+// frontmatterKeys reads the keys that widen what a session runs that a piece's frontmatter declares: the YAML between a
+// first line of exactly `---` and the next, with an empty or absent key declaring none, and a file that does not begin
+// with `---` declaring none. A file that begins with `---` and is no such block, whose first line has more on it than the
+// three dashes or whose block no line closes, is not readable: the CLI may read as a block what this cannot, and nothing
+// says it declares none.
+func frontmatterKeys(raw []byte) pieceFront {
 	text := strings.ReplaceAll(strings.TrimPrefix(string(raw), "\ufeff"), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---") {
-		return pieceHooks{readable: true}
+		return pieceFront{readable: true}
 	}
 	first, rest, _ := strings.Cut(text, "\n")
 	if first != "---" {
-		return pieceHooks{}
+		return pieceFront{}
 	}
 	lines := strings.Split(rest, "\n")
 	end := slices.IndexFunc(lines, func(line string) bool { return strings.TrimRight(line, " \t") == "---" })
 	if end < 0 {
-		return pieceHooks{}
+		return pieceFront{}
 	}
 	var front map[string]any
 	if err := yaml.Unmarshal([]byte(strings.Join(lines[:end], "\n")), &front); err != nil {
-		return pieceHooks{}
+		return pieceFront{}
 	}
-	value, declared := front[keyHooks]
-	if !declared || value == nil {
-		return pieceHooks{readable: true}
+	out := pieceFront{readable: true}
+	for _, key := range heldFrontmatter {
+		value, declared := front[key]
+		if !declared || value == nil {
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return pieceFront{}
+		}
+		if empty := canonical(encoded); empty == "{}" || empty == "[]" || empty == `""` {
+			continue
+		}
+		if out.values == nil {
+			out.values = map[string]json.RawMessage{}
+		}
+		out.values[key] = encoded
 	}
-	out, err := json.Marshal(value)
-	if err != nil {
-		return pieceHooks{}
-	}
-	if empty := canonical(out); empty == "{}" || empty == "[]" {
-		return pieceHooks{readable: true}
-	}
-	return pieceHooks{value: out, readable: true}
+	return out
 }
 
 // pieceFile is one piece file the worktree holds: its slash-separated path there, and its content, whole unless it is
@@ -261,13 +281,14 @@ func boundedFile(path string) ([]byte, bool) {
 	return raw, true
 }
 
-// heldPiece is one piece whose frontmatter hooks the lane added or changed: its path, the repository's blob of it at the
-// base, empty where the base holds none, and the hooks on each side. An overflow stands for the pieces past the bound,
-// which were not compared.
+// heldPiece is one piece whose frontmatter hooks or allowed tools the lane added or changed: its path, the repository's
+// blob of it at the base, empty where the base holds none, what each side declares, and the keys that differ. An
+// overflow stands for the pieces past the bound, which were not compared.
 type heldPiece struct {
 	path       string
 	blob       string
-	base, lane pieceHooks
+	base, lane pieceFront
+	keys       []string
 	raw        []byte
 	overflow   bool
 	// unread says the repository's nested skills directory of the piece could not be read, so nothing says the base
@@ -275,9 +296,10 @@ type heldPiece struct {
 	unread bool
 }
 
-// comparePieces are the pieces of a lane's worktree (worktreePieces) whose frontmatter hooks differ from the repository's
-// side, where the worktree's declare any: a hook the lane added or changed, and a frontmatter that cannot be read. A piece
-// whose hooks the lane removed runs less, and holds nothing. A piece the worktree holds as the base does is not read again.
+// comparePieces are the pieces of a lane's worktree (worktreePieces) whose frontmatter hooks or allowed tools differ from
+// the repository's side, where the worktree's declare any: a hook or a tool the lane added or changed, and a frontmatter
+// that cannot be read. A piece whose hooks or tools the lane removed runs less, and holds nothing. A piece the worktree
+// holds as the base does is not read again.
 func comparePieces(spec ports.SessionSpec, base *baseSide, files []pieceFile, within bool) []heldPiece {
 	var out []heldPiece
 	for _, file := range files {
@@ -285,27 +307,50 @@ func comparePieces(spec ports.SessionSpec, base *baseSide, files []pieceFile, wi
 		if id, ok := gitcli.BlobID(spec.Base, file.raw); ok && file.whole && blob != "" && id == blob {
 			continue
 		}
-		lane := pieceHooks{}
+		lane := pieceFront{}
 		if file.whole {
-			lane = frontmatterHooks(file.raw)
+			lane = frontmatterKeys(file.raw)
 		}
-		if lane.readable && lane.value == nil {
+		if lane.readable && len(lane.values) == 0 {
 			continue
 		}
-		var at pieceHooks
+		var at pieceFront
 		if blob != "" {
-			at = base.hooksOf(spec, blob)
+			at = base.frontOf(spec, blob)
 		}
-		if lane.readable && at.readable && canonical(lane.value) == canonical(at.value) {
+		keys := widened(lane, at)
+		if lane.readable && len(keys) == 0 {
 			continue
 		}
-		out = append(out, heldPiece{path: file.path, blob: blob, base: at, lane: lane, raw: file.raw, unread: !known})
+		out = append(out, heldPiece{path: file.path, blob: blob, base: at, lane: lane, keys: keys, raw: file.raw, unread: !known})
 	}
 	slices.SortFunc(out, func(a, b heldPiece) int { return strings.Compare(a.path, b.path) })
 	if !within {
 		out = append(out, heldPiece{path: pieceDirs[0], overflow: true})
 	}
 	return out
+}
+
+// widened are the keys a piece's frontmatter in the worktree declares otherwise than the repository's, sorted: each the
+// lane added or changed, and each it declares when the repository's cannot be read.
+func widened(lane, base pieceFront) []string {
+	var out []string
+	for _, key := range heldFrontmatter {
+		value := lane.values[key]
+		if value != nil && (!base.readable || canonical(value) != canonical(base.values[key])) {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// heldKeys are the keys a hold names for one piece: those that differ, or its hooks for a piece that could not be read
+// or compared.
+func (p heldPiece) heldKeys() []string {
+	if len(p.keys) == 0 {
+		return []string{keyHooks}
+	}
+	return p.keys
 }
 
 // nestedOverflow is the held piece that stands for the nested skills a walk past maxNestedDirs did not compare.
@@ -326,10 +371,15 @@ func (p heldPiece) summary() []string {
 	case !p.lane.readable:
 		return []string{p.path + " hooks: frontmatter that cannot be read, held as a change"}
 	}
-	return describeChange(p.path, keyHooks, p.base.value, p.lane.value)
+	var out []string
+	for _, key := range p.keys {
+		out = append(out, describeChange(p.path, key, p.base.values[key], p.lane.values[key])...)
+	}
+	return out
 }
 
-// bound is what a hold's digest binds of one piece: the hooks it declares, or the bytes of one that cannot be read.
+// bound is what a hold's digest binds of one piece: what it declares of each key that differs, or the bytes of one that
+// cannot be read.
 func (p heldPiece) bound() string {
 	switch {
 	case p.overflow:
@@ -338,10 +388,14 @@ func (p heldPiece) bound() string {
 		sum := sha256.Sum256(p.raw)
 		return "unreadable\x00" + hex.EncodeToString(sum[:])
 	}
-	return keyHooks + "\x00" + canonical(p.lane.value)
+	parts := make([]string, 0, len(p.keys))
+	for _, key := range p.keys {
+		parts = append(parts, key+"\x00"+canonical(p.lane.values[key]))
+	}
+	return strings.Join(parts, "\x00")
 }
 
-// restorePieces puts each piece whose frontmatter hooks the lane added or changed back as the commit the lane's work
+// restorePieces puts each piece whose frontmatter hooks or allowed tools the lane added or changed back as the commit the lane's work
 // began from holds it, or removes it where that commit holds none, and leaves every other piece as the lane wrote it.
 // It acts only on a complete read of the repository's side, so no piece is removed that the base holds, and it writes
 // only through directories of the worktree's own: a link on the way is refused.

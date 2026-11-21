@@ -49,8 +49,8 @@ func sessionHooks(spec ports.SessionSpec, pieces []pieceFile) []ranHooks {
 		if !piece.whole || !bytes.Contains(piece.raw, []byte(keyHooks)) {
 			continue
 		}
-		if hooks := frontmatterHooks(piece.raw); hooks.value != nil {
-			out = append(out, ranHooks{from: piece.path, value: hooks.value})
+		if value := frontmatterKeys(piece.raw).values[keyHooks]; value != nil {
+			out = append(out, ranHooks{from: piece.path, value: value})
 		}
 	}
 	return out

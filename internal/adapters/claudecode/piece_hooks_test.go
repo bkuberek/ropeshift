@@ -270,3 +270,50 @@ func TestAHookInANestedSkillHoldsTheLane(t *testing.T) {
 		t.Errorf("a nested skill the base holds none of stayed: %v", err)
 	}
 }
+
+// toolsPiece is a skill whose frontmatter lets Claude use a tool with no permission prompt while it runs.
+const toolsPiece = `---
+name: fetch
+description: Fetches a page
+allowed-tools: Bash(curl *)
+---
+Fetch the page.
+`
+
+// A skill's or a command's `allowed-tools` lets Claude use those tools without asking during the turn that invokes it
+// ([skills]), so a lane that adds or changes it widens what it may do and is held as for a hook, naming the key: as text
+// and as a list, beside a hook. The same tools the base holds, and tools the lane removed, hold nothing.
+//
+// [skills]: https://code.claude.com/docs/en/skills#frontmatter-reference
+func TestAllowedToolsALaneAddsInAFrontmatterHoldIt(t *testing.T) {
+	skill, command := pieceFiles[0], pieceFiles[3]
+	spec := pieceSpec(t, nil)
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(skill)), toolsPiece)
+	change := settingsChange(spec)
+	if change == nil || !slices.Equal(change.Keys, []string{"allowed-tools"}) || !slices.Equal(change.Files, []string{skill}) ||
+		!slices.Contains(change.Summary, skill+" allowed-tools: added") {
+		t.Fatalf("allowed tools added in a skill hold %+v", change)
+	}
+
+	listed := pieceSpec(t, nil)
+	writeFile(t, filepath.Join(listed.Dir, filepath.FromSlash(command)), strings.Replace(hookedPiece, "hooks:", "allowed-tools: [\"Bash(curl *)\", Read]\nhooks:", 1))
+	change = settingsChange(listed)
+	if change == nil || !slices.Equal(change.Keys, []string{"allowed-tools", "hooks"}) ||
+		!slices.Contains(change.Summary, command+` allowed-tools: added "Bash(curl *)"`) {
+		t.Errorf("allowed tools and a hook added in a command hold %+v", change)
+	}
+
+	kept := pieceSpec(t, map[string]string{skill: toolsPiece})
+	writeFile(t, filepath.Join(kept.Dir, filepath.FromSlash(skill)), strings.Replace(toolsPiece, "Fetch the page.", "Fetch the page, politely.", 1))
+	if change := settingsChange(kept); change != nil {
+		t.Errorf("the tools the base allows hold %+v", change)
+	}
+	writeFile(t, filepath.Join(kept.Dir, filepath.FromSlash(skill)), strings.Replace(toolsPiece, "allowed-tools: Bash(curl *)\n", "", 1))
+	if change := settingsChange(kept); change != nil {
+		t.Errorf("tools the lane removed hold %+v", change)
+	}
+	writeFile(t, filepath.Join(kept.Dir, filepath.FromSlash(skill)), strings.Replace(toolsPiece, "Bash(curl *)", "Bash(*)", 1))
+	if change := settingsChange(kept); change == nil || !slices.Equal(change.Keys, []string{"allowed-tools"}) {
+		t.Errorf("tools the lane changed hold %+v", change)
+	}
+}

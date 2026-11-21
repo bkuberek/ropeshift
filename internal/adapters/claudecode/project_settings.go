@@ -150,7 +150,7 @@ type baseSide struct {
 	nested map[string]map[string]string
 	// mu guards hooks, the frontmatter hooks read of each piece blob, and ran, each file a hook runs (fileAt).
 	mu    sync.Mutex
-	hooks map[string]pieceHooks
+	hooks map[string]pieceFront
 	ran   map[string]baseFile
 }
 
@@ -158,7 +158,7 @@ type baseSide struct {
 func newBaseSide() *baseSide {
 	return &baseSide{
 		files: map[string][]byte{}, pieces: map[string]string{}, nested: map[string]map[string]string{},
-		hooks: map[string]pieceHooks{}, ran: map[string]baseFile{},
+		hooks: map[string]pieceFront{}, ran: map[string]baseFile{},
 	}
 }
 
@@ -228,9 +228,10 @@ func readBaseSide(spec ports.SessionSpec) (*baseSide, bool) {
 	return side, complete
 }
 
-// hooksOf are the frontmatter hooks of a piece blob the repository holds, read once. A blob that cannot be read holds
-// none, so a hook the worktree's piece holds reads as added, and it is read again next time.
-func (b *baseSide) hooksOf(spec ports.SessionSpec, blob string) pieceHooks {
+// frontOf is what the frontmatter of a piece blob the repository holds declares of the keys that widen what a session
+// runs, read once. A blob that cannot be read declares none, so a hook or a tool the worktree's piece declares reads as
+// added, and it is read again next time.
+func (b *baseSide) frontOf(spec ports.SessionSpec, blob string) pieceFront {
 	b.mu.Lock()
 	hooks, found := b.hooks[blob]
 	b.mu.Unlock()
@@ -241,9 +242,9 @@ func (b *baseSide) hooksOf(spec ports.SessionSpec, blob string) pieceHooks {
 	defer cancel()
 	raw, err := repositoryGit(spec).BlobOf(ctx, blob, maxRepositoryFile)
 	if err != nil {
-		return pieceHooks{readable: true}
+		return pieceFront{readable: true}
 	}
-	hooks = frontmatterHooks(raw)
+	hooks = frontmatterKeys(raw)
 	b.mu.Lock()
 	b.hooks[blob] = hooks
 	b.mu.Unlock()
@@ -283,7 +284,8 @@ func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 
 // compareSettings names each key not known to be harmless (safeSettings) that the worktree's settings files hold
 // otherwise than the repository's side, each piece whose frontmatter hooks the lane added or changed, which runs a
-// command as a settings hook does, and each file a hook runs that the lane changed (hookFiles).
+// command as a settings hook does, or whose allowed tools it added or changed, which widen what it may do as a
+// permission rule does, and each file a hook runs that the lane changed (hookFiles).
 func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
@@ -314,8 +316,10 @@ func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) 
 		if !piece.overflow {
 			change.Files = append(change.Files, piece.path)
 		}
-		if !slices.Contains(change.Keys, keyHooks) {
-			change.Keys = append(change.Keys, keyHooks)
+		for _, key := range piece.heldKeys() {
+			if !slices.Contains(change.Keys, key) {
+				change.Keys = append(change.Keys, key)
+			}
 		}
 		change.Summary = append(change.Summary, piece.summary()...)
 		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
