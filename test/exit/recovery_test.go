@@ -30,12 +30,17 @@ const (
 	recoveryReport = `{"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}}, {"hook": "Stop", "input": {}}`
 )
 
-// orchestratorRecovers is an orchestrator whose first wake makes one recovery call, and whose later wakes
-// end at once.
+// recoveryRun is the orchestrator's run a scenario starts. The worker's session asks for the first run once a
+// member exists (FR-ORCH-1), and that run would spend its one recovery call on its first wake, before there is
+// anything to recover, so recoveryInstall stops it and a scenario's start is the second run.
+var recoveryRun = ledger.Orchestrator{Run: 2}
+
+// orchestratorRecovers is the script of recoveryRun: its first wake makes one recovery call, and its later
+// wakes end at once.
 func orchestratorRecovers(tool, reason string) string {
 	call := `{"mcp": "` + tool + `", "arguments": {"work_order": "wo-1", "reason": "` + reason + `"}, "refusable": true, "keep_answer": true}`
 	idle := `[` + recoveryWake + `, ` + recoveryResult + `]`
-	return `"orchestrator-1": {"turns": [[{"init": true}, ` + recoveryWake + `, ` + call + `, ` + recoveryResult + `], ` +
+	return `"` + recoveryRun.Lane() + `": {"turns": [[{"init": true}, ` + recoveryWake + `, ` + call + `, ` + recoveryResult + `], ` +
 		strings.Join([]string{idle, idle, idle, idle, idle, idle}, ", ") + `]}`
 }
 
@@ -46,7 +51,8 @@ func recoveryFixture(lanes ...string) string {
 }
 
 // recoveryInstall starts a daemon whose one source holds a profile of its own, and whose user profile wakes
-// an orchestrator at once.
+// an orchestrator at once. A member stops the orchestrator the worker runs once the member exists, so a
+// scenario starts recoveryRun when there is something to recover.
 func recoveryInstall(t *testing.T, fixture, profile string) (*install, string) {
 	t.Helper()
 	in := newInstall(t)
@@ -75,10 +81,16 @@ func recoveryInstall(t *testing.T, fixture, profile string) (*install, string) {
 		return len(list) == 1 && list[0].Epoch >= 1
 	})
 	in.waitFor("the source", func() bool { return len(in.sources()) == 1 })
-	for _, lane := range []string{"lane-1", "lane-2", ledger.Orchestrator{ID: ledger.OrchestratorOf(in.workers()[0].ID), Run: 1}.Lane()} {
+	worker := in.workers()[0].ID
+	in.waitFor("the orchestrator the worker runs", func() bool {
+		code, shown, _ := in.run("orchestrator", "show", worker)
+		return code == 0 && strings.Contains(shown, "asked to be running")
+	})
+	in.must("orchestrator", "stop", worker)
+	for _, lane := range []string{"lane-1", "lane-2", ledger.Orchestrator{Run: 1}.Lane(), recoveryRun.Lane()} {
 		doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", lane))
 	}
-	return in, in.workers()[0].ID
+	return in, worker
 }
 
 // recoveryWork records wo-1 on the source's repository with the attempts it allows, zero for none of its

@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -50,12 +51,35 @@ const (
 	laneID  = "first-lane"
 )
 
-// How long each wait may take. The daemon runs at its default ticks, so a lane waits for the worker's
-// next beat, and the first lane also waits for the probe of the agent CLI's version.
+// How long each step may take. A step past its limit is killed with its process group, and fails the run
+// with its name and the end of its output, so a step that hangs fails as itself and not as the exit tests'
+// 20-minute timeout. The limits of the whole run add up to 14m10s: twelve one-shot commands at
+// commandLimit (version, five of git, login, review, worker list, claim, lane start, and accept), init,
+// the five waits, the daemon's stop, and the end of its terminal server. The daemon runs at its default
+// ticks, so a lane waits for the worker's next beat, and the first lane also waits for the probe of the
+// agent CLI's version, which is why the wait for acceptance has the largest share.
 const (
-	readyWait = 30 * time.Second
-	stepWait  = 3 * time.Minute
-	pollEvery = 250 * time.Millisecond
+	commandLimit = 15 * time.Second
+	// initLimit covers ropeshift init's own bounds: a minute for its daemon to answer, a minute for the
+	// worker's registration, and 15 seconds for its daemon's stop.
+	initLimit       = 3 * time.Minute
+	answerLimit     = 30 * time.Second
+	intakeLimit     = 2 * time.Minute
+	readyLimit      = time.Minute
+	acceptanceLimit = 3 * time.Minute
+	doneLimit       = time.Minute
+	stopLimit       = 30 * time.Second
+	terminalLimit   = 10 * time.Second
+	pollEvery       = 250 * time.Millisecond
+	// outputGrace is how long a step that ended or was killed may hold its output open, through a process
+	// it started in another group, before the run stops reading it.
+	outputGrace = 5 * time.Second
+)
+
+// How much of a step's output, each stream on its own, a failure shows.
+const (
+	tailLines = 40
+	tailBytes = 4096
 )
 
 // Step is one command the run started.
@@ -67,6 +91,8 @@ type Step struct {
 	Stderr   string   `json:"stderr"`
 	Terminal string   `json:"terminal,omitempty"`
 	Millis   int64    `json:"ms"`
+	// TimedOut says the step ran past its limit and was killed.
+	TimedOut bool `json:"timed_out,omitempty"`
 }
 
 // Result is what the run saw.
@@ -102,6 +128,8 @@ type run struct {
 	result Result
 	daemon *exec.Cmd
 	exited chan error
+	// last is the step a wait ran last, which a wait that runs out names.
+	last Step
 }
 
 func main() {
@@ -163,10 +191,10 @@ func (r *run) firstWorkOrder() error {
 		r.result.PriorState = true
 	}
 
-	if _, err := r.must(r.command("version", "ropeshift", "version", "--json")); err != nil {
+	if _, err := r.must(r.command("version", commandLimit, "ropeshift", "version", "--json")); err != nil {
 		return err
 	}
-	if _, err := r.must(r.onTerminal("init", []string{"ropeshift", "init"}, passphrase, passphrase)); err != nil {
+	if _, err := r.must(r.onTerminal("init", initLimit, []string{"ropeshift", "init"}, passphrase, passphrase)); err != nil {
 		return err
 	}
 	repo := filepath.Join(home, "project")
@@ -176,12 +204,12 @@ func (r *run) firstWorkOrder() error {
 	if err := r.startDaemon(repo); err != nil {
 		return err
 	}
-	if err := r.waitFor("the daemon's answer", readyWait, func() (bool, error) {
-		return r.command("health", "ropeshift", "health").Exit == 0, nil
+	if err := r.waitFor("the daemon's answer", answerLimit, func(ctx context.Context) (bool, error) {
+		return r.commandIn(ctx, "health", "ropeshift", "health").Exit == 0, nil
 	}); err != nil {
 		return err
 	}
-	login, err := r.must(r.onTerminal("login", []string{"ropeshift", "login"}, passphrase))
+	login, err := r.must(r.onTerminal("login", commandLimit, []string{"ropeshift", "login"}, passphrase))
 	if err != nil {
 		return err
 	}
@@ -195,31 +223,31 @@ func (r *run) firstWorkOrder() error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.must(r.command("review", "ropeshift", "work", "review", id)); err != nil {
+	if _, err := r.must(r.command("review", commandLimit, "ropeshift", "work", "review", id)); err != nil {
 		return err
 	}
-	if err := r.reach(id, workorders.Ready); err != nil {
+	if err := r.reach(id, workorders.Ready, readyLimit); err != nil {
 		return err
 	}
 	worker, err := r.theWorker()
 	if err != nil {
 		return err
 	}
-	if _, err := r.must(r.command("claim", "ropeshift", "work", "claim", id, "--worker", worker, "--claim-id", claimID)); err != nil {
+	if _, err := r.must(r.command("claim", commandLimit, "ropeshift", "work", "claim", id, "--worker", worker, "--claim-id", claimID)); err != nil {
 		return err
 	}
-	if _, err := r.must(r.command("lane start", "ropeshift", "lane", "start", id, "--lane", laneID)); err != nil {
+	if _, err := r.must(r.command("lane start", commandLimit, "ropeshift", "lane", "start", id, "--lane", laneID)); err != nil {
 		return err
 	}
-	if err := r.reach(id, workorders.Acceptance); err != nil {
+	if err := r.reach(id, workorders.Acceptance, acceptanceLimit); err != nil {
 		return err
 	}
 	r.result.WebStatus = webStatus(api.DefaultWebAddress)
 	r.result.OffLoopback = offLoopback()
-	if _, err := r.must(r.command("accept", "ropeshift", "work", "accept", id)); err != nil {
+	if _, err := r.must(r.command("accept", commandLimit, "ropeshift", "work", "accept", id)); err != nil {
 		return err
 	}
-	if err := r.reach(id, workorders.Done); err != nil {
+	if err := r.reach(id, workorders.Done, doneLimit); err != nil {
 		return err
 	}
 	return r.stopDaemon()
@@ -271,7 +299,7 @@ func (r *run) newRepository(repo, sample string) error {
 		{"git", "-C", repo, "add", cli.SampleContractName},
 		{"git", "-C", repo, "commit", "--quiet", "--message", "Add the sample contract"},
 	} {
-		if _, err := r.must(r.command("git", args...)); err != nil {
+		if _, err := r.must(r.command("git", commandLimit, args...)); err != nil {
 			return err
 		}
 	}
@@ -316,9 +344,21 @@ func (r *run) stopDaemon() error {
 			return fmt.Errorf("ropeshiftd exited %d on SIGTERM", exit.ExitCode())
 		}
 		return nil
-	case <-time.After(30 * time.Second):
-		return errors.New("ropeshiftd did not stop within 30s of SIGTERM")
+	case <-time.After(stopLimit):
+		return fmt.Errorf("the step \"daemon stop\" did not end within its limit: ropeshiftd did not stop within %v of SIGTERM\n%s", stopLimit, r.daemonLog())
 	}
+}
+
+// daemonLog is the end of what the daemon wrote, which a step that waits on the daemon shows when it fails.
+func (r *run) daemonLog() string {
+	raw, err := os.ReadFile(filepath.Join(r.out, "daemon.log"))
+	if err != nil {
+		return "the daemon's log could not be read: " + err.Error()
+	}
+	if text := tail(string(raw)); text != "" {
+		return fmt.Sprintf("the daemon's log, at most its last %d lines:\n%s", tailLines, text)
+	}
+	return "the daemon's log is empty"
 }
 
 // endWhatRemains ends what the daemon leaves by design, each by the exact identity it recorded: its
@@ -335,9 +375,13 @@ func (r *run) endWhatRemains() {
 	}
 	if _, err := os.Stat(r.paths.TerminalSocket()); err == nil {
 		if tool, err := exec.LookPath("tmux"); err == nil {
-			kill := exec.Command(tool, "-S", r.paths.TerminalSocket(), "kill-server")
-			kill.Env = r.env
-			if kill.Run() == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), terminalLimit)
+			kill := runStep(ctx, "terminal server", []string{tool, "-S", r.paths.TerminalSocket(), "kill-server"}, func(cmd *exec.Cmd) { cmd.Env = r.env })
+			cancel()
+			switch {
+			case kill.TimedOut:
+				r.result.Left = append(r.result.Left, fmt.Sprintf("the daemon's terminal server, which tmux did not end within %v", terminalLimit))
+			case kill.Exit == 0:
 				r.result.Left = append(r.result.Left, "the daemon's terminal server")
 			}
 		}
@@ -368,25 +412,27 @@ func (r *run) endWhatRemains() {
 	}
 }
 
-// onTerminal runs a command whose controlling terminal is a new one, and types each answer once its
-// prompt shows, as a person does. Its stdout stays a pipe, as in `$(ropeshift login)`.
-func (r *run) onTerminal(name string, args []string, answers ...string) Step {
+// onTerminal runs a command whose controlling terminal is a new one, for at most limit, and types each
+// answer once its prompt shows, as a person does. Its stdout stays a pipe, as in `$(ropeshift login)`.
+func (r *run) onTerminal(name string, limit time.Duration, args []string, answers ...string) Step {
 	typed, held, err := ptypair.Open()
 	if err != nil {
 		return Step{Name: name, Args: args, Exit: -1, Stderr: err.Error()}
 	}
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = r.env
-	cmd.Stdin = strings.NewReader("")
-	cmd.ExtraFiles = []*os.File{held}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 3}
 	var screen bytes.Buffer
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		answer(typed, &screen, answers)
 	}()
-	step := r.execute(name, cmd)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	step := runStep(ctx, name, args, func(cmd *exec.Cmd) {
+		cmd.Env = r.env
+		cmd.Stdin = strings.NewReader("")
+		cmd.ExtraFiles = []*os.File{held}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 3}
+	})
 	_ = held.Close()
 	_ = typed.Close()
 	<-done
@@ -411,19 +457,45 @@ func answer(typed *os.File, screen *bytes.Buffer, answers []string) {
 	}
 }
 
-// command runs one program from PATH with the run's environment.
-func (r *run) command(name string, args ...string) Step {
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = r.env
-	return r.execute(name, cmd)
+// command runs one program from PATH with the run's environment, for at most limit.
+func (r *run) command(name string, limit time.Duration, args ...string) Step {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	return r.commandIn(ctx, name, args...)
 }
 
-func (r *run) execute(name string, cmd *exec.Cmd) Step {
+// commandIn is command inside a wait, which kills it when the wait runs out, and remembers it as the step
+// the wait ran last.
+func (r *run) commandIn(ctx context.Context, name string, args ...string) Step {
+	r.last = runStep(ctx, name, args, func(cmd *exec.Cmd) { cmd.Env = r.env })
+	return r.last
+}
+
+// runStep runs one step's program until it ends or ctx does. When ctx ends first, the step is killed with
+// its process group and reads as timed out, with the output it wrote until then. prepare sets what the
+// step needs beyond its arguments, and a step it gives no process attributes runs in a group of its own.
+func runStep(ctx context.Context, name string, args []string, prepare func(*exec.Cmd)) Step {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	if prepare != nil {
+		prepare(cmd)
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
+	// A new session or a new group is led by the step's own process, so its ID names the group.
+	cmd.Cancel = func() error {
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+			return cmd.Process.Kill()
+		}
+		return nil
+	}
+	cmd.WaitDelay = outputGrace
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	start := time.Now()
 	err := cmd.Run()
 	step := Step{Name: name, Args: cmd.Args, Stdout: stdout.String(), Stderr: stderr.String(), Millis: time.Since(start).Milliseconds()}
+	step.TimedOut = err != nil && ctx.Err() != nil
 	var exit *exec.ExitError
 	switch {
 	case errors.As(err, &exit):
@@ -432,40 +504,96 @@ func (r *run) execute(name string, cmd *exec.Cmd) Step {
 		step.Exit = -1
 		step.Stderr += err.Error()
 	}
+	if step.TimedOut && step.Exit == 0 {
+		step.Exit = -1
+	}
 	return step
 }
 
-// must records a step and fails the run on a non-zero exit.
+// must records a step and fails the run on a non-zero exit, or on a step that ran past its limit.
 func (r *run) must(step Step) (Step, error) {
 	r.result.Steps = append(r.result.Steps, step)
-	if step.Exit != 0 {
+	switch {
+	case step.TimedOut:
+		return step, fmt.Errorf("the step %q did not end within its limit and was killed after %d ms: %s\n%s",
+			step.Name, step.Millis, strings.Join(step.Args, " "), outputTail(step))
+	case step.Exit != 0:
 		return step, fmt.Errorf("%s exited %d: %s", strings.Join(step.Args, " "), step.Exit, strings.TrimSpace(step.Stderr))
 	}
 	return step, nil
 }
 
-func (r *run) waitFor(what string, limit time.Duration, done func() (bool, error)) error {
-	deadline := time.Now().Add(limit)
+// outputTail is the end of each stream a step wrote, so a failure shows what the step was doing.
+func outputTail(step Step) string {
+	var out strings.Builder
+	for _, stream := range []struct{ name, text string }{{"stdout", step.Stdout}, {"stderr", step.Stderr}, {"terminal", step.Terminal}} {
+		if text := tail(stream.text); text != "" {
+			fmt.Fprintf(&out, "its %s, at most its last %d lines:\n%s\n", stream.name, tailLines, text)
+		}
+	}
+	if out.Len() == 0 {
+		return "it wrote nothing"
+	}
+	return strings.TrimSuffix(out.String(), "\n")
+}
+
+// tail is the last tailLines lines of text, and no more than its last tailBytes bytes.
+func tail(text string) string {
+	text = strings.TrimRight(text, "\n")
+	if len(text) > tailBytes {
+		text = strings.ToValidUTF8(text[len(text)-tailBytes:], "")
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > tailLines {
+		lines = lines[len(lines)-tailLines:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// waitFor runs done until it holds, for at most limit. A wait that runs out names the step it ran last,
+// which it kills if that step still runs, with the end of that step's output and of the daemon's log.
+func (r *run) waitFor(what string, limit time.Duration, done func(context.Context) (bool, error)) error {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	r.last = Step{}
+	ranOut := func() error {
+		return fmt.Errorf("the wait for %s did not end within its limit of %v; %s\n%s", what, limit, r.lastStep(), r.daemonLog())
+	}
 	for {
-		ok, err := done()
-		if err != nil {
+		ok, err := done(ctx)
+		switch {
+		case ok && err == nil:
+			return nil
+		case ctx.Err() != nil:
+			return ranOut()
+		case err != nil:
 			return err
 		}
-		if ok {
-			return nil
+		select {
+		case <-ctx.Done():
+			return ranOut()
+		case <-time.After(pollEvery):
 		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%s did not happen within %v", what, limit)
-		}
-		time.Sleep(pollEvery)
 	}
+}
+
+// lastStep says what a wait that ran out ran last.
+func (r *run) lastStep() string {
+	if r.last.Name == "" {
+		return "it ran no step"
+	}
+	verdict := fmt.Sprintf("exited %d", r.last.Exit)
+	if r.last.TimedOut {
+		verdict = "was killed at the wait's limit"
+	}
+	return fmt.Sprintf("its last step, %q, %s after %d ms: %s\n%s", r.last.Name, verdict, r.last.Millis, strings.Join(r.last.Args, " "), outputTail(r.last))
 }
 
 // theWorkOrder waits for intake to take the sample's one work order.
 func (r *run) theWorkOrder() (string, error) {
 	var id string
-	err := r.waitFor("intake of the sample contract", stepWait, func() (bool, error) {
-		step := r.command("work list", "ropeshift", "work", "list", "--json")
+	err := r.waitFor("intake of the sample contract", intakeLimit, func(ctx context.Context) (bool, error) {
+		step := r.commandIn(ctx, "work list", "ropeshift", "work", "list", "--json")
 		if step.Exit != 0 {
 			return false, nil
 		}
@@ -489,7 +617,7 @@ func (r *run) theWorkOrder() (string, error) {
 }
 
 func (r *run) theWorker() (string, error) {
-	step, err := r.must(r.command("worker list", "ropeshift", "worker", "list", "--json"))
+	step, err := r.must(r.command("worker list", commandLimit, "ropeshift", "worker", "list", "--json"))
 	if err != nil {
 		return "", err
 	}
@@ -504,9 +632,9 @@ func (r *run) theWorker() (string, error) {
 }
 
 // reach waits for a work order to reach a state, and fails on one it cannot leave on its own.
-func (r *run) reach(id string, want workorders.State) error {
-	return r.waitFor("state "+string(want), stepWait, func() (bool, error) {
-		step := r.command("work show", "ropeshift", "work", "show", id, "--json")
+func (r *run) reach(id string, want workorders.State, limit time.Duration) error {
+	return r.waitFor("state "+string(want), limit, func(ctx context.Context) (bool, error) {
+		step := r.commandIn(ctx, "work show", "ropeshift", "work", "show", id, "--json")
 		if step.Exit != 0 {
 			return false, fmt.Errorf("work show exited %d: %s", step.Exit, step.Stderr)
 		}

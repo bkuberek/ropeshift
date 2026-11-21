@@ -15,8 +15,10 @@ const (
 
 // The orchestrator's events.
 const (
-	// EventOrchestratorDesired records what a member asked, and only a member can ask it: the first
-	// passphrase needs no session, which is safe only while no agent runs before a member says so.
+	// EventOrchestratorDesired records what was asked of an orchestrator. A member stops it, starts one it stopped,
+	// and resets its breaker. The system asks for a worker's own, in the worker's session or in the transaction that
+	// stores the first passphrase, and only once a member exists: the first passphrase needs no session, which is safe
+	// only while no agent runs before it exists.
 	EventOrchestratorDesired = "orchestrator.desired"
 	// EventOrchestratorReported records what its worker said of it.
 	EventOrchestratorReported = "orchestrator.reported"
@@ -34,8 +36,8 @@ type Orchestrator struct {
 	ID       string `json:"id"`
 	WorkerID string `json:"worker_id"`
 	Desired  string `json:"desired_state"`
-	// Run counts a member's starts. A journal keeps a lane that ended, so each start names a lane of
-	// its own.
+	// Run counts the starts asked of it, a member's and the system's. A journal keeps a lane that ended, so each
+	// start names a lane of its own.
 	Run int64 `json:"run"`
 	// Resets counts a member's resets of a breaker that tripped.
 	Resets     int64  `json:"resets"`

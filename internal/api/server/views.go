@@ -1517,9 +1517,15 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	for _, row := range rows {
 		byLane[row.ID] = row
 	}
+	waiting, err := lanesWaiting(tx)
+	if err != nil {
+		return nil, err
+	}
 	view := api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: make([]api.FloorLane, 0, len(lanes))}
 	for _, lane := range lanes {
-		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder], Archivable: archivable(byLane[lane.ID])})
+		view.Lanes = append(view.Lanes, api.FloorLane{
+			LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder], Archivable: archivable(byLane[lane.ID]), WaitsOn: waiting[lane.ID],
+		})
 	}
 	return view, nil
 }

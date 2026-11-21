@@ -940,8 +940,7 @@ export type Decisions = Stamp & { decisions: Decision[] };
 
 export type Questions = Stamp & { categories: string[]; questions: Question[] };
 
-// WaitsOn is who a lane waits on while it waits on a blocking question: the orchestrator while the question climbs the
-// ladder, and a member once it reached one.
+// WaitsOn is whom a lane waits on to go on, the blocking question it waits on, and when the lane asked it.
 export type WaitsOn = { who: "orchestrator" | "member"; question: string; since: number };
 
 export type WorkLine = { work_order: WorkOrder; lane?: Lane; since: number; waits_on?: WaitsOn };
@@ -1191,7 +1190,7 @@ export type WorkerLine = {
 
 // A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.
 // archivable says a member may ask for the lane's worktree to be removed: the lane ended, and it still stands.
-export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean };
+export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean; waits_on?: WaitsOn };
 
 export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: FloorLane[] };
 

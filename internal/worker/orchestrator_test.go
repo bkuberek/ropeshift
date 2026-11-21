@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/lexical"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -181,8 +183,51 @@ func (o *orchestratorRig) awaitRest(t *testing.T) {
 	o.await(t, "a rest", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Idle) })
 }
 
-// The first passphrase needs no session, which is safe only because no agent runs until a member
-// says so. A digest with work in it must not be enough.
+// enrollMember records the member the first passphrase makes, which a plane that starts the orchestrator waits for.
+func enrollMember(t *testing.T, store *fake.Store) {
+	t.Helper()
+	err := store.Installation(scope).Write(t.Context(), "test.enroll", func(tx ports.SharedTx) error {
+		err := tx.Members().SaveMember(authority.MemberRecord{
+			Member:      authority.Member{ID: "member-1", IdentitySubject: "local", DisplayName: "M", Status: authority.MemberActive},
+			ProofDigest: "hash",
+		})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "member.proof_set", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "first-enrollment"}, Subject: ledger.Subject{Kind: "member", ID: "member-1"}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The orchestrator is there to unblock lanes, so it runs with its worker: a plane that starts it asks for it when the
+// worker's session opens once a member exists, a question wakes it with no member's Start, and a crash brings it back
+// under its breaker (FR-ORCH-1).
+func TestAnOrchestratorRunsWithItsWorker(t *testing.T) {
+	base := newRig(t)
+	enrollMember(t, base.store)
+	base.plane = control.NewWorkers(base.store, scope, control.WorkerOptions{
+		HeartbeatMs: 20, LeaseTTLMs: 60_000, Matcher: lexical.Matcher{Store: base.store}, StartsOrchestrator: true,
+	})
+	base.link = &fake.WorkerLink{Plane: base.plane}
+	o := newOrchestratorRigOn(t, base, script([]fake.DriverStep{{Bound: true}, {Crash: true}}), aSession())
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	o.await(t, "a backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+	if row := o.row(t); row.Run != 1 || row.Desired != ledger.OrchestratorRunning {
+		t.Errorf("the orchestrator that started with its worker reads %+v", row)
+	}
+}
+
+// A rig's plane holds the orchestrator, so no agent runs until a test asks, as a member would. A digest with work
+// in it must not be enough.
 func TestNoOrchestratorRunsUntilAMemberAsks(t *testing.T) {
 	o := newOrchestratorRig(t, aSession())
 	o.asked(t, "q1", "What is the retry budget?")

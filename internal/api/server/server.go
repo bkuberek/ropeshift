@@ -43,6 +43,9 @@ type Config struct {
 	Projects ports.Projects
 	// Installation holds the records every project shares. Nil reaches them through Store.
 	Installation ports.Installation
+	// HoldsOrchestrator keeps a worker's session and the first passphrase from asking for an orchestrator, which a
+	// daemon's do once a member exists, so that a test daemon starts one only when a test asks (FR-ORCH-1).
+	HoldsOrchestrator bool
 	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
 	// the first no candidates.
 	Matching func(ports.Store) ports.Matcher
@@ -229,7 +232,7 @@ func New(config Config) http.Handler {
 	home := newHandler(config)
 	home.plane = control.NewPlane(config.Projects, config.Installation, config.Scope, control.WorkerOptions{
 		Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-		PackTokens: config.PackTokens, Starts: config.Starts, Warn: config.Warn,
+		PackTokens: config.PackTokens, Starts: config.Starts, Warn: config.Warn, StartsOrchestrator: !config.HoldsOrchestrator,
 	}, matching(config))
 	home.ciWebhooks = control.NewCIWebhooks(home.plane, home.plane.CIHints(), config.Env, time.Now, config.Warn)
 	projects := newRouter(config, home)
@@ -341,7 +344,7 @@ func newHandler(config Config) *handler {
 		fleet:         control.NewFleet(config.Store),
 		wakes:         control.NewWakes(config.Store),
 		messages:      control.NewMessages(config.Store, config.Windows).Hosting(config.AssistantHosts),
-		sessions:      control.NewSessions(config.Store, config.Identity),
+		sessions:      control.NewSessions(config.Store, config.Identity).StartingOrchestrators(!config.HoldsOrchestrator),
 		approvals:     control.NewApprovals(config.Store),
 		autonomy:      control.NewAutonomy(config.Store),
 		effects:       control.NewEffects(config.Store),
@@ -352,6 +355,7 @@ func newHandler(config Config) *handler {
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts, Warn: config.Warn,
+			StartsOrchestrator: !config.HoldsOrchestrator,
 		}),
 		notices: control.NewNotices(config.Store, func(authority.NotifyPolicy) []ports.Notifier { return nil }),
 	}

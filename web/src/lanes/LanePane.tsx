@@ -9,6 +9,7 @@ import { useView } from "../api/useView";
 import { onMac } from "../app/keys";
 import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
+import { WaitsOnWords } from "../floor/WaitsOn";
 import { SpendPanel } from "../floor/SpendPanel";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
@@ -838,6 +839,11 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                       {lane.checking ? <CheckingChip check={lane.checking} /> : null}
                     </span>
                   </Fact>
+                  {lane.waits_on ? (
+                    <Fact name="Waits on">
+                      <WaitsOnWords waits={lane.waits_on} />
+                    </Fact>
+                  ) : null}
                   <Fact name="Seen">
                     <Freshness kind={freshnessOf(lane.freshness)} at={lane.as_of} source="the lane's worker" />
                   </Fact>
