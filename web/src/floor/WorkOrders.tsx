@@ -494,7 +494,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
       actions={
         <>
           <StartWork order={order} allowed={row.allowed} inView opened={dialog === "start"} onClosed={closed} after={after} />
-          <WorkActions order={order} allowance={row.allowed} lanes={lanes} omit={decided} opened={dialog} onClosed={closed} after={after} />
+          <WorkActions order={order} allowance={row.allowed} lanes={lanes} omit={decided} opened={dialog} cause={need?.kind === "work" ? need.work.detail : undefined} onClosed={closed} after={after} />
         </>
       }
       title={

@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -41,4 +43,49 @@ func TestAMemberRetriesFailedWork(t *testing.T) {
 	}
 	_, err = d.Client.Retry(ctx, "wo", api.Retry{Reason: "again"})
 	refusedWith(t, err, http.StatusConflict, api.CodeIllegalMove)
+}
+
+// The words the web UI sends for a retry whose note a member left empty are the member's, and the retry names the lane
+// whose failure it answers, so what that lane wrote stays the lane's and never becomes the member's reason.
+func TestARetryNamesTheFailedLaneAndKeepsTheMembersWords(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	const said = "It gave up on the flaky call"
+	w.Running("wo", "Try the flaky call").Finish(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: said}})
+	ctx := t.Context()
+	const fixed = "Retried after the recorded failure"
+	if _, err := d.Client.Retry(ctx, "wo", api.Retry{Reason: fixed}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := d.Client.Audit(ctx, api.AuditQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := map[string]workorders.Change{}
+	var retried []byte
+	for _, event := range page.Events {
+		if event.SubjectID != "wo" {
+			continue
+		}
+		var change workorders.Change
+		if err := json.Unmarshal(event.Data, &change); err != nil {
+			t.Fatal(err)
+		}
+		changes[event.Type] = change
+		if event.Type == workorders.EventType(workorders.TriggerRetried) {
+			retried = event.Data
+		}
+	}
+	failed, ok := changes[workorders.EventType(workorders.TriggerAttemptsExhausted)]
+	if !ok || failed.Lane == "" {
+		t.Fatalf("no lane end names the lane: %+v", changes)
+	}
+	got := changes[workorders.EventType(workorders.TriggerRetried)]
+	if got.Reason != fixed || got.Lane != failed.Lane {
+		t.Errorf("the retry recorded reason %q for lane %q, want %q for the failed lane %q", got.Reason, got.Lane, fixed, failed.Lane)
+	}
+	if strings.Contains(string(retried), said) {
+		t.Errorf("the retry carries the lane's words as the member's: %s", retried)
+	}
 }
