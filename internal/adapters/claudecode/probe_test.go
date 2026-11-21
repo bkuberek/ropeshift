@@ -15,6 +15,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -164,6 +165,18 @@ func TestAProbePaneThatDiesEndsTheScreenCheck(t *testing.T) {
 	}
 }
 
+// requireNoTmuxServer fails the test when the terminal's server still runs a moment after a stopped probe returned.
+// The server ends itself with its last pane, and one that outlives the worker keeps every descriptor the worker
+// handed it, so a stop that left the pane leaves the server too.
+func requireNoTmuxServer(t *testing.T, server *tmux.Terminal) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); doubles.TmuxRunning(t, server); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stopped probe left the terminal server running")
+		}
+	}
+}
+
 // stoppingTerminal ends a probe's context once tmux has made the probe's pane, as a worker that stops
 // then does. With cut, the open answers with that end, as a call the stop cut short after tmux made the
 // pane. Without it, the end comes once the pane shows its trust dialog, which takes no interrupt.
@@ -217,6 +230,7 @@ func TestAProbeStoppedAtItsPaneLeavesNoPane(t *testing.T) {
 			if pane, err := server.Pane(context.WithoutCancel(ctx), claudecode.ProbePane); !errors.Is(err, ports.ErrNotFound) {
 				t.Errorf("the stopped probe left its pane: %+v, %v", pane, err)
 			}
+			requireNoTmuxServer(t, server)
 		})
 	}
 }
@@ -261,6 +275,7 @@ func TestAProbeStoppedBeforeItsPaneOpensOpensNone(t *testing.T) {
 	if pane, err := server.Pane(context.WithoutCancel(ctx), claudecode.ProbePane); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("the stopped probe left a pane: %+v, %v", pane, err)
 	}
+	requireNoTmuxServer(t, server)
 }
 
 // A sign-in nobody could read is a subscription, as everywhere else, so the login check runs.

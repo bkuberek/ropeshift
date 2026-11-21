@@ -413,6 +413,24 @@ func tmuxCall(t testing.TB, terminal *tmux.Terminal, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// TmuxRunning says whether a server answers on the socket of a terminal this package made. A server with no
+// session left ends itself, so a pane that was the last one closed leaves none running. It starts no server.
+func TmuxRunning(t testing.TB, terminal *tmux.Terminal) bool {
+	t.Helper()
+	found, ok := servers.Load(terminal)
+	if !ok {
+		t.Fatal("the terminal was not made by NewTmux or TmuxOn")
+	}
+	server := found.(tmuxServer)
+	binary, err := exec.LookPath(tmux.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binary, "-f", os.DevNull, "-S", server.socket, "list-sessions")
+	cmd.Env = server.env
+	return cmd.Run() == nil
+}
+
 // SetTmuxOption sets a global option on the server of a terminal this package made. The server must be running.
 func SetTmuxOption(t testing.TB, terminal *tmux.Terminal, name, value string) {
 	t.Helper()
