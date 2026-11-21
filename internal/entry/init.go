@@ -18,6 +18,9 @@ import (
 const (
 	initDaemonReady = 60 * time.Second
 	initDaemonStop  = 15 * time.Second
+	// initDaemonOutputGrace is how long the wait for the daemon goes on after it ended, for a process it left
+	// holding its output.
+	initDaemonOutputGrace = 2 * time.Second
 )
 
 // startDaemonForInit runs `ropeshiftd solo` for the length of one ropeshift init. Its first start
@@ -31,36 +34,62 @@ func startDaemonForInit(paths api.Paths) func(context.Context) (func() error, er
 			return nil, err
 		}
 		output := &lockedOutput{}
-		cmd := &exec.Cmd{
-			Path:   executable,
-			Args:   []string{commandDaemon, "solo", "--web", api.WebOff, "--telemetry", api.WebOff},
-			Env:    os.Environ(),
-			Stdout: output,
-			Stderr: output,
-		}
-		if err := cmd.Start(); err != nil {
+		cmd := initDaemonCommand(executable)
+		cmd.Stdout, cmd.Stderr = output, output
+		daemon, err := launchInitDaemon(cmd, initDaemonStop)
+		if err != nil {
 			return nil, err
 		}
-		exited := make(chan error, 1)
-		go func() { exited <- cmd.Wait() }()
-		// The daemon is crash-only, so how it exited says nothing a run needs: only that it did.
-		stop := func() error {
-			_ = cmd.Process.Signal(syscall.SIGTERM)
-			select {
-			case err := <-exited:
-				_ = err
-				return nil
-			case <-time.After(initDaemonStop):
-				_ = cmd.Process.Kill()
-				killed := <-exited
-				return fmt.Errorf("the daemon did not stop within %v, so it was killed: %v", initDaemonStop, killed)
-			}
-		}
-		if err := awaitDaemon(ctx, paths, exited); err != nil {
-			_ = stop()
+		if err := awaitDaemon(ctx, paths, daemon.exited); err != nil {
+			_ = daemon.stop()
 			return nil, fmt.Errorf("%w\n%s", err, output.String())
 		}
-		return stop, nil
+		return daemon.stop, nil
+	}
+}
+
+// initDaemonCommand is the daemon an init runs, before its output is set. A process the daemon leaves
+// behind can hold its output open after the daemon ended, and the wait for the daemon would wait for
+// that process too, so the wait is bounded, as the installed-build read's is.
+func initDaemonCommand(executable string) *exec.Cmd {
+	return &exec.Cmd{
+		Path:      executable,
+		Args:      []string{commandDaemon, "solo", "--web", api.WebOff, "--telemetry", api.WebOff},
+		Env:       os.Environ(),
+		WaitDelay: initDaemonOutputGrace,
+	}
+}
+
+// initDaemon is the daemon one ropeshift init started, and the channel its end arrives on.
+type initDaemon struct {
+	cmd    *exec.Cmd
+	exited chan error
+	// limit is how long stop waits for the daemon to end on SIGTERM before it kills it.
+	limit time.Duration
+}
+
+// launchInitDaemon starts cmd and watches for its end.
+func launchInitDaemon(cmd *exec.Cmd, limit time.Duration) (*initDaemon, error) {
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	daemon := &initDaemon{cmd: cmd, exited: make(chan error, 1), limit: limit}
+	go func() { daemon.exited <- cmd.Wait() }()
+	return daemon, nil
+}
+
+// stop ends the daemon with SIGTERM, and with SIGKILL when it has not ended within the limit. The daemon is
+// crash-only, so how it exited says nothing a run needs: only that it did.
+func (d *initDaemon) stop() error {
+	_ = d.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case err := <-d.exited:
+		_ = err
+		return nil
+	case <-time.After(d.limit):
+		_ = d.cmd.Process.Kill()
+		killed := <-d.exited
+		return fmt.Errorf("the daemon did not stop within %v, so it was killed: %v", d.limit, killed)
 	}
 }
 
