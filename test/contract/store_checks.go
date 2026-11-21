@@ -28,6 +28,7 @@ var StoreChecks = []Check{
 	{"S12", "creating a workspace is idempotent", checkCreateWorkspace},
 	{"S13", "creating a work order is idempotent", checkCreateWorkOrderRetry},
 	{"S14", "a write whose context names a proposer names it on every event beside the actor, and a draft's own proposer stands", checkEventNamesProposer},
+	{"S15", "the events of one subject kind are read from a time on, in order, in their own workspace, by a read and a write alike", checkEventsOfKind},
 }
 
 // checkGaplessRevisions races writers against a reader that follows a cursor. A
@@ -610,6 +611,108 @@ func checkEventNamesProposer(r *Rig) error {
 		return Violatedf("a proposer with no ID returned %v", err)
 	}
 	return nil
+}
+
+// checkEventsOfKind holds the read a rare kind of event is found by without a read of each record it may be about: every
+// event about a subject of one kind recorded at or after a time, by database time, in revision order, and none of
+// another kind or another workspace, whether a read or a write asks.
+func checkEventsOfKind(r *Rig) error {
+	s := r.Store()
+	kind, other := r.ID("kind"), r.ID("other")
+	elsewhere := ledger.WorkspaceID(r.ID("workspace"))
+	if _, err := s.CreateWorkspace(r.Ctx, ledger.Workspace{ID: elsewhere, Name: "elsewhere"}, r.Actor); err != nil {
+		return err
+	}
+	about := func(scope ledger.WorkspaceID, kind, id string) (ledger.Event, error) {
+		var event ledger.Event
+		err := s.Write(r.Ctx, scope, "kind", func(tx ports.WriteTx) error {
+			var err error
+			event, err = tx.Append(ledger.EventDraft{Type: "note.added", Actor: r.Actor, Subject: ledger.Subject{Kind: kind, ID: id}, Data: []byte(`{}`)})
+			return err
+		})
+		return event, err
+	}
+	first, err := about(r.Scope, kind, "a")
+	if err != nil {
+		return err
+	}
+	if _, err := about(r.Scope, other, "a"); err != nil {
+		return err
+	}
+	if _, err := about(elsewhere, kind, "a"); err != nil {
+		return err
+	}
+	r.DB.ShiftClock(int64(time.Hour / time.Millisecond))
+	second, err := about(r.Scope, kind, "b")
+	if err != nil {
+		return err
+	}
+	third, err := about(r.Scope, kind, "a")
+	if err != nil {
+		return err
+	}
+	reads := map[string]func(since int64) ([]ledger.Event, error){
+		"a read": func(since int64) ([]ledger.Event, error) {
+			var events []ledger.Event
+			err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+				var err error
+				events, err = tx.EventsOfKind(kind, since)
+				return err
+			})
+			return events, err
+		},
+		"a write": func(since int64) ([]ledger.Event, error) {
+			var events []ledger.Event
+			err := s.Write(r.Ctx, r.Scope, "kind.read", func(tx ports.WriteTx) error {
+				var err error
+				events, err = tx.EventsOfKind(kind, since)
+				return err
+			})
+			return events, err
+		},
+	}
+	cases := []struct {
+		since int64
+		want  []ledger.Event
+	}{
+		{0, []ledger.Event{first, second, third}},
+		{first.RecordedAt, []ledger.Event{first, second, third}},
+		{first.RecordedAt + 1, []ledger.Event{second, third}},
+		{third.RecordedAt + 1, nil},
+	}
+	for name, read := range reads {
+		for _, c := range cases {
+			got, err := read(c.since)
+			if err != nil {
+				return err
+			}
+			if !sameEvents(got, c.want) {
+				return Violatedf("%s of kind %s since %d gave %s, want %s", name, kind, c.since, eventRevs(got), eventRevs(c.want))
+			}
+		}
+	}
+	return nil
+}
+
+// sameEvents says two lists hold the same events in the same order, by revision and subject.
+func sameEvents(got, want []ledger.Event) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i].Rev != want[i].Rev || got[i].Subject != want[i].Subject || got[i].RecordedAt != want[i].RecordedAt {
+			return false
+		}
+	}
+	return true
+}
+
+func eventRevs(events []ledger.Event) string {
+	revs := make([]string, 0, len(events))
+	for _, event := range events {
+		revs = append(revs, fmt.Sprintf("%d (%s %s)", event.Rev, event.Subject.Kind, event.Subject.ID))
+	}
+	return "[" + strings.Join(revs, ", ") + "]"
 }
 
 // eventsOf reads the events about one record, through the store's own read of them.

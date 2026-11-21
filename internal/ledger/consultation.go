@@ -53,6 +53,13 @@ func ConsultationStartedID(id string) string { return "consultation-started-" + 
 // question held no longer than this (FR-ORCH-9).
 const ConsultHold = 45 * time.Minute
 
+// ConsultReservation is the longest a consultation holds its budget against the project's daily and weekly limits
+// without an end, counted from its start. A consultation holds its budget until its end arrives, which counts what it
+// spent in its place, and past its hold on the question, because a worker that went away may leave its session
+// spending, and records that spend once it starts again. A worker that never comes back holds none of it past this
+// (FR-ORCH-9, FR-SPEND-6).
+const ConsultReservation = 24 * time.Hour
+
 // The bounds of what a consultation reports, so its wake stays a wake.
 const (
 	MaxConsultationOptions = 8
@@ -136,9 +143,12 @@ const (
 	ConsultationUnreported = "no_report"
 	// ConsultationFailed says its session could not start or run.
 	ConsultationFailed = "failed"
+	// ConsultationCancelled says the worker stopped its session because its question was decided or dismissed while it
+	// ran, so what it would report decides nothing.
+	ConsultationCancelled = "cancelled"
 )
 
-var consultationOutcomes = []string{ConsultationReported, ConsultationAtCap, ConsultationUnreported, ConsultationFailed}
+var consultationOutcomes = []string{ConsultationReported, ConsultationAtCap, ConsultationUnreported, ConsultationFailed, ConsultationCancelled}
 
 // ConsultationReport is what a consultation's agent reports: the options it found, the one it recommends, and why.
 type ConsultationReport struct {

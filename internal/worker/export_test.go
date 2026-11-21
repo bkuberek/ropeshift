@@ -162,7 +162,8 @@ func (w *Worker) MarkUnknown(ctx context.Context) error { return w.markUnknown(c
 func (w *Worker) ConsultationTaken(id string) bool {
 	w.consults.mu.Lock()
 	defer w.consults.mu.Unlock()
-	return w.consults.live[id]
+	_, taken := w.consults.live[id]
+	return taken
 }
 
 // RecoverConsultations ends the consultations the journal keeps that this process does not run, as a start does.

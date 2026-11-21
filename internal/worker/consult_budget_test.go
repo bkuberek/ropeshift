@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
@@ -106,6 +107,30 @@ func TestParallelConsultationsShareWhatTheProjectsLimitsLeave(t *testing.T) {
 	})
 }
 
+// FR-ORCH-9, FR-SPEND-6: a consultation's budget stays held against the project's limits past its hold on the question,
+// until its end arrives, because a worker that went away may leave its session spending, and the end it records when it
+// starts again is what that session spent. A worker that never comes back holds it for no longer than the reservation,
+// counted from the consultation's start.
+func TestAConsultationWhoseWorkerWentAwayHoldsItsBudgetUntilItsEndArrives(t *testing.T) {
+	t.Parallel()
+	r := aToolRig(t)
+	r.asked(t, "q2", "Which log level?")
+	r.asked(t, "q3", "Which key format?")
+	publishSpend(t, r.store, "project_weekly_limit", "3")
+	if first := r.grants(t, "q1", "c-first"); math.Abs(first.BudgetUSD-2) > 1e-9 {
+		t.Fatalf("the first consultation's budget is %v", first.BudgetUSD)
+	}
+	r.shiftDatabase(t, (ledger.ConsultHold + time.Minute).Milliseconds())
+	if second := r.grants(t, "q2", "c-second"); math.Abs(second.BudgetUSD-1) > 1e-9 {
+		t.Errorf("past the first's hold, the second consultation's budget is %v, and the week leaves $3 less the $2 the first holds", second.BudgetUSD)
+	}
+	r.shiftDatabase(t, (ledger.ConsultReservation - ledger.ConsultHold).Milliseconds())
+	if third := r.grants(t, "q3", "c-third"); math.Abs(third.BudgetUSD-2) > 1e-9 {
+		t.Errorf("past the first's reservation, the third consultation's budget is %v, and the week leaves $3 less the $1 the second holds",
+			third.BudgetUSD)
+	}
+}
+
 // memberActs is what a member does to a question while its consultation may run: decide it now, or dismiss it.
 type memberActs func(t *testing.T, r *toolRig, question string)
 
@@ -123,8 +148,8 @@ func dismisses(t *testing.T, r *toolRig, question string) {
 	}
 }
 
-// FR-ORCH-9, FR-SPEND-6: a consultation holds its budget against the project's limits from its start until its end, or
-// until its hold runs out, whatever becomes of its question meanwhile. A member who decides or dismisses the question
+// FR-ORCH-9, FR-SPEND-6: a consultation holds its budget against the project's limits from its start until its end,
+// whatever becomes of its question meanwhile. A member who decides or dismisses the question
 // while its session runs ends nothing the session spends, and a question that waits for a person is consulted on under
 // the same hold, so neither lets a second consultation spend what the first holds.
 func TestAConsultationHoldsItsBudgetWhateverBecomesOfItsQuestion(t *testing.T) {

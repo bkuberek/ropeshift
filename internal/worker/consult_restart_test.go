@@ -1,9 +1,12 @@
 package worker_test
 
 import (
+	"context"
 	"errors"
 	"math"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -122,6 +125,49 @@ func TestARestartedWorkerStopsAConsultationsSessionItsPredecessorLeft(t *testing
 		t.Errorf("the journal still keeps %+v: %v", kept, err)
 	}
 	if spent := r.workSpentToday(t); spent < 0.7-1e-9 {
+		t.Errorf("the project's work was charged %v for the consultation", spent)
+	}
+}
+
+// FR-ORCH-9: a session a worker that went away left may have spent past what the journal kept of its cost, and what it
+// streamed since says how much. The next start reads what the session streamed before it stops it, so the stop loses
+// none of that spend, and the consultation's end counts it.
+func TestARestartedWorkerReadsALeftSessionBeforeItStopsIt(t *testing.T) {
+	t.Parallel()
+	r := aToolRig(t)
+	grant, driver := r.leaveConsultation(t, "q1", "c-spent", script([]fake.DriverStep{{Bound: true}, {Running: 0.9}, {Hold: true}}))
+	if err := r.journal.SaveConsultationCost(t.Context(), grant.ID, 0.7); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var keptAtStop []float64
+	driver.OnStop(func() {
+		kept, err := r.journal.Consultations(context.Background())
+		mu.Lock()
+		defer mu.Unlock()
+		if err == nil && len(kept) == 1 {
+			keptAtStop = append(keptAtStop, kept[0].CostUSD)
+		}
+	})
+	next := r.restarted(t, driver)
+	if err := next.MarkUnknown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	next.Wait()
+	if err := next.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	stops := slices.Clone(keptAtStop)
+	mu.Unlock()
+	if len(stops) == 0 || math.Abs(stops[0]-0.9) > 1e-9 {
+		t.Errorf("the journal kept costs of %v at each stop, and the session had streamed $0.90 before the first", stops)
+	}
+	ended := r.consultations(t, "q1")
+	if len(ended) != 1 || ended[0].Outcome != ledger.ConsultationUnreported || math.Abs(ended[0].CostUSD-0.9) > 1e-9 {
+		t.Fatalf("the consultation ended %+v", ended)
+	}
+	if spent := r.workSpentToday(t); spent < 0.9-1e-9 {
 		t.Errorf("the project's work was charged %v for the consultation", spent)
 	}
 }
