@@ -396,6 +396,7 @@ func (d *Driver) Preflight(ctx context.Context, spec ports.SessionSpec) (ports.P
 	for _, found := range agentProblems(spec) {
 		problem("%s", found)
 	}
+	report.Notices = serverClash(spec)
 	report.Settings = d.settingsChangeOf(spec, true)
 	return report, nil
 }

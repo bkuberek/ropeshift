@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -173,20 +174,38 @@ func envValue(env []string, name string) string {
 // repositoryServers are the MCP servers the repository's own `.mcp.json` names, which is project setup a lane keeps.
 // They are read as the repository holds them at the lane's base (repositoryFile), so an edit a lane makes to the file,
 // in its worktree or in a commit of a branch it continues, reaches no lane until it is merged, and a file that does not
-// parse names none. A server named after ropeshift's own is left out, so it never replaces it.
+// parse names none. A server named after ropeshift's own is left out, so it never replaces it, and the preflight says
+// so (serverClash).
 func repositoryServers(spec ports.SessionSpec) map[string]json.RawMessage {
+	servers, _ := repositoryServersOf(spec)
+	return servers
+}
+
+// repositoryServersOf is repositoryServers, and whether the repository named a server after ropeshift's own, which it
+// left out.
+func repositoryServersOf(spec ports.SessionSpec) (map[string]json.RawMessage, bool) {
 	raw := repositoryFile(spec, ".mcp.json")
 	if raw == nil {
-		return nil
+		return nil, false
 	}
 	var file struct {
 		Servers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	if json.Unmarshal(raw, &file) != nil {
+		return nil, false
+	}
+	_, clash := file.Servers[ServerName]
+	delete(file.Servers, ServerName)
+	return file.Servers, clash
+}
+
+// serverClash is what a preflight says of a repository whose `.mcp.json` names a server after ropeshift's own, which
+// the lane runs in its place.
+func serverClash(spec ports.SessionSpec) []string {
+	if _, clash := repositoryServersOf(spec); !clash {
 		return nil
 	}
-	delete(file.Servers, ServerName)
-	return file.Servers
+	return []string{fmt.Sprintf("the repository's .mcp.json names an MCP server %q, the name of ropeshift's own server, so it is left out and the lane runs ropeshift's", ServerName)}
 }
 
 // The bounds of a read of a repository's file: how long git may take, and the most the file may hold.

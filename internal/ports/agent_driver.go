@@ -112,6 +112,9 @@ type DoctorReport struct {
 // PreflightReport says whether a spec can start. An empty list passes.
 type PreflightReport struct {
 	Problems []string
+	// Notices are what the driver left out of the session's setup that a person may want to know of, and that stops
+	// nothing, such as a repository's MCP server named after ropeshift's own.
+	Notices []string
 	// Settings is what the lane's worktree changed of the project settings the session would read, in a key that runs
 	// code or widens access, against the repository's at the lane's base. Nil says they match, or the driver has no
 	// base to read them at.

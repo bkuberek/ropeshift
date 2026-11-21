@@ -263,6 +263,27 @@ func TestALaneKeepsTheRepositorysOwnMCPServers(t *testing.T) {
 	}
 }
 
+// A server the repository names after ropeshift's own is left out and said so, never dropped in silence: the preflight
+// names it, and a repository with no such server is named nothing.
+func TestARepositoryServerNamedAfterRopeshiftsIsReported(t *testing.T) {
+	clash := laneSpec(t)
+	clash.Repository = clash.Dir
+	clash.Base = committed(t, clash.Dir, map[string]string{".mcp.json": `{"mcpServers":{"ropeshift":{"type":"stdio","command":"/elsewhere/ropeshift"}}}`})
+	report, err := New(nil, Options{}).Preflight(t.Context(), clash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Notices) != 1 || !strings.Contains(report.Notices[0], `"ropeshift"`) || !strings.Contains(report.Notices[0], "left out") {
+		t.Errorf("a repository server named after ropeshift's own was reported as %q", report.Notices)
+	}
+	plain := laneSpec(t)
+	plain.Repository = plain.Dir
+	plain.Base = committed(t, plain.Dir, map[string]string{".mcp.json": `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}`})
+	if report, err := New(nil, Options{}).Preflight(t.Context(), plain); err != nil || len(report.Notices) != 0 {
+		t.Errorf("a repository with no such server was reported as %q (%v)", report.Notices, err)
+	}
+}
+
 // A lane can edit `.mcp.json` in its worktree, and the next process would run a stdio command it names outside every
 // permission rule, so an edit reaches no lane until it is merged: the servers are the base commit's.
 func TestAWorktreeEditToMCPJSONReachesNoLane(t *testing.T) {

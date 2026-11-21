@@ -1054,6 +1054,9 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if len(report.Problems) != 0 {
 		return ports.SessionSpec{}, fmt.Errorf("preflight: %v", report.Problems)
 	}
+	for _, notice := range report.Notices {
+		r.w.config.Notice(fmt.Sprintf("lane %s: %s", r.lease.Lane, notice))
+	}
 	r.handleLock.Lock()
 	r.settingsFound = report.Settings
 	r.handleLock.Unlock()
