@@ -119,14 +119,35 @@ func decidedFile(tx ports.ReadTx, decision questions.Decision, files *ledger.Des
 	if err != nil {
 		return err
 	}
-	_, path, _ := questions.ReadLeftFile(question)
+	path, ours, err := leftFileOf(tx.Workers(), question)
+	if err != nil || !ours {
+		return err
+	}
 	switch choice, _ := questions.LeftFileChoice(question, decision.Statement); choice {
 	case questions.LeftFileIgnore:
-		files.Ignore = append(files.Ignore, path)
+		if questions.IgnorablePath(path) {
+			files.Ignore = append(files.Ignore, path)
+		}
 	case questions.LeftFileKeep:
 		files.Keep = append(files.Keep, path)
 	}
 	return nil
+}
+
+// leftFileOf reads the path of a question askLeftFiles made, and says whether it is one: its ID is one only the
+// control plane gives (questions.CheckAskedID), and a worker this ledger holds asked it. A question in the files
+// category that a lane or a member asked names no path a worker acts on, whatever its text says.
+func leftFileOf(workers ports.WorkerReader, question questions.Question) (string, bool, error) {
+	_, path, ok := questions.ReadLeftFile(question)
+	if !ok {
+		return "", false, nil
+	}
+	if _, err := workers.Find(question.AskedBy); errors.Is(err, ports.ErrNotFound) {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, err
+	}
+	return path, true, nil
 }
 
 // leftFilePath is the path a decision on a left-out path's question decides, and empty for any other decision.

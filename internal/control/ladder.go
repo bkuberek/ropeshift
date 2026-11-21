@@ -19,6 +19,9 @@ import (
 // as well, so the same question is never asked twice. Everything else waits on the ladder,
 // and no call stays open while it climbs.
 func (q *Questions) Ask(ctx context.Context, scope ledger.WorkspaceID, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
+	if err := questions.CheckAskedID(ask.ID); err != nil {
+		return questions.AskResult{}, err
+	}
 	draft, err := questions.New(questions.Question{
 		ID: ask.ID, Text: ask.Text, Categories: ask.Categories, Blocking: ask.Blocking, Options: ask.Options,
 		Recommendation: ask.Recommendation, RecommendationRationale: ask.RecommendationRationale,

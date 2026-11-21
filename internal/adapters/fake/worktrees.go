@@ -627,6 +627,19 @@ func (w *Worktrees) Commits(_ context.Context, path, _ string) ([]ports.Commit, 
 	return slices.Clone(w.fileCommits[path]), nil
 }
 
+// Tracks says the worktree holds a file at name, or under it when it names a folder, by CommitFiles or SeedFile.
+func (w *Worktrees) Tracks(_ context.Context, path, name string) (bool, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	folder := strings.TrimSuffix(name, "/") + "/"
+	for file := range w.held[path] {
+		if file == name || strings.HasPrefix(file, folder) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 var (
 	_ ports.Worktrees      = (*Worktrees)(nil)
 	_ ports.FileCommits    = (*Worktrees)(nil)

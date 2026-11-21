@@ -143,6 +143,10 @@ type FileCommits interface {
 	// Commits lists the commits the worktree's branch holds beyond base, newest first, or its last few when
 	// base is empty. A worktree that is gone is ErrNotFound.
 	Commits(ctx context.Context, path, base string) ([]Commit, error)
+	// Tracks says the worktree's index holds a file at name, or under it when it names a folder, reading name
+	// literally, so the worker never ignores a path whose new files a survey would then not see. A worktree that is
+	// gone is ErrNotFound.
+	Tracks(ctx context.Context, path, name string) (bool, error)
 }
 
 // HistoryImport asks for the history of another repository to be merged into a worktree's branch as an unrelated

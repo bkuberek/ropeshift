@@ -3,6 +3,8 @@ package lanes
 import (
 	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/questions"
 )
 
 // LaneFiles is what a worker knows of the files a lane's own session made (FR-LANE-20). A lane commits,
@@ -59,8 +61,13 @@ func atOrUnder(paths []string, change string) bool {
 const IgnoreCommitSubject = "chore: ignore files that are not part of the project"
 
 // IgnoreLine is the .gitignore line that ignores one path a lane left out and nothing else: anchored at the
-// repository's top, with each character git would read as a pattern taken literally, and a trailing space kept.
-func IgnoreLine(path string) string {
+// repository's top, with each character git would read as a pattern taken literally, and a trailing space kept. A
+// path no one line can name, which holds a line break or a NUL, and a .gitignore, which ignoring would hide from git,
+// have none.
+func IgnoreLine(path string) (string, bool) {
+	if !questions.IgnorablePath(path) {
+		return "", false
+	}
 	var line strings.Builder
 	line.WriteByte('/')
 	for _, c := range path {
@@ -73,7 +80,7 @@ func IgnoreLine(path string) string {
 	if trimmed := strings.TrimRight(text, " "); trimmed != text {
 		text = trimmed + strings.Repeat("\\ ", len(text)-len(trimmed))
 	}
-	return text
+	return text, true
 }
 
 // ForeignCommits is what a lane, and a member, are told of a push the worker refused (FR-LANE-20): the paths the

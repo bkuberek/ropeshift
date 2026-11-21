@@ -38,6 +38,17 @@ func newLeftFilesRig(t *testing.T) leftFilesRig {
 	if _, err := NewRepositories(store).Detect(ctx, "w", DetectedRepository{ID: "repo-1", DefaultBranch: "main", Directory: "app"}, member); err != nil {
 		t.Fatal(err)
 	}
+	// The worker whose reports raise the questions, registered as a join registers one.
+	err = store.Installation("w").Write(ctx, "test.worker", func(tx ports.SharedTx) error {
+		if err := tx.Workers().Insert(ledger.WorkerRecord{Worker: ledger.Worker{ID: "worker-1", Name: "w"}}); err != nil {
+			return err
+		}
+		_, err := tx.Append(workerEvent(eventWorkerRegistered, "worker-1", ledger.Actor{Kind: ledger.ActorWorker, ID: "worker-1"}))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := NewWorkOrders(store).Record(ctx, "w", LedgerWork{
 		Order:    workorders.WorkOrder{ID: "wo", Kind: workorders.KindChange, Title: "T", RepositoryID: "repo-1"},
 		Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
@@ -207,5 +218,88 @@ func TestADecidedPathReachesItsRepositorysLanes(t *testing.T) {
 	}
 	if files == nil || !slices.Equal(files.Ignore, []string{".atl/"}) || !slices.Equal(files.Keep, []string{".tool/"}) {
 		t.Errorf("the repository's decided files %+v", files)
+	}
+}
+
+// decidedFiles is what lanes in repo-1 are told the orchestrator decided.
+func (r leftFilesRig) decidedFiles() *ledger.DesiredFiles {
+	r.t.Helper()
+	var files *ledger.DesiredFiles
+	err := r.store.Read(r.t.Context(), "w", func(tx ports.ReadTx) error {
+		var err error
+		files, err = desiredFiles(tx, "repo-1")
+		return err
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return files
+}
+
+// TestOnlyAPathAWorkerReportedIsDecidedForLanes is a lane or a member that asks a question in the files category with
+// a left-out path's text, so that a decision on it would ignore or keep a path of its choosing. No asker may give it a
+// left-out path's ID, and a question that reads as one under another ID, or that no worker asked, decides nothing a
+// lane acts on.
+func TestOnlyAPathAWorkerReportedIsDecidedForLanes(t *testing.T) {
+	r := newLeftFilesRig(t)
+	ctx := t.Context()
+	ops := NewQuestions(r.store, questions.BatchPolicy{})
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	crafted, err := questions.LeftFile("files-crafted", "repo-1", "src/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.RecordQuestion(ctx, "w", crafted, member); !errors.Is(err, questions.ErrInvalid) {
+		t.Errorf("a member recorded a question by a left-out path's ID: %v", err)
+	}
+	asked := questions.Ask{ID: "files-asked", Text: crafted.Text, Categories: crafted.Categories, Options: crafted.Options, Lane: "lane-1", Generation: 1}
+	if _, err := ops.Ask(ctx, "w", asked, ledger.Actor{Kind: ledger.ActorLane, ID: "lane-1"}); !errors.Is(err, questions.ErrInvalid) {
+		t.Errorf("a lane asked a question by a left-out path's ID: %v", err)
+	}
+	lookalike := crafted
+	lookalike.ID = "q-lookalike"
+	if _, err := ops.RecordQuestion(ctx, "w", lookalike, member); err != nil {
+		t.Fatal(err)
+	}
+	forged, err := questions.LeftFile("files-forged", "repo-1", "lib/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged.AskedBy = "member-1"
+	err = r.store.Write(ctx, "w", "test.forged", func(tx ports.WriteTx) error { return insertQuestion(tx, forged, member) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.report("event-1", ".atl/")
+	for id, path := range map[string]string{"q-lookalike": "src/", "files-forged": "lib/", r.questionOf(".atl/"): ".atl/"} {
+		if _, err := r.rule(id, "d-"+id, questions.LeftFileIgnoreOption(path), "repo:repo-1"); err != nil {
+			t.Fatalf("ruling on %s: %v", id, err)
+		}
+	}
+	if files := r.decidedFiles(); files == nil || !slices.Equal(files.Ignore, []string{".atl/"}) || len(files.Keep) != 0 {
+		t.Errorf("the repository's decided files %+v", files)
+	}
+}
+
+// TestAGitignoreIsNeverDecidedIgnored refuses the ruling, so no lane adds a line that would hide its .gitignore.
+func TestAGitignoreIsNeverDecidedIgnored(t *testing.T) {
+	r := newLeftFilesRig(t)
+	r.report("event-1", ".gitignore")
+	if _, err := r.rule(r.questionOf(".gitignore"), "d-gitignore", questions.LeftFileIgnoreOption(".gitignore"), ""); !errors.Is(err, questions.ErrInvalid) {
+		t.Errorf("a .gitignore was decided ignored: %v", err)
+	}
+	if files := r.decidedFiles(); files != nil {
+		t.Errorf("the repository's decided files %+v", files)
+	}
+}
+
+// TestAPathWithALineBreakRaisesNoQuestion names the path for the lane's event, as one too long does.
+func TestAPathWithALineBreakRaisesNoQuestion(t *testing.T) {
+	r := newLeftFilesRig(t)
+	if unasked := r.reportUnasked("event-1", "x\n*", ".atl/"); !slices.Equal(unasked, []string{"x\n*"}) {
+		t.Errorf("unasked %q", unasked)
+	}
+	if asked := r.asked(); len(asked) != 1 {
+		t.Errorf("questions %+v", asked)
 	}
 }

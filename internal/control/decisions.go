@@ -60,8 +60,12 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := checkRung(tx, question, record, policy); err != nil {
 			return err
 		}
-		if err := questions.CheckLeftFileRuling(question, &record); err != nil {
+		if _, ours, err := leftFileOf(tx.Workers(), question); err != nil {
 			return err
+		} else if ours {
+			if err := questions.CheckLeftFileRuling(question, &record); err != nil {
+				return err
+			}
 		}
 		if record.Scope == "" {
 			record.Scope = questions.ScopeOf(question.SubjectKind, question.SubjectID)

@@ -57,7 +57,8 @@ func decidedRigOn(t *testing.T, profile string, pullRequests bool) (*laneRig, *f
 	return r, worktrees
 }
 
-// decide has the orchestrator decide a path a lane left out in repo-1, with one of its options.
+// decide has the orchestrator decide a path a lane left out in repo-1, with one of its options, on the question the
+// control plane records when this lane's worker reports the path. No asker may record one by that ID.
 func (r *laneRig) decide(t *testing.T, id, path, statement string) {
 	t.Helper()
 	ctx := t.Context()
@@ -66,7 +67,20 @@ func (r *laneRig) decide(t *testing.T, id, path, statement string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.RecordQuestion(ctx, scope, question, member); err != nil {
+	question.AskedBy = r.subject.Auth().WorkerID
+	asker := ledger.Actor{Kind: ledger.ActorWorker, ID: question.AskedBy}
+	if err := r.store.Write(ctx, scope, "test.left_file", func(tx ports.WriteTx) error {
+		question.AskedAt = tx.Now()
+		if err := tx.Questions().Insert(question); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventQuestionChanged, questions.SubjectQuestion, question.ID, question, asker)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	holder := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-a"}
@@ -220,5 +234,25 @@ func TestAWorkerDoesNotPublishABranchThatHoldsAnotherFile(t *testing.T) {
 	}
 	if !refused {
 		t.Error("no event names the refused path")
+	}
+}
+
+// TestAPathTheBranchTracksIsNeverIgnored is an ignore decision on a file the branch tracks and on a folder that holds
+// tracked files: a survey reads no ignored file, so a new file there would never read as a change, and a discard would
+// lose it. Only the untracked path reaches the .gitignore.
+func TestAPathTheBranchTracksIsNeverIgnored(t *testing.T) {
+	t.Parallel()
+	r, worktrees := decidedRig(t, "")
+	worktrees.SeedFile(ownWorktree, "src/main.go", "package main\n")
+	worktrees.SeedFile(ownWorktree, "README.md", "# Widgets\n")
+	for id, path := range map[string]string{"files-src": "src/", "files-readme": "README.md", "files-atl": ".atl/"} {
+		r.decide(t, id, path, questions.LeftFileIgnoreOption(path))
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := worktrees.FileText(ownWorktree, ".gitignore"); text != "/.atl/\n" {
+		t.Errorf("the .gitignore holds %q", text)
 	}
 }

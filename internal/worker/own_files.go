@@ -240,12 +240,39 @@ func (r *laneRun) ignoreDecided(ctx context.Context, worktree string) {
 	}
 	lines := make([]string, 0, len(decided.Ignore))
 	for _, path := range decided.Ignore {
-		lines = append(lines, lanes.IgnoreLine(path))
+		if line, ok := r.ignoreLine(ctx, trees, worktree, path); ok {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return
 	}
 	file := ports.TreeFile{Path: planning.GitignorePath, Lines: lines}
 	if _, err := trees.CommitFiles(ctx, worktree, []ports.TreeFile{file}, lanes.IgnoreCommitSubject); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: ignoring the paths the orchestrator decided: %w", r.lease.Lane, err))
 	}
+}
+
+// ignoreLine is the .gitignore line for a path the orchestrator decided to ignore, and false for a path the worker
+// keeps out of the file: one no line can name alone, a .gitignore, and one the branch tracks or holds tracked files
+// under. A survey reads no ignored file, so a new file there would never read as a change, and a discard of the
+// worktree would lose it. A worktree it cannot read keeps the path out too.
+func (r *laneRun) ignoreLine(ctx context.Context, trees ports.FileCommits, worktree, path string) (string, bool) {
+	line, ok := lanes.IgnoreLine(path)
+	if !ok {
+		r.w.config.Report(fmt.Errorf("lane %s: no .gitignore line ignores %q alone", r.lease.Lane, path))
+		return "", false
+	}
+	tracked, err := trees.Tracks(ctx, worktree, path)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %q stays out of the .gitignore: reading what the branch tracks: %w", r.lease.Lane, path, err))
+		return "", false
+	}
+	if tracked {
+		r.w.config.Report(fmt.Errorf("lane %s: %q stays out of the .gitignore: the branch tracks files there", r.lease.Lane, path))
+		return "", false
+	}
+	return line, true
 }
 
 // refusedPublish is the reason the worker refuses to push a branch for its pull request, read from the lane that

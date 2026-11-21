@@ -236,8 +236,19 @@ func TestAnIgnoreLineNamesThePathAndNothingElse(t *testing.T) {
 	for path, want := range map[string]string{
 		".atl/": "/.atl/", "build/out.log": "/build/out.log", "a*b?[c]": `/a\*b\?\[c]`, "trailing ": `/trailing\ `, `back\slash`: `/back\\slash`,
 	} {
-		if got := IgnoreLine(path); got != want {
-			t.Errorf("%q ignores as %q, want %q", path, got, want)
+		if got, ok := IgnoreLine(path); !ok || got != want {
+			t.Errorf("%q ignores as %q (%v), want %q", path, got, ok, want)
+		}
+	}
+}
+
+// TestNoIgnoreLineNamesAnUnsafePathOrAGitignore is a path that would be more than one line, such as one whose line
+// break would add `*` to the .gitignore, one a NUL cuts short, and a .gitignore, which ignoring would hide from git.
+func TestNoIgnoreLineNamesAnUnsafePathOrAGitignore(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"x\n*", "x\r*", "x\x00y", "", ".gitignore", "app/.gitignore", ".gitignore/"} {
+		if line, ok := IgnoreLine(path); ok || line != "" {
+			t.Errorf("%q ignores as %q", path, line)
 		}
 	}
 }
