@@ -597,7 +597,7 @@ func (w *Worker) performForge(ctx context.Context, request ledger.DesiredForge) 
 	case ledger.ForgeMerge:
 		merge := lanes.Effect{Key: forgeAttemptKey(request) + "/merge", Kind: lanes.EffectMerge, Target: fmt.Sprint(request.Number)}
 		result, err := w.mergeBracket(ctx, merge, func() (ledger.MergeResult, error) {
-			return rt.Forge.Merge(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.Commit, request.Method)
+			return rt.Forge.Merge(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.Commit, request.Method, request.WorkOrder)
 		})
 		return ledger.ForgeReport{Merge: &result}, err
 	case ledger.ForgeRerun:

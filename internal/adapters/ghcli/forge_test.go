@@ -2,6 +2,7 @@ package ghcli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -233,17 +234,21 @@ func TestAMergeNamesTheReviewedHead(t *testing.T) {
 		t.Run(string(method), func(t *testing.T) {
 			forge, repo, gh, _ := fixture(t)
 			ref, head, before := opened(t, forge, repo, gh)
-			result, err := forge.Merge(t.Context(), ref, head, method)
+			result, err := forge.Merge(t.Context(), ref, head, method, "wo-1")
 			if err != nil || result.Outcome != ledger.MergeMerged || len(result.MergeCommit) != 40 || result.MergedAt == "" {
 				t.Fatalf("merge %+v: %v", result, err)
 			}
-			again, err := forge.Merge(t.Context(), ref, head, method)
+			again, err := forge.Merge(t.Context(), ref, head, method, "wo-1")
 			if err != nil || again.Outcome != ledger.MergeMerged || again.MergeCommit != result.MergeCommit {
 				t.Fatalf("a repeat %+v: %v", again, err)
 			}
+			merge := []string{"pr", "merge", "1", "--repo", repoArg, "--match-head-commit", head, flag}
+			if method == ledger.MergeSquash {
+				merge = append(merge, "--body", "Ropeshift-Work-Order: wo-1\nRopeshift-Reviewed-Commit: "+head)
+			}
 			want := [][]string{
 				{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
-				{"pr", "merge", "1", "--repo", repoArg, "--match-head-commit", head, flag},
+				merge,
 				{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
 				{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
 			}
@@ -263,6 +268,35 @@ func TestAMergeNamesTheReviewedHead(t *testing.T) {
 	}
 }
 
+// gitOut runs git in a directory and returns what it printed, without the newline that ends it.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimRight(string(out), "\n")
+}
+
+// A squash merge's commit carries the trailers that name the work order and the reviewed commit in its body, so a
+// reading of the base counts it as ropeshift's.
+func TestASquashMergeCarriesTheTrailersInItsBody(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	ref, head, _ := opened(t, forge, repo, gh)
+	result, err := forge.Merge(t.Context(), ref, head, ledger.MergeSquash, "wo-1")
+	if err != nil || result.Outcome != ledger.MergeMerged {
+		t.Fatalf("merge %+v: %v", result, err)
+	}
+	bare := gitOut(t, repo.Dir, "remote", "get-url", "origin")
+	want := "Ropeshift-Work-Order: wo-1\nRopeshift-Reviewed-Commit: " + head
+	if message := gitOut(t, bare, "log", "-1", "--format=%B", result.MergeCommit); !strings.HasSuffix(message, "\n\n"+want) {
+		t.Errorf("the squash commit reads %q, want its body to be %q", message, want)
+	}
+	if trailers := gitOut(t, bare, "log", "-1", "--format=%(trailers:only,unfold)", result.MergeCommit); trailers != want {
+		t.Errorf("git reads the trailers %q, want %q", trailers, want)
+	}
+}
+
 // TestAMergeTheForgeRefusesSaysWhy reads the pull request before it merges, so a head that moved past the
 // reviewed commit and a merge that conflicts never reach gh pr merge, and a refusal of branch protection
 // comes back as a refusal with what gh said, not as an error to try again.
@@ -270,7 +304,7 @@ func TestAMergeTheForgeRefusesSaysWhy(t *testing.T) {
 	t.Run("a head that moved", func(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
 		ref, head, before := opened(t, forge, repo, gh)
-		result, err := forge.Merge(t.Context(), ref, strings.Repeat("a", 40), ledger.MergeCommit)
+		result, err := forge.Merge(t.Context(), ref, strings.Repeat("a", 40), ledger.MergeCommit, "wo-1")
 		if err != nil || result.Outcome != ledger.MergeStaleHead || !strings.Contains(result.Detail, "aaaaaaaa") || result.Head != head {
 			t.Fatalf("merge %+v: %v", result, err)
 		}
@@ -282,7 +316,7 @@ func TestAMergeTheForgeRefusesSaysWhy(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
 		ref, head, before := opened(t, forge, repo, gh)
 		doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Find(1).Mergeable = "CONFLICTING" })
-		result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit)
+		result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit, "wo-1")
 		if err != nil || result.Outcome != ledger.MergeConflict {
 			t.Fatalf("merge %+v: %v", result, err)
 		}
@@ -294,7 +328,7 @@ func TestAMergeTheForgeRefusesSaysWhy(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
 		ref, head, _ := opened(t, forge, repo, gh)
 		doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Find(1).MergeState = "BEHIND" })
-		if result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit); err != nil || result.Outcome != ledger.MergeBehind {
+		if result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit, "wo-1"); err != nil || result.Outcome != ledger.MergeBehind {
 			t.Fatalf("merge %+v: %v", result, err)
 		}
 	})
@@ -302,7 +336,7 @@ func TestAMergeTheForgeRefusesSaysWhy(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
 		ref, head, _ := opened(t, forge, repo, gh)
 		doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Find(1).MergeState = "BLOCKED" })
-		result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit)
+		result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit, "wo-1")
 		if err != nil || result.Outcome != ledger.MergeRefused || !strings.Contains(result.Detail, "base branch policy prohibits the merge") {
 			t.Fatalf("merge %+v: %v", result, err)
 		}
@@ -314,14 +348,14 @@ func TestAMergeTheForgeRefusesSaysWhy(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
 		ref, head, _ := opened(t, forge, repo, gh)
 		doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Find(1).State, s.Find(1).Head = "CLOSED", head })
-		if result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit); err != nil || result.Outcome != ledger.MergeRefused || !strings.Contains(result.Detail, "closed") {
+		if result, err := forge.Merge(t.Context(), ref, head, ledger.MergeCommit, "wo-1"); err != nil || result.Outcome != ledger.MergeRefused || !strings.Contains(result.Detail, "closed") {
 			t.Fatalf("merge %+v: %v", result, err)
 		}
 	})
 	t.Run("an unknown method", func(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
 		ref, head, _ := opened(t, forge, repo, gh)
-		if _, err := forge.Merge(t.Context(), ref, head, "fast-forward"); err == nil {
+		if _, err := forge.Merge(t.Context(), ref, head, "fast-forward", "wo-1"); err == nil {
 			t.Fatal("a merge with no method a forge offers ran")
 		}
 	})
