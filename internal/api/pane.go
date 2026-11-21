@@ -1,5 +1,12 @@
 package api
 
+import (
+	"context"
+	"net/http"
+	"net/url"
+	"strconv"
+)
+
 // The web pane is an interactive lane's terminal pane as a member's browser reaches it, through the
 // worker that holds the pane, so a person has one conversation whichever surface they use
 // (ADR-0018). A pane is named by its lane's ID, and the routes follow the lane to the pane of its
@@ -101,3 +108,15 @@ const (
 	DefaultPaneScrollback = 200
 	MaxPaneScrollback     = 10000
 )
+
+// PaneScrollback reads the newest lines of the scrollback of a lane's pane, at most lines of them. A count of 0
+// names none, so the server reads DefaultPaneScrollback.
+func (c *ProjectClient) PaneScrollback(ctx context.Context, lane string, lines int) (PaneScrollback, error) {
+	path := "/v1/panes/" + url.PathEscape(lane) + "/scrollback"
+	if lines > 0 {
+		path += "?" + url.Values{"lines": {strconv.Itoa(lines)}}.Encode()
+	}
+	var out PaneScrollback
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}

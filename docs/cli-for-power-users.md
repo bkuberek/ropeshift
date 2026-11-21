@@ -92,6 +92,7 @@ The terminal steps of the guide are commands already. The web steps:
 | Start on a work order, with Worker | `ropeshift work claim <work-order> --worker <worker>`, then `ropeshift lane start <work-order>` |
 | Floor | `ropeshift lane list`, `ropeshift lane show <lane>`, and `ropeshift top`, which watches the fleet in a terminal |
 | Open on a lane | `ropeshift lane attach <lane>` for a lane in a terminal pane |
+| The lines above a pane's screen, and Copy all | `ropeshift lane scrollback <lane> --lines <count>` prints the newest lines of the scrollback as text, 200 without `--lines`, and says on stderr when the pane keeps more |
 | Message, to a lane or the orchestrator | `ropeshift message send <lane> --body <text>`, or `ropeshift message send --orchestrator <worker> --body <text>`. `ropeshift message list <lane>` and `ropeshift message show <id>` say what became of each. `ropeshift orchestrator attach` follows the orchestrator's stream |
 | Needs you: a batch an orchestrator could not settle | `ropeshift question batches`, and `ropeshift question answer-batch <batch> --answers <file>` |
 | Allow this one call, and Deny | `ropeshift approval list`, `ropeshift approval show <approval>`, then `ropeshift approval approve <approval> --digest <digest>` or `ropeshift approval deny <approval> --digest <digest>`, each with an optional `--reason <text>` the lane reads |

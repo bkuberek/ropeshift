@@ -140,6 +140,7 @@ func registry() []section {
 		{"Lanes and messages", []registered{
 			command("lane start", "<work-order> [--lane L] [--profile F]", "run a lane on a claimed work order", (*invocation).laneStart),
 			command("lane attach", "<lane>", "put your terminal on an interactive lane's pane, which detaching leaves running", (*invocation).laneAttach),
+			command("lane scrollback", "<lane> [--lines N]", "print the scrollback of an interactive lane's pane, the lines above its screen", (*invocation).laneScrollback),
 			command("lane list", "", "list lanes, each with its freshness", (*invocation).laneList),
 			command("lane show", "<lane>", "show one lane, with its freshness", (*invocation).laneShow),
 			command("lane outline", "<lane>", "show the plan a planning lane has committed to its branch", (*invocation).laneOutline),

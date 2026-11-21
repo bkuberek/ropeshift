@@ -412,7 +412,7 @@
   {
     "method": "GET",
     "pattern": "/v1/projects/{project}/panes/{id}/scrollback",
-    "command": "lane attach"
+    "command": "lane scrollback"
   },
   {
     "method": "POST",
