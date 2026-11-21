@@ -109,14 +109,24 @@ func (c config) within(bound time.Duration) time.Duration {
 // Main runs one hook. It has no failure path: whatever happens, the process exits 0. The deadline
 // starts once the hook has taken its event, because a hook ended before then has nothing to spool,
 // and the agent CLI closes a hook's input as soon as it has written it. What the hook owes and holds
-// is set before the deadline can come.
+// is set before the deadline can come. A hook that panics settles as one that ran out of time does,
+// so a session is still given the answer it is owed, and a reload is blocked and never applied.
 func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) int {
-	defer func() { _ = recover() }()
+	var cfg config
+	defer func() {
+		if recover() != nil && cfg.out != nil {
+			settleAfterPanic(cfg)
+		}
+	}()
 	if len(args) == 0 {
 		return 0
 	}
-	cfg := read(args[0], getenv)
+	cfg = read(args[0], getenv)
 	cfg.out = new(outbox)
+	if cfg.event == eventConfigChange {
+		// A reload's hook owes its block from the first line, so even a failure to read its input blocks it.
+		cfg.out.owe(stdout, reloadBlocked())
+	}
 	event, input := take(cfg, stdin)
 	if cfg.event != eventPermissionRequest {
 		untilDecided(cfg, event, stdout)
@@ -125,6 +135,12 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	}
 	run(cfg, event, input, stdout)
 	return 0
+}
+
+// settleAfterPanic gives what a hook that panicked still owes, as its deadline would, and never fails itself.
+func settleAfterPanic(cfg config) {
+	defer func() { _ = recover() }()
+	cfg.out.settle(cfg)
 }
 
 // untilDecided sets what the deadline gives and hands on if it comes before the hook has decided. It
