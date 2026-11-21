@@ -189,7 +189,7 @@ describe("the category filter of the decisions", () => {
     serveViews();
     openPage("/decisions");
     expect(within(await filters()).getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "All", "Architecture", "Business", "Compliance", "Data", "Design", "Operations", "Product", "Security",
+      "All", "Architecture", "Business", "Compliance", "Data", "Design", "Files", "Operations", "Product", "Security",
     ]);
     expect(within(await filters()).getByRole("link", { name: "All" }).getAttribute("aria-current")).toBe("true");
   });
