@@ -560,8 +560,8 @@ func (r *laneRun) begins() string { return leaseBegins(r.lease) }
 func (r *laneRun) settingsBase() string { return leaseSettingsBase(r.lease) }
 
 // settingsUnbased says this lane is a review with no commit its settings can be compared with, so its driver reads none
-// of the repository's own files and holds every setting the worktree holds that runs code, and its profile has no
-// repository layer.
+// of the repository's own files and holds every setting the worktree holds that runs code, and its profile reads the
+// repository's layer at the commit under review for its gates and runs none of its hooks.
 func (r *laneRun) settingsUnbased() bool { return leaseSettingsUnbased(r.lease) }
 
 // leaseSettingsBase is settingsBase for a lease.
@@ -582,10 +582,11 @@ func leaseSettingsUnbased(lease ledger.DesiredLease) bool {
 
 // profileLayer is the repository and the commit a lane's profile reads the repository's layer at: its settings base
 // (leaseSettingsBase), so a layer a lane commits reaches no lane, its review and a lane that continues its branch among
-// them, until it is merged, and no repository for a review with no base, whose profile then has no repository layer.
+// them, until it is merged. A review with no base reads it at the commit under review, for what the layer can only
+// narrow; the start runs none of that layer's hooks (Provisioner.load).
 func profileLayer(lease ledger.DesiredLease, repository string) (string, string) {
 	if leaseSettingsUnbased(lease) {
-		return "", ""
+		return repository, leaseBegins(lease)
 	}
 	return repository, leaseSettingsBase(lease)
 }

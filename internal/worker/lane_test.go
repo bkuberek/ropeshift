@@ -675,7 +675,7 @@ func TestPrepareReadsTheRepositoryLayerAtTheLanesBase(t *testing.T) {
 
 // A lane reads its repository's layer at the commit its work began from, not the one its worktree begins at, which a
 // lane wrote: a review's worktree is the commit under review and a continued lane's the tip of its branch. A lane
-// with no such commit reads no layer of its repository, and still gets its worktree at its base.
+// with no such commit reads the layer at the commit its worktree begins at and runs none of its hooks.
 func TestPrepareReadsTheRepositoryLayerAtTheProfileBase(t *testing.T) {
 	t.Parallel()
 	p, source, worktrees := provisioner(nil)
@@ -691,11 +691,11 @@ func TestPrepareReadsTheRepositoryLayerAtTheProfileBase(t *testing.T) {
 		}
 	}
 	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "r2", Repository: "/work/app", Base: "tip", ProfileUnbased: true, Detached: true})
-	if err != nil || lane.Profile.Agent.Model == "written" || lane.Profile.Agent.Model == "merged" {
-		t.Errorf("a review with no base runs %q (%v), want no layer of its repository", lane.Profile.Agent.Model, err)
+	if err != nil || lane.Profile.Agent.Model != "written" || len(lane.Profile.Hooks) != 0 {
+		t.Errorf("a review with no base runs %q with hooks %v (%v), want the layer at tip with none of its hooks", lane.Profile.Agent.Model, lane.Profile.Hooks, err)
 	}
 	for _, load := range source.Loaded() {
-		if load.Base != "fork" {
+		if load.Base != "fork" && load.Base != "tip" {
 			t.Errorf("a layer was read with %+v", load)
 		}
 	}

@@ -11,8 +11,8 @@ import (
 )
 
 // writerHook is a profile layer a writer committed on its branch, whose hook would run on the worker when a lane's
-// worktree is made.
-const writerHook = "[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n"
+// worktree is made, beside a gate.
+const writerHook = "[agent]\ngates = [\"Bash(git tag *)\"]\n[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n"
 
 // writerLane is a worker that leaves lane-1 to run under a lease, a commit of the base branch, and the tip of a writer's
 // branch from that commit, whose profile layer holds writerHook where the base's holds none.
@@ -60,8 +60,9 @@ func (w writerLane) started(t *testing.T) {
 
 // A profile layer a writer commits to its branch reaches no lane until it is merged: the review of that branch and a
 // lane that continues it read the repository's layer at the commit the work began from, never at the commit the
-// writer wrote, so the hook the writer committed runs on neither, and a review of a lane that recorded no base reads
-// no repository layer at all.
+// writer wrote, so the hook the writer committed runs on neither. A review of a lane that recorded no base has no such
+// commit, so it reads the layer at the commit under review for its gates, which only narrow what it may do, and runs
+// none of its hooks.
 func TestAProfileHookAWriterCommittedRunsInNoReviewOrContinuedLane(t *testing.T) {
 	t.Parallel()
 	for name, leaseOf := range map[string]func(fork, tip string) ledger.DesiredLease{
@@ -97,8 +98,11 @@ func TestAProfileHookAWriterCommittedRunsInNoReviewOrContinuedLane(t *testing.T)
 		if runs := w.hooks.Runs(); len(runs) != 0 {
 			t.Errorf("the review ran the writer's hook: %+v", runs)
 		}
-		if loaded := w.source.Loaded(); len(loaded) != 0 {
-			t.Errorf("a review with no base read the repository's layer at %+v", loaded)
+		if loaded := w.source.Loaded(); !slices.Contains(loaded, fake.Load{Repository: "/repository", Base: w.tip}) {
+			t.Errorf("a review with no base read the repository's layer at %+v, want at %s for its gates", loaded, w.tip)
+		}
+		if gates := w.driver.Specs()[0].Gates; !slices.Contains(gates, "Bash(git tag *)") {
+			t.Errorf("a review with no base runs with the gates %v, want the repository's", gates)
 		}
 	})
 }
