@@ -267,6 +267,38 @@ func sendBackBehindMain(tx ports.WriteTx, version planning.PlanVersion, title st
 	return nil
 }
 
+// denyPlan sends the planning branch a denied plan request names back for rework on the same branch, with the member's
+// reason in its brief, while its work waits in acceptance or integrating at the commit the request names. Nothing asks
+// again about a plan a member denied, so its branch would wait for an approval no request can give, and approving the
+// request of another plan the branch holds would accept it with the denied plan in it. It goes back the way a change of
+// the plan on main sends it (reworkBehindMain): it keeps its branch, the ended lane's worktree is taken away, and the
+// requests that name it close. A request that names no work order, or a commit the branch no longer holds, denies the
+// plan and nothing else.
+func denyPlan(tx ports.WriteTx, denied authority.Approval, member ledger.Actor) error {
+	if denied.WorkOrder == "" {
+		return nil
+	}
+	order, err := tx.WorkOrders().Get(denied.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil || order.Kind != workorders.KindPlan || (order.State != workorders.Acceptance && order.State != workorders.Integrating) {
+		return err
+	}
+	f, err := readIntegration(readersOf(tx), order)
+	if err != nil || f.commit() == "" || f.commit() != requestCommit(denied) {
+		return err
+	}
+	if err := keepBranch(tx, ledger.ForgeRequest{WorkOrder: order.ID, Branch: f.branch.URI, Commit: f.commit()}, member); err != nil {
+		return err
+	}
+	detail := planDetailOf(denied)
+	reason := fmt.Sprintf("a member declined the plan %q on %s at %s: %s. Revise the plan on this branch to meet that reason, and commit the change on this branch.",
+		cmp.Or(detail.Title, detail.Ref), f.branch.URI, short(f.commit()), cmp.Or(strings.TrimSpace(denied.Reason), "no reason given"))
+	_, err = reworkFor(tx, order.ID, workorders.ReworkNote{Reason: reason}, nil, member, func() {})
+	return err
+}
+
 // reworkBehindMain sends one waiting planning branch back for rework against the plan main holds now. The branch waits in
 // integrating for its approval, or in acceptance when it holds another plan whose request would otherwise accept it.
 func reworkBehindMain(tx ports.WriteTx, f integrationFacts, version planning.PlanVersion, title string) error {
