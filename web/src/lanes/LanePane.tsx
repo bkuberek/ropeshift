@@ -339,7 +339,7 @@ function Screen({
     readPaneScrollback(lane, asked)
       .then((got) => {
         const pre = screen.current;
-        place.current = keep === "bottom" || !pre ? "bottom" : { fromBottom: pre.scrollHeight - pre.scrollTop };
+        place.current = (keep === "bottom" && following.current) || !pre ? "bottom" : { fromBottom: pre.scrollHeight - pre.scrollTop };
         setUnread("");
         setHistory({ lines: got.lines, size: got.size, limit: got.limit, asked });
       })

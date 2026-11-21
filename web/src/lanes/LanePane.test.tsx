@@ -680,7 +680,8 @@ describe("a lane's pane's scrollback", () => {
     show(await opened(), "the screen");
     const log = screen.getByRole("log", named);
     expect(getComputedStyle(log).overflow).toBe("auto");
-    expect(getComputedStyle(log).maxHeight).toMatch(/px$/);
+    // The lane page fills the view, so its screen is held to the height the page shows under it.
+    expect(log.style.height).toMatch(/px$/);
     expect(["auto", "scroll"]).not.toContain(getComputedStyle(screen.getByRole("region", { name: `Pane of lane ${lane}` })).overflowY);
   });
 
