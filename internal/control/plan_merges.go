@@ -95,13 +95,14 @@ func refuseMovedBranch(tx ports.WriteTx, approval authority.Approval) error {
 }
 
 // askForTheMerge asks for the approval of a planning branch's merge at the commit intake took in, when the work waits in
-// integrating and no request can give it: none that is open or approved, for a version the ledger holds, names the
-// work order and that commit. A commit that holds the plan the ledger holds makes no version, so nothing else asks
-// about it after a send-back, a moved head, or a second branch of the same plan, and the work would wait for an
-// approval no request could give. The request is for the newest version of the first plan the commit holds, naming
-// the work order and the commit, as offerHeldVersion names them, and says what that version lacks, if anything. It runs
-// after voidUnclaimed, so an approval of the branch that no version claimed does not count. A request that stands is
-// enough, so reading the commit again asks nothing new.
+// integrating and no request can give it. A commit that holds the plan the ledger holds makes no version, so nothing
+// else asks about it after a send-back, a moved head, or a second branch of the same plan, and the work would wait for
+// an approval no request could give. When no request that is open or approved, for a version the ledger holds, names the
+// work order and that commit, it asks about the first plan the commit holds; and it asks about each plan the commit holds
+// whose every request there closed, which the merge gate waits for (unaskedPlans). Each request is for the newest version
+// of its plan, naming the work order and the commit, as offerHeldVersion names them, and says what that version lacks, if
+// anything. It runs after voidUnclaimed, so an approval of the branch that no version claimed does not count. A request
+// that stands is enough, so reading the commit again asks nothing new.
 func askForTheMerge(tx ports.WriteTx, workOrder, commit string, batch ports.ChangeBatch) error {
 	order, err := tx.WorkOrders().Get(workOrder)
 	if err != nil || order.Kind != workorders.KindPlan || order.State != workorders.Integrating {
@@ -110,11 +111,20 @@ func askForTheMerge(tx ports.WriteTx, workOrder, commit string, batch ports.Chan
 	if held, err := AttemptCommit(tx.Evidence(), order); err != nil || held != commit {
 		return err
 	}
-	if asked, err := mergeAsked(tx.Approvals(), workOrder, commit); err != nil || asked {
+	asked, err := mergeAsked(tx.Approvals(), workOrder, commit)
+	if err != nil {
 		return err
 	}
+	requests, err := tx.Approvals().OfWorkOrder(workOrder)
+	if err != nil {
+		return err
+	}
+	plans := askedAt(requests, commit)
 	for _, item := range batch.Records {
 		if item.Plan == nil {
+			continue
+		}
+		if closed := plans[item.Plan.ID]; asked && (closed == nil || closed.live) {
 			continue
 		}
 		link, err := tx.Planning().Link(planning.SubjectPlan, item.Key)
@@ -135,7 +145,10 @@ func askForTheMerge(tx ports.WriteTx, workOrder, commit string, batch ports.Chan
 		if err != nil {
 			return err
 		}
-		return askAboutVersion(tx, latest, planOrigin{workOrder: workOrder, commit: commit}, planning.Unfinished(finish))
+		if err := askAboutVersion(tx, latest, planOrigin{workOrder: workOrder, commit: commit}, planning.Unfinished(finish)); err != nil {
+			return err
+		}
+		asked = true
 	}
 	return nil
 }
@@ -156,21 +169,21 @@ func mergeAsked(approvals ports.ApprovalReader, workOrder, commit string) (bool,
 	return false, nil
 }
 
-// unaskedPlans names, for the merge gate, each plan that a request of a planning work order names at the commit its branch
-// holds while no request for that plan at that commit is open or approved, with what became of its request: denied,
-// superseded, or closed another way. The merge waits only for what its requests say, and a plan whose every request at the
-// commit closed says nothing, so without this the branch would merge with a plan nobody approved. A plan the requests name
-// only at other commits is not on this commit's account.
-func unaskedPlans(requests []authority.Approval, commit string) []string {
-	if commit == "" {
-		return nil
-	}
-	type planAsked struct {
-		title string
-		live  bool
-		last  authority.ApprovalState
-	}
+// planAsked is what the requests of a planning work order at one commit say of one plan: its title, whether any of them is
+// open or approved, and the state of the newest.
+type planAsked struct {
+	title string
+	live  bool
+	last  authority.ApprovalState
+}
+
+// askedAt reads the plan requests of a planning work order raised for a commit, by the ID the file of the plan each is
+// about gives it.
+func askedAt(requests []authority.Approval, commit string) map[string]*planAsked {
 	asked := map[string]*planAsked{}
+	if commit == "" {
+		return asked
+	}
 	for _, request := range requests {
 		if request.Kind != authority.KindPlan || requestCommit(request) != commit {
 			continue
@@ -185,6 +198,16 @@ func unaskedPlans(requests []authority.Approval, commit string) []string {
 		plan.live = plan.live || request.Live()
 		plan.last = request.State
 	}
+	return asked
+}
+
+// unaskedPlans names, for the merge gate, each plan that a request of a planning work order names at the commit its branch
+// holds while no request for that plan at that commit is open or approved, with what became of its request: denied,
+// superseded, or closed another way. The merge waits only for what its requests say, and a plan whose every request at the
+// commit closed says nothing, so without this the branch would merge with a plan nobody approved. A plan the requests name
+// only at other commits is not on this commit's account.
+func unaskedPlans(requests []authority.Approval, commit string) []string {
+	asked := askedAt(requests, commit)
 	var out []string
 	for _, ref := range slices.Sorted(maps.Keys(asked)) {
 		plan := asked[ref]
