@@ -140,6 +140,9 @@ func TestAPerUseAgentAsksOnEveryStart(t *testing.T) {
 			t.Errorf("no ask rule %s in %v", want, ask)
 		}
 	}
+	if slices.Contains(ask, "Agent(consultant)") {
+		t.Errorf("a lane is offered the consultant, which only a consultation runs: %v", ask)
+	}
 	if slices.Contains(ask, "Agent(implementation)") {
 		t.Errorf("an agent with no approval asks: %v", ask)
 	}

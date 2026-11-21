@@ -144,6 +144,8 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		return RecordedDecision{Decision: ruled}, err
 	case ledger.VerbRestart, ledger.VerbReset, ledger.VerbRetry, ledger.VerbReplan:
 		return w.recover(ctx, recoveryActs[verb], call, actor)
+	case ledger.VerbConsult:
+		return w.consult(ctx, call, actor)
 	}
 	return nil, fmt.Errorf("%w: no such act: %q", workorders.ErrInvalid, verb)
 }

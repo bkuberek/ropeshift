@@ -47,6 +47,8 @@ func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 	}{
 		{"an orchestrator may decide within policy", ledger.ActorOrchestrator, authority.ActionRecordDecision, true},
 		{"an orchestrator may work a question", ledger.ActorOrchestrator, authority.ActionTakeQuestion, true},
+		{"an orchestrator may consult a stronger agent on a question", ledger.ActorOrchestrator, authority.ActionConsult, true},
+		{"a lane cannot consult", ledger.ActorLane, authority.ActionConsult, false},
 		{"an orchestrator cannot pass a review", ledger.ActorOrchestrator, authority.ActionPassReview, false},
 		{"an orchestrator cannot reset a breaker", ledger.ActorOrchestrator, authority.ActionResetLane, false},
 		{"an orchestrator cannot force an archive", ledger.ActorOrchestrator, authority.ActionForceArchive, false},

@@ -33,6 +33,10 @@ const (
 // ErrNoSession means a handle names nothing this driver is running.
 var ErrNoSession = errors.New("no such session")
 
+// ErrStopUnconfirmed means a stop sent its last signal and read no end of the session, so the session may still run
+// and a caller that must have it stopped asks again.
+var ErrStopUnconfirmed = errors.New("the stop sent its last signal and read no end of the session")
+
 // ErrNoChannel means a peer's message has no path into this session: nothing was written.
 var ErrNoChannel = errors.New("no channel for a peer's message")
 

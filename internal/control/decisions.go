@@ -49,6 +49,10 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if question, err = held(tx, id, actor); err != nil {
 			return err
 		}
+		// A ruling on a question a consultation answered rests on what it found, however the ruling arrived (FR-ORCH-9).
+		if record.Citations, err = withConsultation(tx.EventsAbout, id, record.Citations); err != nil {
+			return err
+		}
 		policy, err := policyInForce(tx)
 		if err != nil {
 			return err

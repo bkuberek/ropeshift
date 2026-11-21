@@ -274,6 +274,7 @@ project_daily_limit = 0.0
 project_weekly_limit = 0.0
 project_warn_share = 0.8
 assistant_daily_warn = 0.0
+consultation_limit = 2.0
 budget_flag_headroom_share = 0.1
 # No progress
 repeat_limit = 3
@@ -289,7 +290,7 @@ waiting_alert_min_calls = 5
 assistant_class = "standard"
 ```
 
-Amounts are US dollars at list price, and 0 means no limit or no warning. A share runs from 0 to 1, and a share of 0 turns off the limit or the check it sets, as an amount of 0 does: `review_share` of 0 leaves a review with no hard limit, `review_soft_share` and `low_confidence_soft_share` of 0 leave no soft limit, and `no_progress_share` of 0 turns off the spend-since-progress check. A share of 0 never gives a limit of zero dollars. The defaults are starting values to tune, not measurements. The wait keys, the keys that set a work order's limits, and `budget_flag_headroom_share` act now. The keys for plan and project ceilings, no progress, the waiting alert, and session classes are held and shown now, and act when the mechanism each one names ships.
+Amounts are US dollars at list price, and 0 means no limit or no warning, except for `consultation_limit`, whose 0 turns consultations off, because a consultation never runs without a cap. A share runs from 0 to 1, and a share of 0 turns off the limit or the check it sets, as an amount of 0 does: `review_share` of 0 leaves a review with no hard limit, `review_soft_share` and `low_confidence_soft_share` of 0 leave no soft limit, and `no_progress_share` of 0 turns off the spend-since-progress check. A share of 0 never gives a limit of zero dollars. The defaults are starting values to tune, not measurements. The wait keys, the keys that set a work order's limits, `consultation_limit`, and `budget_flag_headroom_share` act now. The keys for plan and project ceilings, no progress, the waiting alert, and session classes are held and shown now, and act when the mechanism each one names ships.
 
 | Key | What it sets | Default | Range |
 |-----|--------------|---------|-------|
@@ -309,6 +310,7 @@ Amounts are US dollars at list price, and 0 means no limit or no warning. A shar
 | `project_weekly_limit` | The same for a week. By default a week is the ISO week, which starts on Monday at midnight UTC | 0.0 | 0 to 1,000,000 |
 | `project_warn_share` | The share of each ceiling where a notice sits | 0.8 | 0 to 1 |
 | `assistant_daily_warn` | The assistant's daily warning, per project | 0.0 | 0 to 1,000,000 |
+| `consultation_limit` | The most one consultation may spend: a session of a stronger read-only agent, the built-in `consultant` unless the orchestrator names another, that the orchestrator asks to explore a question it cannot settle. A consultation within this limit counts as an approved use of a per-use agent. It spends within what the project's daily and weekly limits leave, and counts toward them. 0 turns consultations off ([how it works](how-it-works.md#the-orchestrator-and-lanes)) | 2.0 | 0 to 1,000,000 |
 | `budget_flag_headroom_share` | The room a headless session's budget flag has over a hard limit | 0.1 | 0 to 1 |
 | `repeat_limit` | How many identical calls a lane may repeat before the next is denied | 3 | 2 to 20 |
 | `repeat_denials_to_park` | How many denials park the lane | 2 | 1 to 10 |
@@ -365,6 +367,7 @@ project_daily_limit = 0.0
 project_weekly_limit = 0.0
 project_warn_share = 0.8
 assistant_daily_warn = 0.0
+consultation_limit = 2.0
 budget_flag_headroom_share = 0.1
 # No progress
 repeat_limit = 3

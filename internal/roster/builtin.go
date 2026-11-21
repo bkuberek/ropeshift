@@ -51,6 +51,12 @@ func definitions() []Agent {
 			Report:       "The finding first, then the evidence for it with paths and lines, then what remains uncertain, in at most 400 words.",
 		},
 		{
+			Name: ConsultantAgent, Kind: KindAnalysis, Access: AccessReadOnly, Class: ClassFrontier, Effort: EffortHigh, Approval: ApprovalPerUse, Tools: readOnlyTools,
+			Purpose:      "The orchestrator's consultation on a hard decision; no lane receives it.",
+			Instructions: "Read the question and the records it names, find the options that are open, and weigh them against the evidence. Recommend one, and say why. Change nothing.",
+			Report:       "Each option with its trade-offs, the one you recommend, and why, in at most 400 words.",
+		},
+		{
 			Name: "reasoning", Kind: KindReasoning, Access: AccessWriting, Class: ClassFrontier, Effort: EffortHigh, Approval: ApprovalPerUse, Tools: reasoningTools,
 			Purpose:      "Specs, documents, and hard trade-offs that need the strongest model. It waits for approval on each start. For a diagnosis, use analysis.",
 			Instructions: "State the problem and the constraints, weigh the options against them, and write the result where you were asked to.",

@@ -119,6 +119,44 @@
         }
       },
       {
+        "name": "consultant",
+        "purpose": "The orchestrator's consultation on a hard decision; no lane receives it.",
+        "kind": "analysis",
+        "access": "read_only",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "context"
+          ],
+          "deny": [
+            "edit",
+            "shell",
+            "web",
+            "delegate"
+          ]
+        },
+        "class": "frontier",
+        "effort": "high",
+        "approval": "per_use",
+        "instructions": "Read the question and the records it names, find the options that are open, and weigh them against the evidence. Recommend one, and say why. Change nothing.",
+        "report": "Each option with its trade-offs, the one you recommend, and why, in at most 400 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
         "name": "reasoning",
         "purpose": "Specs, documents, and hard trade-offs that need the strongest model. It waits for approval on each start. For a diagnosis, use analysis.",
         "kind": "reasoning",
@@ -397,6 +435,6 @@
         "small": "light-implementation"
       }
     },
-    "digest": "sha256:8e498fefc86a31b3a9b7f2bce9f14aed909f21f4afe8d1c34cd711e1f7290327"
+    "digest": "sha256:d3626715783a75cb04127c790fe8e6286bf122ff82cc720c5bd6b5daa2f1b926"
   }
 }

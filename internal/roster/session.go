@@ -62,7 +62,8 @@ func Permitted(s Session) []string {
 // FR-AGENT-10). An agent's tools are its allowed categories, less its denied ones, intersected with
 // what the session permits. A read-only agent never holds edit, and in a writing session it holds no
 // shell, because a driver cannot hold its commands to the reads a writing lane's rules allow. An agent
-// left with no tool is left out, because a driver may read an empty list as every tool.
+// left with no tool is left out, because a driver may read an empty list as every tool. The consultant is never handed
+// out, because only the orchestrator's consultation runs it (FR-AGENT-9, FR-ORCH-9).
 func (r Resolved) ForSession(s Session, support Support) []Fitted {
 	if support.Subagents != SubagentsNative {
 		return nil
@@ -72,7 +73,7 @@ func (r Resolved) ForSession(s Session, support Support) []Fitted {
 	for _, agent := range r.Agents {
 		readOnly := agent.Access == AccessReadOnly
 		switch {
-		case !agent.Enabled, len(permitted) == 0:
+		case !agent.Enabled, len(permitted) == 0, agent.Name == ConsultantAgent:
 			continue
 		case (s == SessionReview || s == SessionAssistant) && !readOnly:
 			continue

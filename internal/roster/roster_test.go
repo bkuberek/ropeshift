@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-// TestTheBuiltInRosterHoldsEveryKindOfWork is FR-AGENT-1: the ten agents of ADR-0025, each valid,
+// TestTheBuiltInRosterHoldsEveryKindOfWork is FR-AGENT-1: the eleven agents of ADR-0025, each valid,
 // each denying delegate, and each purpose naming the neighbor to choose instead.
 func TestTheBuiltInRosterHoldsEveryKindOfWork(t *testing.T) {
-	want := []string{"lookup", "explore", "analysis", "reasoning", "mechanical", "light-implementation", "implementation", "heavy-implementation", "deep-implementation", "review"}
+	want := []string{"lookup", "explore", "analysis", "consultant", "reasoning", "mechanical", "light-implementation", "implementation", "heavy-implementation", "deep-implementation", "review"}
 	resolved := Resolve(Layer{}, Layer{})
 	if got := resolved.Names(); !slices.Equal(got, want) {
 		t.Fatalf("names %q", got)
 	}
-	perUse := map[string]bool{"reasoning": true, "deep-implementation": true}
+	perUse := map[string]bool{"consultant": true, "reasoning": true, "deep-implementation": true}
 	for _, agent := range resolved.Agents {
 		if err := agent.Validate(); err != nil {
 			t.Errorf("%s: %v", agent.Name, err)
@@ -274,4 +274,70 @@ func mustApply(t *testing.T, layer Layer, below Resolved, change Change) Layer {
 		t.Fatalf("%+v: %v", change, err)
 	}
 	return out
+}
+
+// TestNoLaneRunsAsTheConsultant is FR-AGENT-9: only an orchestrator's consultation runs the consultant, so a lane's
+// agent is never it. A work order of any kind that names it is refused by name, and so is a default mapping that names it,
+// both where a claim pins the agent and where a use is checked, though the consultation itself still runs it.
+func TestNoLaneRunsAsTheConsultant(t *testing.T) {
+	resolved := Resolve(Layer{}, Layer{})
+	for _, kind := range []string{"plan", "contract_review", "change", "rework", "review"} {
+		_, err := resolved.LaneAgent(LaneWork{Kind: kind, Named: ConsultantAgent})
+		if !errors.Is(err, ErrUnfitAgent) || !strings.Contains(err.Error(), `"consultant"`) {
+			t.Errorf("a %s work order naming the consultant: %v", kind, err)
+		}
+		if err := resolved.Unusable(Use{Agent: ConsultantAgent, By: "work order w-1", Kind: kind}); !errors.Is(err, ErrUnfitAgent) {
+			t.Errorf("a %s use naming the consultant: %v", kind, err)
+		}
+	}
+	mapped := resolved
+	mapped.Defaults = BuiltinDefaults()
+	mapped.Defaults.ContractReview, mapped.Defaults.Review = ConsultantAgent, ConsultantAgent
+	for _, kind := range []string{"contract_review", "review"} {
+		if _, err := mapped.LaneAgent(LaneWork{Kind: kind}); !errors.Is(err, ErrUnfitAgent) || !strings.Contains(err.Error(), `"consultant"`) {
+			t.Errorf("the default mapping for %s naming the consultant: %v", kind, err)
+		}
+	}
+	if missing := mapped.Missing(mapped.DefaultUses()); len(missing) != 2 || missing[0].Agent != ConsultantAgent || missing[1].Agent != ConsultantAgent {
+		t.Errorf("a default mapping that names the consultant: missing %+v", missing)
+	}
+	if got, err := resolved.ConsultAgent("", ClassStandard); err != nil || got.Name != ConsultantAgent {
+		t.Errorf("a consultation runs %q, %v", got.Name, err)
+	}
+}
+
+// TestAConsultationRunsTheConsultantOrTheOneNamed is FR-ORCH-9: with no agent named and the built-in roster, a
+// consultation runs the consultant, a read-only frontier agent that asks per use, which a consultation within
+// consultation_limit counts as approved (FR-AGENT-11). A named agent must be known, enabled, and read-only, and either
+// must be of a class above the orchestrator's, whose default is standard.
+func TestAConsultationRunsTheConsultantOrTheOneNamed(t *testing.T) {
+	resolved := Resolve(Layer{}, Layer{})
+	got, err := resolved.ConsultAgent("", ClassStandard)
+	if err != nil || got.Name != ConsultantAgent || got.Access != AccessReadOnly || got.Approval != ApprovalPerUse || got.Class != ClassFrontier {
+		t.Errorf("with none named: %+v, %v", got.Agent, err)
+	}
+	if got, err := resolved.ConsultAgent("review", ClassStandard); err != nil || got.Name != "review" {
+		t.Errorf("review named: %q, %v", got.Name, err)
+	}
+	noConsultant := Resolve(mustApply(t, Layer{}, resolved, Change{Op: OpDisable, Agent: ConsultantAgent}), Layer{})
+	if _, err := noConsultant.ConsultAgent("", ClassStandard); !errors.Is(err, ErrDisabledAgent) {
+		t.Errorf("with the consultant disabled: %v", err)
+	}
+	for _, tt := range []struct {
+		named, above string
+		is           error
+	}{
+		{"implementation", ClassStandard, ErrNotReadOnly},
+		{"reasoning", ClassStandard, ErrNotReadOnly},
+		{"ghost", ClassStandard, ErrUnknownAgent},
+		{"explore", ClassStandard, ErrNotStronger},
+		{"", ClassFrontier, ErrNotStronger},
+	} {
+		if _, err := resolved.ConsultAgent(tt.named, tt.above); !errors.Is(err, tt.is) {
+			t.Errorf("%q above %s: %v, want %v", tt.named, tt.above, err, tt.is)
+		}
+	}
+	if _, err := noConsultant.ConsultAgent(ConsultantAgent, ClassStandard); !errors.Is(err, ErrDisabledAgent) {
+		t.Errorf("a disabled agent named: %v", err)
+	}
 }

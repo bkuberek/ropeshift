@@ -64,6 +64,9 @@ const (
 	ActionSendMessage   Action = "message.send"
 	ActionSetPassphrase Action = "member.set_passphrase"
 	ActionTakeQuestion  Action = "question.take"
+	// ActionConsult starts a consultation of a question: a stronger read-only agent's session that explores it, which
+	// spends within `consultation_limit` and the project's limits (FR-ORCH-9).
+	ActionConsult Action = "question.consult"
 	// ActionMergeQuestion closes a question in favor of one that stays with no hold on it, which a member does in an
 	// orchestrator's place. An orchestrator merges only a question it holds, so no row below grants this.
 	ActionMergeQuestion Action = "question.merge"
@@ -207,7 +210,7 @@ func Actions() []Action {
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
 		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit, ActionMergeQuestion,
-		ActionAcknowledgePractices, ActionWithdrawPractices,
+		ActionAcknowledgePractices, ActionWithdrawPractices, ActionConsult,
 	}
 }
 
@@ -217,7 +220,7 @@ var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
 		ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
 		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRecover: true, ActionRespawnLane: true,
-		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
+		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true, ActionConsult: true,
 	},
 	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true, ActionRecordMerge: true, ActionMerge: true},
 }
