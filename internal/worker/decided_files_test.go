@@ -127,6 +127,7 @@ func pushingLaneOn(t *testing.T, profile string, decided func(*laneRig), pullReq
 	r.atGate(g)
 	worktrees.ChangeFiles(ownWorktree, foreignFile)
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 1000})
+	r.awaitReading(t)
 	if _, err := worktrees.CommitFiles(t.Context(), ownWorktree, []ports.TreeFile{{Path: foreignFile, Text: "a cache\n"}, {Path: "gen/out.go", Text: "package gen\n"}}, "work"); err != nil {
 		t.Fatal(err)
 	}
