@@ -98,7 +98,7 @@ func personalSetupNeeds(tx ports.ReadTx, f floor) ([]api.NeedItem, error) {
 // personalSetupRoutes keep accepting a member's own setup behind a member's session, because what a lane loads is the
 // member's choice.
 func (h *handler) personalSetupRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST "+api.PersonalSetupAcceptancesPath, h.member(h.acceptPersonalSetup))
+	mux.HandleFunc("POST /v1/workers/{id}/personal-setup/acceptances", h.member(h.acceptPersonalSetup))
 }
 
 func (h *handler) acceptPersonalSetup(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {

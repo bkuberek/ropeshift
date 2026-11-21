@@ -109,6 +109,12 @@
       "exemptable": false
     },
     {
+      "id": "personal_setup.accept",
+      "label": "Accept your own agent CLI setup for a machine's lanes",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "template.write",
       "label": "Write a project's starting files",
       "class": "member_only",

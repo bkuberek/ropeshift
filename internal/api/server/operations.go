@@ -166,7 +166,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/workers/{id}/windows":                     fixed(authority.OpAutonomyWindow),
 	"DELETE /v1/workers/{id}/windows":                   fixed(authority.OpAutonomyWindow),
 	"PUT /v1/workers/{id}/caps":                         fixed(authority.OpWorkerLaneCaps),
-	"POST " + api.PersonalSetupAcceptancesPath:          fixed(authority.OpPersonalSetupAccept),
+	"POST /v1/workers/{id}/personal-setup/acceptances":  fixed(authority.OpPersonalSetupAccept),
 	"POST /v1/workers/{id}/template-writes":             resolved(templateWriteOperation, authority.OpTemplateWrite, authority.OpRepositoryCreateRemote),
 	"POST /v1/workers/{id}/forge-account-reads":         fixed(authority.OpRepositoryCreateRemote),
 	"PUT /v1/workers/{id}/orchestrator":                 fixed(authority.OpOrchestratorRun),
