@@ -370,8 +370,9 @@ func planDetailOf(a authority.Approval) planning.PlanDetail {
 }
 
 // askForPlanApproval asks for one plan version to be approved, bound to its digest, and closes the
-// request for an older version that nobody decided. Approval is never delegated, so the request has no
-// time to expire in: it waits for a member (FR-PLAN-12).
+// request for an older version that nobody decided. A request for the same version that names another
+// planning branch stays, because approving it approves that branch's merge, which this request cannot.
+// Approval is never delegated, so the request has no time to expire in: it waits for a member (FR-PLAN-12).
 func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	rows, err := tx.Approvals().All()
 	if err != nil {
@@ -383,7 +384,8 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 		}
 		samePlan := ask.plan != "" && row.Plan == ask.plan
 		sameBranch := ask.workOrder != "" && row.WorkOrder == ask.workOrder && planDetailOf(row).Ref == ask.ref
-		if !samePlan && !sameBranch {
+		otherBranch := row.PlanVersion == ask.version && row.WorkOrder != "" && row.WorkOrder != ask.workOrder && len(planDetailOf(row).Unfinished) == 0
+		if (!samePlan || otherBranch) && !sameBranch {
 			continue
 		}
 		next, err := row.Supersede()

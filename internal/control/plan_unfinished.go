@@ -241,16 +241,23 @@ func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin) error {
 	if slices.Equal(missing, planDetailOf(request).Unfinished) {
 		return nil
 	}
-	record, err := tx.Planning().Plan(plan)
+	return askAboutVersion(tx, latest, origin, missing)
+}
+
+// askAboutVersion asks about a version the ledger holds again, saying what it lacks, if anything. A request made when
+// intake read an accepted plan work order's commit names that work order and commit, so approving it is the approval
+// of the branch's merge; any other names the version's own work order and source.
+func askAboutVersion(tx ports.WriteTx, version planning.PlanVersion, origin planOrigin, missing []string) error {
+	record, err := tx.Planning().Plan(version.PlanID)
 	if err != nil {
 		return err
 	}
-	workOrder, source := latest.WorkOrder, latest.Source
+	workOrder, source := version.WorkOrder, version.Source
 	if origin.workOrder != "" {
 		workOrder, source = origin.workOrder, origin.commit
 	}
 	return askForPlanApproval(tx, planAsk{
-		plan: plan, ref: planFileRef(latest.Records), title: record.Title, version: latest.Version, digest: latest.Digest, entries: latest.Records,
-		decisions: len(latest.Decisions), source: source, workOrder: workOrder, unfinished: missing,
+		plan: version.PlanID, ref: planFileRef(version.Records), title: record.Title, version: version.Version, digest: version.Digest,
+		entries: version.Records, decisions: len(version.Decisions), source: source, workOrder: workOrder, unfinished: missing,
 	})
 }

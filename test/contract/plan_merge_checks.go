@@ -35,6 +35,9 @@ var PlanMergeChecks = []Check{
 	{"PM14", "a request about a planning branch is superseded when its work goes back for rework, so approving it cannot approve the merge of the next lane's commit", checkReworkedPlanRequestIsSuperseded},
 	{"PM15", "a plan approval that named one commit of a planning branch is not the approval of a later commit intake reads, which asks for an approval of its own", checkPlanApprovalBindsToItsCommit},
 	{"PM16", "a request that named an earlier commit of a planning branch is refused once the branch holds another, and approves nothing", checkPlanRequestOfAnEarlierCommitIsRefused},
+	{"PM17", "a planning branch a send-back returns with the plan the ledger holds asks nothing while it waits for acceptance, and once accepted asks for that plan's approval naming its new commit, which approves its merge", checkResentPlanAsksOnceAccepted},
+	{"PM18", "a request that named an earlier commit of a planning branch is refused while the branch waits for acceptance at another, and once that commit is accepted the plan's approval is asked for at it, which approves its merge", checkMovedPlanAsksOnceAccepted},
+	{"PM19", "two planning branches that hold one plan each ask for the plan's approval naming their own commit once accepted, and approving each approves the merge of its own branch", checkTwoBranchesOfOnePlanAskEach},
 }
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -352,6 +355,8 @@ const (
 	mergedByHand   = "6f7081926f7081926f7081926f7081926f708192"
 
 	mergedAfterRework = "708192a3708192a3708192a3708192a3708192a3"
+	mergedResent      = "8192a3b48192a3b48192a3b48192a3b48192a3b4"
+	mergedMovedSame   = "92a3b4c592a3b4c592a3b4c592a3b4c592a3b4c5"
 )
 
 // personsMerge is the commit a person's merge on the forge made, as a worker reads it.
@@ -1005,15 +1010,280 @@ func checkPlanRequestOfAnEarlierCommitIsRefused(r *Rig) error {
 	if err := p.accept(); err != nil {
 		return err
 	}
-	if _, err := p.tick(); err != nil {
-		return err
-	}
+	// The member approves the request about the first commit before intake reads the commit the work holds now.
 	if err := p.approvesNothing(stale, authority.ErrStaleDigest); err != nil {
 		return err
 	}
 	// The refusal leaves the request as it was.
 	if open, err := r.theOpenPlanApproval(p.store); err != nil || open.ID != stale.ID {
 		return Violatedf("the refused request left %+v, want %s waiting: %v", open, stale.ID, err)
+	}
+	// Reading the accepted commit asks for the plan's approval at it, which replaces the request about the first commit.
+	if _, err := p.askedAtAccepted(stale, moved); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+// openPlanRequests lists the plan requests waiting for a member, oldest first.
+func (p *planMergeRig) openPlanRequests() ([]authority.Approval, error) {
+	all, err := p.r.planApprovals(p.store)
+	var open []authority.Approval
+	for _, row := range all {
+		if row.Open() {
+			open = append(open, row)
+		}
+	}
+	return open, err
+}
+
+// askedAtAccepted reads the commit a member accepted and says the one request waiting is for the version an earlier
+// request asked about, naming the planning work and that commit, so that approving it is the approval of the commit's
+// merge. A second read asks nothing new.
+func (p *planMergeRig) askedAtAccepted(earlier authority.Approval, commit string) (authority.Approval, error) {
+	if _, err := p.tick(); err != nil {
+		return authority.Approval{}, err
+	}
+	asked, err := p.r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return authority.Approval{}, err
+	}
+	if detail := planDetailOf(asked); asked.ID == earlier.ID || asked.WorkOrder != p.grant.WorkOrder || detail.Source != commit ||
+		len(detail.Unfinished) != 0 || asked.Plan == "" || asked.Plan != earlier.Plan || asked.PlanVersion != earlier.PlanVersion {
+		return authority.Approval{}, Violatedf("the request for the accepted commit is %+v, want version %d of plan %s for work order %s at %s",
+			asked, earlier.PlanVersion, earlier.Plan, p.grant.WorkOrder, commit)
+	}
+	if _, err := p.tick(); err != nil {
+		return authority.Approval{}, err
+	}
+	if again, err := p.r.theOpenPlanApproval(p.store); err != nil || again.ID != asked.ID {
+		return authority.Approval{}, Violatedf("a second read left %+v, want %s waiting: %v", again, asked.ID, err)
+	}
+	return asked, nil
+}
+
+func checkResentPlanAsksOnceAccepted(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	earlier, err := p.acceptedByHand()
+	if err != nil {
+		return err
+	}
+	next, err := p.reworkedAndLaneAgain()
+	if err != nil {
+		return err
+	}
+	// The next lane's commit holds the plan the ledger holds, so it asks nothing while it waits for acceptance: approving
+	// the version could not accept the work order.
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if open, err := p.openPlanRequests(); err != nil || len(open) != 0 {
+		return Violatedf("the commit waiting for acceptance asks %+v: %v", open, err)
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	asked, err := p.askedAtAccepted(earlier, next)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(p.store, asked, true, theMember); err != nil {
+		return err
+	}
+	if _, err := p.approvedBy(next, ledger.ReviewApproves, earlier.PlanVersion); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Commit != next {
+		return Violatedf("the worker is asked to merge %+v, want %s: %v", merge, next, err)
+	}
+	if err := p.landed(merge, mergedResent); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkMovedPlanAsksOnceAccepted(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	stale, err := p.acceptedByHand()
+	if err != nil {
+		return err
+	}
+	// Someone pushes a commit that adds a file no plan names, and the work goes back to acceptance at it.
+	moved := p.r.Commit()
+	p.files["notes.md"] = "Notes on the retry budget, which no plan names.\n"
+	if err := p.read(p.pullRequestAt(moved)); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Acceptance); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	// The request about the first commit approves nothing while the branch waits for acceptance at another.
+	if err := p.approvesNothing(stale, authority.ErrStaleDigest); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Acceptance); err != nil {
+		return err
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	asked, err := p.askedAtAccepted(stale, moved)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(p.store, asked, true, theMember); err != nil {
+		return err
+	}
+	if _, err := p.approvedBy(moved, ledger.ReviewApproves, stale.PlanVersion); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Commit != moved || merge.Number != 7 {
+		return Violatedf("the worker is asked to merge %+v, want pull request 7 at %s: %v", merge, moved, err)
+	}
+	if err := p.landed(merge, mergedMovedSame); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+// anotherLane runs a second planning work order of the rig's repository to its end as the rig's worker, on a branch of
+// its own whose files are the rig's, and returns the work order and its commit. The rig goes on with its own work.
+func (p *planMergeRig) anotherLane(branch string) (string, string, error) {
+	ops := p.r.NewOps(p.store)
+	order, err := ops.Record(p.r.Ctx, p.r.Scope, control.LedgerWork{
+		Order: workorders.WorkOrder{
+			ID: p.r.ID("plan"), Kind: workorders.KindPlan, Title: "Plan the retry budget again", RepositoryID: p.repository, MaxAttempts: 2,
+		},
+		Statement: "Write the plan for a retry budget.",
+		Criteria:  []planning.Criterion{{ID: "c1", Text: "The plan is on the branch"}},
+	}, p.r.Actor)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := ops.Pass(p.r.Ctx, p.r.Scope, order.ID, p.r.Actor); err != nil {
+		return "", "", err
+	}
+	grant, lane := p.grant, p.lane
+	defer func() { p.grant, p.lane = grant, lane }()
+	if p.grant, err = p.plane.Claim(p.r.Ctx, p.auth, workorders.ClaimRequest{WorkOrder: order.ID, ClaimID: p.r.ID("claim"), TTLMs: TTLMs}); err != nil {
+		return "", "", err
+	}
+	p.lane = p.r.ID("lane")
+	if _, err := ops.Dispatch(p.r.Ctx, p.r.Scope, order.ID, p.lane, p.r.Actor); err != nil {
+		return "", "", err
+	}
+	if _, err := ops.StartLane(p.r.Ctx, p.r.Scope, p.grant.Lease, p.lane, p.r.Actor); err != nil {
+		return "", "", err
+	}
+	commit := p.r.Commit()
+	result := LaneFinished(commit, LaneCheck("c1", true))
+	result.Branch = branch
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return "", "", err
+	}
+	if reply, err := p.upload(ledger.UploadLaneEnded, raw); err != nil || len(reply.Rejected) != 0 {
+		return "", "", Violatedf("the second lane's end was refused: %+v, %v", reply.Rejected, err)
+	}
+	return order.ID, commit, nil
+}
+
+// requestsByWorkOrder reads the plan requests waiting, each under the work order it names, and says there is one for
+// each work order, naming its commit.
+func (p *planMergeRig) requestsByWorkOrder(commits map[string]string) (map[string]authority.Approval, error) {
+	open, err := p.openPlanRequests()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]authority.Approval{}
+	for _, row := range open {
+		out[row.WorkOrder] = row
+	}
+	for order, commit := range commits {
+		if row, found := out[order]; len(open) != len(commits) || !found || planDetailOf(row).Source != commit {
+			return nil, Violatedf("the requests waiting are %+v, want one for each of %v", open, commits)
+		}
+	}
+	return out, nil
+}
+
+func checkTwoBranchesOfOnePlanAskEach(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	first := p.grant.WorkOrder
+	second, secondHead, err := p.anotherLane("plan-again")
+	if err != nil {
+		return err
+	}
+	commits := map[string]string{first: p.head, second: secondHead}
+	// The ledger holds neither branch's plan, so intake asks about each.
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	branches, err := p.requestsByWorkOrder(commits)
+	if err != nil {
+		return err
+	}
+	// The member accepts the first branch by hand, and intake records the plan from it and asks for the version's
+	// approval at its commit.
+	if err := p.accept(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	// The member approves the second branch's request, which accepts its work. Intake reads the plan the ledger holds
+	// already, which makes no version for the approval to bind to, and asks for the version's approval at the second
+	// branch's commit, beside the first's.
+	if _, err := r.approve(p.store, branches[second], true, theMember); err != nil {
+		return err
+	}
+	if order, err := r.WorkOrder(p.store, second); err != nil || order.State != workorders.Integrating {
+		return Violatedf("the second planning work is %+v, want integrating: %v", order, err)
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	versions, err := p.requestsByWorkOrder(commits)
+	if err != nil {
+		return err
+	}
+	plan, version := versions[first].Plan, versions[first].PlanVersion
+	if plan == "" || versions[second].Plan != plan || versions[second].PlanVersion != version {
+		return Violatedf("the requests waiting are %+v, want both for one version of the plan", versions)
+	}
+	for _, order := range []string{first, second} {
+		if _, err := r.approve(p.store, versions[order], true, theMember); err != nil {
+			return err
+		}
+	}
+	for order, commit := range commits {
+		view, err := r.NewOps(p.store).Standing(r.Ctx, r.Scope, order)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(view.Integrations, func(record ledger.IntegrationRecord) bool {
+			return record.WorkOrder == order && record.ApprovedCommit == commit && record.ApprovedByKind == ledger.ApprovedByMember &&
+				record.Plan == plan && record.PlanVersion == version
+		}) {
+			return Violatedf("the merge approvals of %s are %+v, want the member's of %s for version %d", order, view.Integrations, commit, version)
+		}
 	}
 	return r.CheckProjection(p.store)
 }
