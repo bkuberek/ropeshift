@@ -23,9 +23,11 @@ import (
 // leaves the branch with no item in Needs you. A commit intake has not taken in yet is read on the next tick, so it is
 // held to this from then on. The first write after which it fails fails the check, naming the transaction, whatever the
 // check itself went on to say. It reads too that the worker is asked to merge no planning commit while a plan its requests
-// name has neither an open request nor an approved one, because the merge waits only for the requests that are open. It reads too that no open plan request for a version the ledger holds carries a digest
-// other than the version's: such a request can only be refused as stale, so a member would be offered an approval that
-// cannot be given.
+// name has neither an open request nor an approved one: the merge gate waits for each plan whose requests at the commit
+// are open, and for each whose every request there was denied, superseded, or voided, so a merge asked while such a plan
+// stands would take in a plan nobody approved. It reads too that no open plan request for a version the ledger holds
+// carries a digest other than the version's: such a request can only be refused as stale, so a member would be offered an
+// approval that cannot be given.
 func holdingPlanRequests(checks []Check) []Check {
 	out := make([]Check, 0, len(checks))
 	for _, check := range checks {
@@ -193,7 +195,8 @@ func staleOpenPlanRequests(ctx context.Context, store ports.Store, scope ledger.
 
 // unapprovedPlansMerging names each planning work order whose merge the worker is asked to run at a commit while one of
 // the plans the requests that name the work order and that commit are about has none of them open or approved: the merge
-// would take in a plan nobody approved, because it waits only for the requests that are open.
+// would take in a plan nobody approved. The merge gate waits for such a plan, whether its requests there were denied,
+// superseded, or voided, so this holds the gate to it.
 func unapprovedPlansMerging(ctx context.Context, store ports.Store, scope ledger.WorkspaceID) error {
 	var unapproved []string
 	err := store.Read(ctx, scope, func(tx ports.ReadTx) error {
