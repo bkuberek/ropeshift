@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
@@ -43,6 +44,14 @@ func TestExitE3LadderAndAttach(t *testing.T) {
 		return len(list) == 1 && list[0].Epoch >= 1
 	})
 	worker := in.workers()[0].ID
+	// The worker's session asks for its orchestrator once a member exists (FR-ORCH-1), and a run that is up when
+	// the asks arrive would wake on the first of them. A member stops it, so the run this test starts is the
+	// second, and it wakes once with the whole batch.
+	in.waitFor("the orchestrator the worker runs", func() bool {
+		code, shown, _ := in.run("orchestrator", "show", worker)
+		return code == 0 && strings.Contains(shown, "asked to be running")
+	})
+	in.must("orchestrator", "stop", worker)
 
 	store := in.ledgerOf()
 	use := control.NewQuestions(store, questions.BatchPolicy{WindowMs: standInWindowMs, MaxWaitMs: 60_000})
@@ -80,7 +89,7 @@ func TestExitE3LadderAndAttach(t *testing.T) {
 	}
 
 	in.must("orchestrator", "start", worker)
-	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), Run: 1}.Lane()))
+	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", ledger.Orchestrator{Run: 2}.Lane()))
 
 	read := func(id string) questions.Question {
 		var out questions.Question
