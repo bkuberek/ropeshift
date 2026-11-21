@@ -211,13 +211,20 @@ func (w *Worker) desired(ctx context.Context) (ledger.DesiredState, error) {
 	return state, err
 }
 
-// sessionSpec is what a driver needs to look for a session it did not start. An orchestrator's lane records no
-// worktree, because its session runs in its private directory, so it is looked for there.
-func (w *Worker) sessionSpec(record lanes.Record) ports.SessionSpec {
+// sessionSpec is what a driver needs to look for a session it did not start. An orchestrator's lane and an
+// assistant's record no worktree, because the session runs in a directory of its own, so it is looked for there: an
+// orchestrator's private directory, and the directory of the conversation desired state names for an assistant.
+func (w *Worker) sessionSpec(ctx context.Context, record lanes.Record) ports.SessionSpec {
 	rt := w.config.Lanes
 	dir := record.Worktree
-	if dir == "" && record.Owner == lanes.OwnerOrchestrator {
+	switch {
+	case dir != "":
+	case record.Owner == lanes.OwnerOrchestrator:
 		dir = rt.privateDir(record.ID)
+	case record.Owner == ownerAssistant:
+		if desired, ok := w.assistantOf(ctx, record.ID); ok {
+			dir = rt.assistantSessionDir(desired.Conversation)
+		}
 	}
 	return ports.SessionSpec{
 		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.ProcessGeneration(), Dir: dir,
@@ -274,7 +281,7 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 		actual := lanes.Actual{Record: record, Held: held[record.ID], Effects: byLane[record.ID]}
 		actual.ParkRefused = record.State == lanes.StateParked && record.Parking != nil && refused[record.Parking.Seq]
 		if !actual.Held && (record.State == lanes.StateRunning || hasUnknown(byLane[record.ID])) {
-			located, err := w.config.Lanes.Driver.Find(ctx, w.sessionSpec(record))
+			located, err := w.config.Lanes.Driver.Find(ctx, w.sessionSpec(ctx, record))
 			if err != nil {
 				w.config.Report(fmt.Errorf("lane %s: looking for its session: %w", record.ID, err))
 				unknownRead[record.ID] = true

@@ -54,6 +54,14 @@ const PublishFailed = publishFailed
 // OrchestratorDir is where an orchestrator's session runs.
 func OrchestratorDir(rt *LaneRuntime, lane string) string { return rt.privateDir(lane) }
 
+// AssistantDir is where the sessions of an assistant's conversation run.
+func AssistantDir(rt *LaneRuntime, conversation string) string {
+	return rt.assistantSessionDir(conversation)
+}
+
+// OwnerAssistant is the owner a lane record of an assistant's session names.
+const OwnerAssistant = ownerAssistant
+
 // WakeWaiting counts what a worker read for its orchestrator and has not told it. A debounce starts
 // where a worker reads an item, so a test has to see that before it moves its clock.
 func (w *Worker) WakeWaiting() int {
