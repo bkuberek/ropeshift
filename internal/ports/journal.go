@@ -218,6 +218,19 @@ type Journal interface {
 	// CloseMessage stops holding a message nobody can be told of here. The ledger decides what a
 	// sender reads, so this stores no event.
 	CloseMessage(ctx context.Context, id string) error
+	// BeginConsultation keeps a consultation this worker begins, before its session starts, so a worker that starts again
+	// finds one whose session an earlier process left. A consultation the journal holds already changes nothing.
+	BeginConsultation(ctx context.Context, run ledger.ConsultationRun) error
+	// Consultations lists the consultations this worker began and has journaled no end of, in the order they began.
+	Consultations(ctx context.Context) ([]ledger.ConsultationRun, error)
+	// SaveConsultationCost keeps what a consultation's session has cost so far, as the higher of that and what the journal
+	// held, so a worker that starts again counts what the session spent before. A consultation the journal does not hold
+	// changes nothing.
+	SaveConsultationCost(ctx context.Context, id string, costUSD float64) error
+	// EndConsultation stores the event that carries a consultation's end and forgets its start, in one write, so a crash
+	// leaves the start or the end on its way to the ledger, never neither. It stores nothing and reports false for a
+	// consultation the journal does not hold, which ended already.
+	EndConsultation(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, bool, error)
 	// Allocate gives a lane its resources, or returns what it already holds, so a retry
 	// after a crash converges. A pool with no block left is ErrNoPorts.
 	Allocate(ctx context.Context, request lanes.AllocationRequest) (lanes.Allocation, error)

@@ -34,6 +34,10 @@ const (
 	// consultHoldMargin is how long before the ledger's hold on the question ends a consultation's session is stopped, so
 	// its end reaches the ledger while the consultation still holds the question.
 	consultHoldMargin = 2 * time.Minute
+	// consultClockSkew is how far this machine's clock may run behind the ledger's, which the hold's end is counted on.
+	// It stands beside consultHoldMargin: a session is stopped this much earlier again, so a worker whose clock is slow
+	// by that much still stops it while the consultation holds the question.
+	consultClockSkew = time.Minute
 	// consultStopTries is how many times a consultation's session is asked to stop while each stop reads no end of it.
 	consultStopTries = 3
 	// consultStopGrace is how long a stopped consultation's session has to end before the worker stops reading it.
@@ -42,6 +46,8 @@ const (
 	consultUploadDeadline = 5 * time.Second
 	// consultRoleFile holds a consultation's role, beside its settings.
 	consultRoleFile = "consultant-role.md"
+	// consultTreeDir is where a consultation's read-only worktree of the question's repository is, in its own directory.
+	consultTreeDir = "repository"
 	// trackedConsultation is the kind of work goTracked counts for a consultation's session.
 	trackedConsultation = "consultation"
 )
@@ -51,12 +57,14 @@ const consultDenial = "A consultation reads the records and its read-only checko
 	lanes.ToolConsultReport + "."
 
 // consultation is one consultation this worker runs for its orchestrator: what the ledger granted it, the project and
-// the orchestrator's lane it reads the records as, its session's name, and what its agent reported.
+// the orchestrator's lane it reads the records as, its session's name, what the journal kept of its cost when this
+// process took it over, and what its agent reported.
 type consultation struct {
 	grant        ledger.ConsultGrant
 	project      string
 	orchestrator string
 	lane         string
+	spent        float64
 
 	mu     sync.Mutex
 	report *ledger.ConsultationReport
@@ -68,11 +76,33 @@ func (c *consultation) reported() *ledger.ConsultationReport {
 	return c.report
 }
 
-// consultationRuns are the consultations this process runs, by the digest of each session's token. A restart keeps
-// none: the session it left goes on to its budget with nobody to read it, and the ledger's hold on the question runs out.
+// consultationRuns are the consultations this process runs, by the digest of each session's token, and the ID of each
+// that it runs or recovers. A restart keeps none of them in memory: the journal keeps each consultation's start, and the
+// next start ends the consultation and stops the session the process left (recoverConsultations).
 type consultationRuns struct {
 	mu      sync.Mutex
 	byToken map[string]*consultation
+	live    map[string]bool
+}
+
+// begin says this process takes a consultation, and reports false when it has taken it already.
+func (c *consultationRuns) begin(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.live == nil {
+		c.live = map[string]bool{}
+	}
+	if c.live[id] {
+		return false
+	}
+	c.live[id] = true
+	return true
+}
+
+func (c *consultationRuns) finish(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.live, id)
 }
 
 func (c *consultationRuns) add(digest string, run *consultation) {
@@ -124,6 +154,16 @@ func (w *Worker) consult(ctx context.Context, lane lanes.Record, call ledger.Orc
 		return nil, err
 	}
 	run := &consultation{grant: grant, project: call.Project, orchestrator: lane.ID, lane: consultLanePrefix + grant.ID}
+	// The start is journaled before the session starts, so a worker that goes away with the session running leaves a
+	// record that the next start finds the session by. This process takes the consultation first, so a recovery that
+	// reads the journal meanwhile leaves the start to it.
+	w.consults.begin(grant.ID)
+	kept := ledger.ConsultationRun{Grant: grant, Project: call.Project, Orchestrator: lane.ID, StartedAt: w.clock.Now().UnixMilli()}
+	if err := w.journal.BeginConsultation(ctx, kept); err != nil {
+		w.endUnstarted(ctx, run)
+		w.consults.finish(grant.ID)
+		return nil, fmt.Errorf("keeping %s in the journal: %w", ledger.ConsultationCitation(grant.ID), err)
+	}
 	life := w.lifeOr(ctx)
 	w.goTracked(trackedConsultation, func() { w.runConsultation(life, run) })
 	return json.Marshal(ledger.ConsultStarted{
@@ -161,9 +201,51 @@ func (w *Worker) lifeOr(ctx context.Context) context.Context {
 func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 	// The session, from its preparation to its stop, never outlasts the ledger's hold on the question, or the question
 	// could be decided on while the session still reads it.
-	bounded, release := context.WithDeadlineCause(ctx, time.UnixMilli(run.grant.HoldUntil).Add(-consultHoldMargin), errConsultHoldEnded)
+	bounded, release := context.WithDeadlineCause(ctx, holdCutoff(run.grant), errConsultHoldEnded)
 	end := w.consultSession(bounded, run)
 	release()
+	defer w.consults.finish(run.grant.ID)
+	w.recordConsultationEnd(ctx, run, end)
+}
+
+// recordConsultationEnd journals how a consultation ended, in the one write that forgets its start, and sends it. A
+// journal that cannot make that write keeps the end alone, so the ledger lets go of the question now rather than when its
+// hold runs out: the start it still holds is ended again at the next start, and the ledger keeps the first end.
+func (w *Worker) recordConsultationEnd(ctx context.Context, run *consultation, end ledger.ConsultationEnd) {
+	event, ok := w.consultationEndEvent(run, end)
+	if !ok {
+		return
+	}
+	persist := context.WithoutCancel(ctx)
+	_, journaled, err := w.journal.EndConsultation(persist, run.grant.ID, event)
+	if err != nil {
+		w.config.Report(fmt.Errorf("consultation %s: forgetting its start with its end: %w", run.grant.ID, err))
+		journaled = w.journalEndAlone(persist, run, event)
+	}
+	if journaled {
+		w.uploadConsultationEnd(persist, run)
+	}
+}
+
+// endUnstarted records the end of a consultation whose start the journal could not keep, as a failure that cost nothing,
+// because its session never starts. The ledger holds its question from the grant on, and without this end it would hold
+// it until the hold ran out.
+func (w *Worker) endUnstarted(ctx context.Context, run *consultation) {
+	end := ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: "Its worker could not keep its start in its journal, so its session never started."}
+	event, ok := w.consultationEndEvent(run, end)
+	if !ok {
+		return
+	}
+	persist := context.WithoutCancel(ctx)
+	if w.journalEndAlone(persist, run, event) {
+		w.uploadConsultationEnd(persist, run)
+	}
+}
+
+// consultationEndEvent is the event that carries how a consultation ended. An end that does not hold together is sent
+// as a failure that keeps the cost, because the ledger refuses what it cannot keep, and a refused end would leave the
+// question held until the hold ran out.
+func (w *Worker) consultationEndEvent(run *consultation, end ledger.ConsultationEnd) (ledger.UploadEvent, bool) {
 	end.ID, end.Question, end.Agent, end.Class, end.Approval = run.grant.ID, run.grant.Question, run.grant.Agent.Name, run.grant.Agent.Class, run.grant.Agent.Approval
 	if err := end.Check(); err != nil {
 		end = ledger.ConsultationEnd{
@@ -174,18 +256,36 @@ func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 	payload, err := json.Marshal(end)
 	if err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: %w", run.grant.ID, err))
-		return
+		return ledger.UploadEvent{}, false
 	}
-	persist := context.WithoutCancel(ctx)
-	if _, err := w.journal.Append(persist, w.event(ledger.UploadConsultationEnded, lanes.Record{Project: run.project}, payload)); err != nil {
+	return w.event(ledger.UploadConsultationEnded, lanes.Record{Project: run.project}, payload), true
+}
+
+// journalEndAlone journals a consultation's end as an event of its own, with no start to forget, and reports whether it
+// did. An end it cannot journal leaves the question held until the hold runs out.
+func (w *Worker) journalEndAlone(ctx context.Context, run *consultation, event ledger.UploadEvent) bool {
+	if _, err := w.journal.Append(ctx, event); err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: its end stayed unrecorded: %w", run.grant.ID, err))
-		return
+		return false
 	}
-	uploading, cancel := context.WithTimeout(persist, consultUploadDeadline)
+	return true
+}
+
+// uploadConsultationEnd sends what the journal holds, a consultation's end with it. An upload that fails leaves the end
+// to the next heartbeat's.
+func (w *Worker) uploadConsultationEnd(ctx context.Context, run *consultation) {
+	uploading, cancel := context.WithTimeout(ctx, consultUploadDeadline)
 	defer cancel()
 	if err := w.Upload(uploading); err != nil {
 		w.config.Report(fmt.Errorf("consultation %s: %w", run.grant.ID, err))
 	}
+}
+
+// consultDirs are where a consultation keeps what its session needs on this machine: its own directory, the private
+// directory its session runs in, and the directory of its settings.
+func (rt *LaneRuntime) consultDirs(id string) (dir, private, config string) {
+	dir = filepath.Join(rt.StateDir, "consultations", id)
+	return dir, filepath.Join(dir, "session"), filepath.Join(dir, "config")
 }
 
 // consultSession runs one consultation's session: a headless session of the agent the ledger chose, at its model and
@@ -198,10 +298,9 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 		return ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: fmt.Sprintf(format, args...)}
 	}
 	if heldOut(ctx) {
-		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin)
+		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin+consultClockSkew)
 	}
-	dir := filepath.Join(rt.StateDir, "consultations", run.grant.ID)
-	private, config := filepath.Join(dir, "session"), filepath.Join(dir, "config")
+	dir, private, config := rt.consultDirs(run.grant.ID)
 	// Nothing reads what the session left once it ends. This runs last, after the worktree below is removed, and the
 	// consultation's own directory goes with them when that tree is gone.
 	defer w.forgetConsultation(dir, private, config, rt.tempDir(run.lane))
@@ -275,9 +374,9 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 		_ = rt.Driver.Stop(context.WithoutCancel(ctx), handle, ports.StopNow)
 		return failed("reading its session: %v", err)
 	}
-	end := w.followConsultation(ctx, run, handle, events)
+	end := w.followConsultation(ctx, run, handle, events, consultStop{})
 	if end.Model == "" {
-		end.Model = model
+		end.Model = ledger.ConsultationModel(model)
 	}
 	return end
 }
@@ -299,10 +398,14 @@ func (w *Worker) forgetConsultation(dir string, paths ...string) {
 
 // followConsultation reads a consultation's session to its end. Its one turn is the consultation, so the session stops at
 // rest once that turn ends. A session that reaches its budget, or outlasts its deadline, is stopped where it stands,
-// and what it cost is counted either way.
-func (w *Worker) followConsultation(ctx context.Context, run *consultation, handle ports.SessionHandle, events <-chan ports.DriverEvent) ledger.ConsultationEnd {
+// and what it cost is counted either way. A session a worker that went away left is stopped at once, which why says, and
+// its cost starts from what the journal kept. Each cost the session reports past what the journal holds is journaled,
+// so a worker that starts again counts what the session spent before it.
+func (w *Worker) followConsultation(ctx context.Context, run *consultation, handle ports.SessionHandle, events <-chan ports.DriverEvent,
+	why consultStop) ledger.ConsultationEnd {
 	rt := w.config.Lanes
-	var end ledger.ConsultationEnd
+	end := ledger.ConsultationEnd{CostUSD: run.spent}
+	kept := run.spent
 	var once sync.Once
 	// A stop that sent its last signal and read no end of the session leaves it running, and spending, with nobody to
 	// read it, so it is asked again.
@@ -324,7 +427,11 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 	defer deadline.Stop()
 	var grace <-chan time.Time
 	done := ctx.Done()
-	why := consultStop{limit: limit}
+	why.limit = limit
+	if why.restarted {
+		stop(ports.StopNow)
+		grace = time.After(consultStopGrace)
+	}
 	budget := run.grant.BudgetUSD
 	for {
 		select {
@@ -349,8 +456,8 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 			}
 			switch event.Kind {
 			case ports.EventSessionBound:
-				if event.ModelResolved != "" {
-					end.Model = event.ModelResolved
+				if model := ledger.ConsultationModel(event.ModelResolved); model != "" {
+					end.Model = model
 				}
 			case ports.EventCost:
 				end.CostUSD = max(end.CostUSD, event.RunningUSD)
@@ -360,6 +467,10 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 				}
 				stop(ports.StopAtRest)
 			}
+			if end.CostUSD > kept {
+				kept = end.CostUSD
+				w.keepConsultationCost(ctx, run, kept)
+			}
 			if budget > 0 && end.CostUSD >= budget && !why.atCap {
 				why.atCap = true
 				stop(ports.StopInterrupt)
@@ -368,11 +479,27 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 	}
 }
 
+// keepConsultationCost journals what a consultation's session has cost so far. A write that fails leaves the cost in this
+// process, which its end still counts, and only a restart before that end loses it.
+func (w *Worker) keepConsultationCost(ctx context.Context, run *consultation, costUSD float64) {
+	if err := w.journal.SaveConsultationCost(context.WithoutCancel(ctx), run.grant.ID, costUSD); err != nil {
+		w.config.Report(fmt.Errorf("consultation %s: keeping its cost in the journal: %w", run.grant.ID, err))
+	}
+}
+
 // consultStop is why a consultation's session was stopped when its own end did not come first: it reached its budget, it
-// outlasted its deadline of limit, or the ledger's hold on its question was about to end.
+// outlasted its deadline of limit, the ledger's hold on its question was about to end, or the worker that ran it went
+// away and the next one found it still running.
 type consultStop struct {
-	atCap, timedOut, heldOut bool
-	limit                    time.Duration
+	atCap, timedOut, heldOut, restarted bool
+	limit                               time.Duration
+}
+
+// holdCutoff is when a consultation's session is stopped, wherever it has got to: before the ledger's hold on its question
+// ends by the margin that lets its end reach the ledger, and by the skew a clock that runs behind the ledger's may have.
+// The hold's end is the ledger's clock, and the cutoff is read on this machine's.
+func holdCutoff(grant ledger.ConsultGrant) time.Time {
+	return time.UnixMilli(grant.HoldUntil).Add(-consultHoldMargin - consultClockSkew)
 }
 
 // heldOut says the ledger's hold on a consultation's question is about to end, which is what bounds its session's context.
@@ -392,6 +519,8 @@ func consultationEnded(run *consultation, end ledger.ConsultationEnd, why consul
 		end.Outcome, end.Detail = ledger.ConsultationUnreported, fmt.Sprintf("It ran %s and reported nothing.", why.limit)
 	case why.heldOut:
 		end.Outcome, end.Detail = ledger.ConsultationUnreported, "It was stopped where the hold on its question was about to end, and reported nothing."
+	case why.restarted:
+		end.Outcome, end.Detail = ledger.ConsultationUnreported, "Its worker restarted while it ran, and stopped it, and it reported nothing."
 	default:
 		end.Outcome, end.Detail = ledger.ConsultationUnreported, "Its session ended with no report."
 	}
@@ -415,7 +544,7 @@ func (w *Worker) consultTree(ctx context.Context, run *consultation, dir string)
 	if err != nil {
 		return "", "", fmt.Sprintf("this machine keeps no checkout of it: %v", err)
 	}
-	place := filepath.Join(dir, "repository")
+	place := filepath.Join(dir, consultTreeDir)
 	_ = rt.Provisioner.Worktrees.Discard(ctx, checkout, place)
 	_ = rt.Provisioner.Worktrees.Fetch(ctx, checkout, []string{repository.Base})
 	if _, err := trees.Create(ctx, ports.WorktreeSpec{Repository: checkout, Path: place, Base: repository.Base, Detached: true}); err != nil {

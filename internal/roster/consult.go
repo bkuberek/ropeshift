@@ -30,7 +30,17 @@ func (r Resolved) ConsultAgent(named, above string) (ResolvedAgent, error) {
 		return ResolvedAgent{}, fmt.Errorf("%w: agent %q is %s", ErrNotReadOnly, named, agent.Access)
 	}
 	if ClassRank(agent.Class) <= ClassRank(above) {
-		return ResolvedAgent{}, fmt.Errorf("%w: agent %q is %s, and the orchestrator runs on %s", ErrNotStronger, named, agent.Class, above)
+		return ResolvedAgent{}, fmt.Errorf("%w: agent %q is %s, and the orchestrator runs on %s%s", ErrNotStronger, named, agent.Class, above, topClassRemedy(above))
 	}
 	return agent, nil
+}
+
+// topClassRemedy says what to change when the orchestrator runs on the top class, above which no agent of any roster can
+// be, so a consultation is refused whichever agent it names, the default consultant included.
+func topClassRemedy(above string) string {
+	if ClassRank(above) != len(Classes)-1 {
+		return ""
+	}
+	return fmt.Sprintf(": no class is above %s, so with orchestrator_class set to %s no consultation runs. Lower orchestrator_class below %s to allow one",
+		above, above, above)
 }

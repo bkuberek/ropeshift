@@ -39,6 +39,9 @@ const AttachedWaits = attachedWaits
 // ConsultHoldMargin is how long before the ledger's hold on a question ends its consultation's session is stopped.
 const ConsultHoldMargin = consultHoldMargin
 
+// ConsultClockSkew is how much earlier again than that margin a session is stopped, for a clock that runs behind the ledger's.
+const ConsultClockSkew = consultClockSkew
+
 // PublishSettle is how long a lane's moves settle before a running worker publishes them.
 const PublishSettle = publishSettle
 
@@ -150,3 +153,17 @@ func (c *Crossing) Restore() {
 	c.run.reached.Store(c.reached)
 	c.run.sessionOver.Store(c.over)
 }
+
+// MarkUnknown is what a worker does once at a start, before it begins any effect: it marks what a crash left, and ends the
+// consultations a worker that went away left running.
+func (w *Worker) MarkUnknown(ctx context.Context) error { return w.markUnknown(ctx) }
+
+// ConsultationTaken says this process runs or recovers a consultation, which a recovery that reads the journal leaves to it.
+func (w *Worker) ConsultationTaken(id string) bool {
+	w.consults.mu.Lock()
+	defer w.consults.mu.Unlock()
+	return w.consults.live[id]
+}
+
+// RecoverConsultations ends the consultations the journal keeps that this process does not run, as a start does.
+func (w *Worker) RecoverConsultations(ctx context.Context) { w.recoverConsultations(ctx) }

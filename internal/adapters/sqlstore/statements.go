@@ -89,6 +89,13 @@ VALUES
  WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND subject_id = :subject_id
  ORDER BY rev`)
 
+	stmtEventsOfKind = define("event.of_kind",
+		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
+       data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id
+  FROM events
+ WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND recorded_at >= :since
+ ORDER BY rev`)
+
 	stmtListEvents = define("event.list",
 		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
        data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id
