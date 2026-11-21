@@ -258,7 +258,7 @@ func (b *baseSide) fileAt(spec ports.SessionSpec, path string) (baseFile, error)
 // the repository's. It writes only through directories of the worktree's own: a link on the way is refused.
 func restoreHookFiles(spec ports.SessionSpec) error {
 	base := newBaseSide()
-	pieces, _ := worktreePieces(spec)
+	pieces, _ := worktreePieces(spec, nestedSkillDirs(spec).dirs)
 	for _, held := range hookFiles(spec, base, sessionHooks(spec, pieces)) {
 		path := filepath.Join(spec.Dir, filepath.FromSlash(held.path))
 		if held.unread {

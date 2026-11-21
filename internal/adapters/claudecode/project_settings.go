@@ -109,7 +109,7 @@ func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
 		return nil
 	}
 	base, _ := readBaseSide(spec)
-	return compareSettings(spec, base)
+	return compareSettings(spec, base, nestedSkillDirs(spec))
 }
 
 // comparable says a spec names a worktree and the clone and commit its repository's side is read at, or says its
@@ -126,19 +126,28 @@ func comparable(spec ports.SessionSpec) bool {
 // has a few milliseconds, so the repository's side, which is fixed by the commit it is read at, is read once per clone
 // and commit and kept, and each later check reads only the worktree.
 func (d *Driver) SettingsChange(_ context.Context, spec ports.SessionSpec) *lanes.SettingsChange {
+	return d.settingsChangeOf(spec, false)
+}
+
+// settingsChangeOf is SettingsChange, which finds the worktree's nested skills directories again when rescan says so, as
+// a start's preflight does, and otherwise reads those its start found (nestedDirs).
+func (d *Driver) settingsChangeOf(spec ports.SessionSpec, rescan bool) *lanes.SettingsChange {
 	spec = atSettingsBase(spec)
 	if !comparable(spec) {
 		return nil
 	}
-	return compareSettings(spec, d.bases.of(spec))
+	return compareSettings(spec, d.bases.of(spec), d.nested.of(spec, rescan))
 }
 
 // baseSide is the repository's side of what a hold compares, at the commit a lane's work began from: each settings file
 // the session reads, as that commit holds it, and nil where it holds none, and the blob of each piece file it holds
-// (pieceDirs), whose hooks are read only for a piece the worktree holds otherwise.
+// (pieceDirs), whose hooks are read only for a piece the worktree holds otherwise. The pieces of a nested skills
+// directory are read once a worktree holds that directory (blobOf).
 type baseSide struct {
 	files  map[string][]byte
 	pieces map[string]string
+	// nested holds the blob of each piece of each nested skills directory read, by the directory, under mu.
+	nested map[string]map[string]string
 	// mu guards hooks, the frontmatter hooks read of each piece blob, and ran, each file a hook runs (fileAt).
 	mu    sync.Mutex
 	hooks map[string]pieceHooks
@@ -147,7 +156,42 @@ type baseSide struct {
 
 // newBaseSide is a repository's side that holds nothing yet.
 func newBaseSide() *baseSide {
-	return &baseSide{files: map[string][]byte{}, pieces: map[string]string{}, hooks: map[string]pieceHooks{}, ran: map[string]baseFile{}}
+	return &baseSide{
+		files: map[string][]byte{}, pieces: map[string]string{}, nested: map[string]map[string]string{},
+		hooks: map[string]pieceHooks{}, ran: map[string]baseFile{},
+	}
+}
+
+// blobOf is the blob of a piece the repository holds at the lane's base, by its path, empty for none, and whether that
+// was read: a piece of a nested skills directory is read with the rest of its directory once, and a read that fails says
+// false and is read again next time.
+func (b *baseSide) blobOf(spec ports.SessionSpec, path string) (string, bool) {
+	dir := nestedDirOf(path)
+	if dir == "" {
+		return b.pieces[path], true
+	}
+	b.mu.Lock()
+	pieces, read := b.nested[dir]
+	b.mu.Unlock()
+	if read || spec.SettingsUnbased {
+		return pieces[path], true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
+	defer cancel()
+	files, err := repositoryGit(spec).FilesUnder(ctx, spec.Base, dir, maxRepositoryPieceFiles)
+	if err != nil {
+		return "", false
+	}
+	pieces = map[string]string{}
+	for _, file := range files {
+		if isPiece(dir + "/" + file.Path) {
+			pieces[dir+"/"+file.Path] = file.Blob
+		}
+	}
+	b.mu.Lock()
+	b.nested[dir] = pieces
+	b.mu.Unlock()
+	return pieces[path], true
 }
 
 // readBaseSide reads the repository's side of a hold from git's objects, and says whether every read completed. A read
@@ -240,7 +284,7 @@ func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 // compareSettings names each key not known to be harmless (safeSettings) that the worktree's settings files hold
 // otherwise than the repository's side, each piece whose frontmatter hooks the lane added or changed, which runs a
 // command as a settings hook does, and each file a hook runs that the lane changed (hookFiles).
-func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChange {
+func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
 	for _, file := range settingsFiles(spec) {
@@ -265,8 +309,8 @@ func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChan
 			fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", file, key, canonical(lane[key]))
 		}
 	}
-	pieces, within := worktreePieces(spec)
-	for _, piece := range comparePieces(spec, base, pieces, within) {
+	pieces, within := worktreePieces(spec, nested.dirs)
+	for _, piece := range slices.Concat(comparePieces(spec, base, pieces, within), nestedOverflow(nested)) {
 		if !piece.overflow {
 			change.Files = append(change.Files, piece.path)
 		}

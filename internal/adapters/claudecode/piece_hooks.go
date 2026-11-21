@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -36,6 +37,20 @@ var pieceDirs = []string{".claude/skills", ".claude/agents", ".claude/commands"}
 // frontmatter the CLI reads.
 const skillsDir = ".claude/skills"
 
+// A `.claude/skills/` directory below the worktree's root holds skills too: they "load the first time Claude reads or
+// edits a file in that subdirectory and stay available for the rest of the session" ([skills]), so a hook a lane writes
+// into one runs as a root skill's does, and the hold reads them as it reads the root's. Finding them reads every
+// directory of the worktree but `.git`, through links, each once, up to maxNestedDirs; past it, the skills below were not
+// compared, and the hold says so. A running session's check reads the nested directories its start found (nestedDirs),
+// because a reload has milliseconds: a nested skill a lane adds during a session in a directory the start did not find
+// is held at the next generation's start.
+//
+// [skills]: https://code.claude.com/docs/en/skills
+const maxNestedDirs = 1 << 16
+
+// nestedRoot is the path a hold names for the nested skills it could not compare.
+const nestedRoot = "."
+
 // keyHooks is the key of a settings file and of a piece's frontmatter that holds its hooks.
 const keyHooks = "hooks"
 
@@ -46,10 +61,93 @@ const maxPieceDepth = 16
 // SKILL.md, or any Markdown file of the subagents or commands.
 func isPiece(path string) bool {
 	name := pathpkg.Base(path)
-	if strings.HasPrefix(path, skillsDir+"/") {
+	if strings.HasPrefix(path, skillsDir+"/") || strings.Contains(path, "/"+skillsDir+"/") {
 		return strings.EqualFold(name, "SKILL.md")
 	}
 	return strings.EqualFold(pathpkg.Ext(name), ".md")
+}
+
+// nestedScan is what a walk of a worktree found of the skills directories below its root: each one's slash-separated
+// path, and whether the walk stayed within maxNestedDirs.
+type nestedScan struct {
+	dirs   []string
+	within bool
+}
+
+// nestedSkillDirs finds each `.claude/skills` directory below a lane's worktree's root, as the CLI would reach it,
+// through links, reading each directory once and none named `.git`.
+func nestedSkillDirs(spec ports.SessionSpec) nestedScan {
+	scan := nestedScan{within: true}
+	seen := map[string]bool{}
+	read := 0
+	var walk func(dir, at string)
+	walk = func(dir, at string) {
+		real, err := filepath.EvalSymlinks(dir)
+		if err != nil || seen[real] || !scan.within {
+			return
+		}
+		seen[real] = true
+		if read++; read > maxNestedDirs {
+			scan.within = false
+			return
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			if entry.Name() == ".git" {
+				continue
+			}
+			path, name := filepath.Join(dir, entry.Name()), pathpkg.Join(at, entry.Name())
+			if info, err := os.Stat(path); err != nil || !info.IsDir() {
+				continue
+			}
+			if entry.Name() == ".claude" && at != "" {
+				if info, err := os.Stat(filepath.Join(path, "skills")); err == nil && info.IsDir() {
+					scan.dirs = append(scan.dirs, pathpkg.Join(at, skillsDir))
+				}
+			}
+			walk(path, name)
+		}
+	}
+	walk(spec.Dir, "")
+	slices.Sort(scan.dirs)
+	return scan
+}
+
+// nestedDirs keeps the nested skills directories each worktree's start found, which a running session's check reads.
+type nestedDirs struct {
+	mu   sync.Mutex
+	kept map[string]nestedScan
+}
+
+// of is the nested skills directories of a worktree: found again when rescan says so, as each start does, and otherwise
+// those its last start found.
+func (n *nestedDirs) of(spec ports.SessionSpec, rescan bool) nestedScan {
+	n.mu.Lock()
+	scan, found := n.kept[spec.Dir]
+	n.mu.Unlock()
+	if found && !rescan {
+		return scan
+	}
+	scan = nestedSkillDirs(spec)
+	n.mu.Lock()
+	if n.kept == nil || len(n.kept) >= maxBaseSides {
+		n.kept = map[string]nestedScan{}
+	}
+	n.kept[spec.Dir] = scan
+	n.mu.Unlock()
+	return scan
+}
+
+// nestedDirOf is the nested skills directory a piece's path lies in, or empty for a piece of the root's directories.
+func nestedDirOf(path string) string {
+	at := strings.Index(path, "/"+skillsDir+"/")
+	if at < 0 {
+		return ""
+	}
+	return path[:at+len("/"+skillsDir)]
 }
 
 // pieceHooks are the hooks one piece's frontmatter declares, as JSON, nil for none. A frontmatter that does not parse or
@@ -104,9 +202,10 @@ type pieceFile struct {
 	whole bool
 }
 
-// worktreePieces are the piece files of a lane's worktree, read as the CLI reads them, through links, each directory
-// once, up to the bound the repository's side holds to. It says whether the read stayed within that bound.
-func worktreePieces(spec ports.SessionSpec) ([]pieceFile, bool) {
+// worktreePieces are the piece files of a lane's worktree, in its root's piece directories and in the nested skills
+// directories given, read as the CLI reads them, through links, each directory once, up to the bound the repository's
+// side holds to. It says whether the read stayed within that bound.
+func worktreePieces(spec ports.SessionSpec, nested []string) ([]pieceFile, bool) {
 	var out []pieceFile
 	seen := map[string]bool{}
 	within := true
@@ -142,7 +241,7 @@ func worktreePieces(spec ports.SessionSpec) ([]pieceFile, bool) {
 			}
 		}
 	}
-	for _, dir := range pieceDirs {
+	for _, dir := range slices.Concat(pieceDirs, nested) {
 		walk(filepath.Join(spec.Dir, filepath.FromSlash(dir)), dir, 0)
 	}
 	return out, within
@@ -171,6 +270,9 @@ type heldPiece struct {
 	base, lane pieceHooks
 	raw        []byte
 	overflow   bool
+	// unread says the repository's nested skills directory of the piece could not be read, so nothing says the base
+	// holds none of it.
+	unread bool
 }
 
 // comparePieces are the pieces of a lane's worktree (worktreePieces) whose frontmatter hooks differ from the repository's
@@ -179,7 +281,7 @@ type heldPiece struct {
 func comparePieces(spec ports.SessionSpec, base *baseSide, files []pieceFile, within bool) []heldPiece {
 	var out []heldPiece
 	for _, file := range files {
-		blob := base.pieces[file.path]
+		blob, known := base.blobOf(spec, file.path)
 		if id, ok := gitcli.BlobID(spec.Base, file.raw); ok && file.whole && blob != "" && id == blob {
 			continue
 		}
@@ -197,7 +299,7 @@ func comparePieces(spec ports.SessionSpec, base *baseSide, files []pieceFile, wi
 		if lane.readable && at.readable && canonical(lane.value) == canonical(at.value) {
 			continue
 		}
-		out = append(out, heldPiece{path: file.path, blob: blob, base: at, lane: lane, raw: file.raw})
+		out = append(out, heldPiece{path: file.path, blob: blob, base: at, lane: lane, raw: file.raw, unread: !known})
 	}
 	slices.SortFunc(out, func(a, b heldPiece) int { return strings.Compare(a.path, b.path) })
 	if !within {
@@ -206,9 +308,19 @@ func comparePieces(spec ports.SessionSpec, base *baseSide, files []pieceFile, wi
 	return out
 }
 
+// nestedOverflow is the held piece that stands for the nested skills a walk past maxNestedDirs did not compare.
+func nestedOverflow(scan nestedScan) []heldPiece {
+	if scan.within {
+		return nil
+	}
+	return []heldPiece{{path: nestedRoot, overflow: true}}
+}
+
 // summary is what the hold says of one piece, as describeChange says it of a settings key.
 func (p heldPiece) summary() []string {
 	switch {
+	case p.overflow && p.path == nestedRoot:
+		return []string{fmt.Sprintf("the worktree: more than %d directories, so the hooks of the skills nested below its root were not compared", maxNestedDirs)}
 	case p.overflow:
 		return []string{fmt.Sprintf(".claude: more than %d skill, subagent, and command files, so the hooks of those past the bound were not compared", maxRepositoryPieceFiles)}
 	case !p.lane.readable:
@@ -221,7 +333,7 @@ func (p heldPiece) summary() []string {
 func (p heldPiece) bound() string {
 	switch {
 	case p.overflow:
-		return "overflow"
+		return "overflow\x00" + p.path
 	case !p.lane.readable:
 		sum := sha256.Sum256(p.raw)
 		return "unreadable\x00" + hex.EncodeToString(sum[:])
@@ -240,10 +352,13 @@ func restorePieces(spec ports.SessionSpec) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
-	files, within := worktreePieces(spec)
+	files, within := worktreePieces(spec, nestedSkillDirs(spec).dirs)
 	for _, piece := range comparePieces(spec, base, files, within) {
 		if piece.overflow {
 			continue
+		}
+		if piece.unread {
+			return fmt.Errorf("the repository's skills in %s at %s could not be read, so none is restored", nestedDirOf(piece.path), spec.Base)
 		}
 		path := filepath.Join(spec.Dir, filepath.FromSlash(piece.path))
 		if piece.blob == "" {
