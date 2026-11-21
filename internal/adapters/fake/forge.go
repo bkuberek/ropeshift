@@ -458,7 +458,7 @@ func (f *Forge) Health(_ context.Context, repo ports.ForgeRepo) (ledger.ForgeHea
 // Merge merges a pull request with a method while its head is the given commit, as the forge does for a
 // worker. A pull request merged at that head answers merged again, and what Refuse set comes back as the
 // refusal it names.
-func (f *Forge) Merge(_ context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error) {
+func (f *Forge) Merge(_ context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod, _ string) (ledger.MergeResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, fmt.Sprintf("merge %d %s", ref.Number, method))
