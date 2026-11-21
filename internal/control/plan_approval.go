@@ -634,10 +634,11 @@ func acceptNamedPlan(tx ports.WriteTx, approval authority.Approval, member ledge
 }
 
 // PlanApprovalIsCurrent reports whether a request to approve a plan was raised for the commit a work order's
-// branch holds in its current attempt, which approving it needs to accept the work order.
+// branch holds in its current attempt, which approving it needs to accept the work order. The request names that commit
+// as the commit itself or as a file read at it, "path@commit", which requestCommit reads either way.
 func PlanApprovalIsCurrent(evidence ports.EvidenceReader, order workorders.WorkOrder, approval authority.Approval) (bool, error) {
 	commit, err := AttemptCommit(evidence, order)
-	return commit != "" && commit == planDetailOf(approval).Source, err
+	return commit != "" && commit == requestCommit(approval), err
 }
 
 // RequestBranch names the planning branch a plan request is about: the work order it names, the branch that work order
