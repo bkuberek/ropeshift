@@ -341,10 +341,11 @@ func consultationText(end ledger.ConsultationEnd) string {
 	return out.String()
 }
 
-// withConsultation adds the citation of a question's consultation to a decision on it that does not cite it already,
-// because the decision rests on what the consultation found, and its event holds the agent and the cost (FR-ORCH-9).
-func withConsultation(tx ports.ReadTx, question string, citations []string) ([]string, error) {
-	_, ended, err := consultationOf(tx.EventsAbout, question)
+// withConsultation adds the citation of a question's consultation to the citations of a decision on it that does not cite
+// it already, because the decision rests on what the consultation found, and its event holds the agent and the cost
+// (FR-ORCH-9). A question no consultation ended on keeps its citations.
+func withConsultation(eventsAbout func(ledger.Subject) ([]ledger.Event, error), question string, citations []string) ([]string, error) {
+	_, ended, err := consultationOf(eventsAbout, question)
 	if err != nil || ended == nil {
 		return citations, err
 	}
@@ -353,13 +354,4 @@ func withConsultation(tx ports.ReadTx, question string, citations []string) ([]s
 		return citations, nil
 	}
 	return append(slices.Clone(citations), cited), nil
-}
-
-// citeConsultation reads withConsultation for a ruling, in a transaction of its own.
-func (w *Workers) citeConsultation(ctx context.Context, question string, ruling *questions.Ruling) error {
-	return w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
-		var err error
-		ruling.Citations, err = withConsultation(tx, question, ruling.Citations)
-		return err
-	})
 }

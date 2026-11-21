@@ -404,8 +404,16 @@ func (q *Questions) Resolve(ctx context.Context, scope ledger.WorkspaceID, id, d
 		if err := checkAnswers(tx, answer, record, actor); err != nil {
 			return err
 		}
+		// The answer is a decision that is already on record, so the step that closes the question cites the consultation
+		// it rests on, as a ruling's citations do (FR-ORCH-9).
+		consulted, err := withConsultation(tx.EventsAbout, id, nil)
+		if err != nil {
+			return err
+		}
 		crashpoint.Hit("question.resolve", "answered")
-		record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: record.Rung, Outcome: questions.OutcomeAnswered, By: actor.ID, Decision: decision})
+		record.LadderTrace = append(record.LadderTrace, questions.Step{
+			Rung: record.Rung, Candidates: consulted, Outcome: questions.OutcomeAnswered, By: actor.ID, Decision: decision,
+		})
 		record.Status, record.DecisionID, record.ClaimedBy, record.ClaimUntil = questions.StatusAnswered, decision, "", 0
 		return q.closeQuestion(tx, record, actor)
 	})
