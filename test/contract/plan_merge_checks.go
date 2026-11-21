@@ -17,8 +17,9 @@ import (
 // PlanMergeChecks are what the ledger promises about merging a planning branch (ADR-0018, ADR-0020,
 // ADR-0023): no review judges it, a member's plan approval bound to its commit is the only approval of its
 // merge, ropeshift merges it through the same integration step as any accepted work, and a branch that moved
-// after the approval needs a new one.
-var PlanMergeChecks = []Check{
+// after the approval needs a new one. Every check holds that no planning branch waits for an approval nothing can give
+// (holdingPlanRequests).
+var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM1", "at review_approves, an approved plan's branch waits in integrating until intake records the plan, and then its lane's worker merges the approved commit, with the plan version on record", checkApprovedPlanMerges},
 	{"PM2", "through a pull request, a planning lane's end opens the pull request, and at person_approves the plan approval merges it at the approved head with no merge request of its own", checkApprovedPlanMergesItsPullRequest},
 	{"PM3", "at person_merges with review target branch, approving a plan ends the planning and merges nothing", checkPersonMergesTheApprovedBranch},
@@ -38,7 +39,7 @@ var PlanMergeChecks = []Check{
 	{"PM17", "a planning branch a send-back returns with the plan the ledger holds asks nothing while it waits for acceptance, and once accepted asks for that plan's approval naming its new commit, which approves its merge", checkResentPlanAsksOnceAccepted},
 	{"PM18", "a request that named an earlier commit of a planning branch is refused while the branch waits for acceptance at another, and once that commit is accepted the plan's approval is asked for at it, which approves its merge", checkMovedPlanAsksOnceAccepted},
 	{"PM19", "two planning branches that hold one plan each ask for the plan's approval naming their own commit once accepted, and approving each approves the merge of its own branch", checkTwoBranchesOfOnePlanAskEach},
-}
+})
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
 // target and a merge authority level, and whose branch holds a plan, a spec, and a contract.
