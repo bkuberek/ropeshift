@@ -3,13 +3,16 @@ package claudecode
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -58,8 +61,7 @@ type pieces struct {
 
 func setupContextOf(spec ports.SessionSpec) setupContext {
 	c := setupContext{
-		home: envValue(spec.Env, "HOME"), repository: map[string]bool{}, roster: map[string]bool{},
-		repo: piecesIn(filepath.Join(spec.Dir, ".claude"), "settings.json"),
+		home: envValue(spec.Env, "HOME"), repository: map[string]bool{}, roster: map[string]bool{}, repo: repositoryPieces(spec),
 	}
 	for name := range repositoryServers(spec) {
 		c.repository[name] = true
@@ -73,10 +75,14 @@ func setupContextOf(spec ports.SessionSpec) setupContext {
 	return c
 }
 
+func newPieces() pieces {
+	return pieces{agents: map[string]string{}, skills: map[string]string{}, commands: map[string]string{}, plugins: map[string]string{}}
+}
+
 // piecesIn reads one `.claude` directory: its agents by the name their frontmatter gives, its skills, synced ones
 // included, its commands, and the plugins its settings files enable.
 func piecesIn(dir string, settings ...string) pieces {
-	out := pieces{agents: map[string]string{}, skills: map[string]string{}, commands: map[string]string{}, plugins: map[string]string{}}
+	out := newPieces()
 	walkMarkdown(filepath.Join(dir, "agents"), func(path string) { out.agents[frontmatterName(path)] = path })
 	walkMarkdown(filepath.Join(dir, "commands"), func(path string) {
 		out.commands[strings.TrimSuffix(filepath.Base(path), ".md")] = path
@@ -97,24 +103,95 @@ func piecesIn(dir string, settings ...string) pieces {
 	}
 	for _, name := range settings {
 		path := filepath.Join(dir, name)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var file struct {
-			Enabled map[string]bool `json:"enabledPlugins"`
-		}
-		if json.Unmarshal(raw, &file) != nil {
-			continue
-		}
-		for key, on := range file.Enabled {
-			plugin, _, _ := strings.Cut(key, "@")
-			if on {
-				out.plugins[plugin] = path
-			}
+		if raw, err := os.ReadFile(path); err == nil {
+			out.enablePlugins(raw, path)
 		}
 	}
 	return out
+}
+
+// enablePlugins adds the plugins a settings file enables, named without their marketplace.
+func (p pieces) enablePlugins(settings []byte, path string) {
+	var file struct {
+		Enabled map[string]bool `json:"enabledPlugins"`
+	}
+	if json.Unmarshal(settings, &file) != nil {
+		return
+	}
+	for key, on := range file.Enabled {
+		plugin, _, _ := strings.Cut(key, "@")
+		if on {
+			p.plugins[plugin] = path
+		}
+	}
+}
+
+// The bounds of the read of the repository's `.claude` directory: the files it lists, and the bytes it reads of each.
+const (
+	maxRepositoryPieceFiles = 4096
+	maxPieceFile            = 64 << 10
+)
+
+// repositoryPieces are the agents, skills, commands, and enabled plugins the repository's `.claude` directory holds at
+// the commit the lane began from, read as repositoryFile reads a file, so a piece a lane adds to its worktree is never
+// the repository's until it is merged, and never hides one of the member's own. A directory that cannot be read holds
+// none, so each piece the member's directory names reads as theirs.
+func repositoryPieces(spec ports.SessionSpec) pieces {
+	out := newPieces()
+	if spec.Repository == "" || spec.Base == "" {
+		return out
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
+	defer cancel()
+	git := repositoryGit(spec)
+	files, err := git.FilesUnder(ctx, spec.Base, ".claude", maxRepositoryPieceFiles)
+	if err != nil {
+		return out
+	}
+	read := func(file gitcli.TreeFile) []byte {
+		raw, _ := git.BlobOf(ctx, file.Blob, maxPieceFile)
+		return raw
+	}
+	skills := map[string]string{}
+	for _, file := range files {
+		at := ".claude/" + file.Path
+		parts := strings.Split(file.Path, "/")
+		name := path.Base(file.Path)
+		switch {
+		case parts[0] == "agents" && strings.HasSuffix(name, ".md"):
+			out.agents[frontmatterNameOf(read(file), strings.TrimSuffix(name, ".md"))] = at
+		case parts[0] == "commands" && strings.HasSuffix(name, ".md"):
+			out.commands[strings.TrimSuffix(name, ".md")] = at
+		case parts[0] == "skills":
+			dir, ok := skillOf(parts)
+			if _, seen := skills[path.Dir(at)]; ok && !seen {
+				skills[path.Dir(at)] = dir
+			}
+			if ok && name == "SKILL.md" {
+				skills[path.Dir(at)] = frontmatterNameOf(read(file), dir)
+			}
+		case file.Path == "settings.json":
+			out.enablePlugins(read(file), at)
+		}
+	}
+	for dir, name := range skills {
+		out.skills[name] = dir
+	}
+	return out
+}
+
+// skillOf reads the path of a file under `.claude/skills/`, split at its slashes, as piecesIn reads that directory, and
+// gives the skill directory the file is directly in: a directory of skills/ or of skills/synced/ whose name starts
+// with no dot.
+func skillOf(parts []string) (string, bool) {
+	rest := parts[1:]
+	if len(rest) > 2 && rest[0] == "synced" {
+		rest = rest[1:]
+	}
+	if len(rest) != 2 || rest[0] == "synced" || strings.HasPrefix(rest[0], ".") {
+		return "", false
+	}
+	return rest[0], true
 }
 
 func walkMarkdown(root string, take func(path string)) {
@@ -127,10 +204,14 @@ func walkMarkdown(root string, take func(path string)) {
 }
 
 // frontmatterName is the `name` a file's frontmatter gives, or the file's own name without its extension.
-func frontmatterName(path string) string {
-	fallback := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	raw, err := os.ReadFile(path)
-	if err != nil || !bytes.HasPrefix(raw, []byte("---")) {
+func frontmatterName(file string) string {
+	raw, _ := os.ReadFile(file)
+	return frontmatterNameOf(raw, strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)))
+}
+
+// frontmatterNameOf is the `name` the frontmatter of a file's content gives, or fallback.
+func frontmatterNameOf(raw []byte, fallback string) string {
+	if !bytes.HasPrefix(raw, []byte("---")) {
 		return fallback
 	}
 	lines := bufio.NewScanner(bytes.NewReader(raw))

@@ -75,3 +75,46 @@ func TestACleanInitNamesNoPersonalPiece(t *testing.T) {
 		t.Errorf("a clean init gave %+v", event.Setup)
 	}
 }
+
+// A piece a lane adds to its worktree is not the repository's until it is merged, so it never hides one of the member's
+// own: the repository's pieces are those its `.claude` directory holds at the lane's base, read from the clone.
+func TestAPieceALaneAddsHidesNoneOfTheMembers(t *testing.T) {
+	home := t.TempDir()
+	spec := laneSpec(t)
+	spec.Env = []string{"HOME=" + home}
+	config := filepath.Join(home, ".claude")
+	writeFile(t, filepath.Join(config, "agents", "reviewer.md"), "---\nname: reviewer\n---\nMine.\n")
+	writeFile(t, filepath.Join(config, "skills", "pdf", "SKILL.md"), "---\nname: pdf\n---\nMine.\n")
+	writeFile(t, filepath.Join(config, "skills", "tables", "SKILL.md"), "---\nname: tables\n---\nMine.\n")
+	writeFile(t, filepath.Join(config, "commands", "deploy.md"), "Mine.\n")
+	writeFile(t, filepath.Join(config, "commands", "ship.md"), "Mine.\n")
+	writeFile(t, filepath.Join(config, "settings.json"), `{"enabledPlugins":{"formatter@market":true,"team-tools@market":true}}`)
+	spec.Repository = spec.Dir
+	spec.Base = committed(t, spec.Dir, map[string]string{
+		".claude/skills/synced/tables/SKILL.md": "---\nname: tables\n---\nThe repository's.\n",
+		".claude/commands/release/ship.md":      "The repository's.\n",
+		".claude/settings.json":                 `{"enabledPlugins":{"team-tools@market":true}}`,
+	})
+	writeFile(t, filepath.Join(spec.Dir, ".claude", "agents", "reviewer.md"), "---\nname: reviewer\n---\nThe lane's.\n")
+	writeFile(t, filepath.Join(spec.Dir, ".claude", "skills", "pdf", "SKILL.md"), "---\nname: pdf\n---\nThe lane's.\n")
+	writeFile(t, filepath.Join(spec.Dir, ".claude", "commands", "deploy.md"), "The lane's.\n")
+	writeFile(t, filepath.Join(spec.Dir, ".claude", "settings.json"), `{"enabledPlugins":{"formatter@market":true,"team-tools@market":true}}`)
+	s := &session{events: make(chan ports.DriverEvent, 4), setup: setupContextOf(spec)}
+	s.take([]byte(`{"type":"system","subtype":"init","session_id":"s-1","model":"m","claude_code_version":"2.1.330",
+		"mcp_servers":[{"name":"ropeshift","status":"connected","source":"dynamic"}],
+		"agents":["reviewer"],"skills":["pdf","tables"],"slash_commands":["deploy","ship"],
+		"plugins":[{"name":"formatter","path":"/x/formatter"},{"name":"team-tools","path":"/x/team-tools"}]}`), 1)
+	event := <-s.events
+	if event.Setup == nil {
+		t.Fatalf("the init gave %+v", event)
+	}
+	want := []lanes.PersonalItem{
+		{Kind: lanes.PiecePlugin, Name: "formatter", From: "~/.claude/settings.json"},
+		{Kind: lanes.PieceAgent, Name: "reviewer", From: "~/.claude/agents/reviewer.md"},
+		{Kind: lanes.PieceSkill, Name: "pdf", From: "~/.claude/skills/pdf"},
+		{Kind: lanes.PieceCommand, Name: "deploy", From: "~/.claude/commands/deploy.md"},
+	}
+	if !slices.Equal(event.Setup.Personal, want) {
+		t.Errorf("the member's own pieces are\n %+v\nwant\n %+v", event.Setup.Personal, want)
+	}
+}

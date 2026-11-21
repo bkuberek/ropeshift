@@ -143,12 +143,17 @@ func repositoryFile(spec ports.SessionSpec, name string) []byte {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
-	git := gitcli.Git{Dir: spec.Repository, Env: spec.Env, Extra: []string{gitcli.NoLazyFetch}}
-	raw, found, err := git.FileAt(ctx, spec.Base, name, maxRepositoryFile)
+	raw, found, err := repositoryGit(spec).FileAt(ctx, spec.Base, name, maxRepositoryFile)
 	if err != nil || !found {
 		return nil
 	}
 	return raw
+}
+
+// repositoryGit runs git in the clone the lane's worktree came from, with the lane's environment, and fetches no missing
+// object of a partial clone.
+func repositoryGit(spec ports.SessionSpec) gitcli.Git {
+	return gitcli.Git{Dir: spec.Repository, Env: spec.Env, Extra: []string{gitcli.NoLazyFetch}}
 }
 
 // laneMCP is a generation's `--mcp-config`: ropeshift's own server, and the servers of the repository's `.mcp.json`

@@ -143,3 +143,58 @@ func forgeLoose(t *testing.T, objects, kind, oid, body string) {
 		t.Fatal(err)
 	}
 }
+
+// FilesUnder lists the regular files below a directory at any depth, as the commit holds them and not as the working
+// tree does, and leaves out a link and a submodule. BlobOf reads each one's content.
+func TestFilesUnderListsTheCommitsFilesBelowADirectory(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit(".claude/agents/review/reviewer.md", "reviewer\n")
+	repo.Commit("README.md", "a repository\n")
+	if err := os.Symlink("agents/review/reviewer.md", filepath.Join(repo.Dir, ".claude", "linked.md")); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	repo.Git("add", "--", ".claude/linked.md")
+	repo.Git("update-index", "--add", "--cacheinfo", "160000,"+repo.Git("rev-parse", "HEAD")+",.claude/module")
+	base := repo.Commit(".claude/settings.json", "{}\n")
+	if err := os.WriteFile(filepath.Join(repo.Dir, ".claude", "worktree.md"), []byte("worktree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git := gitcli.Git{Dir: repo.Dir, Env: repo.Env()}
+	files, err := git.FilesUnder(t.Context(), base, ".claude", 10)
+	if err != nil || len(files) != 2 || files[0].Path != "agents/review/reviewer.md" || files[1].Path != "settings.json" {
+		t.Fatalf("FilesUnder listed %+v, %v", files, err)
+	}
+	if raw, err := git.BlobOf(t.Context(), files[0].Blob, 1<<20); err != nil || string(raw) != "reviewer\n" {
+		t.Errorf("BlobOf read %q, %v", raw, err)
+	}
+	if _, err := git.FilesUnder(t.Context(), base, ".claude", 1); !errors.Is(err, gitcli.ErrTooManyFiles) {
+		t.Errorf("a listing over its limit gave %v", err)
+	}
+	for _, dir := range []string{"absent", "README.md", ".claude/settings.json"} {
+		if files, err := git.FilesUnder(t.Context(), base, dir, 10); err != nil || files != nil {
+			t.Errorf("FilesUnder %s listed %+v, %v", dir, files, err)
+		}
+	}
+}
+
+// A listing checks each tree it reads, and BlobOf each file, as FileAt does.
+func TestFilesUnderRefusesAnObjectThatDoesNotHashToItsName(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	base := repo.Commit(".claude/agents/reviewer.md", "reviewer\n")
+	git := gitcli.Git{Dir: repo.Dir, Env: repo.Env()}
+	files, err := git.FilesUnder(t.Context(), base, ".claude", 10)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("FilesUnder listed %+v, %v", files, err)
+	}
+	objects := filepath.Join(repo.Dir, ".git", "objects")
+	forgeLoose(t, objects, "blob", files[0].Blob, "forged\n")
+	if raw, err := git.BlobOf(t.Context(), files[0].Blob, 1<<20); !errors.Is(err, gitcli.ErrObjectMismatch) || raw != nil {
+		t.Errorf("BlobOf read %q, %v", raw, err)
+	}
+	forgeLoose(t, objects, "tree", repo.Git("rev-parse", base+":.claude/agents"), "forged\n")
+	if files, err := git.FilesUnder(t.Context(), base, ".claude", 10); !errors.Is(err, gitcli.ErrObjectMismatch) || files != nil {
+		t.Errorf("FilesUnder listed %+v, %v", files, err)
+	}
+}
