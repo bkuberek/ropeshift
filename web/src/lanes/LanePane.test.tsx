@@ -361,6 +361,7 @@ describe("a lane's facts", () => {
           throw new Error(`the golden holds no lane ${shown}`);
         }
         row.conditions = ["degraded_mode"];
+        row.condition_notes = { degraded_mode: "Runs on documented surfaces until it restarts on a qualified version." };
         return { status: 200, body: floor };
       }
       return undefined;
@@ -373,6 +374,32 @@ describe("a lane's facts", () => {
     expect(sentence.id).not.toBe("");
     expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
     expect(chip.nextElementSibling).toBe(sentence);
+  });
+
+  it("say beside Degraded mode which surfaces a lane on the shipped matrix runs on, in the server's words", async () => {
+    const shown = "lane-wo-effect";
+    const words = "Runs on the surfaces this release qualified for its version until it restarts on a qualified version.";
+    serveViews((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/shop-floor") {
+        const floor = golden<ShopFloor>("shop-floor");
+        const row = floor.lanes.find((line) => line.id === shown);
+        if (!row) {
+          throw new Error(`the golden holds no lane ${shown}`);
+        }
+        row.conditions = ["degraded_mode"];
+        row.surfaces = "matrix";
+        row.condition_notes = { degraded_mode: words };
+        return { status: 200, body: floor };
+      }
+      return undefined;
+    });
+    openPage(`/lane?id=${shown}`);
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    const state = (await within(facts).findByText("State")).closest(".kv-row") as HTMLElement;
+    const chip = within(state).getByText("Degraded mode");
+    const sentence = within(state).getByText(words);
+    expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(within(state).queryByText(/documented surfaces/)).toBeNull();
   });
 
   it("name no check on a lane whose worker checks nothing", async () => {

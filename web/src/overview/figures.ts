@@ -93,7 +93,7 @@ export function currentPlan(roadmap: Roadmap, approved: Map<string, number> = ne
 }
 
 // LaneRow is a lane that has not ended, with the work it runs and the machine it runs on.
-export type LaneRow = { id: string; title: string; state: string; conditions: string[]; machine: string };
+export type LaneRow = { id: string; title: string; state: string; conditions: string[]; notes: Record<string, string>; machine: string };
 
 // lanesOf lists the lanes of the floor that have not ended, in the floor's order, each on its machine by name.
 export function lanesOf(floor: ShopFloor): LaneRow[] {
@@ -105,6 +105,7 @@ export function lanesOf(floor: ShopFloor): LaneRow[] {
       title: lane.work_order_title || lane.work_order,
       state: lane.actual_state,
       conditions: lane.conditions ?? [],
+      notes: lane.condition_notes ?? {},
       machine: lane.worker_id ? (names.get(lane.worker_id) ?? lane.worker_id) : "",
     }));
 }

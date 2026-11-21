@@ -241,7 +241,7 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
-	s := d.newPaneSession(spec, state.Name, ports.SessionHandle{ID: sessionHandleID(spec), Version: version, Degraded: q.Degraded}, meter)
+	s := d.newPaneSession(spec, state.Name, ports.SessionHandle{ID: sessionHandleID(spec), Version: version, Degraded: q.Degraded, Source: q.Source}, meter)
 	if err := s.listen(spec, use); err != nil {
 		return ports.SessionHandle{}, err
 	}

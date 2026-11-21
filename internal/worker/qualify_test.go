@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,7 +198,7 @@ func TestALaneSaysWhichVersionItsWorkerChecks(t *testing.T) {
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.atGate(g)
 	view := r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
-	if c := view.Checking; c.Driver != fake.FakeDriverName || c.Version != "1.0.1" || c.Words != ledger.CheckingCLI(fake.FakeDriverName, "1.0.1").Words {
+	if c := view.Checking; c.Driver != fake.FakeDriverName || c.Version != "1.0.1" || c.Words != ledger.CheckingCLI(fake.FakeDriverName, "1.0.1", "").Words {
 		t.Errorf("the lane names %+v", c)
 	}
 	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
@@ -210,6 +211,33 @@ func TestALaneSaysWhichVersionItsWorkerChecks(t *testing.T) {
 	}
 	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
 		t.Errorf("a process that started on documented surfaces reads %v once its probe passed", view.Conditions)
+	}
+}
+
+// TestALaneOnTheShippedMatrixNamesThoseSurfacesWhileItsWorkerChecks is a lane that starts while a worker with
+// no probe history probes its version, on a version the driver answers for from the shipped matrix: the process
+// runs on the surfaces the matrix qualified, so the check says that and not documented surfaces, and the lane is
+// not degraded.
+func TestALaneOnTheShippedMatrixNamesThoseSurfacesWhileItsWorkerChecks(t *testing.T) {
+	t.Parallel()
+	var release func()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", false)
+		release = driver.HoldProbes()
+	})
+	t.Cleanup(release)
+	r.dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	view := r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
+	const want = "Checking Claude Code 1.0.0: this lane runs on the surfaces this release qualified for 1.0.0 until the check ends"
+	if c := view.Checking; c.Driver != fake.FakeDriverName || c.Version != "1.0.0" || strings.Contains(c.Words, "documented") || c.Words != want {
+		t.Errorf("the lane names %+v, want words %q", c, want)
+	}
+	if slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a lane on the shipped matrix's surfaces reads %v", view.Conditions)
 	}
 }
 
@@ -235,6 +263,56 @@ func TestAProbeThatFailsAddsDegradedModeToARunningLane(t *testing.T) {
 	r.eventually("the probe's result", func(view ledger.LaneView) bool {
 		return view.Checking == nil && slices.Contains(view.Conditions, string(lanes.DegradedMode))
 	})
+}
+
+// TestAMatrixLaneWhoseProbeFailsSaysItRunsOnTheMatrixSurfaces is a lane that started on the surfaces the shipped
+// matrix qualified, whose probe then found a surface failed: it reads degraded, and its note says it runs on the
+// surfaces the release qualified, because that is what its process started with.
+func TestAMatrixLaneWhoseProbeFailsSaysItRunsOnTheMatrixSurfaces(t *testing.T) {
+	t.Parallel()
+	var release func()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", false)
+		release = driver.HoldProbes()
+	})
+	t.Cleanup(release)
+	r.dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	if view := r.atGate(g); slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Fatalf("a lane on the shipped matrix's surfaces reads %v", view.Conditions)
+	}
+	r.driver.SetVersion("1.0.0", true)
+	release()
+	view := r.eventually("the probe's result", func(view ledger.LaneView) bool {
+		return view.Checking == nil && slices.Contains(view.Conditions, string(lanes.DegradedMode))
+	})
+	const want = "Runs on the surfaces this release qualified for its version until it restarts on a qualified version."
+	if got := view.ConditionNotes[string(lanes.DegradedMode)]; got != want {
+		t.Errorf("the degraded lane says %q, want %q", got, want)
+	}
+}
+
+// A lane on documented surfaces keeps the sentence it always had, once its probe passes.
+func TestADocumentedLaneKeepsItsDegradedNoteAfterItsProbePasses(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	release := r.driver.HoldProbes()
+	t.Cleanup(release)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
+	release()
+	view := r.eventually("the check ended", func(view ledger.LaneView) bool { return view.Checking == nil })
+	const want = "Runs on documented surfaces until it restarts on a qualified version."
+	if got := view.ConditionNotes[string(lanes.DegradedMode)]; got != want {
+		t.Errorf("the degraded lane says %q, want %q", got, want)
+	}
 }
 
 // A lane that ends while its version's probe runs names no check: nothing of it waits on the probe.

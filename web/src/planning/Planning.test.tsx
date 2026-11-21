@@ -334,6 +334,7 @@ describe("a planning session", () => {
           first.work_order.kind = "plan";
           first.work_order.title = "Saved searches v2";
           first.lane.conditions = ["degraded_mode"];
+          first.lane.condition_notes = { degraded_mode: "Runs on documented surfaces until it restarts on a qualified version." };
         }
         return { status: 200, body: running };
       }

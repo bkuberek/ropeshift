@@ -517,7 +517,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                     <span className="row-tight">
                       <LaneBadge state={lane.actual_state} />
                       {(lane.conditions ?? []).map((condition) => (
-                        <ConditionChip key={condition} name={condition} />
+                        <ConditionChip key={condition} name={condition} note={lane.condition_notes?.[condition]} />
                       ))}
                       {lane.checking ? <CheckingChip check={lane.checking} /> : null}
                     </span>

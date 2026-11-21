@@ -153,7 +153,7 @@ function LaneTable({ rows, label, report, after }: { rows: Row[]; label: string;
                 <span className="row-tight">
                   <LaneBadge state={row.lane.actual_state} />
                   {(row.lane.conditions ?? []).map((condition) => (
-                    <ConditionChip key={condition} name={condition} />
+                    <ConditionChip key={condition} name={condition} note={row.lane.condition_notes?.[condition]} />
                   ))}
                 </span>
               </td>

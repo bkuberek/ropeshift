@@ -9,15 +9,16 @@ import (
 
 func TestACheckAWorkerReportsIsKeptOnlyAsADriverAVersionAndPlainWords(t *testing.T) {
 	t.Parallel()
-	valid := ledger.CheckingCLI("claude-code", "2.1.400")
+	valid := ledger.CheckingCLI("claude-code", "2.1.400", "")
 	tests := []struct {
 		name  string
 		check ledger.CLICheck
 		ok    bool
 	}{
 		{"a check the ledger would word itself", *valid, true},
-		{"a release candidate with build metadata", *ledger.CheckingCLI("claude-code", "2.1.400-rc.1+build.5"), true},
-		{"a driver no table holds", *ledger.CheckingCLI("other-cli", "1"), true},
+		{"a release candidate with build metadata", *ledger.CheckingCLI("claude-code", "2.1.400-rc.1+build.5", ""), true},
+		{"a driver no table holds", *ledger.CheckingCLI("other-cli", "1", ""), true},
+		{"a check of the shipped matrix's surfaces", *ledger.CheckingCLI("claude-code", "2.1.317", ledger.SurfacesShipped), true},
 		{"a driver with a space", ledger.CLICheck{Driver: "claude code", Version: "2.1.400", Words: valid.Words}, false},
 		{"no driver", ledger.CLICheck{Version: "2.1.400", Words: valid.Words}, false},
 		{"a driver too long", ledger.CLICheck{Driver: strings.Repeat("a", 33), Version: "2.1.400", Words: valid.Words}, false},
@@ -44,9 +45,13 @@ func TestACheckAWorkerReportsIsKeptOnlyAsADriverAVersionAndPlainWords(t *testing
 // words are held to.
 func TestTheWordsOfTheLongestCheckFitTheBound(t *testing.T) {
 	t.Parallel()
-	check := ledger.CheckingCLI(strings.Repeat("a", 32), strings.Repeat("9", 64))
+	check := ledger.CheckingCLI(strings.Repeat("a", 32), strings.Repeat("9", 64), "")
 	if err := check.Validate(); err != nil {
 		t.Errorf("the longest check the ledger words is refused: %v, with %d bytes of words", err, len(check.Words))
+	}
+	check = ledger.CheckingCLI(strings.Repeat("a", 32), strings.Repeat("9", 64), ledger.SurfacesShipped)
+	if err := check.Validate(); err != nil {
+		t.Errorf("the longest check of the shipped matrix's surfaces is refused: %v, with %d bytes of words", err, len(check.Words))
 	}
 }
 
@@ -54,9 +59,20 @@ func TestTheWordsOfTheLongestCheckFitTheBound(t *testing.T) {
 // ledger's own.
 func TestACheckSaysWhatItMeansForTheLaneAndWhatEndsIt(t *testing.T) {
 	t.Parallel()
-	got := ledger.CheckingCLI("claude-code", "2.1.400").Words
+	got := ledger.CheckingCLI("claude-code", "2.1.400", "").Words
 	const want = "Checking Claude Code 2.1.400: this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces"
 	if got != want {
 		t.Errorf("the words of a check read %q, want %q", got, want)
+	}
+}
+
+// A check of a lane whose process started on the surfaces the shipped matrix qualified says that, and never that the
+// lane runs on documented surfaces.
+func TestACheckOfTheShippedMatrixNamesItsSurfaces(t *testing.T) {
+	t.Parallel()
+	got := ledger.CheckingCLI("claude-code", "2.1.317", ledger.SurfacesShipped)
+	const want = "Checking Claude Code 2.1.317: this lane runs on the surfaces this release qualified for 2.1.317 until the check ends"
+	if got.Words != want {
+		t.Errorf("the check reads %+v, want words %q", got, want)
 	}
 }

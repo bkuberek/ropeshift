@@ -99,7 +99,8 @@ func (d *Driver) Find(ctx context.Context, spec ports.SessionSpec) (ports.Locate
 	}
 	// The process runs the version its launch wrote down, whatever is installed by now.
 	if version := launchedVersion(spec); version != "" {
-		located.Handle.Version, located.Handle.Degraded = version, d.qualificationFor(version).Degraded
+		q := d.qualificationFor(version)
+		located.Handle.Version, located.Handle.Degraded, located.Handle.Source = version, q.Degraded, q.Source
 	}
 	return located, nil
 }

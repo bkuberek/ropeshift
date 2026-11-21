@@ -54,9 +54,9 @@ export const laneStates: Record<string, StateLook> = {
 // counting are the states of a lane that count against its worker's cap: the lane runs, or is about to.
 export const counting = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
 
-// ConditionLook is a condition's words. The note, when it has one, is a sentence that stands beside every chip of the
-// condition, and the chip points to it as its description.
-export type ConditionLook = { label: string; tone: "neutral" | "warning" | "danger"; note?: string };
+// ConditionLook is a condition's words. A condition's note is a sentence the server words for the lane that carries
+// it, and the page shows it as it comes, beside the chip.
+export type ConditionLook = { label: string; tone: "neutral" | "warning" | "danger" };
 
 // The flags a lane can carry beside its state, shown as outlined chips and never as a second badge.
 export const conditions: Record<string, ConditionLook> = {
@@ -67,20 +67,13 @@ export const conditions: Record<string, ConditionLook> = {
   brief_unconfirmed: { label: "Brief not confirmed", tone: "neutral" },
   pack_oversized: { label: "Context pack too large", tone: "warning" },
   handoff_degraded: { label: "Handoff degraded", tone: "danger" },
-  degraded_mode: {
-    label: "Degraded mode",
-    tone: "neutral",
-    note: "Runs on documented surfaces until it restarts on a qualified version.",
-  },
+  degraded_mode: { label: "Degraded mode", tone: "neutral" },
   unpushed_work: { label: "Unpushed work", tone: "neutral" },
   drifted: { label: "Drifted", tone: "warning" },
   day_capped: { label: "Day's generations used", tone: "danger" },
   waiting_for_person: { label: "Waiting for you", tone: "neutral" },
   awaiting_wake: { label: "Waiting for work", tone: "neutral" },
 };
-
-// noteOf is the sentence a condition says beside its chip, and is undefined for a condition with none.
-export const noteOf = (condition: string): string | undefined => conditions[condition]?.note;
 
 export const conditionWords: Record<string, string> = Object.fromEntries(Object.entries(conditions).map(([name, look]) => [name, look.label]));
 
