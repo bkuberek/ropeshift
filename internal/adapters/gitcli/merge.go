@@ -34,8 +34,8 @@ func NoHooksNoSigning() [][2]string {
 
 // The trailers a commit a merge makes carries, which is how a repeat finds it.
 const (
-	trailerWorkOrder = "Ropeshift-Work-Order: "
-	trailerReviewed  = "Ropeshift-Reviewed-Commit: "
+	trailerWorkOrder = ledger.TrailerWorkOrder + ": "
+	trailerReviewed  = ledger.TrailerReviewed + ": "
 )
 
 // ran is one git command's result, with what it wrote to stderr and how it exited.
@@ -233,7 +233,8 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 	} else if name.code != 0 || name.out == "" {
 		in.Extra = snapshotIdentity
 	}
-	message := fmt.Sprintf("%s\n\n%s%s\n%s%s\n", merge.Title, trailerWorkOrder, merge.WorkOrder, trailerReviewed, merge.Commit)
+	trailers := ledger.MergeTrailers(merge.WorkOrder, merge.Commit)
+	message := merge.Title + "\n\n" + trailers
 	var stopped ran
 	switch merge.Method {
 	case ledger.MergeCommit:
@@ -243,7 +244,7 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 			_, err = in.must(ctx, "commit", "--allow-empty", "-m", message)
 		}
 	case ledger.MergeRebase:
-		stopped, err = replay(ctx, in, tip, merge, message)
+		stopped, err = replay(ctx, in, tip, merge, trailers)
 	default:
 		return "", nil, fmt.Errorf("git merges with no method %q", merge.Method)
 	}
@@ -264,9 +265,10 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 	return made, nil, err
 }
 
-// replay puts the branch's commits since it left the base onto the base's tip, one by one, and adds the
-// trailers to the last, so the base's history is one line and a repeat still finds the merge.
-func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, message string) (ran, error) {
+// replay puts the branch's commits since it left the base onto the base's tip, one by one, and adds the trailers
+// to each, so the base's history is one line, none of its commits reads as a person's, and a repeat still finds the
+// merge.
+func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, trailers string) (ran, error) {
 	fork, err := in.must(ctx, "merge-base", merge.Commit, tip)
 	if err != nil {
 		return ran{}, err
@@ -280,14 +282,15 @@ func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, me
 		if err != nil || picked.code != 0 {
 			return picked, err
 		}
+		message, err := in.must(ctx, "log", "-1", "--format=%B")
+		if err != nil {
+			return ran{}, err
+		}
+		if _, err := in.must(ctx, "commit", "--amend", "--allow-empty", "-m", ledger.WithTrailers(message, trailers)); err != nil {
+			return ran{}, err
+		}
 	}
-	last, err := in.must(ctx, "log", "-1", "--format=%B")
-	if err != nil {
-		return ran{}, err
-	}
-	trailers := strings.TrimPrefix(message, merge.Title+"\n\n")
-	_, err = in.must(ctx, "commit", "--amend", "--allow-empty", "-m", strings.TrimRight(last, "\n")+"\n\n"+trailers)
-	return ran{}, err
+	return ran{}, nil
 }
 
 // publish lands the merge on the base: a push to the remote that never forces and runs no hook, where a

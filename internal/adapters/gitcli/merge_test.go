@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -148,6 +149,87 @@ func TestASquashAndARebaseLandOneLineOfHistory(t *testing.T) {
 			t.Errorf("a repeat came to %+v", again)
 		}
 	})
+}
+
+// landedSince lists the commits of the remote's base after a commit, oldest first.
+func (r *mergeRig) landedSince(before, tip string) []string {
+	r.t.Helper()
+	return strings.Fields(r.repo.Git("--git-dir", r.bare, "rev-list", "--reverse", before+".."+tip))
+}
+
+// laneWithCommits adds commits to the lane's branch, and makes the last the reviewed commit.
+func (r *mergeRig) laneWithCommits(messages ...string) {
+	r.t.Helper()
+	r.repo.Git("switch", "--quiet", laneBranch)
+	for i, message := range messages {
+		name := "step-" + strconv.Itoa(i) + ".txt"
+		if err := os.WriteFile(filepath.Join(r.repo.Dir, name), []byte("step\n"), 0o600); err != nil {
+			r.t.Fatal(err)
+		}
+		r.repo.Git("add", "--", name)
+		r.repo.Git("commit", "--quiet", "-m", message)
+	}
+	r.head = r.repo.Git("rev-parse", "HEAD")
+	r.repo.Git("switch", "--quiet", "main")
+}
+
+// TestARebaseCarriesTheTrailersOnEveryCommit replays three commits onto a base that moved on, and each of the three
+// commits it lands names the work order and the reviewed commit, so none reads as a person's push. A repeat, with the
+// base moved on again, finds the merge and lands nothing.
+func TestARebaseCarriesTheTrailersOnEveryCommit(t *testing.T) {
+	r := newMergeRig(t, true)
+	r.laneWithCommits("add the first step", "add the second step\n\nIt follows the first.", "add the third step")
+	r.repo.Commit("other.txt", "someone else's work\n")
+	r.repo.Git("push", "--quiet", "origin", "main")
+	moved := r.remoteMain()
+	result := r.merge(ledger.MergeRebase)
+	if result.Outcome != ledger.MergeMerged {
+		t.Fatalf("rebase %+v", result)
+	}
+	landed := r.landedSince(moved, result.MergeCommit)
+	if len(landed) != 4 {
+		t.Fatalf("the rebase landed %d commits, want the lane's work.txt commit and its three", len(landed))
+	}
+	for _, commit := range landed {
+		message := r.repo.Git("--git-dir", r.bare, "log", "-1", "--format=%B", commit)
+		for _, want := range []string{"Ropeshift-Work-Order: wo-1", "Ropeshift-Reviewed-Commit: " + r.head} {
+			if !strings.Contains(message, want) {
+				t.Errorf("commit %s reads %q, which leaves out %q", commit[:8], message, want)
+			}
+		}
+		if subject := r.repo.Git("--git-dir", r.bare, "log", "-1", "--format=%s", commit); strings.Contains(subject, "Ropeshift") {
+			t.Errorf("a trailer is in the subject of %s: %q", commit[:8], subject)
+		}
+	}
+	if body := r.repo.Git("--git-dir", r.bare, "log", "-1", "--format=%b", landed[2]); !strings.HasPrefix(body, "It follows the first.\n\nRopeshift-Work-Order: wo-1") {
+		t.Errorf("the second step's body reads %q", body)
+	}
+	r.repo.Git("fetch", "--quiet", "origin")
+	r.repo.Git("switch", "--quiet", "main")
+	r.repo.Git("reset", "--quiet", "--hard", "origin/main")
+	r.repo.Commit("later.txt", "someone else's later work\n")
+	r.repo.Git("push", "--quiet", "origin", "main")
+	tip := r.remoteMain()
+	if again := r.merge(ledger.MergeRebase); again.Outcome != ledger.MergeMerged || again.MergeCommit != result.MergeCommit || r.remoteMain() != tip {
+		t.Errorf("a repeat came to %+v, and the remote holds %s, not %s", again, r.remoteMain(), tip)
+	}
+}
+
+// A replayed commit that already ends in trailers keeps them, and the work order's trailers join the same block.
+func TestARebaseJoinsTheTrailersAlreadyOnACommit(t *testing.T) {
+	r := newMergeRig(t, true)
+	r.laneWithCommits("add the step\n\nSigned-off-by: A Person <person@example.invalid>")
+	moved := r.remoteMain()
+	result := r.merge(ledger.MergeRebase)
+	landed := r.landedSince(moved, result.MergeCommit)
+	if result.Outcome != ledger.MergeMerged || len(landed) != 2 {
+		t.Fatalf("rebase %+v landed %v", result, landed)
+	}
+	trailers := r.repo.Git("--git-dir", r.bare, "log", "-1", "--format=%(trailers:only,unfold)", landed[1])
+	want := "Signed-off-by: A Person <person@example.invalid>\nRopeshift-Work-Order: wo-1\nRopeshift-Reviewed-Commit: " + r.head
+	if trailers != want {
+		t.Errorf("the trailers read\n%s\nwant\n%s", trailers, want)
+	}
 }
 
 // TestAMergeThatCannotLandSaysWhy answers a conflict with the files in it, a branch that moved past the
