@@ -152,7 +152,7 @@ func TestLaneShowSaysWhereTheLaneBegan(t *testing.T) {
 }
 
 func TestLaneShowSaysWhichVersionItsWorkerChecks(t *testing.T) {
-	lane := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Checking: ledger.CheckingCLI("claude-code", "2.1.400")}}
+	lane := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Checking: ledger.CheckingCLI("claude-code", "2.1.400", "")}}
 	if text := cli.LaneDetail(lane); !strings.Contains(text, "status\tChecking Claude Code 2.1.400: this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces\n") {
 		t.Errorf("lane show does not name the check:\n%s", text)
 	}
@@ -161,8 +161,27 @@ func TestLaneShowSaysWhichVersionItsWorkerChecks(t *testing.T) {
 	}
 }
 
+func TestLaneShowSaysWhichSurfacesADegradedMatrixLaneRunsOn(t *testing.T) {
+	const note = "Runs on the surfaces this release qualified for its version until it restarts on a qualified version."
+	degraded := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Conditions: []string{"degraded_mode"}}, ConditionNotes: map[string]string{"degraded_mode": note}}
+	const want = "degraded_mode\t" + note + "\n"
+	if text := cli.LaneDetail(degraded); !strings.Contains(text, want) {
+		t.Errorf("lane show does not say which surfaces a matrix lane runs on:\n%s", text)
+	}
+}
+
+func TestLaneShowKeepsAConditionNoteOnOneLine(t *testing.T) {
+	notes := map[string]string{"degraded_mode": "Runs on the surfaces\nthis release qualified.\nstatus\tforged"}
+	degraded := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Conditions: []string{"degraded_mode"}}, ConditionNotes: notes}
+	const want = "degraded_mode\tRuns on the surfaces this release qualified. status forged\n"
+	if text := cli.LaneDetail(degraded); !strings.Contains(text, want) {
+		t.Errorf("lane show lets a note break its line:\n%q", text)
+	}
+}
+
 func TestLaneShowSaysWhatDegradedModeMeans(t *testing.T) {
-	degraded := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Conditions: []string{"stalled", "degraded_mode"}}}
+	notes := map[string]string{"degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."}
+	degraded := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Conditions: []string{"stalled", "degraded_mode"}}, ConditionNotes: notes}
 	if text := cli.LaneDetail(degraded); !strings.Contains(text, "degraded_mode\tRuns on documented surfaces until it restarts on a qualified version.\n") {
 		t.Errorf("lane show does not say what degraded_mode means:\n%s", text)
 	}

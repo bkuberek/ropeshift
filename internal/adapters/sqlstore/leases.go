@@ -504,7 +504,7 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence, :policies)`)
 		`UPDATE lanes
    SET worker_id = :worker_id, actual_state = :actual_state, conditions = :conditions, liveness = :liveness,
        reach_model = :reach_model, reach_ledger = :reach_ledger, checking_driver = :checking_driver,
-       checking_version = :checking_version, reported_at = :now, reported_by_epoch = :epoch
+       checking_version = :checking_version, lane_surfaces = :lane_surfaces, reported_at = :now, reported_by_epoch = :epoch
  WHERE workspace_id = :workspace_id
    AND id = :id
    AND actual_state <> 'ended'
@@ -612,7 +612,7 @@ RETURNING current_generation`)
 
 const laneRowColumns = `id, work_order_id, worker_id, current_generation, actual_state, conditions, liveness,
        reach_model, reach_ledger, reported_at, reported_by_epoch, started_fence, unpushed_work, archived,
-       resume_affinity, resume_worker, park_wanted, checking_driver, checking_version`
+       resume_affinity, resume_worker, park_wanted, checking_driver, checking_version, lane_surfaces`
 
 // The values of `archive_request`. Empty means nobody asked.
 const (
@@ -625,16 +625,17 @@ const conditionSeparator = ","
 
 func scanLaneRow(row interface{ Scan(...any) error }) (ledger.LaneRow, error) {
 	var out ledger.LaneRow
-	var conditions, checkingDriver, checkingVersion string
+	var conditions, checkingDriver, checkingVersion, laneSurfaces string
 	var unpushed, archived int64
 	err := row.Scan(&out.ID, &out.WorkOrder, &out.WorkerID, &out.Generation, &out.Status.ActualState, &conditions,
 		&out.Status.Liveness, &out.Status.ModelReach, &out.Status.LedgerReach, &out.ReportedAt, &out.ReportedByEpoch,
-		&out.StartedFence, &unpushed, &archived, &out.Hold.Affinity, &out.Hold.Worker, &out.ParkWanted, &checkingDriver, &checkingVersion)
+		&out.StartedFence, &unpushed, &archived, &out.Hold.Affinity, &out.Hold.Worker, &out.ParkWanted, &checkingDriver, &checkingVersion, &laneSurfaces)
 	if conditions != "" {
 		out.Status.Conditions = strings.Split(conditions, conditionSeparator)
 	}
+	out.Status.Surfaces = laneSurfaces
 	if checkingVersion != "" {
-		out.Status.Checking = ledger.CheckingCLI(checkingDriver, checkingVersion)
+		out.Status.Checking = ledger.CheckingCLI(checkingDriver, checkingVersion, laneSurfaces)
 	}
 	out.UnpushedWork, out.Archived = unpushed != 0, archived != 0
 	return out, err
@@ -675,6 +676,7 @@ func (t laneTx) Report(row ledger.LaneRow) error {
 		return err
 	}
 	var checkingDriver, checkingVersion string
+	laneSurfaces := row.Status.Surfaces
 	if c := row.Status.Checking; c != nil {
 		checkingDriver, checkingVersion = c.Driver, c.Version
 	}
@@ -682,7 +684,7 @@ func (t laneTx) Report(row ledger.LaneRow) error {
 		"workspace_id": string(t.scope), "id": row.ID, "worker_id": row.WorkerID, "actual_state": row.Status.ActualState,
 		"conditions": strings.Join(row.Status.Conditions, conditionSeparator), "liveness": row.Status.Liveness,
 		"reach_model": row.Status.ModelReach, "reach_ledger": row.Status.LedgerReach, "checking_driver": checkingDriver,
-		"checking_version": checkingVersion, "now": now, "epoch": row.ReportedByEpoch,
+		"checking_version": checkingVersion, "lane_surfaces": laneSurfaces, "now": now, "epoch": row.ReportedByEpoch,
 	})
 	return err
 }

@@ -554,7 +554,8 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 	// The process uses the surfaces it started with, so the condition it launched with stands, and a
 	// probe's result for its version can add to it and never clears it. While the probe runs, the lane
 	// names it.
-	check, held, holds := r.w.qualificationOf(r.runVersion())
+	version, surfaces := r.runVersion()
+	check, held, holds := r.w.qualificationOf(version, surfaces)
 	s := r.state
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -574,6 +575,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		ModelReach:  string(lanes.ReadReach(state, evidenceOf(s.model, now), reachWindow)),
 		LedgerReach: string(lanes.ReadReach(state, evidenceOf(s.ledger, now), reachWindow)),
 		Checking:    check,
+		Surfaces:    surfaces,
 	}
 	for _, condition := range lanes.Conditions(facts) {
 		out.Conditions = append(out.Conditions, string(condition))
@@ -587,7 +589,7 @@ func evidenceOf(seen reachSeen, now time.Time) lanes.ReachEvidence {
 
 func sameStatus(a, b ledger.LaneStatus) bool {
 	return a.ActualState == b.ActualState && a.Liveness == b.Liveness && a.ModelReach == b.ModelReach &&
-		a.LedgerReach == b.LedgerReach && slices.Equal(a.Conditions, b.Conditions) && ledger.SameCheck(a.Checking, b.Checking)
+		a.LedgerReach == b.LedgerReach && slices.Equal(a.Conditions, b.Conditions) && ledger.SameCheck(a.Checking, b.Checking) && a.Surfaces == b.Surfaces
 }
 
 // Publish journals what changed about each lane, for the next upload. A status travels on

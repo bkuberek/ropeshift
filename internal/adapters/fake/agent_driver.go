@@ -354,7 +354,7 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	compact := ports.CompactNative
-	degraded, injection := d.gateLocked()
+	degraded, injection, source := d.surfacesLocked()
 	if d.noCompact {
 		compact = ""
 	}
@@ -367,7 +367,7 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 		Injection: injection, ContextReport: ports.ContextLive, Compact: compact,
 		NativeResume: !d.noResume, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
-		Version:     d.version, Degraded: degraded, Resume: d.costs,
+		Version:     d.version, Degraded: degraded, Source: source, Resume: d.costs,
 		Subagents: roster.SubagentsNative, SubagentTools: roster.ToolsEnforced,
 	}, nil
 }
@@ -378,18 +378,29 @@ const SurfacePeerChannel lanes.Surface = "peer_channel"
 // gateLocked follows the real driver's rule: before any probe the version's own setting stands,
 // a probe's result answers only for its version, and any other version uses no undocumented surface.
 func (d *AgentDriver) gateLocked() (degraded bool, injection string) {
+	degraded, injection, _ = d.surfacesLocked()
+	return degraded, injection
+}
+
+// surfacesLocked is gateLocked with the source of the surfaces it answers for. Before any probe, a version that
+// is not degraded reads as one the shipped matrix qualifies, as the real driver's matrix answers for a version it
+// holds, and a degraded one as a version nothing has checked.
+func (d *AgentDriver) surfacesLocked() (degraded bool, injection, source string) {
 	degraded, channel := d.degraded, !d.noPeerChannel
 	switch {
 	case d.qualified.Version == "":
+		if !degraded {
+			source = lanes.QualifiedByMatrix
+		}
 	case d.qualified.For(d.version):
-		degraded, channel = d.qualified.Degraded, channel && d.qualified.Passed(SurfacePeerChannel)
+		degraded, channel, source = d.qualified.Degraded, channel && d.qualified.Passed(SurfacePeerChannel), d.qualified.Source
 	default:
 		degraded, channel = true, false
 	}
 	if !channel {
-		return degraded, ports.InjectionNone
+		return degraded, ports.InjectionNone, source
 	}
-	return degraded, ports.InjectionBetweenTools
+	return degraded, ports.InjectionBetweenTools, source
 }
 
 // Probe returns what a probe of the installed version observes: its peer channel as the script sets
@@ -602,8 +613,8 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 	}
 	d.started++
 	session := d.newSession(spec, lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD})
-	degraded, _ := d.gateLocked()
-	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1, Version: d.version, Degraded: degraded}
+	degraded, _, source := d.surfacesLocked()
+	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1, Version: d.version, Degraded: degraded, Source: source}
 	d.specs = append(d.specs, spec)
 	d.sessions[handle.ID] = session
 	d.launched = append(d.launched, session)

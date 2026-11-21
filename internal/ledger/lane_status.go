@@ -121,6 +121,9 @@ type LaneStatus struct {
 	// Checking is the agent CLI version the lane's worker is probing, when the lane's process runs that
 	// version and the probe has not ended (FR-DRV-2).
 	Checking *CLICheck `json:"checking,omitempty"`
+	// Surfaces is where the surfaces the lane's process started on come from: SurfacesShipped for those the release's
+	// shipped matrix qualified for its version, and empty for documented surfaces.
+	Surfaces string `json:"surfaces,omitempty"`
 }
 
 // CLICheck is a worker's probe of one agent CLI version, as a lane that runs on the version names it. Words
@@ -131,14 +134,25 @@ type CLICheck struct {
 	Words   string `json:"words"`
 }
 
+// SurfacesShipped is the source of a lane's surfaces when its process started on those the release's shipped matrix
+// qualified for its version, before any probe on this machine ended.
+const SurfacesShipped = "matrix"
+
 // CheckingCLI is the check of a driver's version, with its words, which every surface that shows a check shows as
-// they are: the lane's process runs on documented surfaces until the check passes, and a respawn then picks up the
-// qualified ones.
-func CheckingCLI(driver, version string) *CLICheck {
+// they are. Where the lane's process started on the surfaces the shipped matrix qualified, the words say so and that
+// the check ends; otherwise the process runs on documented surfaces until the check passes, and a respawn then picks
+// up the qualified ones. Any other source of surfaces reads as documented surfaces.
+func CheckingCLI(driver, version, surfaces string) *CLICheck {
+	words := "Checking " + VendorOf(driver).Product + " " + version
+	if surfaces == SurfacesShipped {
+		return &CLICheck{
+			Driver: driver, Version: version,
+			Words: words + ": this lane runs on the surfaces this release qualified for " + version + " until the check ends",
+		}
+	}
 	return &CLICheck{
 		Driver: driver, Version: version,
-		Words: "Checking " + VendorOf(driver).Product + " " + version +
-			": this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces",
+		Words: words + ": this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces",
 	}
 }
 
@@ -247,6 +261,8 @@ type LaneView struct {
 	ReportedByEpoch int64  `json:"reported_by_epoch"`
 	// Archived says its worktree went.
 	Archived bool `json:"archived,omitempty"`
+	// ConditionNotes holds the sentence of each condition the lane carries that has one, as the server words it.
+	ConditionNotes map[string]string `json:"condition_notes,omitempty"`
 	// BaseRef and BaseCommit are where the lane's branch began, which review diffs against and
 	// integration targets (FR-BASE-4).
 	BaseRef    string `json:"base_ref,omitempty"`

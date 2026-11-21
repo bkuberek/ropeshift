@@ -185,6 +185,11 @@ export type Lane = {
   model_reach?: string;
   ledger_reach?: string;
   checking?: CLICheck;
+  // surfaces is where the surfaces the lane's process started on come from: "matrix" for the ones the release's shipped
+  // qualification matrix holds for its version, and absent for documented surfaces.
+  surfaces?: string;
+  // condition_notes is the sentence of each condition the lane carries that has one, as the server words it.
+  condition_notes?: Record<string, string>;
   freshness: "observed" | "last_reported";
   as_of: number;
   reported_by_epoch?: number;

@@ -118,6 +118,8 @@ type laneRun struct {
 	profileDigest string
 	version       string
 	degraded      bool
+	// source is where the surfaces the process runs on come from, as ports.SessionHandle.Source says.
+	source string
 	// settings are what this lane runs on, which its experience record holds (FR-EXP-2).
 	settings measures.Settings
 	// worktree is where the lane works, and reads are the read-only worktrees of the other repositories it
@@ -1017,7 +1019,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	model, effort, deny := r.asAgent(prepared)
 	r.handleLock.Lock()
 	r.model, r.profileDigest = model, prepared.ProfileDigest
-	r.version, r.degraded = capabilities.Version, capabilities.Degraded
+	r.version, r.degraded, r.source = capabilities.Version, capabilities.Degraded, capabilities.Source
 	r.settings = laneSettings(prepared.Profile, r.role(), mode)
 	r.settings.ModelRequested = model
 	if effort != "" {

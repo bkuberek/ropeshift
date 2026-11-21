@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // designEdges is the state diagram, row by row, written out a second time so a change to
@@ -356,5 +357,26 @@ func TestStopFailureCategories(t *testing.T) {
 		if got := lanes.ReachOfFailure(category); got != want {
 			t.Errorf("%s: %s", category, got)
 		}
+	}
+}
+
+// The sentence of degraded_mode names the surfaces the lane's process started on, and no other condition has one.
+func TestTheNoteOfDegradedModeNamesTheSurfacesTheProcessStartedOn(t *testing.T) {
+	t.Parallel()
+	tests := []struct{ surfaces, want string }{
+		{"", "Runs on documented surfaces until it restarts on a qualified version."},
+		{ledger.SurfacesShipped, "Runs on the surfaces this release qualified for its version until it restarts on a qualified version."},
+		{"elsewhere", "Runs on documented surfaces until it restarts on a qualified version."},
+	}
+	for _, tt := range tests {
+		if got := lanes.DegradedMode.NoteFor(tt.surfaces); got != tt.want {
+			t.Errorf("degraded_mode from %q says %q, want %q", tt.surfaces, got, tt.want)
+		}
+	}
+	if got := lanes.DegradedMode.Note(); got != tests[0].want {
+		t.Errorf("Note() says %q", got)
+	}
+	if got := lanes.Stalled.NoteFor(ledger.SurfacesShipped); got != "" {
+		t.Errorf("stalled says %q", got)
 	}
 }

@@ -305,7 +305,7 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 		Injection: injection, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
-		Version:     version, Degraded: q.Degraded, Resume: resumeCosts,
+		Version:     version, Degraded: q.Degraded, Source: q.Source, Resume: resumeCosts,
 		Subagents: roster.SubagentsNative, SubagentTools: roster.ToolsEnforced,
 	}, nil
 }
@@ -533,7 +533,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
-	handle := ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID(), Version: version, Degraded: q.Degraded}
+	handle := ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID(), Version: version, Degraded: q.Degraded, Source: q.Source}
 	s, err := d.follow(ctx, spec, handle, client, 0, meter, UseOf(q))
 	if err != nil {
 		_ = client.Signal(ctx, shimlink.SignalKill)

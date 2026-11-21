@@ -73,6 +73,10 @@ type Capabilities struct {
 	// Degraded says a surface the driver relies on passed no check on this version, so it uses
 	// documented, version-independent surfaces in its place.
 	Degraded bool
+	// Source is where the surfaces the driver would use for this version come from: lanes.QualifiedByMatrix for the
+	// release's shipped matrix, lanes.QualifiedByProbe for a probe on this machine, and empty for documented
+	// surfaces only.
+	Source string
 	// Resume is the driver's data for the resume table.
 	Resume lanes.ResumeCosts
 	// Subagents says whether the CLI starts the roster's agents (roster.SubagentsNative or
@@ -253,10 +257,12 @@ type SessionHandle struct {
 	ID  string
 	PID int
 	// Version is the version the session's process started on, read at its launch, and Degraded
-	// says what qualified that version left it on documented surfaces only. Both are this process's
+	// says what qualified that version left it on documented surfaces only. Source says where the
+	// surfaces it started with came from, as Capabilities.Source does. All three are this process's
 	// own, because a version can change between a worker's look and a launch.
 	Version  string
 	Degraded bool
+	Source   string
 }
 
 // ProbeSpec is one qualification probe: a few short sessions on this machine, with its settings and

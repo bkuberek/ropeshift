@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { CLICheck } from "../api/types";
 import { Link } from "../app/route";
 import type { StateLook, Tone } from "../floor/states";
-import { conditions, laneStates, lookOf, noteOf, workStates } from "../floor/states";
+import { conditions, laneStates, lookOf, workStates } from "../floor/states";
 import { Ago } from "../parts/parts";
 import type { GlyphName, IconName } from "./Icon";
 import { Glyph, Icon } from "./Icon";
@@ -41,13 +41,14 @@ export function LaneBadge({ state }: { state: string }) {
 }
 
 // ConditionChip is a flag beside a lane's state, outlined so it never reads as a second state. A condition that has a
-// note says it in a sentence beside the chip, which the chip points to as its description. A page that sets the
-// sentence apart, with ConditionNote, passes the sentence's id as `describedBy`, and the chip then stands alone.
-export function ConditionChip({ name, describedBy }: { name: string; describedBy?: string }) {
+// note, the sentence the server worded for the lane, says it beside the chip, which the chip points to as its
+// description. A page that sets the sentence apart, with ConditionNote, passes the sentence's id as `describedBy`,
+// and the chip then stands alone.
+export function ConditionChip({ name, note, describedBy }: { name: string; note?: string; describedBy?: string }) {
   const own = useId();
   const look = conditions[name] ?? { label: name, tone: "neutral" as const };
   const tone = look.tone === "warning" ? " warn" : look.tone === "danger" ? " danger" : "";
-  if (!look.note) {
+  if (!note) {
     return <span className={`cond${tone}`}>{look.label}</span>;
   }
   if (describedBy) {
@@ -62,14 +63,13 @@ export function ConditionChip({ name, describedBy }: { name: string; describedBy
       <span className={`cond${tone}`} aria-describedby={own}>
         {look.label}
       </span>
-      <ConditionNote name={name} id={own} />
+      <ConditionNote note={note} id={own} />
     </>
   );
 }
 
 // ConditionNote is the sentence of a condition that has one, for a chip that points to it.
-export function ConditionNote({ name, id }: { name: string; id: string }) {
-  const note = noteOf(name);
+export function ConditionNote({ note, id }: { note?: string; id: string }) {
   return note ? (
     <span id={id} className="cond-note">
       {note}
