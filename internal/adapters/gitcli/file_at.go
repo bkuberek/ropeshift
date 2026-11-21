@@ -92,6 +92,20 @@ func (g Git) BlobOf(ctx context.Context, oid string, limit int64) ([]byte, error
 	return g.objects().verifiedBlob(ctx, format, oid, limit)
 }
 
+// BlobID is the name git gives a blob of content in a repository whose commits are named as commit is, by SHA-1 or
+// SHA-256, so a file can be told apart from a TreeFile's blob without git. It says false for a commit that is no full
+// hash.
+func BlobID(commit string, content []byte) (string, bool) {
+	format, ok := formatOf(commit)
+	if !ok {
+		return "", false
+	}
+	sum := format.hash()
+	fmt.Fprintf(sum, "blob %d\x00", len(content))
+	sum.Write(content)
+	return hex.EncodeToString(sum.Sum(nil)), true
+}
+
 // objects is g reading the objects a commit names and not the ones a replace ref names in their place.
 func (g Git) objects() Git {
 	g.Extra = append(slices.Clone(g.Extra), noReplaceObjects)

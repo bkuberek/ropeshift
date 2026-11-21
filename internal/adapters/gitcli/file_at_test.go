@@ -42,6 +42,23 @@ func TestFileAtReadsTheCommitsCopy(t *testing.T) {
 	}
 }
 
+// BlobID names a file's content as git names its blob, in the object format a commit's hash has, so a worktree's file
+// is told apart from the commit's without git, and a commit that is no full hash names no format.
+func TestBlobIDNamesContentAsGitDoes(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	base := repo.Commit(settingsPath, "base\n")
+	if got, ok := gitcli.BlobID(base, []byte("base\n")); !ok || got != repo.Git("rev-parse", base+":"+settingsPath) {
+		t.Errorf("BlobID names %q, %t", got, ok)
+	}
+	if got, ok := gitcli.BlobID(base, []byte("other\n")); !ok || got == repo.Git("rev-parse", base+":"+settingsPath) {
+		t.Errorf("another content is named %q, %t", got, ok)
+	}
+	if _, ok := gitcli.BlobID("HEAD", []byte("base\n")); ok {
+		t.Error("a commit that is no full hash names a format")
+	}
+}
+
 // A replace ref names another object in place of the commit's, and FileAt reads the commit's own.
 func TestFileAtFollowsNoReplaceRef(t *testing.T) {
 	t.Parallel()

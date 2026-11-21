@@ -125,20 +125,26 @@ func (d *Driver) SettingsChange(_ context.Context, spec ports.SessionSpec) *lane
 }
 
 // baseSide is the repository's side of what a hold compares, at the commit a lane's work began from: each settings file
-// the session reads, as that commit holds it, and nil where it holds none.
+// the session reads, as that commit holds it, and nil where it holds none, and the blob of each piece file it holds
+// (pieceDirs), whose hooks are read only for a piece the worktree holds otherwise.
 type baseSide struct {
-	files map[string][]byte
+	files  map[string][]byte
+	pieces map[string]string
+	// mu guards hooks, the frontmatter hooks read of each piece blob.
+	mu    sync.Mutex
+	hooks map[string]pieceHooks
 }
 
 // readBaseSide reads the repository's side of a hold from git's objects, and says whether every read completed. A read
 // that failed reads as no file, as repositoryFile reads it, and leaves the side incomplete, so it is not kept.
-func readBaseSide(spec ports.SessionSpec) (baseSide, bool) {
-	side := baseSide{files: map[string][]byte{}}
+func readBaseSide(spec ports.SessionSpec) (*baseSide, bool) {
+	side := &baseSide{files: map[string][]byte{}, pieces: map[string]string{}, hooks: map[string]pieceHooks{}}
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
+	git := repositoryGit(spec)
 	complete := true
 	for _, file := range settingsFiles(spec) {
-		raw, found, err := repositoryGit(spec).FileAt(ctx, spec.Base, file, maxRepositoryFile)
+		raw, found, err := git.FileAt(ctx, spec.Base, file, maxRepositoryFile)
 		switch {
 		case err != nil:
 			complete = false
@@ -146,7 +152,40 @@ func readBaseSide(spec ports.SessionSpec) (baseSide, bool) {
 			side.files[file] = raw
 		}
 	}
+	for _, dir := range pieceDirs {
+		files, err := git.FilesUnder(ctx, spec.Base, dir, maxRepositoryPieceFiles)
+		if err != nil {
+			complete = false
+		}
+		for _, file := range files {
+			if isPiece(dir + "/" + file.Path) {
+				side.pieces[dir+"/"+file.Path] = file.Blob
+			}
+		}
+	}
 	return side, complete
+}
+
+// hooksOf are the frontmatter hooks of a piece blob the repository holds, read once. A blob that cannot be read holds
+// none, so a hook the worktree's piece holds reads as added, and it is read again next time.
+func (b *baseSide) hooksOf(spec ports.SessionSpec, blob string) pieceHooks {
+	b.mu.Lock()
+	hooks, found := b.hooks[blob]
+	b.mu.Unlock()
+	if found {
+		return hooks
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
+	defer cancel()
+	raw, err := repositoryGit(spec).BlobOf(ctx, blob, maxRepositoryFile)
+	if err != nil {
+		return pieceHooks{readable: true}
+	}
+	hooks = frontmatterHooks(raw)
+	b.mu.Lock()
+	b.hooks[blob] = hooks
+	b.mu.Unlock()
+	return hooks
 }
 
 // maxBaseSides bounds the sides a driver keeps. Past it, the driver forgets them all and reads each again once.
@@ -156,11 +195,11 @@ const maxBaseSides = 256
 // files compared. A commit's objects are fixed by its hash, which every read checks, so a kept side never goes stale.
 type baseSides struct {
 	mu   sync.Mutex
-	kept map[string]baseSide
+	kept map[string]*baseSide
 }
 
 // of is the repository's side of a spec's hold, read once and kept.
-func (b *baseSides) of(spec ports.SessionSpec) baseSide {
+func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 	key := strings.Join(append([]string{spec.Repository, spec.Base}, settingsFiles(spec)...), "\x00")
 	b.mu.Lock()
 	side, found := b.kept[key]
@@ -172,7 +211,7 @@ func (b *baseSides) of(spec ports.SessionSpec) baseSide {
 	if complete {
 		b.mu.Lock()
 		if b.kept == nil || len(b.kept) >= maxBaseSides {
-			b.kept = map[string]baseSide{}
+			b.kept = map[string]*baseSide{}
 		}
 		b.kept[key] = side
 		b.mu.Unlock()
@@ -180,8 +219,9 @@ func (b *baseSides) of(spec ports.SessionSpec) baseSide {
 	return side
 }
 
-// compareSettings names each widening key the worktree's settings files hold otherwise than the repository's side.
-func compareSettings(spec ports.SessionSpec, base baseSide) *lanes.SettingsChange {
+// compareSettings names each widening key the worktree's settings files hold otherwise than the repository's side, and
+// each piece whose frontmatter hooks the lane added or changed, which runs a command as a settings hook does.
+func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
 	for _, file := range settingsFiles(spec) {
@@ -204,6 +244,16 @@ func compareSettings(spec ports.SessionSpec, base baseSide) *lanes.SettingsChang
 		for _, key := range widening {
 			fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", file, key, canonical(lane[key]))
 		}
+	}
+	for _, piece := range comparePieces(spec, base) {
+		if !piece.overflow {
+			change.Files = append(change.Files, piece.path)
+		}
+		if !slices.Contains(change.Keys, keyHooks) {
+			change.Keys = append(change.Keys, keyHooks)
+		}
+		change.Summary = append(change.Summary, piece.summary()...)
+		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
 	}
 	if len(change.Keys) == 0 {
 		return nil
@@ -353,11 +403,12 @@ func shown(text, key string) string {
 }
 
 // errSettingsNotRestorable says a worktree's settings file cannot be put back without writing past the worktree.
-var errSettingsNotRestorable = errors.New("the worktree's .claude is no directory of its own, so its settings cannot be restored")
+var errSettingsNotRestorable = errors.New("a directory on the way to a settings file or a piece in the worktree is a link or no directory, so it cannot be restored")
 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
-// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none. It writes only inside
-// the worktree: a `.claude` that is a link is refused, and a file that is a link is replaced, never written through.
+// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, and each piece whose
+// frontmatter hooks the lane added or changed (restorePieces). It writes only inside the worktree: a `.claude` that is a
+// link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
 	spec = atSettingsBase(spec)
 	if !spec.SettingsAtBase || spec.Repository == "" || spec.Base == "" {
@@ -392,7 +443,7 @@ func restoreBaseSettings(spec ports.SessionSpec) error {
 			return err
 		}
 	}
-	return nil
+	return restorePieces(spec)
 }
 
 // replaceFile puts a regular file at path in one step: it writes a file of its own beside it, which it creates and

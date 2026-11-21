@@ -3,13 +3,15 @@ package lanes
 import "strings"
 
 // SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in a key that runs code
-// or widens access, against the repository's at the commit the lane's work began from, its claim's base. A lane can edit those files, and the
-// next generation would run what it wrote outside every rule ropeshift gives it, so a generation that finds one is held
-// for a member before its session starts (ADR-0040).
+// or widens access, and of the hooks its skills, subagents, and commands declare, against the repository's at the
+// commit the lane's work began from, its claim's base. A lane can edit those files, and its sessions would run what it
+// wrote outside every rule ropeshift gives it, so a generation that finds one is held for a member before its session
+// starts, and a session whose reload would apply one is held where it stands (ADR-0040).
 type SettingsChange struct {
 	// Generation is the generation that found it, which parks before its session starts.
 	Generation int64 `json:"generation"`
-	// Files are the settings files that differ, as paths in the worktree.
+	// Files are the settings files that differ, and the skills, subagents, and commands whose frontmatter hooks the lane
+	// added or changed, as paths in the worktree.
 	Files []string `json:"files"`
 	// Keys are the top-level keys that differ, sorted.
 	Keys []string `json:"keys"`
