@@ -3,7 +3,10 @@ package claudecode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -257,4 +260,45 @@ func laneMCP(spec ports.SessionSpec) any {
 	return struct {
 		Servers map[string]any `json:"mcpServers"`
 	}{servers}
+}
+
+// A linked git worktree with no `.claude/skills` of its own loads the main checkout's: "when the worktree checkout has
+// no `.claude/skills` directory at its root, for example because your `.claude/skills` is gitignored, Claude Code loads
+// the main checkout's project skills in the worktree session. In a worktree with its own `.claude/skills` directory,
+// only that copy loads", and "The same read-through covers `.claude/agents` and `.claude/commands`" ([worktrees]). A
+// lane is a linked worktree of the member's clone, whose untracked skills, subagents, and commands are the member's own
+// and no part of the repository, so each generation's start gives the worktree its own of each, empty where the
+// repository holds none (ownPieceDirs).
+//
+// [worktrees]: https://code.claude.com/docs/en/worktrees#what-worktrees-share-with-the-main-checkout
+var readThroughDirs = []string{".claude/agents", ".claude/commands", ".claude/skills"}
+
+// errNoOwnPieceDir says a worktree's skills, subagents, or commands directory is no directory of its own, so the main
+// checkout's could load in its place.
+var errNoOwnPieceDir = errors.New("is no directory of the worktree's own, so the main checkout's would load in its place")
+
+// ownPieceDirs makes each directory a linked worktree must hold so that no read-through reaches the main checkout
+// (readThroughDirs). One that is there, through a link of the lane's own included, is left as it is; a missing one is
+// made only through directories of the worktree's own, and a link or a file on the way, or one that is no directory,
+// fails the start. A worktree that is no linked worktree, whose `.git` is no file, reads through to nothing.
+func ownPieceDirs(spec ports.SessionSpec) error {
+	if spec.Dir == "" {
+		return nil
+	}
+	if info, err := os.Lstat(filepath.Join(spec.Dir, ".git")); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	for _, dir := range readThroughDirs {
+		info, err := os.Stat(filepath.Join(spec.Dir, filepath.FromSlash(dir)))
+		switch {
+		case err == nil && info.IsDir():
+			continue
+		case err == nil, !errors.Is(err, fs.ErrNotExist):
+			return fmt.Errorf("the worktree's %s %w", dir, errNoOwnPieceDir)
+		}
+		if _, err := ownParents(spec.Dir, dir+"/.", true); err != nil {
+			return fmt.Errorf("the worktree's %s %w: %v", dir, errNoOwnPieceDir, err)
+		}
+	}
+	return nil
 }

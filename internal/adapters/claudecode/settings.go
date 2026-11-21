@@ -316,6 +316,9 @@ func writeGenerated(spec ports.SessionSpec) error {
 	if err := restoreBaseSettings(spec); err != nil {
 		return err
 	}
+	if err := ownPieceDirs(spec); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(spec.ConfigDir, 0o700); err != nil {
 		return err
 	}

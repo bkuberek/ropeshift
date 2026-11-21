@@ -520,3 +520,63 @@ func TestAnOrchestratorStartsAsCleanAsALane(t *testing.T) {
 		}
 	}
 }
+
+// linkedWorktree is a lane whose worktree is a linked git worktree, whose `.git` is a file that names the clone's.
+func linkedWorktree(t *testing.T) ports.SessionSpec {
+	t.Helper()
+	spec := laneSpec(t)
+	writeFile(t, filepath.Join(spec.Dir, ".git"), "gitdir: /clone/.git/worktrees/lane\n")
+	return spec
+}
+
+// A linked worktree with no `.claude/skills`, `.claude/agents`, or `.claude/commands` of its own loads the main
+// checkout's, its untracked ones among them ([worktrees]), so each generation's start makes the worktree's own,
+// empty where the repository holds none, and leaves one it holds as it is. It writes nothing through a link, and a
+// worktree whose directory is a link to none, or no directory, fails to start. A clone that is no linked worktree is
+// left alone.
+//
+// [worktrees]: https://code.claude.com/docs/en/worktrees#what-worktrees-share-with-the-main-checkout
+func TestALinkedWorktreeHasItsOwnSkillsAgentsAndCommands(t *testing.T) {
+	spec := linkedWorktree(t)
+	writeFile(t, filepath.Join(spec.Dir, ".claude", "skills", "deploy", "SKILL.md"), "---\nname: deploy\n---\n")
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{".claude/skills", ".claude/agents", ".claude/commands"} {
+		if info, err := os.Lstat(filepath.Join(spec.Dir, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
+			t.Errorf("the worktree's %s reads %v (%v)", dir, info, err)
+		}
+	}
+	if raw, err := os.ReadFile(filepath.Join(spec.Dir, ".claude", "skills", "deploy", "SKILL.md")); err != nil || string(raw) != "---\nname: deploy\n---\n" {
+		t.Errorf("the worktree's own skill reads %q (%v)", raw, err)
+	}
+
+	linked := linkedWorktree(t)
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(linked.Dir, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGenerated(linked); err == nil {
+		t.Error("a linked .claude with no skills directory started")
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Errorf("the start wrote through a link: %v", entries)
+	}
+
+	file := linkedWorktree(t)
+	writeFile(t, filepath.Join(file.Dir, ".claude", "skills"), "not a directory")
+	if err := writeGenerated(file); err == nil {
+		t.Error("a .claude/skills that is no directory started")
+	}
+
+	clone := laneSpec(t)
+	if err := os.Mkdir(filepath.Join(clone.Dir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGenerated(clone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(clone.Dir, ".claude")); !os.IsNotExist(err) {
+		t.Errorf("a clone that is no linked worktree was given a .claude: %v", err)
+	}
+}
