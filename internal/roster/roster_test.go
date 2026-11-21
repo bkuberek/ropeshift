@@ -341,3 +341,21 @@ func TestAConsultationRunsTheConsultantOrTheOneNamed(t *testing.T) {
 		t.Errorf("a disabled agent named: %v", err)
 	}
 }
+
+// TestAConsultationOnAFrontierOrchestratorSaysWhatToChange is FR-ORCH-9: frontier is the top class, so with the
+// orchestrator on it no agent is above it, the default consultant included, and the refusal says that, and what to do.
+func TestAConsultationOnAFrontierOrchestratorSaysWhatToChange(t *testing.T) {
+	resolved := Resolve(Layer{}, Layer{})
+	_, err := resolved.ConsultAgent("", ClassFrontier)
+	if !errors.Is(err, ErrNotStronger) {
+		t.Fatalf("the default consultant above a frontier orchestrator: %v", err)
+	}
+	for _, want := range []string{"orchestrator_class", "frontier", "no class is above"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal %q does not say %q", err, want)
+		}
+	}
+	if _, err := resolved.ConsultAgent("explore", ClassStandard); !errors.Is(err, ErrNotStronger) || strings.Contains(err.Error(), "no class is above") {
+		t.Errorf("an agent of a class at or below an orchestrator that has classes above it: %v", err)
+	}
+}

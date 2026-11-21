@@ -333,6 +333,8 @@ orchestrator_daily_warn = 0.0
 
 `orchestrator_class` is one of the four classes above, and `orchestrator_daily_warn` runs from 0 to 1,000,000.
 
+A consultation runs an agent of a class above `orchestrator_class`, and `frontier` is the top class. With `orchestrator_class = "frontier"` no agent is above the orchestrator, so every consultation is refused, the built-in `consultant` included, and the refusal says so. To let consultations run, lower the class, for example `ropeshift spend set --installation orchestrator_class=large`: the orchestrator then runs on a smaller class, and the `consultant` is above it. Otherwise leave it at `frontier`, and the orchestrator takes each question it cannot settle to you without a consultation. `consultation_limit` does not change this ([how it works](how-it-works.md#the-orchestrator-and-lanes)).
+
 ### Change a setting
 
 `ropeshift spend set <key>=<value>...` publishes a new version from the one in force with only the keys named changed. A key of a table or a list is named by its part, and a list is comma separated:
