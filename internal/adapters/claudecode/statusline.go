@@ -42,8 +42,8 @@ func settingSources(spec ports.SessionSpec) []string {
 
 // existingStatusLine finds the line the repository's shared settings configure, because `--settings`
 // replaces it and a repository keeps the status line it set. The composed line runs that command outside every
-// permission rule, so the settings are read as the repository holds them at the commit the lane began from
-// (repositoryFile), and an edit a lane makes to them runs nothing. The person's own line is in their user or local
+// permission rule, so the settings are read as the repository holds them at the lane's base (repositoryFile), and an
+// edit a lane makes to them, in its worktree or in a commit of a branch it continues, runs nothing. The person's own line is in their user or local
 // settings, which a session does not read, and a suite that names no project source reads none. A file that does not
 // parse holds no line.
 func existingStatusLine(spec ports.SessionSpec) *statusLine {

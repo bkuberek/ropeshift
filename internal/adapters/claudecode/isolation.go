@@ -171,9 +171,9 @@ func envValue(env []string, name string) string {
 }
 
 // repositoryServers are the MCP servers the repository's own `.mcp.json` names, which is project setup a lane keeps.
-// They are read as the repository holds them at the commit the lane began from, so an edit a lane makes to the file
-// reaches no lane until it is merged, and a file that does not parse names none. A server named after ropeshift's own
-// is left out, so it never replaces it.
+// They are read as the repository holds them at the lane's base (repositoryFile), so an edit a lane makes to the file,
+// in its worktree or in a commit of a branch it continues, reaches no lane until it is merged, and a file that does not
+// parse names none. A server named after ropeshift's own is left out, so it never replaces it.
 func repositoryServers(spec ports.SessionSpec) map[string]json.RawMessage {
 	raw := repositoryFile(spec, ".mcp.json")
 	if raw == nil {
@@ -195,13 +195,15 @@ const (
 	maxRepositoryFile  = 1 << 20
 )
 
-// repositoryFile is a file the repository holds at the commit the lane's worktree began from, read from git's objects
-// and never from the worktree, which the lane can edit (FR-PROF-5). Git runs in the clone the worktree came from and
+// repositoryFile is a file the repository holds at the lane's base, the commit its claim resolved (atSettingsBase), and
+// not at the tip of a branch the lane continues, which a lane wrote. It is read from git's objects and never from the
+// worktree, which the lane can edit (FR-PROF-5). Git runs in the clone the worktree came from and
 // not in the worktree, whose `.git` file the lane can point at a git directory of its own, and every object it reads
 // must hash to its name, because the lane can write to the git directory it shares with the clone (gitcli.FileAt).
 // It fetches no missing object of a partial clone. A base that is no full commit hash, a file absent at it, a path
 // that is no regular file there, a file over the limit, and an object that does not hash to its name read as none.
 func repositoryFile(spec ports.SessionSpec, name string) []byte {
+	spec = atSettingsBase(spec)
 	if spec.Repository == "" || spec.Base == "" {
 		return nil
 	}

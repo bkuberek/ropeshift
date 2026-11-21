@@ -154,11 +154,12 @@ type SessionSpec struct {
 	// session shares.
 	Repository string
 	// Base is the commit the lane's worktree began from, which a driver reads the repository's own files at, such as
-	// its `.mcp.json`, and never from the worktree a lane can edit (FR-PROF-5). Empty names none.
+	// its skills and subagents, and never from the worktree a lane can edit (FR-PROF-5). Empty names none.
 	Base string
-	// SettingsBase is the commit the lane's work began from, its claim's base, which a driver compares the project
-	// settings in the worktree with and restores them to, and never the tip of a branch the lane continues, which a lane
-	// wrote (ADR-0040). Empty compares at Base.
+	// SettingsBase is the commit the lane's work began from, its claim's base, which a driver reads the repository's
+	// `.mcp.json` and the status line of its project settings at, compares the project settings in the worktree with, and
+	// restores them to, and never the tip of a branch the lane continues, which a lane wrote (ADR-0040). Empty reads at
+	// Base.
 	SettingsBase string
 	// SettingsAtBase says a member chose to run the lane with the repository's settings: before the session starts, the
 	// driver restores the project settings files its preflight compares to what they hold at SettingsBase (ADR-0040).
