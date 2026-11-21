@@ -319,12 +319,14 @@ func (p *prober) screens(ctx context.Context) {
 	// left, before it opens its own.
 	name := probePane
 	_ = terminal.Close(ctx, name)
-	if _, err := terminal.Open(ctx, ports.PaneSpec{
+	_, err = terminal.Open(ctx, ports.PaneSpec{
 		Name: name, Dir: dir, Width: paneWidth, Height: paneHeight, Command: []string{p.spec.Binary, lanePaneCommand, launch},
-	}); err != nil {
+	})
+	// An open that a stop cut short can still leave the pane tmux made, so the pane is closed either way.
+	defer p.closePane(ctx, name)
+	if err != nil {
 		return
 	}
-	defer p.closePane(context.WithoutCancel(ctx), name)
 	checking, stop := context.WithCancel(ctx)
 	died := p.watchPane(checking, stop, name)
 	err = runStartCheck(checking, terminal, name, startCheck{mode: checkFresh, timeout: probeScreenWait, poll: checkPoll, settle: checkSettle})
@@ -359,19 +361,24 @@ func (p *prober) watchPane(ctx context.Context, stop context.CancelFunc, name st
 }
 
 // closePane ends the probe's pane by SIGINT, which ended an interactive process in the spikes, and
-// removes it either way.
+// removes it either way. A probe that is stopping removes it at once, with no wait for an interrupt the
+// session may ignore, because the worker that stops it has a bounded time to end. The terminal server
+// outlives the worker, so a pane left on it keeps its session and the server running.
 func (p *prober) closePane(ctx context.Context, name string) {
 	terminal := p.d.terminal
-	_ = terminal.Signal(ctx, name, ports.SignalInterrupt)
-	deadline := time.Now().Add(probeExitWait)
-	for time.Now().Before(deadline) {
-		pane, err := terminal.Pane(ctx, name)
-		if err != nil || pane.Dead {
-			break
+	calls := context.WithoutCancel(ctx)
+	if ctx.Err() == nil {
+		_ = terminal.Signal(calls, name, ports.SignalInterrupt)
+		deadline := time.Now().Add(probeExitWait)
+		for time.Now().Before(deadline) && ctx.Err() == nil {
+			pane, err := terminal.Pane(calls, name)
+			if err != nil || pane.Dead {
+				break
+			}
+			pause(ctx, probePoll)
 		}
-		time.Sleep(probePoll)
 	}
-	_ = terminal.Close(ctx, name)
+	_ = terminal.Close(calls, name)
 }
 
 // dirs makes the names of one session's working directory and its generated files.
