@@ -179,6 +179,9 @@ func readIntegration(tx integrationReaders, order workorders.WorkOrder) (integra
 			f.plan.Waiting = append(f.plan.Waiting, "plan "+request.Subject)
 		}
 	}
+	if f.plan != nil {
+		f.plan.Waiting = append(f.plan.Waiting, unaskedPlans(approvals, f.commit())...)
+	}
 	if f.unmerged, err = unmergedOf(tx, order); err != nil {
 		return f, err
 	}

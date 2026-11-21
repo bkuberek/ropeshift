@@ -1,8 +1,11 @@
 package control
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -151,6 +154,50 @@ func mergeAsked(approvals ports.ApprovalReader, workOrder, commit string) (bool,
 		}
 	}
 	return false, nil
+}
+
+// unaskedPlans names, for the merge gate, each plan that a request of a planning work order names at the commit its branch
+// holds while no request for that plan at that commit is open or approved, with what became of its request: denied,
+// superseded, or closed another way. The merge waits only for what its requests say, and a plan whose every request at the
+// commit closed says nothing, so without this the branch would merge with a plan nobody approved. A plan the requests name
+// only at other commits is not on this commit's account.
+func unaskedPlans(requests []authority.Approval, commit string) []string {
+	if commit == "" {
+		return nil
+	}
+	type planAsked struct {
+		title string
+		live  bool
+		last  authority.ApprovalState
+	}
+	asked := map[string]*planAsked{}
+	for _, request := range requests {
+		if request.Kind != authority.KindPlan || requestCommit(request) != commit {
+			continue
+		}
+		detail := planDetailOf(request)
+		plan := asked[detail.Ref]
+		if plan == nil {
+			plan = &planAsked{}
+			asked[detail.Ref] = plan
+		}
+		plan.title = cmp.Or(plan.title, detail.Title, detail.Ref)
+		plan.live = plan.live || request.Live()
+		plan.last = request.State
+	}
+	var out []string
+	for _, ref := range slices.Sorted(maps.Keys(asked)) {
+		plan := asked[ref]
+		if plan.live {
+			continue
+		}
+		became := string(plan.last)
+		if plan.last == authority.ApprovalVoid {
+			became = "voided"
+		}
+		out = append(out, fmt.Sprintf("plan %q (its request at %s was %s, and no request for it is open or approved)", plan.title, short(commit), became))
+	}
+	return out
 }
 
 // supersedePlanRequests closes the requests to approve a plan that name a work order that goes back for rework. Each was
