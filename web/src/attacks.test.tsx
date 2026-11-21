@@ -182,13 +182,15 @@ describe("the source", () => {
   // when the statement names an https address (admin/RiskStatement.test.tsx), and the run of CI that asks a person,
   // which its card links only when the forge's address is https with a host and no user (needs/CICard.test.tsx), and
   // the guide that describes how a project grows, a constant in StartFromTemplate.tsx that names a guide of this
-  // repository. No other address is built from data.
+  // repository, and the guide that says where each piece of a member's own agent CLI setup is set up, a constant in
+  // PersonalSetup.tsx that names a guide of this repository. No other address is built from data.
   it("makes no link but its own, and the one constant that names the passphrase help", () => {
     const own: Record<string, RegExp> = {
       [join("src", "app", "SignIn.tsx")]: /: ("#main">?|\{to\}|\{passphraseHelp\})$/,
       [join("src", "admin", "RiskStatement.tsx")]: /: ("#main">?|\{to\}|\{address\})$/,
       [join("src", "needs", "CICard.tsx")]: /: ("#main">?|\{to\}|\{run\})$/,
       [join("src", "admin", "StartFromTemplate.tsx")]: /: ("#main">?|\{to\}|\{growthPath\})$/,
+      [join("src", "needs", "PersonalSetup.tsx")]: /: ("#main">?|\{to\}|\{setupHelp\})$/,
     };
     for (const path of source("src")) {
       const text = readFileSync(path, "utf8");
@@ -199,5 +201,6 @@ describe("the source", () => {
     }
     expect(readFileSync("src/app/SignIn.tsx", "utf8")).toMatch(/export const passphraseHelp = "https:\/\/github\.com\/bkuberek\/ropeshift\/blob\/main\/docs\/[a-z-]+\.md#[a-z-]+";/);
     expect(readFileSync("src/admin/StartFromTemplate.tsx", "utf8")).toMatch(/const growthPath = "https:\/\/github\.com\/bkuberek\/ropeshift\/blob\/main\/docs\/[a-z-]+\.md#[a-z-]+";/);
+    expect(readFileSync("src/needs/PersonalSetup.tsx", "utf8")).toMatch(/export const setupHelp = "https:\/\/github\.com\/bkuberek\/ropeshift\/blob\/main\/docs\/[a-z-]+\.md#[a-z-]+";/);
   });
 });

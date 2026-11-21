@@ -22,9 +22,9 @@ import (
 //     ([setting sources]), so a list that leaves it out also leaves out their hooks, status line, and
 //     enabled plugins, and their synced skills ([skills]). The `local` source is the person's too
 //     (laneSources), so a lane names `project` alone.
-//   - `--strict-mcp-config` skips the MCP servers in `.mcp.json`, `~/.claude.json`, and plugins, and loads
-//     only those `--mcp-config` names ([CLI reference]); with it, the claude.ai connectors do not load
-//     either ([setting sources]).
+//   - `--strict-mcp-config` skips the MCP servers in `.mcp.json`, in the person's own user configuration,
+//     and in plugins, and loads only those `--mcp-config` names ([CLI reference]); with it, the claude.ai
+//     connectors do not load either ([setting sources]).
 //   - Auto memory loads whatever the setting sources say ([setting sources]), and is the person's own notes,
 //     kept per repository and shared across its worktrees ([memory]), so `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
 //     turns it off ([environment variables]).
