@@ -227,7 +227,7 @@ func TestALanesBranchAndItsBaseEachSayWhatTheyChanged(t *testing.T) {
 	clone.Git("fetch", "--quiet", "origin")
 
 	worktrees := gitcli.Worktrees{Env: clone.Env()}
-	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", nil, 100)
+	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,11 +237,11 @@ func TestALanesBranchAndItsBaseEachSayWhatTheyChanged(t *testing.T) {
 	if !slices.Equal(got.Lane, []string{"a.md", "lane.md"}) || !slices.Equal(got.Pushed, []string{"c.md"}) {
 		t.Errorf("the lane changed %v and the base %v", got.Lane, got.Pushed)
 	}
-	if limited, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", nil, 1); err != nil || len(limited.Lane) != 1 || !limited.Cut {
+	if limited, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{}, 1); err != nil || len(limited.Lane) != 1 || !limited.Cut {
 		t.Errorf("a read of one path: %+v, %v", limited, err)
 	}
 	for _, branch := range []string{"lane/none", "--output=x"} {
-		if _, err := worktrees.Diverged(t.Context(), clone.Dir, branch, "main", nil, 100); !errors.Is(err, ports.ErrNotFound) {
+		if _, err := worktrees.Diverged(t.Context(), clone.Dir, branch, "main", ledger.Landed{}, 100); !errors.Is(err, ports.ErrNotFound) {
 			t.Errorf("a branch %q: %v", branch, err)
 		}
 	}
@@ -256,7 +256,7 @@ func TestWithNoRemoteTheBaseIsTheLocalBranch(t *testing.T) {
 	repo.Git("checkout", "--quiet", "lane/lane-1")
 	repo.Commit("a.md", "a, by the lane\n")
 	repo.Git("checkout", "--quiet", "main")
-	got, err := gitcli.Worktrees{Env: repo.Env()}.Diverged(t.Context(), repo.Dir, "lane/lane-1", "main", nil, 100)
+	got, err := gitcli.Worktrees{Env: repo.Env()}.Diverged(t.Context(), repo.Dir, "lane/lane-1", "main", ledger.Landed{}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

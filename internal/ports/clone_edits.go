@@ -17,9 +17,10 @@ type CloneEdits interface {
 	// last shared a commit, at most limit paths of each side. The base is the remote's copy of baseBranch as the last
 	// fetch left it, or the clone's own branch when it has no remote, and its side leaves out every merge and every
 	// commit a merge of ropeshift made.
-	// Commits the ledger records as landed work, such as a forge's squash of a work order, are no person's either.
+	// Commits the ledger records as landed work, and the commits of each range it records as landed, are no person's
+	// either. A range whose ends the clone does not hold leaves out nothing.
 	// Only a ref git says is missing, or two that share no history, is ErrNotFound; any other failure is an error.
-	Diverged(ctx context.Context, clone, branch, baseBranch string, landed []string, limit int) (ledger.Divergence, error)
+	Diverged(ctx context.Context, clone, branch, baseBranch string, landed ledger.Landed, limit int) (ledger.Divergence, error)
 	// Contents reads the blob each path's file in the clone would be stored as, with no filter run and no object
 	// written, and empty for a path whose file is gone.
 	Contents(ctx context.Context, clone string, paths []string) (map[string]string, error)

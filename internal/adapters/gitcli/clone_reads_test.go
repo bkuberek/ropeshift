@@ -163,12 +163,84 @@ func TestACommitThatLandedWorkIsNoPersonsPush(t *testing.T) {
 	origin.Commit("b.md", "b, pushed by a person\n")
 	clone.Git("fetch", "--quiet", "origin")
 	worktrees := gitcli.Worktrees{Env: clone.Env()}
-	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", []string{squashed}, 100)
+	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{Commits: []string{squashed}}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(got.Pushed, []string{"b.md"}) {
 		t.Errorf("the base's side %v, want only the person's b.md", got.Pushed)
+	}
+}
+
+// A rebase on the forge writes a pull request's commits on the base with no trailer, so the ledger records the base's tip
+// before the merge and after it, and the commits after the first up to the second are left out of the base's side. A
+// person's commit before the range or after it stays, and so does one a range names in a clone that lacks it.
+func TestTheCommitsOfARecordedRangeAreNoPersonsPush(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	clone := origin.Clone("registered")
+	clone.Git("checkout", "--quiet", "-b", "lane/lane-1")
+	clone.Commit("a.md", "a, by the lane\n")
+	clone.Git("checkout", "--quiet", "main")
+	before := origin.Commit("c.md", "c, pushed by a person\n")
+	origin.Commit("a.md", "a, rebased on the forge\n")
+	origin.Commit("b.md", "b, rebased on the forge\n")
+	after := origin.Commit("d.md", "d, rebased on the forge\n")
+	origin.Commit("e.md", "e, pushed by a person\n")
+	clone.Git("fetch", "--quiet", "origin")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	pushed := func(landed ledger.Landed) []string {
+		t.Helper()
+		got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", landed, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Pushed
+	}
+	if got := pushed(ledger.Landed{}); !slices.Equal(got, []string{"a.md", "b.md", "c.md", "d.md", "e.md"}) {
+		t.Fatalf("with no range the base's side is %v", got)
+	}
+	if got := pushed(ledger.Landed{Ranges: []ledger.LandedRange{{Before: before, After: after}}}); !slices.Equal(got, []string{"c.md", "e.md"}) {
+		t.Errorf("the base's side with the range is %v, want the person's c.md and e.md", got)
+	}
+	// The ledger names the last commit of the range as the merge's commit too.
+	both := ledger.Landed{Commits: []string{after}, Ranges: []ledger.LandedRange{{Before: before, After: after}}}
+	if got := pushed(both); !slices.Equal(got, []string{"c.md", "e.md"}) {
+		t.Errorf("the base's side with the range and its last commit is %v, want the person's c.md and e.md", got)
+	}
+	unknown := strings.Repeat("f", 40)
+	for name, landed := range map[string]ledger.Landed{
+		"a before the clone lacks": {Ranges: []ledger.LandedRange{{Before: unknown, After: after}}},
+		"an after the clone lacks": {Ranges: []ledger.LandedRange{{Before: before, After: unknown}}},
+		"ends that are no commits": {Ranges: []ledger.LandedRange{{Before: "--all", After: "-h"}}},
+	} {
+		if got := pushed(landed); !slices.Equal(got, []string{"a.md", "b.md", "c.md", "d.md", "e.md"}) {
+			t.Errorf("%s: the base's side is %v, want every path", name, got)
+		}
+	}
+}
+
+// Merges that follow one another each record a range that begins where the one before it ended, and each is left out.
+func TestRecordedRangesThatFollowOneAnotherAreEachLeftOut(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	clone := origin.Clone("registered")
+	clone.Git("checkout", "--quiet", "-b", "lane/lane-1")
+	clone.Commit("a.md", "a, by the lane\n")
+	clone.Git("checkout", "--quiet", "main")
+	start := origin.Commit("c.md", "c, pushed by a person\n")
+	origin.Commit("a.md", "a, rebased on the forge\n")
+	middle := origin.Commit("b.md", "b, rebased on the forge\n")
+	origin.Commit("d.md", "d, rebased on the forge\n")
+	end := origin.Commit("f.md", "f, rebased on the forge\n")
+	clone.Git("fetch", "--quiet", "origin")
+	landed := ledger.Landed{Ranges: []ledger.LandedRange{{Before: start, After: middle}, {Before: middle, After: end}}}
+	got, err := gitcli.Worktrees{Env: clone.Env()}.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", landed, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Pushed, []string{"c.md"}) {
+		t.Errorf("the base's side is %v, want only the person's c.md", got.Pushed)
 	}
 }
 
@@ -182,16 +254,16 @@ func TestOnlyAMissingRefReadsAsNotFound(t *testing.T) {
 	worktrees := gitcli.Worktrees{Env: clone.Env()}
 	ended, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := worktrees.Diverged(ended, clone.Dir, "lane/lane-1", "main", nil, 100); err == nil || errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Diverged(ended, clone.Dir, "lane/lane-1", "main", ledger.Landed{}, 100); err == nil || errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a context that ended reads %v", err)
 	}
 	if _, err := worktrees.Holds(ended, clone.Dir, "lane/lane-1", "main"); err == nil || errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a context that ended reads %v", err)
 	}
-	if _, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/gone", "main", nil, 100); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/gone", "main", ledger.Landed{}, 100); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a missing branch reads %v", err)
 	}
-	if _, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "trunk", nil, 100); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "trunk", ledger.Landed{}, 100); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a missing base reads %v", err)
 	}
 }

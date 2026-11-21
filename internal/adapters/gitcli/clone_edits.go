@@ -184,10 +184,10 @@ func laneRef(ctx context.Context, git Git, ref, shown string) (string, error) {
 // Diverged reads what a lane's branch and its base each changed since they last shared a commit. The base is the
 // remote's copy of baseBranch as the last fetch left it, or the clone's own branch in a clone with no remote, and it is
 // never fetched. The base's side counts only the commits on its first-parent line that are no merge, that carry no
-// trailer of a merge of ropeshift, and that landed names as no commit of landed work, so neither the work ropeshift or
-// the forge merged nor what a merge brought in reads as a person's. Each listing is read NUL-separated and stops once
+// trailer of a merge of ropeshift, and that landed names as neither a commit of landed work nor one of a range of it, so
+// neither the work ropeshift or the forge merged nor what a merge brought in reads as a person's. Each listing is read NUL-separated and stops once
 // limit paths of its side are kept. Only a ref or a fork point git says is missing is ErrNotFound.
-func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch string, landed []string, limit int) (ledger.Divergence, error) {
+func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch string, landed ledger.Landed, limit int) (ledger.Divergence, error) {
 	for _, name := range []string{branch, baseBranch} {
 		if err := ledger.CheckStoredBranch(name); err != nil {
 			return ledger.Divergence{}, fmt.Errorf("%w: %v", ports.ErrNotFound, err)
@@ -250,7 +250,26 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 	if len(commits) > editsCommits {
 		commits, out.Cut = commits[:editsCommits], true
 	}
-	commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(landed, commit) })
+	ends := slices.Clone(commits)
+	for _, span := range landed.Ranges {
+		// A range counts only when it ends at a commit this side lists, and only when the clone holds both its ends.
+		if !ledger.CommitHash(span.Before) || !ledger.CommitHash(span.After) || !slices.Contains(ends, span.After) {
+			continue
+		}
+		inside, err := git.run(ctx, "--no-optional-locks", "rev-list", "--first-parent", "--max-count="+strconv.Itoa(editsCommits), "--end-of-options", span.After, "^"+span.Before)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			return ledger.Divergence{}, err
+		}
+		if inside.code != 0 {
+			continue
+		}
+		members := strings.Fields(inside.out)
+		commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(members, commit) })
+	}
+	commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(landed.Commits, commit) })
 	if len(commits) > 0 {
 		names, err := git.Feed(ctx, []byte(strings.Join(commits, "\n")+"\n"), "--no-optional-locks", "log", "--no-walk=unsorted", "--stdin", "--no-renames", "--format=", "--name-only", "-z")
 		if err != nil {

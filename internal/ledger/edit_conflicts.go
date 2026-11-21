@@ -20,6 +20,21 @@ type ConflictPath struct {
 	Person string `json:"person"`
 }
 
+// LandedRange is the commits a merge wrote on a base's first-parent line: those after Before, up to and including
+// After.
+type LandedRange struct {
+	Before string `json:"before"`
+	After  string `json:"after"`
+}
+
+// Landed is the work the ledger records as landed on a base, which no person pushed.
+type Landed struct {
+	// Commits are commits of the base: a forge's merge of a work order, and the head of each pull request merged.
+	Commits []string
+	// Ranges are the commits a merge wrote on the base's first-parent line with no trailer of ropeshift's.
+	Ranges []LandedRange
+}
+
 // Divergence is what a lane's branch and the base it began from each changed since they last shared a commit.
 type Divergence struct {
 	// Fork is the commit they last shared, and Base the ref the base was read at, such as origin/main.

@@ -3,6 +3,7 @@ package control
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -135,9 +136,9 @@ type ledgerFacts struct {
 	repositories []ledger.Repository
 	planning     string
 	lanes        []openLane
-	// landed are the commits the ledger records as the forge's merge of a work order, and each merged pull request's
-	// head, which carry no trailer of ropeshift's and are no person's push.
-	landed []string
+	// landed are the commits the ledger records as the forge's merge of a work order, each merged pull request's head, and
+	// the ranges a merge recorded as the commits it wrote, which carry no trailer of ropeshift's and are no person's push.
+	landed ledger.Landed
 }
 
 func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
@@ -168,15 +169,51 @@ func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
 	if err != nil {
 		return facts, err
 	}
+	laned := map[string]bool{}
+	for _, lane := range facts.lanes {
+		laned[lane.order.RepositoryID] = true
+	}
 	for _, pull := range pulls {
-		if pull.MergeCommit != "" {
-			facts.landed = append(facts.landed, pull.MergeCommit)
-			if pull.HeadCommit != "" {
-				facts.landed = append(facts.landed, pull.HeadCommit)
-			}
+		if pull.MergeCommit == "" {
+			continue
 		}
+		facts.landed.Commits = append(facts.landed.Commits, pull.MergeCommit)
+		if pull.HeadCommit != "" {
+			facts.landed.Commits = append(facts.landed.Commits, pull.HeadCommit)
+		}
+		// A range matters only to a repository with a lane open, whose branch a reading compares with the base.
+		if !laned[pull.Repository] {
+			continue
+		}
+		spans, err := landedRanges(tx, pull.WorkOrder)
+		if err != nil {
+			return facts, err
+		}
+		facts.landed.Ranges = append(facts.landed.Ranges, spans...)
 	}
 	return facts, nil
+}
+
+// landedRanges reads the ranges of a base's first-parent line that the merges of a work order recorded as written.
+func landedRanges(tx ports.ReadTx, workOrder string) ([]ledger.LandedRange, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectIntegration, ID: workOrder})
+	if err != nil {
+		return nil, err
+	}
+	var out []ledger.LandedRange
+	for _, event := range events {
+		if event.Type != ledger.EventIntegrationMerged {
+			continue
+		}
+		var merged mergedWork
+		if json.Unmarshal(event.Data, &merged) != nil || merged.Landed == nil {
+			continue
+		}
+		if ledger.CommitHash(merged.Landed.Before) && ledger.CommitHash(merged.Landed.After) {
+			out = append(out, *merged.Landed)
+		}
+	}
+	return out, nil
 }
 
 // openLanes lists each work order in an open state that has a lane, with the lane's branch and the commit it began at.
@@ -280,12 +317,12 @@ func (o *OutsideEdits) Read(ctx context.Context, store ports.Store, scope ledger
 }
 
 // conflictsIn finds each open lane of a repository whose branch in the clone changed a path the person changed too.
-// In a repository whose merge method rewrites commits, the forge and a local rebase land work in commits with no
-// trailer, so the base's side is not read as a person's and only the clone's side counts. The clone's side is settled
-// once the lane's branch holds the branch the person's files are committed on, which EditsBranch names. A lane whose
-// branch the clone really does not hold, as one on another machine's worker, has none. A lane git could not read is
-// marked unread, so the conflict an earlier reading found stays. Only a reading the control plane cannot make at all
-// fails.
+// The base's side leaves out the commits that carry a trailer of ropeshift's, those the ledger names as landed, and
+// those in a range it records as landed, so the work that ropeshift or the forge merged, by any method, is no person's.
+// The clone's side is settled once the lane's branch holds the branch the person's files are committed on, which
+// EditsBranch names. A lane whose branch the clone really does not hold, as one on another machine's worker, has none.
+// A lane git could not read is marked unread, so the conflict an earlier reading found stays. Only a reading the control
+// plane cannot make at all fails.
 func (o *OutsideEdits) conflictsIn(ctx context.Context, project string, clone CloneReading, facts ledgerFacts, unread map[string]bool) ([]Conflict, error) {
 	var out []Conflict
 	base := cmp.Or(clone.Repository.BaseBranch, clone.Repository.DefaultBranch)
@@ -313,11 +350,7 @@ func (o *OutsideEdits) conflictOf(ctx context.Context, project string, clone Clo
 	if err != nil {
 		return Conflict{}, false, err
 	}
-	pushed := divergence.Pushed
-	if clone.Repository.MergeMethod.Rewrites() {
-		pushed = nil
-	}
-	paths := ledger.ConflictPaths(divergence.Lane, clone.Edits.Edits, pushed)
+	paths := ledger.ConflictPaths(divergence.Lane, clone.Edits.Edits, divergence.Pushed)
 	var local []string
 	for _, path := range paths {
 		if path.Person != ledger.PersonPushed {

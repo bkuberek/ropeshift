@@ -353,7 +353,8 @@ func (o MergeOutcome) Rework() bool { return o == MergeConflict || o == MergeBeh
 
 // MergeResult is what one merge came to. A merge that landed names the commit it made on the base, and one
 // that did not says why, with the files that conflict when git can name them, and for a stale head the head
-// it found instead.
+// it found instead. A merge that writes commits no trailer can mark, a forge's rebase, also names the base's tip
+// before it and after it, so the commits between them are the merge's.
 type MergeResult struct {
 	Outcome     MergeOutcome `json:"outcome"`
 	MergeCommit string       `json:"merge_commit,omitempty"`
@@ -361,6 +362,17 @@ type MergeResult struct {
 	Detail      string       `json:"detail,omitempty"`
 	Files       []string     `json:"files,omitempty"`
 	Head        string       `json:"head,omitempty"`
+	BaseBefore  string       `json:"base_before,omitempty"`
+	BaseAfter   string       `json:"base_after,omitempty"`
+}
+
+// Landed is the range of the base's first-parent line a merge wrote, and false when the result names none or names an
+// end that is no commit ID.
+func (r MergeResult) Landed() (LandedRange, bool) {
+	if r.Outcome != MergeMerged || !CommitHash(r.BaseBefore) || !CommitHash(r.BaseAfter) || r.BaseBefore == r.BaseAfter {
+		return LandedRange{}, false
+	}
+	return LandedRange{Before: r.BaseBefore, After: r.BaseAfter}, true
 }
 
 // ForgeHealthReport is what a worker found of its forge sign-in for one repository.
