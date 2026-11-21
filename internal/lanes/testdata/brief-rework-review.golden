@@ -20,4 +20,6 @@ Your system prompt holds this lane's context pack, which is also at .ropeshift/c
 
 When the work is done, or cannot go on, call the lane_report tool once with its outcome, then end your turn.
 
+Run every helper agent you start in the foreground, never in the background, and wait for its report before you call lane_report.
+
 Never wait for CI, a review, or a merge: after you push, ropeshift reads the checks and starts the review and the merge, so call lane_report and end your turn. Do not sleep, poll, or watch for them, and do not read their status: a command that does is denied.

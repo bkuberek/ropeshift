@@ -76,6 +76,11 @@ type laneState struct {
 	forPerson bool
 	// forWake says an orchestrator's generation waits for something to judge, before it prepares a session.
 	forWake bool
+	// background is how many background tasks the session's newest Stop said still run, and backgroundSince when
+	// the worker heard that Stop. Each task wakes the session with a turn of its own when it ends, and the prompt
+	// that starts a turn ends the count.
+	background      int
+	backgroundSince time.Time
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -493,10 +498,31 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		s.callEnded(event.Subject)
 	case lanes.EventCallDenied:
 		s.callEnded(event.Subject)
+	case lanes.EventStop:
+		s.noteBackground(event.Background, r.w.clock.Now())
+	case lanes.EventUserPromptSubmit:
+		s.noteBackground(0, time.Time{})
 	case hookStopFailure:
+		s.noteBackground(0, time.Time{})
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)
 	}
+}
+
+// noteBackground keeps what the turn that just stopped left running in the background, and when the worker heard
+// it. A failed turn leaves nothing to wait on, and a turn that starts ends the wait.
+func (s *laneState) noteBackground(tasks int, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.background, s.backgroundSince = tasks, at
+}
+
+// backgroundRest says the session's last turn stopped with its own background work still running, since when,
+// and how many tasks, so the lane's work is not over: the session goes on in the turn that work's end starts.
+func (s *laneState) backgroundRest() (since time.Time, tasks int, resting bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.backgroundSince, s.background, s.background > 0
 }
 
 // settleBrief moves a lane whose brief has shown no evidence past its grace.
@@ -541,6 +567,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: degraded,
 		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded, PackOversized: s.policy.Oversized(s.baseline),
 		DayCapped: s.dayCapped, WaitingForPerson: s.forPerson && state == lanes.Idle, AwaitingWake: s.forWake,
+		BackgroundInFlight: s.background > 0 && state == lanes.Idle,
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),

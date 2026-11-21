@@ -293,7 +293,7 @@ Amounts are US dollars at list price, and 0 means no limit or no warning. A shar
 
 | Key | What it sets | Default | Range |
 |-----|--------------|---------|-------|
-| `max_live_wait` | The longest a lane waits live with `lane_wait`. A longer wait parks the lane | `"5m"` | 1 minute to 1 hour |
+| `max_live_wait` | The longest a lane waits live with `lane_wait`, or rests on background work its own turn left running. A longer wait parks the lane, and a longer rest ends in a nudge | `"5m"` | 1 minute to 1 hour |
 | `max_tool_sleep` | The sleep inside one command that rule W1 refuses, and any longer one | `"60s"` | 1 second to 1 hour |
 | `wait_rules_off` | The wait rules to turn off, by ID: `W1`, `W2`, `W3`, or `W4` | `[]` | Those four IDs |
 | `wait_rule_patterns` | Command prefixes a rule also matches, by rule ID | `[]` for each rule | At most 64 per rule, each at most 200 bytes |
