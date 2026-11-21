@@ -439,3 +439,34 @@ func TestALaneReportsEachInstructionFileItLoads(t *testing.T) {
 		t.Errorf("a lane's settings register no InstructionsLoaded hook: %v", slices.Sorted(maps.Keys(settings.Hooks)))
 	}
 }
+
+// An orchestrator's session runs as clean as a lane's, because its worker starts it through the same driver: the
+// repository's settings alone, ropeshift's MCP configuration alone, no auto memory, and the same instruction excludes.
+// Neither sets CLAUDE_CODE_DISABLE_CLAUDE_MDS, which would drop the repository's own CLAUDE.md too.
+func TestAnOrchestratorStartsAsCleanAsALane(t *testing.T) {
+	lane := laneSpec(t)
+	lane.WorkOrder, lane.Env = "wo-1", []string{"HOME=/home/member"}
+	orchestrator := laneSpec(t)
+	orchestrator.OnlyTools, orchestrator.Env = true, []string{"HOME=/home/member"}
+	for name, spec := range map[string]ports.SessionSpec{"lane": lane, "orchestrator": orchestrator} {
+		_, mcp := generatedPaths(spec)
+		for how, args := range map[string][]string{
+			"start": StartArgs(spec), "resume": ResumeArgs(spec, ports.ResumeRef{SessionID: "s"}), "pane": paneArgs(spec),
+		} {
+			if sources, _ := flagValue(args, "--setting-sources"); sources != "project" || !slices.Contains(args, "--strict-mcp-config") {
+				t.Errorf("the %s's %s reads the setting sources %q: %v", name, how, sources, args)
+			}
+			if config, _ := flagValue(args, "--mcp-config"); config != mcp {
+				t.Errorf("the %s's %s loads the MCP config %q, not ropeshift's own %q", name, how, config, mcp)
+			}
+		}
+		for how, env := range map[string][]string{"headless": sessionEnv(spec, Use{}), "pane": paneEnv(spec, Use{})} {
+			if !slices.Contains(env, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1") || slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "CLAUDE_CODE_DISABLE_CLAUDE_MDS=") }) {
+				t.Errorf("the %s's %s environment is %v", name, how, env)
+			}
+		}
+		if excludes := generateSettings(spec).ClaudeMdExcludes; !slices.Contains(excludes, "/home/member/.claude/CLAUDE.md") {
+			t.Errorf("the %s loads the member's own instructions: %v", name, excludes)
+		}
+	}
+}
