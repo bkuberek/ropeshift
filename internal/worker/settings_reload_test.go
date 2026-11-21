@@ -51,7 +51,9 @@ func answered(t *testing.T, replies <-chan lanes.Reply) lanes.Reply {
 
 // A lane whose session changes its own settings in a key that widens what it runs has the reload blocked, so the
 // session never applies the new hook or permission: its next tool calls are denied, it is asked once to hand off, and
-// it parks on a member's choice with the same security item a held start raises, for the generation that ran.
+// it parks on a member's choice with the same security item a held start raises, for the generation that ran. The
+// reload waits until the worker reads the lane working, because a session runs ahead of the worker that follows it,
+// and a lane the worker still reads as briefing cannot park, so its next generation's start holds it instead.
 func TestALaneThatWidensItsSettingsMidSessionIsBlockedAndHeld(t *testing.T) {
 	t.Parallel()
 	r := laneRigWith(t, handoffProfile)
@@ -59,15 +61,18 @@ func TestALaneThatWidensItsSettingsMidSessionIsBlockedAndHeld(t *testing.T) {
 		r.driver.StopEverySession()
 		r.waitForTheLane(t)
 	})
-	g := newGate()
-	r.gates(g)
+	ready, g := newGate(), newGate()
+	r.gates(ready, g)
 	replies := make(chan lanes.Reply, 1)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	r.driver.Play(script(
-		[]fake.DriverStep{{Bound: true}, aToolCall(), r.reloads(widened(), replies), g.step(), aToolCall(), completed(0.2)},
+		[]fake.DriverStep{{Bound: true}, aToolCall(), ready.step(), r.reloads(widened(), replies), g.step(), aToolCall(), completed(0.2)},
 		[]fake.DriverStep{answer, completed(0.3)},
 	))
 	r.start()
+	r.reach(t, ready)
+	r.eventually("the lane reads working", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	close(ready.release)
 	if reply := answered(t, replies); !reply.OK || reply.Reload != lanes.ReloadBlock {
 		t.Fatalf("a reload that widens what the lane runs was answered %+v", reply)
 	}
