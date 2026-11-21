@@ -1,9 +1,11 @@
 package rules
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -105,6 +107,55 @@ func FindSource(root string, dirs, phrases []string) ([]string, error) {
 		})
 		if err != nil {
 			return nil, err
+		}
+	}
+	return found, nil
+}
+
+// FindSourceLines lists each line of the non-test Go source under the named directories that holds any of the phrases,
+// as "path:line holds phrase". A line is left out only when the file's entry in exempt names it whole, with its
+// indentation trimmed, so an exemption covers that one line and nothing else in its file. It also lists each entry no
+// line matches, because an exemption that matches nothing is left to hide whatever comes to stand in its place.
+func FindSourceLines(root string, dirs, phrases []string, exempt map[string][]string) ([]string, error) {
+	var found []string
+	used := map[string]bool{}
+	for _, top := range dirs {
+		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !isSource(d.Name()) {
+				return err
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			for number, line := range strings.Split(string(raw), "\n") {
+				for _, phrase := range phrases {
+					if !strings.Contains(line, phrase) {
+						continue
+					}
+					if slices.Contains(exempt[rel], strings.TrimSpace(line)) {
+						used[rel+"\n"+strings.TrimSpace(line)] = true
+						continue
+					}
+					found = append(found, fmt.Sprintf("%s:%d holds %s", rel, number+1, phrase))
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, rel := range slices.Sorted(maps.Keys(exempt)) {
+		for _, line := range exempt[rel] {
+			if !used[rel+"\n"+line] {
+				found = append(found, fmt.Sprintf("%s: the exemption %q matches no line, so remove it", rel, line))
+			}
 		}
 	}
 	return found, nil

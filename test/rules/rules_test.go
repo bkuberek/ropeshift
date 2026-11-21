@@ -319,17 +319,61 @@ func TestOneTCPListener(t *testing.T) {
 	}
 }
 
+// shellPhrases are the text of a command line built for a shell.
+var shellPhrases = []string{`exec.Command("sh`, `exec.Command("bash`, `exec.Command("zsh`, `"-lc"`, `"-c",`}
+
+// shellExemptions are the lines of source that hold one of those phrases and build no command line for a shell, each
+// named whole. The worker's approval reader parses the commands an agent asks to run, to tell a gate from the rest.
+// This line is git's own `-c` option in its list of options that take a value, so the reader parses a shell command
+// and never runs one. Nothing else in that file, or on that line, is exempt.
+var shellExemptions = map[string][]string{
+	"internal/worker/approvals.go": {
+		`var gitValueOptions = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--attr-source"}`,
+	},
+}
+
+// shellSourceHits lists where the source under the named directories of root builds a command line for a shell, past
+// the exemptions above.
+func shellSourceHits(root string, dirs []string) ([]string, error) {
+	return FindSourceLines(root, dirs, shellPhrases, shellExemptions)
+}
+
 // TestNoShellInTheSource backs the runner's refusal: nothing in the module builds a
 // command line for a shell (FR-DRV-10).
 func TestNoShellInTheSource(t *testing.T) {
-	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, []string{
-		`exec.Command("sh`, `exec.Command("bash`, `exec.Command("zsh`, `"-lc"`, `"-c",`,
-	})
+	found, err := shellSourceHits(repoRoot(t), []string{"cmd", "internal"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, hit := range found {
 		t.Error(hit)
+	}
+}
+
+// TestNoShellRuleReportsAnExemptionThatMatchesNothing keeps an exemption from outliving the line it names.
+func TestNoShellRuleReportsAnExemptionThatMatchesNothing(t *testing.T) {
+	found, err := FindSourceLines(filepath.Join("testdata", "noshell"), []string{"internal"}, shellPhrases, map[string][]string{
+		"internal/worker/approvals.go": {"var gone = 1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := `internal/worker/approvals.go: the exemption "var gone = 1" matches no line, so remove it`
+	if !slices.Contains(found, stale) {
+		t.Errorf("found %q, want %q among them", found, stale)
+	}
+}
+
+// TestNoShellRuleExemptsOnlyItsOneLine holds the exemption to the line it names: a "-c" elsewhere in the same file,
+// or on that line with more beside it, is still found.
+func TestNoShellRuleExemptsOnlyItsOneLine(t *testing.T) {
+	found, err := shellSourceHits(filepath.Join("testdata", "noshell"), []string{"internal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{`internal/worker/approvals.go:8 holds "-c",`, `internal/worker/approvals.go:11 holds "-c",`}
+	if !slices.Equal(found, want) {
+		t.Errorf("found %q, want %q", found, want)
 	}
 }
 

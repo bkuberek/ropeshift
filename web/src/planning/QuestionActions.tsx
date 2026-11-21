@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { useChange } from "../admin/parts";
 import { usePageActions } from "../app/pageActions";
+import { addressOf, Link } from "../app/route";
 import { answerQuestion } from "../api/client";
 import type { Question, QuestionItem } from "../api/types";
 import { answerOf, AnswerField, isOneWay, startingDraft } from "../needs/QuestionBatch";
@@ -98,8 +99,14 @@ const oneWayRefusal = "A one-way question is answered by a person, never assumed
 
 type Working = "" | "answer" | "assume";
 
-// QuestionActions are what a member does to a question that waits, in an orchestrator's place or not: answer it where
-// it stands, record an assumption for a reversible one, merge it into a duplicate that stays, or dismiss it.
+// cardInNeedsYou is where a question that reached a person is decided: its card in Needs you, with its primary button
+// focused. A question still on the ladder has no card there yet, so its Decide now moves it there first.
+const cardInNeedsYou = (question: Question) =>
+  question.status === "needs_human" && question.batch_id ? addressOf("/needs-you", { item: `questions:${question.batch_id}`, focus: "primary" }) : "";
+
+// QuestionActions are what a member does to a question that waits, in an orchestrator's place or not: decide it in
+// Needs you once it reached a person, answer it where it stands, record an assumption for a reversible one, merge it
+// into a duplicate that stays, or dismiss it.
 export function QuestionActions({ question, others = [] }: { question: Question; others?: Question[] }) {
   const [working, setWorking] = useState<Working>("");
   const [refused, setRefused] = useState(false);
@@ -141,10 +148,16 @@ export function QuestionActions({ question, others = [] }: { question: Question;
   if (!waiting(question)) {
     return null;
   }
+  const card = cardInNeedsYou(question);
   return (
     <>
       <div className="row-tight">
-        <Button small variant="primary" aria-label={`Answer ${question.text}`} aria-expanded={working === "answer"} aria-controls={working === "answer" ? form : undefined} onClick={() => toggle("answer")}>
+        {card ? (
+          <Link to={card} className="btn btn-sm btn-primary" aria-label={`Decide now: ${question.text}`}>
+            Decide now
+          </Link>
+        ) : null}
+        <Button small variant={card ? "secondary" : "primary"} aria-label={`Answer ${question.text}`} aria-expanded={working === "answer"} aria-controls={working === "answer" ? form : undefined} onClick={() => toggle("answer")}>
           Answer
         </Button>
         <Button small aria-label={`Assume an answer to ${question.text}`} aria-expanded={working === "assume"} aria-controls={working === "assume" ? form : undefined} onClick={() => (working === "assume" ? toggle("assume") : assume())}>

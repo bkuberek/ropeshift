@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { readView, setCurrentProject, signOut } from "../api/client";
-import type { NeedItem, Operations, Project, ShopFloor } from "../api/types";
+import type { NeedItem, Operations, Project, Questions, ShopFloor } from "../api/types";
 import { useHealth } from "../api/useHealth";
 import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
@@ -10,6 +10,7 @@ import { useView } from "../api/useView";
 import { settingsList } from "../admin/Settings";
 import { RunWindows } from "../floor/ReadyWait";
 import { plainLine } from "../planning/creation";
+import { pressOnCard } from "../needs/cardKeys";
 import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
 import { WaitingCreations, waitingIn } from "../needs/waitingCreations";
@@ -42,6 +43,9 @@ const lastProject = "ropeshift-project";
 
 // statusMeasuresGapMs holds the status bar's read of the project's measures to one per gap.
 const statusMeasuresGapMs = 30_000;
+
+// questionsCountGapMs holds the sidebar's read of the project's open questions to one per gap.
+const questionsCountGapMs = 5_000;
 
 function remembered(): string {
   try {
@@ -163,6 +167,14 @@ export function App() {
     live,
     statusMeasuresGapMs,
   );
+  // The sidebar counts the project's open questions, to know about: their decisions are in Needs you.
+  const asked = useView<Questions | null>(
+    () => (project && signedIn ? readView<Questions>("questions") : Promise.resolve(null)),
+    `sidebar:questions:${project}:${signedIn}`,
+    live,
+    questionsCountGapMs,
+  ).view;
+  const openQuestions = asked ? { open: asked.questions.length, withYou: asked.questions.filter((question) => question.status === "needs_human").length } : null;
   const health = useHealth(live, signedIn).view;
   // A join token is for a worker on another machine, which only an installation in group mode takes in.
   const group = health?.mode === "group";
@@ -239,6 +251,10 @@ export function App() {
           break;
         case "primary":
           focusPrimary();
+          break;
+        case "choose":
+        case "discuss":
+          pressOnCard(action.type);
           break;
       }
     };
@@ -480,6 +496,7 @@ export function App() {
                 view={marked}
                 project={project}
                 waiting={waiting}
+                questions={openQuestions}
                 theme={themeWords[theme]}
                 onTheme={nextTheme}
                 onSheet={() => setSheetOpen(true)}

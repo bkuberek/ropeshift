@@ -37,7 +37,8 @@
       },
       "id": "wo-queued:ci_queue_stalled",
       "kind": "ci",
-      "since": 1789994600000
+      "since": 1789994600000,
+      "tier": 2
     },
     {
       "ci": {
@@ -77,7 +78,8 @@
       },
       "id": "wo-ci:ci_not_finished",
       "kind": "ci",
-      "since": 1789996400000
+      "since": 1789996400000,
+      "tier": 2
     },
     {
       "ci": {
@@ -124,7 +126,8 @@
       },
       "id": "wo-ci:ci_action_required",
       "kind": "ci",
-      "since": 1790000000000
+      "since": 1790000000000,
+      "tier": 2
     },
     {
       "ci": {
@@ -171,7 +174,8 @@
       },
       "id": "wo-ci:ci_base_red",
       "kind": "ci",
-      "since": 1790000000000
+      "since": 1790000000000,
+      "tier": 2
     },
     {
       "ci": {
@@ -218,7 +222,8 @@
       },
       "id": "wo-ci:ci_base_unread",
       "kind": "ci",
-      "since": 1790000000000
+      "since": 1790000000000,
+      "tier": 2
     },
     {
       "ci": {
@@ -266,7 +271,8 @@
       },
       "id": "wo-ci:ci_infrastructure_failure",
       "kind": "ci",
-      "since": 1790000000000
+      "since": 1790000000000,
+      "tier": 2
     }
   ],
   "revision": 15

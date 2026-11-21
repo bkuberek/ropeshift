@@ -338,10 +338,22 @@ export function TopBar({ switcher, waiting, dockOpen, onDock, onPalette, theme, 
   );
 }
 
+// OpenQuestions counts the project's open questions, and how many of them wait for the member in Needs you.
+export type OpenQuestions = { open: number; withYou: number };
+
+// questionsWords says what the soft count of Open questions counts, as its tooltip.
+export function questionsWords({ open, withYou }: OpenQuestions): string {
+  const ladder = open - withYou;
+  const parts = [withYou ? `${withYou} wait${withYou === 1 ? "s" : ""} for you in Needs you` : "", ladder ? `${ladder} ${ladder === 1 ? "is" : "are"} on the ladder` : ""];
+  return `${open} open: ${parts.filter(Boolean).join(", ")}`;
+}
+
 type SidebarProps = {
   view: View | null;
   project: string;
   waiting: number | null;
+  // questions is the soft count of Open questions, which is for knowing: their decisions are in Needs you.
+  questions?: OpenQuestions | null;
   theme: string;
   onTheme: () => void;
   onSheet: () => void;
@@ -351,7 +363,7 @@ type SidebarProps = {
 
 // Sidebar lists the views: the current one has a selected fill, an ink bar, and aria-current. On a phone
 // it is a drawer over a scrim, which Escape closes. Its footer holds the theme and the shortcut sheet.
-export function Sidebar({ view, project, waiting, theme, onTheme, onSheet, open, onClose }: SidebarProps) {
+export function Sidebar({ view, project, waiting, questions = null, theme, onTheme, onSheet, open, onClose }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   useEffect(() => {
     if (open) {
@@ -387,11 +399,12 @@ export function Sidebar({ view, project, waiting, theme, onTheme, onSheet, open,
               <ul aria-labelledby={group.name ? `nav-${group.name}` : undefined}>
                 {group.items.map((item) => {
                   const count = item.view === "needs-you" ? waiting : null;
+                  const soft = item.view === "questions" && questions && questions.open > 0 ? questions : null;
                   return (
                     <li key={item.view}>
                       <Link
                         to={addressOfView(item.view, project)}
-                        className={`nav-link${count ? " has-count" : ""}`}
+                        className={`nav-link${count || soft ? " has-count" : ""}`}
                         aria-current={item.view === view ? "page" : undefined}
                         title={keyOf[item.view] ? `${titleOf(item.view)} (G then ${keyOf[item.view]})` : titleOf(item.view)}
                         onClick={onClose}
@@ -402,6 +415,12 @@ export function Sidebar({ view, project, waiting, theme, onTheme, onSheet, open,
                           <span className="count">
                             {count}
                             <span className="visually-hidden"> waiting</span>
+                          </span>
+                        ) : null}
+                        {soft ? (
+                          <span className="count count-quiet" title={questionsWords(soft)}>
+                            {soft.open}
+                            <span className="visually-hidden"> open</span>
                           </span>
                         ) : null}
                       </Link>

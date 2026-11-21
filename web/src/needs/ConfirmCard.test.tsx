@@ -89,6 +89,7 @@ describe("a confirmation card", () => {
   });
 
   it("confirms with the digest it shows, and then says how it came out", async () => {
+    localStorage.setItem("ropeshift-advance", "off");
     const view = cards();
     const item = cardOf(view, "work_order.cancel");
     const sent = serveApi((call) => (call.method === "GET" ? { status: 200, body: confirmed() } : { status: 200, body: confirmed() }));

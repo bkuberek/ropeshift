@@ -1,9 +1,11 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import type { ReactElement } from "react";
+
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { CurrentProject } from "../app/route";
 import { golden, goldenNeedsYou, here, mergeRequest, refusal, reviewedCommit, serveApi, testProject } from "../testing";
@@ -50,18 +52,37 @@ async function cardNamed(name: RegExp) {
   return screen.getByRole("article", { name });
 }
 
+// titlesOf reads the list's titles in the order it shows them.
+const titlesOf = () =>
+  within(screen.getByRole("list", { name: "Waiting items" }))
+    .getAllByRole("link")
+    .filter((link) => link.classList.contains("item"))
+    .map((link) => link.querySelector(".item-title")?.textContent);
+
 describe("the queue", () => {
-  it("keeps the server's order, the longest wait first", async () => {
+  it("puts what holds a running session first, then the longest wait of each tier", async () => {
     const view = goldenNeedsYou();
     show(view);
-    const titles = within(screen.getByRole("list", { name: "Waiting items" }))
-      .getAllByRole("link")
-      .map((link) => link.querySelector(".item-title")?.textContent);
+    const titles = titlesOf();
     expect(titles).toHaveLength(view.items.length);
-    expect(titles[0]).toBe("Rotate the keys");
-    expect(titles[1]).toBe("Move the archive");
-    const since = view.items.map((item) => item.since);
-    expect(since).toEqual([...since].sort((a, b) => a - b));
+    expect(titles.slice(0, 4)).toEqual(["Allow Bash?", "2 questions", "Rotate the keys", "Move the archive"]);
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual(
+      expect.arrayContaining(["Holding a running session, 2", "Work is stopped, 7", "Waiting for your decision, 3"]),
+    );
+  });
+
+  it("orders by wait alone on request, and keeps the order in the address", async () => {
+    const view = goldenNeedsYou();
+    show(view);
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Order" }), "oldest");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("order")).toBe("oldest"));
+    expect(titlesOf().slice(0, 2)).toEqual(["Rotate the keys", "Move the archive"]);
+    expect(screen.queryByRole("heading", { name: /^Holding a running session/ })).toBeNull();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Order" }), "newest");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("order")).toBe("newest"));
+    expect(titlesOf().at(-1)).toBe("Rotate the keys");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Order" }), "importance");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("order")).toBe(false));
   });
 
   it("opens the first item's decision card beside the list", async () => {
@@ -69,12 +90,16 @@ describe("the queue", () => {
     const first = within(screen.getByRole("list", { name: "Waiting items" })).getAllByRole("link")[0];
     expect(first?.getAttribute("aria-current")).toBe("true");
     expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(screen.getByRole("article", { name: "Rotate the keys" })).toBeTruthy();
+    expect(screen.getByRole("article", { name: "Allow Bash?" })).toBeTruthy();
   });
 
   it("opens the card a person chooses, and keeps the others' drafts", async () => {
     show();
     await userEvent.click(await cardNamed(/questions/));
+    const [unfold] = screen.getAllByRole("button", { name: "Choose another" });
+    if (unfold) {
+      await userEvent.click(unfold);
+    }
     const somethingElse = screen.getAllByRole("radio", { name: "Something else" })[0];
     if (!somethingElse) {
       throw new Error("no such choice");
@@ -108,11 +133,11 @@ describe("the queue", () => {
 
   it("states how long each thing has waited, for eyes and for a screen reader", async () => {
     const view = goldenNeedsYou();
-    show(view);
     const first = view.items[0];
     if (!first) {
       throw new Error("empty view");
     }
+    show(view, undefined, (item) => item === first);
     const waited = view.as_of - first.since;
     const article = screen.getAllByRole("article")[0];
     if (!article) {
@@ -128,18 +153,47 @@ describe("the queue", () => {
     expect(screen.queryByRole("list")).toBeNull();
   });
 
-  it("keeps an answered item in place, marked resolved, with focus on its resolution", async () => {
+  it("keeps an item resolved elsewhere in place, marked resolved, with focus on its resolution", async () => {
     const view = goldenNeedsYou();
-    const { rerender } = show(view);
+    const { rerender } = show(view, undefined, (item) => item.id === "wo-lapsed");
     rerender(
       <CurrentProject.Provider value={testProject}>
-        <NeedsYou view={{ ...view, items: view.items.slice(1) }} readAt={Date.now()} after={async () => {}} />
+        <NeedsYou view={{ ...view, items: view.items.filter((item) => item.id !== "wo-lapsed") }} readAt={Date.now()} after={async () => {}} />
       </CurrentProject.Provider>,
     );
     await waitFor(() => expect(document.activeElement?.textContent).toContain("no longer waits"));
-    const first = within(screen.getByRole("list", { name: "Waiting items" })).getAllByRole("link")[0];
-    expect(first?.textContent).toContain("Rotate the keys");
-    expect(first?.textContent).toContain("Resolved elsewhere");
+    expect(document.activeElement?.textContent).toContain("Press J for the next item.");
+    const row = screen.getAllByRole("link").find((link) => link.textContent?.includes("Rotate the keys"));
+    expect(row?.textContent).toContain("Resolved elsewhere");
+    expect(titlesOf()[2]).toBe("Rotate the keys (resolved)");
+  });
+
+  it("drops an item resolved elsewhere once the person moves on", async () => {
+    const view = goldenNeedsYou();
+    const { rerender } = show(view, undefined, (item) => item.id === "wo-lapsed");
+    rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.filter((item) => item.id !== "wo-lapsed") }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    await screen.findByText(/no longer waits/);
+    await cardNamed(/Move the archive/);
+    expect(titlesOf()).not.toContain("Rotate the keys");
+  });
+
+  it("never points to a next item when none waits, and says what happens next instead", async () => {
+    const view = goldenNeedsYou();
+    const only = view.items.filter((item) => item.kind === "approval");
+    const { rerender } = show({ ...view, items: only }, undefined, "approval");
+    rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: [] }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    const note = await screen.findByText(/no longer waits/);
+    expect(note.textContent).toContain("Nothing else waits.");
+    expect(note.textContent).not.toContain("Press J");
+    expect(screen.getByRole("link", { name: "Watch it on Floor" }).getAttribute("href")).toContain("/floor");
   });
 
   it("leaves a page that just opened at its start, so the skip link comes first", async () => {
@@ -165,6 +219,226 @@ describe("the queue", () => {
     for (const article of screen.getAllByRole("article")) {
       expect(article.getAttribute("aria-labelledby")).toBeTruthy();
     }
+  });
+});
+
+describe("the flow from one decision to the next", () => {
+  type Request = Extract<NeedItem, { kind: "approval" }>;
+  // request is a call a lane asks to run, made from the golden's, under its own ID, lane, subject, and digest.
+  const request = (base: Request, id: string, lane: string, subject: string, since: number): Request => ({
+    ...structuredClone(base),
+    id,
+    since,
+    approval: { ...structuredClone(base.approval), id, lane_id: lane, subject, subject_digest: `digest-${id}` },
+  });
+  const requests = (lanes: [string, string][]) => {
+    const view = goldenNeedsYou();
+    const base = itemOf(view, "approval");
+    const items = lanes.map(([lane, subject], index) => request(base, `approval-${index + 1}`, lane, subject, base.since + index * 1000));
+    return { view: { ...view, items }, items };
+  };
+  const posts = (sent: ReturnType<typeof serveApi>) => sent.filter((call) => call.method === "POST");
+  const page = (view: View, after: () => Promise<void> = async () => {}) => (
+    <CurrentProject.Provider value={testProject}>
+      <NeedsYou view={view} readAt={Date.now()} after={after} />
+    </CurrentProject.Provider>
+  );
+
+  it("opens the next item after a decision, with focus on its primary button, and says what happened and what is next", async () => {
+    const { view, items } = requests([
+      ["lane-a", "Bash"],
+      ["lane-b", "Read"],
+    ]);
+    serveApi(() => ({ status: 200 }));
+    let rerender: (ui: ReactElement) => void = () => {};
+    ({ rerender } = show(view, async () => rerender(page({ ...view, items: items.slice(1) })), "approval"));
+    await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+    await waitFor(() => expect(document.activeElement?.closest("[data-card]")?.getAttribute("data-card")).toBe("approval:approval-2"));
+    expect(document.activeElement?.textContent).toBe("Allow this one call");
+    expect(document.querySelector("[data-said]")?.textContent).toBe("Approved: Allow Bash. Next: Allow Read?");
+    expect(document.querySelector("[data-said]")?.getAttribute("aria-live")).toBe("polite");
+    expect(titlesOf()).toEqual(["Allow Read?"]);
+  });
+
+  it("never decides the next item with a press that lands as the page moves, or with a key held down", async () => {
+    const { view, items } = requests([
+      ["lane-a", "Bash"],
+      ["lane-b", "Read"],
+    ]);
+    const sent = serveApi(() => ({ status: 200 }));
+    let clock = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
+    let rerender: (ui: ReactElement) => void = () => {};
+    ({ rerender } = show(view, async () => rerender(page({ ...view, items: items.slice(1) })), "approval"));
+    await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+    await waitFor(() => expect(document.activeElement?.closest("[data-card]")?.getAttribute("data-card")).toBe("approval:approval-2"));
+    const next = document.activeElement as HTMLElement;
+    await userEvent.click(next);
+    expect(posts(sent)).toHaveLength(1);
+    clock += 400;
+    next.focus();
+    await userEvent.keyboard("{Enter>3/}");
+    await waitFor(() => expect(posts(sent)).toHaveLength(2));
+    expect(posts(sent)[1]?.body).toMatchObject({ digest: "digest-approval-2", allow: true });
+  });
+
+  it("moves to the next item and leaves focus where a person types outside the page", async () => {
+    const { view, items } = requests([
+      ["lane-a", "Bash"],
+      ["lane-b", "Read"],
+    ]);
+    serveApi(() => ({ status: 200 }));
+    const elsewhere = document.body.appendChild(document.createElement("textarea"));
+    try {
+      let rerender: (ui: ReactElement) => void = () => {};
+      ({ rerender } = show(
+        view,
+        async () => {
+          elsewhere.focus();
+          rerender(page({ ...view, items: items.slice(1) }));
+        },
+        "approval",
+      ));
+      await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+      await waitFor(() => expect(document.querySelector("[data-said]")?.textContent).toBe("Approved: Allow Bash. Next: Allow Read?"));
+      await new Promise((settle) => requestAnimationFrame(settle));
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
+  it("says nothing else needs you once the last item is decided, and links what happens next", async () => {
+    const { view } = requests([["lane-a", "Bash"]]);
+    serveApi(() => ({ status: 200 }));
+    let rerender: (ui: ReactElement) => void = () => {};
+    ({ rerender } = show(view, async () => rerender(page({ ...view, items: [] })), "approval"));
+    await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+    await waitFor(() => expect(document.activeElement?.textContent).toContain("Nothing else needs you"));
+    expect(document.activeElement?.textContent).toContain("Lane lane-a goes on.");
+    expect(document.activeElement?.textContent).not.toContain("Press J");
+    expect(screen.getByRole("link", { name: "Watch it on Floor" }).getAttribute("href")).toContain("/floor");
+  });
+
+  it("leaves a decided item in place when a person turned advancing off", async () => {
+    localStorage.setItem("ropeshift-advance", "off");
+    const { view, items } = requests([
+      ["lane-a", "Bash"],
+      ["lane-b", "Read"],
+    ]);
+    serveApi(() => ({ status: 200 }));
+    let rerender: (ui: ReactElement) => void = () => {};
+    ({ rerender } = show(view, async () => rerender(page({ ...view, items: items.slice(1) })), "approval"));
+    expect((screen.getByRole("checkbox", { name: "Advance after each decision" }) as HTMLInputElement).checked).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+    const note = await screen.findByText(/no longer waits/);
+    expect(note.textContent).toContain("you decided it");
+    expect(note.textContent).toContain("Press J for the next item.");
+  });
+
+  it("groups a lane's requests under the lane, and approves them all, each bound to its own digest", async () => {
+    const { view } = requests([
+      ["L-88", "npm install"],
+      ["L-90", "Read"],
+      ["L-88", "npx vitest run"],
+      ["L-88", "curl localhost"],
+    ]);
+    const sent = serveApi((call) => (call.path === "/v1/approvals/approval-3/decide" ? refusal(409, "digest_mismatch", "the call changed since it was read") : { status: 200 }));
+    const after = vi.fn(async () => {});
+    show(view, after);
+    const group = screen.getByRole("list", { name: "Lane L-88" });
+    expect(within(group).getAllByRole("link").map((link) => link.querySelector(".item-title")?.textContent)).toEqual(["Allow npm install?", "Allow npx vitest run?", "Allow curl localhost?"]);
+    expect(titlesOf()).toEqual(["Allow npm install?", "Allow npx vitest run?", "Allow curl localhost?", "Allow Read?"]);
+    await userEvent.click(screen.getByRole("button", { name: "Approve all 3" }));
+    await waitFor(() => expect(posts(sent)).toHaveLength(3));
+    expect(posts(sent).map((call) => [call.path, (call.body as { digest: string }).digest])).toEqual([
+      ["/v1/approvals/approval-1/decide", "digest-approval-1"],
+      ["/v1/approvals/approval-3/decide", "digest-approval-3"],
+      ["/v1/approvals/approval-4/decide", "digest-approval-4"],
+    ]);
+    expect((await screen.findByText(/One request was skipped/)).textContent).toContain("npx vitest run: the call changed since it was read");
+    expect(after).toHaveBeenCalled();
+  });
+
+  it("leaves a gate out of Approve all, and says how many wait to be reviewed one by one", async () => {
+    const { view, items } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "git push origin feature"],
+      ["L-88", "npx vitest run"],
+      ["L-88", "git tag v1"],
+    ]);
+    for (const gated of [items[1], items[3]]) {
+      if (gated) {
+        gated.approval.gate = true;
+      }
+    }
+    const sent = serveApi(() => ({ status: 200 }));
+    show(view);
+    expect(screen.getByText(/2 gates wait to be reviewed one by one/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Approve all 2" }));
+    await waitFor(() => expect(posts(sent)).toHaveLength(2));
+    expect(posts(sent).map((call) => call.path)).toEqual(["/v1/approvals/approval-1/decide", "/v1/approvals/approval-3/decide"]);
+  });
+
+  it("offers no Approve all when what the lane asks is gates and one other request", async () => {
+    const { view, items } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "git push origin feature"],
+    ]);
+    const push = items[1];
+    if (push) {
+      push.approval.gate = true;
+    }
+    show(view);
+    expect(screen.getByRole("list", { name: "Lane L-88" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Approve all/ })).toBeNull();
+    expect(screen.getByText(/1 gate waits to be reviewed one by one/)).toBeTruthy();
+  });
+
+  it("lists each gate Approve all leaves out by what it asks, above Approve all", async () => {
+    const { view, items } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "git push origin feature"],
+      ["L-88", "npx vitest run"],
+      ["L-88", "git tag v1"],
+    ]);
+    for (const gated of [items[1], items[3]]) {
+      if (gated) {
+        gated.approval.gate = true;
+      }
+    }
+    show(view);
+    const gates = screen.getByRole("list", { name: /^2 gates wait to be reviewed one by one/ });
+    expect(within(gates).getAllByRole("listitem").map((row) => row.textContent)).toEqual(["Allow git push origin feature?", "Allow git tag v1?"]);
+    const approveAll = screen.getByRole("button", { name: "Approve all 2" });
+    expect(gates.compareDocumentPosition(approveAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("says on a gate's card that it is approved one call at a time", async () => {
+    const { view, items } = requests([["L-88", "git push origin feature"]]);
+    const push = items[0];
+    if (push) {
+      push.approval.gate = true;
+    }
+    show(view, undefined, "approval");
+    expect(within(screen.getByRole("article")).getByText(/^Gate:/).textContent).toBe(
+      "Gate: the lane's profile gates this call, or it is a push, so it asks in every mode and is approved one call at a time, never with Approve all.",
+    );
+  });
+
+  it("keeps grouping off in the address once a person turns it off", async () => {
+    const { view } = requests([
+      ["L-88", "npm install"],
+      ["L-88", "npx vitest run"],
+    ]);
+    show(view);
+    await userEvent.click(screen.getByRole("checkbox", { name: "Group by lane" }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("group")).toBe("off"));
+    expect(screen.queryByRole("list", { name: "Lane L-88" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Approve all/ })).toBeNull();
   });
 });
 
@@ -256,6 +530,14 @@ const decided = (call: { body?: unknown }) => ({
 });
 
 describe("a batch of questions", () => {
+  // unfold shows a question's answers, which its card keeps behind Choose another while it leads with the
+  // recommendation.
+  const unfold = async (group: HTMLElement) => {
+    const choose = within(group).queryByRole("button", { name: "Choose another" });
+    if (choose && choose.getAttribute("aria-expanded") !== "true") {
+      await userEvent.click(choose);
+    }
+  };
   // A batch that needs only agreement: both of the golden's questions have answers that can be taken back, which
   // the tests of the send read, and the one-way item the golden holds is the subject of the tests below them.
   const batchView = () => {
@@ -272,7 +554,7 @@ describe("a batch of questions", () => {
     const sent = serveApi(() => ({ status: 201 }));
     const after = vi.fn(async () => {});
     show(view, after, "questions");
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: `/v1/batches/${item.batch.batch.id}/answers` });
     expect((sent[0]?.body as Posted).answers).toEqual(item.batch.items.map((question) => ({ question: question.id, id: `answer-${question.id}`, accepted: true, expect_reversibility: "reversible" })));
@@ -288,7 +570,7 @@ describe("a batch of questions", () => {
     const sent = serveApi(() => ({ status: 201 }));
     const after = vi.fn(() => held);
     show(view, after, "questions");
-    const button = screen.getByRole("button", { name: "Send 2 answers" });
+    const button = screen.getByRole("button", { name: "Agree with 2 recommendations" });
     await userEvent.dblClick(button);
     await userEvent.click(button);
     await waitFor(() => expect(sent).toHaveLength(1));
@@ -304,19 +586,20 @@ describe("a batch of questions", () => {
       return calls === 1 ? refusal(503, "unavailable", "The store is busy.") : { status: 201 };
     });
     show(view, undefined, "questions");
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
     expect(await screen.findByRole("alert")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
     await waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(2));
     expect((sent[0]?.body as Posted).answers.map((answer) => answer.id)).toEqual((sent[1]?.body as Posted).answers.map((answer) => answer.id));
   });
 
   it("says a batch the person answered here was answered, by whom, and with what, once it no longer waits", async () => {
+    localStorage.setItem("ropeshift-advance", "off");
     const { view, item } = batchView();
     serveApi((call) => (call.method === "POST" ? decided(call) : undefined));
     const after = vi.fn(async () => {});
     const { rerender } = show(view, after, "questions");
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
     await waitFor(() => expect(after).toHaveBeenCalledOnce());
     rerender(
       <CurrentProject.Provider value={testProject}>
@@ -340,12 +623,13 @@ describe("a batch of questions", () => {
     for (const question of item.batch.items) {
       question.text = text;
     }
+    localStorage.setItem("ropeshift-advance", "off");
     const keys = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       serveApi((call) => (call.method === "POST" ? decided(call) : undefined));
       const after = vi.fn(async () => {});
       const { rerender } = show(view, after, "questions");
-      await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+      await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
       await waitFor(() => expect(after).toHaveBeenCalledOnce());
       rerender(
         <CurrentProject.Provider value={testProject}>
@@ -377,7 +661,7 @@ describe("a batch of questions", () => {
     const after = vi.fn(async () => {});
     const sent = serveApi(() => refusal(409, "resolved", "answer 2, for question question-2: this question already has its answer"));
     show(view, after, "questions");
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
     expect((await screen.findByRole("alert")).textContent).toContain("answer 2, for question question-2");
     expect(sent).toHaveLength(1);
     expect(after).toHaveBeenCalled();
@@ -392,9 +676,10 @@ describe("a batch of questions", () => {
       throw new Error("empty batch");
     }
     const group = screen.getByRole("group", { name: first.text });
+    await unfold(group);
     await userEvent.click(within(group).getByRole("radio", { name: "Something else" }));
     await userEvent.type(within(group).getByRole("textbox", { name: "Your answer" }), "Hold it for a day.");
-    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
     await userEvent.type(within(group).getByRole("textbox", { name: "Why" }), "A day covers the longest outage.");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
     await waitFor(() => expect(sent).toHaveLength(1));
@@ -412,29 +697,35 @@ describe("a batch of questions", () => {
     const sent = serveApi(() => ({ status: 201 }));
     show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
+    await unfold(group);
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
     }
-    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
-    await userEvent.click(screen.getByRole("button", { name: "Send 1 of 2 answers" }));
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is recorded on its own once you confirm it.");
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 1 recommendation" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect((sent[0]?.body as Posted).answers.map((answer) => answer.question)).not.toContain(first.id);
   });
 
   // The golden's batch holds a question whose category the decision policy keeps from an orchestrator, so its
   // answer is one-way though its reason says nothing of it.
-  it("holds the golden's one-way question back until a person chooses it", async () => {
+  it("holds the golden's one-way question back from the card's send, and records it through its confirm once chosen", async () => {
     const view = goldenNeedsYou();
     const { batch } = itemOf(view, "questions");
     const oneWay = batch.items.find((question) => question.reversibility === "one_way");
     expect(oneWay?.escalation_reason).not.toBe("one_way");
     const sent = serveApi(() => ({ status: 201 }));
     show(view, undefined, "questions");
-    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
-    await userEvent.click(within(screen.getByRole("group", { name: oneWay?.text })).getByRole("radio", { name: /^Keep the budget/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
+    const group = screen.getByRole("group", { name: oneWay?.text });
+    await unfold(group);
+    await userEvent.click(within(group).getByRole("radio", { name: /^Keep the budget/ }));
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
+    await userEvent.click(within(group).getByRole("button", { name: "Agree with recommendation" }));
+    expect(sent).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Record one-way decision" }));
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect((sent[0]?.body as Posted).answers.find((answer) => answer.question === oneWay?.id)).toMatchObject({ accepted: true });
+    expect((sent[0]?.body as Posted).answers).toEqual([expect.objectContaining({ question: oneWay?.id, accepted: true, expect_reversibility: "one_way" })]);
   });
 
   // A send counts what it sends, so each question it counts must show what it will send.
@@ -451,7 +742,7 @@ describe("a batch of questions", () => {
     ["a recommendation that is no option", { recommendation: "Keep the budget, capped at three" }],
     ["a recommendation with no options at all", { recommendation: "Keep the budget", options: [] }],
     ["no recommendation", { recommendation: undefined }],
-  ])("counts only what a person sees chosen, given %s", (_name, change: Partial<QuestionItem>) => {
+  ])("counts only what a person sees chosen, given %s", async (_name, change: Partial<QuestionItem>) => {
     const { view, item } = batchView();
     const first = item.batch.items[0];
     if (!first) {
@@ -459,11 +750,12 @@ describe("a batch of questions", () => {
     }
     Object.assign(first, change);
     show(view, undefined, "questions");
+    for (const question of item.batch.items) {
+      await unfold(screen.getByRole("group", { name: question.text }));
+    }
     const counted = item.batch.items.filter((question) => countedAsShown(screen.getByRole("group", { name: question.text }), question)).length;
-    const button = screen.getByRole("button", { name: /^Send \d.* answers$/ });
-    const count = item.batch.items.length;
-    const want = counted === count ? `Send ${count} answers` : `Send ${counted} of ${count} answers`;
-    expect(button.textContent).toBe(want);
+    const button = screen.getByRole("button", { name: /^Agree with \d+ recommendations?$/ });
+    expect(button.textContent).toBe(counted === 1 ? "Agree with 1 recommendation" : `Agree with ${counted} recommendations`);
   });
 
   it("shows a recommendation that is no option as chosen, in the box for a person's own words", async () => {
@@ -476,11 +768,12 @@ describe("a batch of questions", () => {
     const sent = serveApi(() => ({ status: 201 }));
     show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
+    await unfold(group);
     const own = within(group).getByRole("radio", { name: /^Something else/ }) as HTMLInputElement;
     expect(own.checked).toBe(true);
     expect(own.closest("label")?.textContent).toContain("Recommended");
     expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
-    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agree with 2 recommendations" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect((sent[0]?.body as Posted).answers[0]).toMatchObject({ question: first.id, accepted: true });
   });
@@ -495,13 +788,15 @@ describe("a batch of questions", () => {
     first.recommendation = "Keep the budget, capped at three";
     show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
+    await unfold(group);
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
     }
-    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
     await userEvent.click(within(group).getByRole("radio", { name: /^Something else/ }));
     expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
-    expect(screen.getByRole("button", { name: "Send 2 answers" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agree with 1 recommendation" })).toBeTruthy();
+    expect(within(group).getByRole("button", { name: "Agree with recommendation" })).toBeTruthy();
   });
 
   it("says one answer in the singular", async () => {
@@ -510,10 +805,26 @@ describe("a batch of questions", () => {
     if (!first) {
       throw new Error("empty batch");
     }
-    first.reversibility = "one_way";
+    first.reversibility = "reversible";
+    first.escalation_reason = undefined;
+    first.recommendation = undefined;
     item.batch.items = [first];
     show(view, undefined, "questions");
     expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();
+  });
+
+  it("offers a one-way question alone with no recommendation nothing to agree with, and its own send once it is chosen", async () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.reversibility = "one_way";
+    first.recommendation = undefined;
+    item.batch.items = [first];
+    show(view, undefined, "questions");
+    expect(screen.queryByRole("button", { name: "Agree with recommendation" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Send this answer" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("marks what is recommended and what blocks work", async () => {
@@ -1404,6 +1715,7 @@ describe("a plan approval", () => {
   });
 
   it("shows what approving registered of each manifest entry, once the item no longer waits", async () => {
+    localStorage.setItem("ropeshift-advance", "off");
     const { view, need, planId, plan } = withManifest(preview);
     const sent = serveApi((call) => {
       if (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`)) {
@@ -1711,8 +2023,10 @@ describe("the combined view", () => {
 });
 
 // A request a person decides from this page says so once it no longer waits, as questions they answered do, and a
-// request settled somewhere else says it was settled in another place.
+// request settled somewhere else says it was settled in another place. The page moves to the next item after a
+// decision unless a person turned that off, which these tests do, so the request stays to say how it ended.
 describe("a request decided from this page", () => {
+  beforeEach(() => localStorage.setItem("ropeshift-advance", "off"));
   type Kind = { name: string; view: () => View; pick: Pick; approve: string; decline: string; reasoned: boolean };
   const recovery = (): View => {
     const view = goldenNeedsYou();

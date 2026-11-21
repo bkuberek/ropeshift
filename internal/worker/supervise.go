@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -51,6 +52,10 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 	r.handleLock.Lock()
 	if r.settings.Driver == "" {
 		r.settings = laneSettings(profile, r.role(), r.startedMode)
+	}
+	// An adopted lane's requests are read against its gates as a lane this worker started is.
+	if r.gates == nil {
+		r.gates = slices.Clone(profile.Agent.Gates)
 	}
 	r.handleLock.Unlock()
 }

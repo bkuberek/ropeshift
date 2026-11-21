@@ -6,6 +6,7 @@
       "kind": "conflict",
       "id": "wo-1",
       "since": 1794000000000,
+      "tier": 2,
       "conflict": {
         "work_order": "wo-1",
         "title": "Retry within a budget",

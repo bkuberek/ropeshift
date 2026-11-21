@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -165,11 +166,30 @@ func questionBatches(tx ports.ReadTx, presented []questions.Presented) ([]api.Qu
 		items := make([]api.QuestionItem, 0, len(batch.Items))
 		for _, item := range batch.Items {
 			item.Overlaps = overlaps[item.Scope]
-			items = append(items, api.QuestionItem{Item: item, ScopeTitle: titles[item.Scope]})
+			lane, err := askingLane(tx, item.AskedBy)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, api.QuestionItem{Item: item, ScopeTitle: titles[item.Scope], Lane: lane})
 		}
 		out = append(out, api.QuestionBatch{Batch: batch.Batch, Items: items})
 	}
 	return out, nil
+}
+
+// askingLane is the lane that asked a question, or empty when whoever asked is no lane the ledger holds, such as a
+// member.
+func askingLane(tx ports.ReadTx, askedBy string) (string, error) {
+	if askedBy == "" {
+		return "", nil
+	}
+	if _, err := tx.Lanes().Row(askedBy); err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return askedBy, nil
 }
 
 func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {

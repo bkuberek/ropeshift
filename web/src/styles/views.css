@@ -389,6 +389,92 @@ p + .kv {
   margin-bottom: var(--s-8);
 }
 
+/* A question's card leads with what the asker recommends. */
+.reco {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--ink);
+  border-radius: var(--r-6);
+  padding: var(--s-8) var(--s-12);
+  margin-bottom: var(--s-8);
+}
+
+.reco-line {
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+}
+
+.reco-line .reco-tag {
+  margin: 0 var(--s-4) 0 0;
+}
+
+.question-actions {
+  margin: var(--s-8) 0;
+}
+
+/* A one-way answer is confirmed in place, naming what it does. */
+.confirm {
+  border: 1px solid var(--warning);
+  border-radius: var(--r-6);
+  padding: var(--s-8) var(--s-12);
+  margin: var(--s-8) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+/* Needs you: a tier says why its items come first, and a lane's items stand together under the lane. */
+.tier-head {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--s-8) var(--s-16) var(--s-4) var(--s-12);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.lane-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-8) var(--s-16) var(--s-8) var(--s-12);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-12);
+}
+
+.lane-group-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-8);
+}
+
+.lane-group-gates {
+  margin: 0;
+  padding-left: var(--s-16);
+}
+
+.lane-group > ol {
+  padding: 0;
+  margin: 0;
+}
+
+.lane-group > ol .item {
+  padding-left: var(--s-24);
+}
+
+.needs-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-8) var(--s-12);
+  align-items: center;
+  font-size: var(--fs-12);
+}
+
+.needs-done:focus {
+  outline: none;
+}
+
 .question .option {
   margin-top: var(--s-6);
 }

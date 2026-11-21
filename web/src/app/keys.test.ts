@@ -69,8 +69,17 @@ describe("the keyboard", () => {
     ["j", "next"],
     ["k", "previous"],
     ["a", "primary"],
+    ["c", "choose"],
+    ["d", "discuss"],
   ])("%s is %s", (key, type) => {
     expect(readKey(press(key), idle, on).action).toEqual({ type });
+  });
+
+  // C and D open what a question's card offers besides agreeing, which decides nothing.
+  it("names C and D on the shortcut sheet, beside A", () => {
+    const rows = shortcutList(false).flatMap((group) => group.rows);
+    expect(rows.find((row) => row.keys.join(" ") === "C")?.does).toBe("Show a question's other answers, from Choose another");
+    expect(rows.find((row) => row.keys.join(" ") === "D")?.does).toBe("Discuss a question with the session that asked it");
   });
 
   it("decides nothing with one key: A only moves focus", () => {
@@ -79,7 +88,7 @@ describe("the keyboard", () => {
   });
 
   it("takes no single key while a person types in a field", () => {
-    for (const key of ["/", "?", "g", "p", ".", "t", "j", "k", "a"]) {
+    for (const key of ["/", "?", "g", "p", ".", "t", "j", "k", "a", "c", "d"]) {
       expect(readKey(press(key, { inField: true }), idle, on).action, key).toBeNull();
     }
   });

@@ -89,7 +89,8 @@
           "state": "parked",
           "title": "Add the retry budget"
         }
-      }
+      },
+      "tier": 2
     }
   ],
   "revision": 20

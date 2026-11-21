@@ -235,7 +235,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.goto(`${base}/import`);
         await ready(page);
         await page.getByLabel("Folders", { exact: true }).fill("/work/ws");
-        await page.waitForFunction(() => document.querySelector("select")?.value === "worker-1");
+        await page.waitForFunction(() => [...document.querySelectorAll("select")].some((select) => select.value === "worker-1"));
         await page.getByRole("button", { name: "Run dry run" }).click();
         await page.getByRole("region", { name: "Clones found" }).waitFor();
         await check("import dry run");
@@ -272,7 +272,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.goto(`${base}/import`);
         await ready(page);
         await page.getByLabel("Folders", { exact: true }).fill("/work/ws");
-        await page.waitForFunction(() => document.querySelector("select")?.value === "worker-1");
+        await page.waitForFunction(() => [...document.querySelectorAll("select")].some((select) => select.value === "worker-1"));
         await page.getByRole("button", { name: "Run dry run" }).click();
         await page.getByRole("region", { name: "Practices found" }).waitFor();
         await check("import dry run practices closed");
@@ -967,6 +967,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByRole("button", { name: "Accept all", exact: true }).click();
         await settle();
         found.push(...(await audit(page)).map((violation) => `batch after Accept all ${violation}`));
+        await group.getByRole("button", { name: "Choose another" }).click();
         await group.getByRole("radio", { name: "Drop it" }).check();
         await group.getByRole("textbox", { name: "Why" }).waitFor();
         await settle();

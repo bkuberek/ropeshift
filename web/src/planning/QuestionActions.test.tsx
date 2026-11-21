@@ -82,8 +82,8 @@ describe("Assume on an open question", () => {
   });
 });
 
-// Decide now takes a question still on the ladder into the member's Needs you, and opens its card there with the
-// primary button focused. It answers nothing itself.
+// Decide now takes a question to its card in Needs you with the primary button focused, and decides nothing itself. A
+// question still on the ladder is moved there first, by a button; one that already reached a person is linked to.
 describe("Decide now", () => {
   it("takes a question off the ladder and opens its card in Needs you", async () => {
     const sent = serveApi((call) =>
@@ -96,10 +96,25 @@ describe("Decide now", () => {
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toContain("/needs-you?item=questions%3Abatch-9&focus=primary"));
   });
 
-  it("is not offered once the question waits for a person", () => {
+  it("is not a button once the question waits for a person", () => {
     serveApi(() => undefined);
     const question = { ...questionOf("question-1"), status: "needs_human", batch_id: "batch-9" };
     shown(question, [question]);
     expect(screen.queryByRole("button", { name: /^Decide now/ })).toBeNull();
+  });
+
+  it("opens the question's card in Needs you once it reached a person", () => {
+    serveApi(() => undefined);
+    const question = { ...questionOf("question-1"), status: "needs_human", batch_id: "batch-9" };
+    shown(question, [question]);
+    const link = screen.getByRole("link", { name: `Decide now: ${question.text}` });
+    expect(link.getAttribute("href")).toContain("/needs-you?item=questions%3Abatch-9&focus=primary");
+  });
+
+  it("is not a link while the question is still on the ladder", () => {
+    serveApi(() => undefined);
+    const question = { ...questionOf("question-1"), status: "open", batch_id: undefined };
+    shown(question, [question]);
+    expect(screen.queryByRole("link", { name: /^Decide now/ })).toBeNull();
   });
 });

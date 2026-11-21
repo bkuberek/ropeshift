@@ -73,7 +73,8 @@ describe("the command palette", () => {
     openPage(first?.at ?? "/needs-you");
     await screen.findByRole("heading", { level: 1 });
     await userEvent.keyboard("{Control>}k{/Control}");
-    const field = await screen.findByRole("combobox");
+    // Needs you has an Order select of its own, which is a combobox too.
+    const field = await screen.findByRole("combobox", { name: "Search views, records, and actions" });
     for (const action of actions) {
       await userEvent.clear(field);
       await userEvent.type(field, action.query ?? ">");

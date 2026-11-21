@@ -144,12 +144,15 @@ describe("markup in an address", () => {
     expect(screen.getByRole("main").textContent).toContain(hostile);
   });
 
+  // The sidebar counts every open question with a read of its own that carries no query, so the page's read is the
+  // one that names the category.
   it("reaches the server only as a query value", async () => {
     const sent = serveViews();
     openPage(`/questions?category=${encoded}&x=${encoded}`);
-    await waitFor(() => expect(sent.some((call) => call.path.startsWith("/v1/views/questions"))).toBe(true));
-    const read = sent.find((call) => call.path.startsWith("/v1/views/questions"));
-    expect(read?.path).toBe(`/v1/views/questions?category=${new URLSearchParams({ category: hostile }).toString().slice("category=".length)}`);
+    const page = `/v1/views/questions?category=${new URLSearchParams({ category: hostile }).toString().slice("category=".length)}`;
+    const reads = () => sent.filter((call) => call.path.startsWith("/v1/views/questions")).map((call) => call.path);
+    await waitFor(() => expect(reads()).toContain(page));
+    expect(new Set(reads())).toEqual(new Set(["/v1/views/questions", page]));
   });
 
   it("names no document path anywhere but the query", async () => {
