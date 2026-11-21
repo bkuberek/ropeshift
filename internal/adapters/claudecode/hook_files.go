@@ -19,7 +19,8 @@ import (
 
 // A hook the repository holds runs as the repository wrote it, and a file it runs is one the lane can edit: a hook whose
 // command is `./scripts/check.sh` runs whatever the lane wrote there. So the hold reads each hook a session would run
-// from its worktree, in its settings files and in the frontmatter of its pieces, takes each word of its command that
+// from its worktree, in its settings files and in the frontmatter of its pieces, and the status line and the file
+// suggestion command of its settings files, which run a command as a hook does, takes each word of its command that
 // names a file inside the worktree, and holds the lane when that file differs from the repository's at the lane's base
 // (atSettingsBase), as a change to the hook itself would. A command hook runs "in the current directory", the session's
 // working directory, which for a lane is its worktree, and `${CLAUDE_PROJECT_DIR}` is "the project root where the
@@ -31,18 +32,38 @@ import (
 // [hooks]: https://code.claude.com/docs/en/hooks
 const projectDirVariable = "CLAUDE_PROJECT_DIR"
 
-// ranHooks is the `hooks` value of one file a session reads, by that file's slash-separated path in the worktree.
-type ranHooks struct {
-	from  string
-	value json.RawMessage
+// The settings keys besides `hooks` whose value runs a command as a hook does: the status line, which a pane runs after
+// ropeshift's own, and the file suggestion command ([settings reference]).
+//
+// [settings reference]: https://code.claude.com/docs/en/settings-reference
+const (
+	keyStatusLine     = "statusLine"
+	keyFileSuggestion = "fileSuggestion"
+)
+
+// commandKeys say what each key that runs a command is called in a hold's summary.
+var commandKeys = map[string]string{keyHooks: "a hook", keyStatusLine: "the status line", keyFileSuggestion: "the file suggestion command"}
+
+// ranCommand is the words of the commands one key of one file a session reads runs, by that file's slash-separated
+// path in the worktree.
+type ranCommand struct {
+	from, key string
+	words     []string
 }
 
-// sessionHooks are the hooks a lane's session would run from its worktree: each settings file's, and each piece's.
-func sessionHooks(spec ports.SessionSpec, pieces []pieceFile) []ranHooks {
-	var out []ranHooks
+// sessionCommands are the commands a lane's session would run from its worktree: each settings file's hooks, status
+// line, and file suggestion command, and each piece's hooks.
+func sessionCommands(spec ports.SessionSpec, pieces []pieceFile) []ranCommand {
+	var out []ranCommand
 	for _, file := range settingsFiles(spec) {
-		if value := settingsKeys(worktreeFile(spec, file))[keyHooks]; value != nil {
-			out = append(out, ranHooks{from: file, value: value})
+		keys := settingsKeys(worktreeFile(spec, file))
+		if value := keys[keyHooks]; value != nil {
+			out = append(out, ranCommand{from: file, key: keyHooks, words: hookWords(value)})
+		}
+		for _, key := range []string{keyStatusLine, keyFileSuggestion} {
+			if value := keys[key]; value != nil {
+				out = append(out, ranCommand{from: file, key: key, words: commandWords(value)})
+			}
 		}
 	}
 	for _, piece := range pieces {
@@ -50,8 +71,26 @@ func sessionHooks(spec ports.SessionSpec, pieces []pieceFile) []ranHooks {
 			continue
 		}
 		if value := frontmatterKeys(piece.raw).values[keyHooks]; value != nil {
-			out = append(out, ranHooks{from: piece.path, value: value})
+			out = append(out, ranCommand{from: piece.path, key: keyHooks, words: hookWords(value)})
 		}
+	}
+	return out
+}
+
+// commandWords are the words of the command one setting runs, such as a status line: its `command`, split as a shell
+// splits it, and the words of its `args`.
+func commandWords(value json.RawMessage) []string {
+	var setting struct {
+		Command string          `json:"command"`
+		Args    json.RawMessage `json:"args"`
+	}
+	if json.Unmarshal(value, &setting) != nil {
+		return nil
+	}
+	out := shellWords(setting.Command)
+	var args []string
+	if json.Unmarshal(setting.Args, &args) == nil {
+		out = append(out, args...)
 	}
 	return out
 }
@@ -162,10 +201,12 @@ func wordPaths(spec ports.SessionSpec, word string) []string {
 	return out
 }
 
-// heldHookFile is one file of the worktree that a hook runs and that differs from the repository's at the lane's base:
-// its path, the file whose hook runs it, its content, whole unless it is past the bound, and whether the base holds one.
+// heldHookFile is one file of the worktree that a hook or another command runs and that differs from the repository's
+// at the lane's base: its path, the file and the key whose command runs it, its content, whole unless it is past the
+// bound, and whether the base holds one.
 type heldHookFile struct {
 	path, from string
+	key        string
 	raw        []byte
 	whole      bool
 	based      bool
@@ -173,14 +214,14 @@ type heldHookFile struct {
 	unread bool
 }
 
-// hookFiles are the files of a lane's worktree that a word of a hook's command names, which differ from the
-// repository's at the lane's base (baseSide.fileAt), by path. A path that names no regular file of the worktree, as
-// the CLI would read it through its links, runs nothing of the lane's.
-func hookFiles(spec ports.SessionSpec, base *baseSide, hooks []ranHooks) []heldHookFile {
+// hookFiles are the files of a lane's worktree that a word of a hook's or another setting's command names, which differ
+// from the repository's at the lane's base (baseSide.fileAt), by path. A path that names no regular file of the
+// worktree, as the CLI would read it through its links, runs nothing of the lane's.
+func hookFiles(spec ports.SessionSpec, base *baseSide, commands []ranCommand) []heldHookFile {
 	var out []heldHookFile
 	seen := map[string]bool{}
-	for _, ran := range hooks {
-		for _, word := range hookWords(ran.value) {
+	for _, ran := range commands {
+		for _, word := range ran.words {
 			for _, path := range wordPaths(spec, word) {
 				if seen[path] {
 					continue
@@ -195,7 +236,7 @@ func hookFiles(spec ports.SessionSpec, base *baseSide, hooks []ranHooks) []heldH
 				if err == nil && whole && at.found && bytes.Equal(raw, at.raw) {
 					continue
 				}
-				out = append(out, heldHookFile{path: path, from: ran.from, raw: raw, whole: whole, based: at.found, unread: err != nil})
+				out = append(out, heldHookFile{path: path, from: ran.from, key: ran.key, raw: raw, whole: whole, based: at.found, unread: err != nil})
 			}
 		}
 	}
@@ -203,7 +244,7 @@ func hookFiles(spec ports.SessionSpec, base *baseSide, hooks []ranHooks) []heldH
 	return out
 }
 
-// summary is what the hold says of one file a hook runs.
+// summary is what the hold says of one file a hook or another command runs.
 func (f heldHookFile) summary() string {
 	how := "changed"
 	switch {
@@ -212,7 +253,7 @@ func (f heldHookFile) summary() string {
 	case !f.based:
 		how = "added"
 	}
-	return f.path + ": " + how + ", and a hook in " + f.from + " runs it"
+	return f.path + ": " + how + ", and " + commandKeys[f.key] + " in " + f.from + " runs it"
 }
 
 // bound is what a hold's digest binds of one file a hook runs: its content, and whether it was read whole.
@@ -259,7 +300,7 @@ func (b *baseSide) fileAt(spec ports.SessionSpec, path string) (baseFile, error)
 func restoreHookFiles(spec ports.SessionSpec) error {
 	base := newBaseSide()
 	pieces, _ := worktreePieces(spec, nestedSkillDirs(spec).dirs)
-	for _, held := range hookFiles(spec, base, sessionHooks(spec, pieces)) {
+	for _, held := range hookFiles(spec, base, sessionCommands(spec, pieces)) {
 		path := filepath.Join(spec.Dir, filepath.FromSlash(held.path))
 		if held.unread {
 			return fmt.Errorf("the repository's %s at %s could not be read, so it is not restored", held.path, spec.Base)

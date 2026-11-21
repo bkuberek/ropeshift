@@ -285,7 +285,8 @@ func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 // compareSettings names each key not known to be harmless (safeSettings) that the worktree's settings files hold
 // otherwise than the repository's side, each piece whose frontmatter hooks the lane added or changed, which runs a
 // command as a settings hook does, or whose allowed tools it added or changed, which widen what it may do as a
-// permission rule does, and each file a hook runs that the lane changed (hookFiles).
+// permission rule does, and each file a hook, the status line, or the file suggestion command runs that the lane changed
+// (hookFiles).
 func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
@@ -324,12 +325,12 @@ func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) 
 		change.Summary = append(change.Summary, piece.summary()...)
 		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
 	}
-	for _, held := range hookFiles(spec, base, sessionHooks(spec, pieces)) {
+	for _, held := range hookFiles(spec, base, sessionCommands(spec, pieces)) {
 		if !slices.Contains(change.Files, held.path) {
 			change.Files = append(change.Files, held.path)
 		}
-		if !slices.Contains(change.Keys, keyHooks) {
-			change.Keys = append(change.Keys, keyHooks)
+		if !slices.Contains(change.Keys, held.key) {
+			change.Keys = append(change.Keys, held.key)
 		}
 		change.Summary = append(change.Summary, held.summary())
 		fmt.Fprintf(digest, "%s\x00ran\x00%s\x00", held.path, held.bound())
