@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-// TestTheBuiltInRosterHoldsEveryKindOfWork is FR-AGENT-1: the ten agents of ADR-0025, each valid,
+// TestTheBuiltInRosterHoldsEveryKindOfWork is FR-AGENT-1: the eleven agents of ADR-0025, each valid,
 // each denying delegate, and each purpose naming the neighbor to choose instead.
 func TestTheBuiltInRosterHoldsEveryKindOfWork(t *testing.T) {
-	want := []string{"lookup", "explore", "analysis", "reasoning", "mechanical", "light-implementation", "implementation", "heavy-implementation", "deep-implementation", "review"}
+	want := []string{"lookup", "explore", "analysis", "consultant", "reasoning", "mechanical", "light-implementation", "implementation", "heavy-implementation", "deep-implementation", "review"}
 	resolved := Resolve(Layer{}, Layer{})
 	if got := resolved.Names(); !slices.Equal(got, want) {
 		t.Fatalf("names %q", got)
 	}
-	perUse := map[string]bool{"reasoning": true, "deep-implementation": true}
+	perUse := map[string]bool{"consultant": true, "reasoning": true, "deep-implementation": true}
 	for _, agent := range resolved.Agents {
 		if err := agent.Validate(); err != nil {
 			t.Errorf("%s: %v", agent.Name, err)
@@ -276,35 +276,38 @@ func mustApply(t *testing.T, layer Layer, below Resolved, change Change) Layer {
 	return out
 }
 
-// TestAConsultationRunsTheStrongestReadOnlyAgentOrTheOneNamed is FR-ORCH-9: with no agent named, a consultation runs
-// the enabled read-only agent of the highest tier, the first of its tier in roster order. A named agent must be known,
-// enabled, read-only, and need no approval per use, and either must be of a class above the orchestrator's.
-func TestAConsultationRunsTheStrongestReadOnlyAgentOrTheOneNamed(t *testing.T) {
+// TestAConsultationRunsTheConsultantOrTheOneNamed is FR-ORCH-9: with no agent named and the built-in roster, a
+// consultation runs the consultant, a read-only frontier agent that asks per use, which a consultation within
+// consultation_limit counts as approved (FR-AGENT-11). A named agent must be known, enabled, and read-only, and either
+// must be of a class above the orchestrator's, whose default is standard.
+func TestAConsultationRunsTheConsultantOrTheOneNamed(t *testing.T) {
 	resolved := Resolve(Layer{}, Layer{})
-	if got, err := resolved.ConsultAgent("", ClassStandard); err != nil || got.Name != "analysis" {
-		t.Errorf("with none named: %q, %v", got.Name, err)
+	got, err := resolved.ConsultAgent("", ClassStandard)
+	if err != nil || got.Name != ConsultantAgent || got.Access != AccessReadOnly || got.Approval != ApprovalPerUse || got.Class != ClassFrontier {
+		t.Errorf("with none named: %+v, %v", got.Agent, err)
 	}
 	if got, err := resolved.ConsultAgent("review", ClassStandard); err != nil || got.Name != "review" {
 		t.Errorf("review named: %q, %v", got.Name, err)
 	}
-	noAnalysis := Resolve(mustApply(t, Layer{}, resolved, Change{Op: OpDisable, Agent: "analysis"}), Layer{})
-	if got, err := noAnalysis.ConsultAgent("", ClassStandard); err != nil || got.Name != "review" {
-		t.Errorf("with analysis disabled: %q, %v", got.Name, err)
+	noConsultant := Resolve(mustApply(t, Layer{}, resolved, Change{Op: OpDisable, Agent: ConsultantAgent}), Layer{})
+	if _, err := noConsultant.ConsultAgent("", ClassStandard); !errors.Is(err, ErrDisabledAgent) {
+		t.Errorf("with the consultant disabled: %v", err)
 	}
 	for _, tt := range []struct {
 		named, above string
 		is           error
 	}{
 		{"implementation", ClassStandard, ErrNotReadOnly},
+		{"reasoning", ClassStandard, ErrNotReadOnly},
 		{"ghost", ClassStandard, ErrUnknownAgent},
 		{"explore", ClassStandard, ErrNotStronger},
-		{"", ClassLarge, ErrNotStronger},
+		{"", ClassFrontier, ErrNotStronger},
 	} {
 		if _, err := resolved.ConsultAgent(tt.named, tt.above); !errors.Is(err, tt.is) {
 			t.Errorf("%q above %s: %v, want %v", tt.named, tt.above, err, tt.is)
 		}
 	}
-	if _, err := noAnalysis.ConsultAgent("analysis", ClassStandard); !errors.Is(err, ErrDisabledAgent) {
+	if _, err := noConsultant.ConsultAgent(ConsultantAgent, ClassStandard); !errors.Is(err, ErrDisabledAgent) {
 		t.Errorf("a disabled agent named: %v", err)
 	}
 }

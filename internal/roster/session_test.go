@@ -32,6 +32,20 @@ func TestEachSessionReceivesTheAgentsItsRulesFit(t *testing.T) {
 	if got := names(off.ForSession(SessionAssistant, native)); !slices.Equal(got, readOnly) {
 		t.Errorf("the assistant got %q", got)
 	}
+	for _, session := range []Session{SessionWriting, SessionReview, SessionAssistant} {
+		if got := names(base.ForSession(session, native)); slices.Contains(got, ConsultantAgent) {
+			t.Errorf("a %s session got the consultant: %q", session, got)
+		}
+	}
+	var asks []string
+	for _, f := range base.ForSession(SessionWriting, native) {
+		if f.Approval == ApprovalPerUse {
+			asks = append(asks, f.Name)
+		}
+	}
+	if !slices.Equal(asks, []string{"reasoning", "deep-implementation"}) {
+		t.Errorf("a writing lane asks per use for %q", asks)
+	}
 	if got := off.ForSession(SessionOrchestrator, native); len(got) != 0 {
 		t.Errorf("the orchestrator got %q", names(got))
 	}

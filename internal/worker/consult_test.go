@@ -159,7 +159,7 @@ func TestConsultRunsAReadOnlyAgentAndWakesTheOrchestratorWithItsRecommendation(t
 		})
 	}}, r.reportsConsultation(t, consultReport), completed(0.4)})
 	started := r.consult(t, map[string]any{"question": "q1", "ask": consultAsk})
-	if started.Agent != "analysis" || started.Class != "large" {
+	if started.Agent != "consultant" || started.Class != "frontier" {
 		t.Errorf("the consultation runs %+v", started)
 	}
 	ended := r.awaitConsulted(t, "q1")
@@ -217,7 +217,7 @@ func TestADecisionCitesItsConsultationWhoseEventHoldsTheAgentAndTheCost(t *testi
 	ended := r.awaitConsulted(t, "q1")
 	spec := r.consultSpecs()[0]
 	// The session asks for the model the profile maps the agent's class to, and the event holds the one it ran on.
-	if ended.Agent != "analysis" || ended.Class != "large" || spec.Model != "opus" || ended.Model != "resolved-model" || math.Abs(ended.CostUSD-0.4) > 1e-9 {
+	if ended.Agent != "consultant" || ended.Class != "frontier" || spec.Model != "opus" || ended.Model != "resolved-model" || math.Abs(ended.CostUSD-0.4) > 1e-9 {
 		t.Errorf("the consultation's event holds %+v, and its session asked for %q", ended, spec.Model)
 	}
 	if spent := r.workSpentToday(t) - before; math.Abs(spent-0.4) > 1e-9 {
