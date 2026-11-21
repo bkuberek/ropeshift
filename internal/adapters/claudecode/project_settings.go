@@ -139,15 +139,21 @@ func (d *Driver) SettingsChange(_ context.Context, spec ports.SessionSpec) *lane
 type baseSide struct {
 	files  map[string][]byte
 	pieces map[string]string
-	// mu guards hooks, the frontmatter hooks read of each piece blob.
+	// mu guards hooks, the frontmatter hooks read of each piece blob, and ran, each file a hook runs (fileAt).
 	mu    sync.Mutex
 	hooks map[string]pieceHooks
+	ran   map[string]baseFile
+}
+
+// newBaseSide is a repository's side that holds nothing yet.
+func newBaseSide() *baseSide {
+	return &baseSide{files: map[string][]byte{}, pieces: map[string]string{}, hooks: map[string]pieceHooks{}, ran: map[string]baseFile{}}
 }
 
 // readBaseSide reads the repository's side of a hold from git's objects, and says whether every read completed. A read
 // that failed reads as no file, as repositoryFile reads it, and leaves the side incomplete, so it is not kept.
 func readBaseSide(spec ports.SessionSpec) (*baseSide, bool) {
-	side := &baseSide{files: map[string][]byte{}, pieces: map[string]string{}, hooks: map[string]pieceHooks{}}
+	side := newBaseSide()
 	if spec.SettingsUnbased {
 		return side, true
 	}
@@ -232,8 +238,8 @@ func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 }
 
 // compareSettings names each key not known to be harmless (safeSettings) that the worktree's settings files hold
-// otherwise than the repository's side, and each piece whose frontmatter hooks the lane added or changed, which runs a
-// command as a settings hook does.
+// otherwise than the repository's side, each piece whose frontmatter hooks the lane added or changed, which runs a
+// command as a settings hook does, and each file a hook runs that the lane changed (hookFiles).
 func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
@@ -259,7 +265,8 @@ func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChan
 			fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", file, key, canonical(lane[key]))
 		}
 	}
-	for _, piece := range comparePieces(spec, base) {
+	pieces, within := worktreePieces(spec)
+	for _, piece := range comparePieces(spec, base, pieces, within) {
 		if !piece.overflow {
 			change.Files = append(change.Files, piece.path)
 		}
@@ -268,6 +275,16 @@ func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChan
 		}
 		change.Summary = append(change.Summary, piece.summary()...)
 		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
+	}
+	for _, held := range hookFiles(spec, base, sessionHooks(spec, pieces)) {
+		if !slices.Contains(change.Files, held.path) {
+			change.Files = append(change.Files, held.path)
+		}
+		if !slices.Contains(change.Keys, keyHooks) {
+			change.Keys = append(change.Keys, keyHooks)
+		}
+		change.Summary = append(change.Summary, held.summary())
+		fmt.Fprintf(digest, "%s\x00ran\x00%s\x00", held.path, held.bound())
 	}
 	if len(change.Keys) == 0 {
 		return nil
@@ -434,8 +451,9 @@ func shown(text, key string) string {
 var errSettingsNotRestorable = errors.New("a directory on the way to a settings file or a piece in the worktree is a link or no directory, so it cannot be restored")
 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
-// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, and each piece whose
-// frontmatter hooks the lane added or changed (restorePieces). It writes only inside the worktree: a `.claude` that is a
+// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, each piece whose
+// frontmatter hooks the lane added or changed (restorePieces), and then each file a hook runs that the lane changed
+// (restoreHookFiles). It writes only inside the worktree: a `.claude` that is a
 // link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
 	spec = atSettingsBase(spec)
@@ -471,7 +489,10 @@ func restoreBaseSettings(spec ports.SessionSpec) error {
 			return err
 		}
 	}
-	return restorePieces(spec)
+	if err := restorePieces(spec); err != nil {
+		return err
+	}
+	return restoreHookFiles(spec)
 }
 
 // replaceFile puts a regular file at path in one step: it writes a file of its own beside it, which it creates and

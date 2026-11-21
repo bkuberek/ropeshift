@@ -173,11 +173,10 @@ type heldPiece struct {
 	overflow   bool
 }
 
-// comparePieces are the pieces of a lane's worktree whose frontmatter hooks differ from the repository's side, where
-// the worktree's declare any: a hook the lane added or changed, and a frontmatter that cannot be read. A piece whose hooks
-// the lane removed runs less, and holds nothing. A piece the worktree holds as the base does is not read again.
-func comparePieces(spec ports.SessionSpec, base *baseSide) []heldPiece {
-	files, within := worktreePieces(spec)
+// comparePieces are the pieces of a lane's worktree (worktreePieces) whose frontmatter hooks differ from the repository's
+// side, where the worktree's declare any: a hook the lane added or changed, and a frontmatter that cannot be read. A piece
+// whose hooks the lane removed runs less, and holds nothing. A piece the worktree holds as the base does is not read again.
+func comparePieces(spec ports.SessionSpec, base *baseSide, files []pieceFile, within bool) []heldPiece {
 	var out []heldPiece
 	for _, file := range files {
 		blob := base.pieces[file.path]
@@ -241,7 +240,8 @@ func restorePieces(spec ports.SessionSpec) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
-	for _, piece := range comparePieces(spec, base) {
+	files, within := worktreePieces(spec)
+	for _, piece := range comparePieces(spec, base, files, within) {
 		if piece.overflow {
 			continue
 		}
