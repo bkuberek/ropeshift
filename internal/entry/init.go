@@ -26,6 +26,10 @@ const (
 	initDaemonOutputGrace = 2 * time.Second
 )
 
+// envInitDaemon marks the daemon `ropeshift init` starts. It is set in that daemon's environment and in no command
+// line, so it appears in no help and no reference, and no command line a person types turns qualification off.
+const envInitDaemon = "ROPESHIFT_INIT_DAEMON"
+
 // startDaemonForInit runs `ropeshiftd solo` for the length of one ropeshift init. Its first start
 // registers the worker, which is solo mode's one registration path, and it binds neither the web
 // port nor the telemetry port while it runs. It stays in the caller's process group, so an
@@ -89,16 +93,16 @@ func logTail(path string) string {
 	return strings.TrimSpace(strings.ToValidUTF8(string(raw), ""))
 }
 
-// initDaemonCommand is the daemon an init runs, before its output is set. It starts no probe of the agent CLI:
-// the probe starts real sessions that spend turns, and this daemon is stopped, and the probe cancelled, within
-// seconds of its start. A process the daemon leaves behind can hold its output open after the daemon ended,
-// and a wait on output that is not a file would wait for that process too, so the wait is bounded, as the
-// installed-build read's is.
+// initDaemonCommand is the daemon an init runs, before its output is set. It is told in its environment that it is
+// init's, and so it qualifies no agent CLI and starts no session: the probe starts real sessions that spend turns,
+// and this daemon is stopped, and the probe cancelled, within seconds of its start. A process the daemon leaves
+// behind can hold its output open after the daemon ended, and a wait on output that is not a file would wait for
+// that process too, so the wait is bounded, as the installed-build read's is.
 func initDaemonCommand(executable string) *exec.Cmd {
 	return &exec.Cmd{
 		Path:      executable,
-		Args:      []string{commandDaemon, "solo", "--web", api.WebOff, "--telemetry", api.WebOff, "--no-probe"},
-		Env:       os.Environ(),
+		Args:      []string{commandDaemon, "solo", "--web", api.WebOff, "--telemetry", api.WebOff},
+		Env:       append(os.Environ(), envInitDaemon+"=1"),
 		WaitDelay: initDaemonOutputGrace,
 	}
 }

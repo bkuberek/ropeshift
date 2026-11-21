@@ -284,7 +284,6 @@ These commands are for ropeshift or an agent CLI to run, and a person does not n
 | `--forecast-tick <duration>` | `1m` | How often each plan's forecast is checked, and made again when what it rests on changed, and at least hourly. See [forecasts](measures.md#forecasts) |
 | `--lease-tick`, `--batch-tick`, `--wake-tick` | `5s`, `5s`, `1s` | How often lapsed leases end, closed question batches reach members, and due wakes fire |
 | `--lease-ttl`, `--heartbeat` | `60s`, `15s` | How long a lease lasts, and how often the worker beats |
-| `--no-probe` | Off | Never probe the agent CLI for the surfaces it passes. The probe starts real sessions that spend turns, so `ropeshift init` starts its short-lived daemon with this flag. A lane then runs on the surfaces the shipped matrix passed for its version, or on documented surfaces when the matrix does not hold it. See [qualification](qualification.md) |
 
 An installation keeps its ledger, installation database, journal, and telemetry store in its state directory, and its sockets in its run directory. The ledger, `ledger.db`, holds the default project's records. The installation database, `installation.db`, holds the registry of projects, the member and the passphrase's hash, the member sessions, the workers with their autonomy and run windows, and the orchestrators. A daemon started on an installation with only a ledger moves those records into a new installation database and keeps the ledger file where it is:
 

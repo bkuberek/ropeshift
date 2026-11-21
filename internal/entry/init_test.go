@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -72,33 +73,37 @@ func TestInitStopsADaemonWhoseChildHoldsItsOutput(t *testing.T) {
 	}
 }
 
-// The daemon ropeshift init starts runs for a few seconds, and its first start registers the worker. A
-// probe of the agent CLI starts real sessions that spend turns, and this daemon's stop always cancels it
-// within a second, so the daemon is told not to start one.
-func TestTheDaemonInitStartsIsToldNotToProbe(t *testing.T) {
-	t.Parallel()
-	args := initDaemonCommand("/ropeshiftd").Args
-	opts, ok := parseSolo(args[2:], io.Discard)
+// The daemon ropeshift init starts runs for a few seconds, and its first start registers the worker. A probe of the
+// agent CLI starts real sessions that spend turns, and this daemon's stop always cancels it within a second, so the
+// daemon is told in its environment that it is init's. Such a daemon qualifies no CLI and starts no session.
+func TestTheDaemonInitStartsIsToldItIsInits(t *testing.T) {
+	cmd := initDaemonCommand("/ropeshiftd")
+	if !slices.Contains(cmd.Env, envInitDaemon+"=1") {
+		t.Fatalf("the daemon init starts is not told it is init's: its environment lacks %s=1", envInitDaemon)
+	}
+	t.Setenv(envInitDaemon, "1")
+	opts, ok := parseSolo(cmd.Args[2:], io.Discard)
 	if !ok {
-		t.Fatalf("the daemon init starts refuses its own flags: %v", args)
+		t.Fatalf("the daemon init starts refuses its own flags: %v", cmd.Args)
 	}
 	if !opts.noProbe {
-		t.Errorf("the daemon init starts probes the agent CLI: %v", args)
+		t.Errorf("the daemon init starts probes the agent CLI: %v", cmd.Args)
 	}
 	if opts.web != api.WebOff || opts.telemetry != api.WebOff {
 		t.Errorf("the daemon init starts listens on web %q and telemetry %q", opts.web, opts.telemetry)
 	}
 }
 
-// A daemon probes the agent CLI unless it is told not to, and the lane runtime it builds carries what it was told.
-func TestADaemonProbesUnlessToldNotTo(t *testing.T) {
-	t.Parallel()
-	if opts, ok := parseSolo(nil, io.Discard); !ok || opts.noProbe {
-		t.Errorf("a daemon given no flags reads noProbe %v (%v)", opts.noProbe, ok)
-	}
-	opts, ok := parseSolo([]string{"--no-probe"}, io.Discard)
-	if !ok || !opts.noProbe {
-		t.Fatalf("--no-probe reads noProbe %v (%v)", opts.noProbe, ok)
+// A daemon probes the agent CLI unless init started it, and the lane runtime it builds carries what it was told.
+func TestADaemonProbesUnlessInitStartedIt(t *testing.T) {
+	for _, tt := range []struct {
+		value string
+		told  bool
+	}{{"", false}, {"0", false}, {"1", true}} {
+		t.Setenv(envInitDaemon, tt.value)
+		if opts, ok := parseSolo(nil, io.Discard); !ok || opts.noProbe != tt.told {
+			t.Errorf("a daemon with %s=%q reads noProbe %v (%v), want %v", envInitDaemon, tt.value, opts.noProbe, ok, tt.told)
+		}
 	}
 	root := apitest.ShortDir(t)
 	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run"), WorktreeDir: filepath.Join(root, "worktrees")}
@@ -109,6 +114,31 @@ func TestADaemonProbesUnlessToldNotTo(t *testing.T) {
 		}
 		if runtime.NoProbe != told {
 			t.Errorf("a daemon told noProbe=%v builds a lane runtime with NoProbe=%v", told, runtime.NoProbe)
+		}
+	}
+}
+
+// Qualification is no option of the daemon: ADR-0040 runs a lane only on a qualified CLI, so no flag skips it, and
+// neither the daemon's help nor docs/cli.md says how init's daemon is told.
+func TestNoCommandLineSkipsQualification(t *testing.T) {
+	t.Setenv(envInitDaemon, "")
+	var stderr bytes.Buffer
+	if opts, ok := parseSolo([]string{"--no-probe"}, &stderr); ok || opts.noProbe {
+		t.Errorf("--no-probe was taken as a flag of the daemon (%v)", ok)
+	}
+	var help bytes.Buffer
+	if code := runHelp(commandDaemon, []string{"solo"}, &help, io.Discard); code != exitOK {
+		t.Fatalf("help for solo exits %d", code)
+	}
+	reference, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"the daemon's help": help.String(), "docs/cli.md": string(reference)} {
+		for _, hidden := range []string{"no-probe", envInitDaemon} {
+			if strings.Contains(text, hidden) {
+				t.Errorf("%s mentions %q", name, hidden)
+			}
 		}
 	}
 }

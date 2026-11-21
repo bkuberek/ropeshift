@@ -95,7 +95,9 @@ type soloOptions struct {
 	forecastTick time.Duration
 	leaseTTL     time.Duration
 	heartbeat    time.Duration
-	// noProbe keeps the worker from probing the agent CLI, which starts real sessions that spend turns.
+	// noProbe says this is the daemon `ropeshift init` starts, which the environment tells and no flag does. The
+	// worker of such a daemon qualifies no agent CLI: it probes none, which starts real sessions that spend turns,
+	// and starts no session.
 	noProbe bool
 	// records reads the first project's records, which name the repositories of the daemon's sources: a
 	// source with no checkout kept for it keeps the ID of the record registration would match it to.
@@ -140,6 +142,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 		fmt.Fprintf(stderr, "ropeshiftd solo: unexpected argument %q\n", flags.Arg(0))
 		return opts, false
 	}
+	opts.noProbe = os.Getenv(envInitDaemon) == "1"
 	return opts, true
 }
 
@@ -162,7 +165,6 @@ func soloFlags(opts *soloOptions) *flag.FlagSet {
 	flags.DurationVar(&opts.forecastTick, "forecast-tick", time.Minute, "how often each plan's forecast is made again when what it rests on changed, and at least hourly")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
-	flags.BoolVar(&opts.noProbe, "no-probe", false, "do not probe the agent CLI for the surfaces it passes, which starts real sessions that spend turns")
 	return flags
 }
 
@@ -183,6 +185,9 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 	// Before the daemon starts anything, so no process it starts, git first and the terminal server last,
 	// holds a descriptor the daemon was started with.
 	keepDescriptorsFromChildren()
+	if opts.noProbe {
+		fmt.Fprintf(stderr, "ropeshiftd solo: %s is set, so this daemon qualifies no agent CLI and starts no session: it is the daemon ropeshift init starts, and it runs no work\n", envInitDaemon)
+	}
 	paths, err := installationPaths()
 	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd solo: %v\n", err)

@@ -270,7 +270,7 @@ func (w *Worker) manifest(ctx context.Context) ledger.Manifest {
 		w.config.Report(fmt.Errorf("the doctor: %w", err))
 		return base
 	}
-	return manifest
+	return w.config.Lanes.advertised(manifest)
 }
 
 // signInKind says how the driver this epoch advertised is signed in.
