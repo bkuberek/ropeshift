@@ -237,6 +237,13 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 	if err != nil {
 		return false, err
 	}
+	// A version read from the repository is main changing the plan, which leaves behind it every planning branch that
+	// waits for the approval of an earlier version.
+	if next.WorkOrder == "" {
+		if err := sendBackBehindMain(tx, next, record.Title); err != nil {
+			return false, err
+		}
+	}
 	ref := planFileRef(entries)
 	approved, found, err := approvedBeforeRecorded(tx, next, ref, origin.commit)
 	if err != nil {

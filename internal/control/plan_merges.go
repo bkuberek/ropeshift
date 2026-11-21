@@ -177,3 +177,58 @@ func supersedePlanRequests(tx ports.WriteTx, workOrder string) error {
 	}
 	return nil
 }
+
+// sendBackBehindMain sends each planning branch that waits in integrating for the approval of an earlier version of a
+// plan back for rework on the same branch, when intake reads a new version of the plan from the repository: main changed
+// the plan. The branch's request names a version a member can no longer approve, because approving a plan approves the
+// one the ledger holds now, and the plan on the branch is behind main's, as a branch whose merge conflicts with main is.
+// So it goes back the way a conflict sends it (reworkConflict): it keeps its branch, the ended lane's worktree is taken
+// away, and the brief says why and asks the lane to merge main into the branch. The send-back closes the branch's
+// request, and the branch's next commit asks for the approval of main's version naming it, once a member accepts it.
+func sendBackBehindMain(tx ports.WriteTx, version planning.PlanVersion, title string) error {
+	rows, err := tx.Approvals().All()
+	if err != nil {
+		return err
+	}
+	sent := map[string]bool{}
+	for _, row := range rows {
+		if row.Kind != authority.KindPlan || !row.Open() || row.Plan != version.PlanID || row.PlanVersion >= version.Version || row.WorkOrder == "" || sent[row.WorkOrder] {
+			continue
+		}
+		order, err := tx.WorkOrders().Get(row.WorkOrder)
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if order.Kind != workorders.KindPlan || order.State != workorders.Integrating {
+			continue
+		}
+		f, err := readIntegration(readersOf(tx), order)
+		if err != nil {
+			return err
+		}
+		if f.commit() == "" || f.commit() != requestCommit(row) {
+			continue
+		}
+		sent[order.ID] = true
+		if err := reworkBehindMain(tx, f, version, title); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reworkBehindMain sends one waiting planning branch back for rework against the plan main holds now.
+func reworkBehindMain(tx ports.WriteTx, f integrationFacts, version planning.PlanVersion, title string) error {
+	if err := keepBranch(tx, ledger.ForgeRequest{WorkOrder: f.order.ID, Branch: f.branch.URI, Commit: f.commit()}, intakeActor); err != nil {
+		return err
+	}
+	reason := fmt.Sprintf("the plan %q changed on %s while this branch waited in integrating for its approval: %s holds version %d of it now, "+
+		"and the plan on %s at %s is behind it, so approving it could no longer approve this branch's merge. "+
+		"Merge the current %s into this branch, bring the plan up to date with %s's, and commit the merge on this branch.",
+		title, f.base, f.base, version.Version, f.branch.URI, short(f.commit()), f.base, f.base)
+	_, err := reworkFor(tx, f.order.ID, workorders.ReworkNote{Reason: reason}, nil, intakeActor, func() {})
+	return err
+}

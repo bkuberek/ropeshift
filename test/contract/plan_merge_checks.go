@@ -39,6 +39,7 @@ var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM17", "a planning branch a send-back returns with the plan the ledger holds asks nothing while it waits for acceptance, and once accepted asks for that plan's approval naming its new commit, which approves its merge", checkResentPlanAsksOnceAccepted},
 	{"PM18", "a request that named an earlier commit of a planning branch is refused while the branch waits for acceptance at another, and once that commit is accepted the plan's approval is asked for at it, which approves its merge", checkMovedPlanAsksOnceAccepted},
 	{"PM19", "two planning branches that hold one plan each ask for the plan's approval naming their own commit once accepted, and approving each approves the merge of its own branch", checkTwoBranchesOfOnePlanAskEach},
+	{"PM20", "a planning branch that waits in integrating for its plan approval when main changes the plan goes back to rework on the same branch, with why in its brief, and its next commit asks for main's version naming it", checkMainChangesThePlanOfAWaitingBranch},
 })
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -358,6 +359,7 @@ const (
 	mergedAfterRework = "708192a3708192a3708192a3708192a3708192a3"
 	mergedResent      = "8192a3b48192a3b48192a3b48192a3b48192a3b4"
 	mergedMovedSame   = "92a3b4c592a3b4c592a3b4c592a3b4c592a3b4c5"
+	mergedBehindMain  = "a3b4c5d6a3b4c5d6a3b4c5d6a3b4c5d6a3b4c5d6"
 )
 
 // personsMerge is the commit a person's merge on the forge made, as a worker reads it.
@@ -1285,6 +1287,80 @@ func checkTwoBranchesOfOnePlanAskEach(r *Rig) error {
 		}) {
 			return Violatedf("the merge approvals of %s are %+v, want the member's of %s for version %d", order, view.Integrations, commit, version)
 		}
+	}
+	return r.CheckProjection(p.store)
+}
+
+// mainPlanFiles are the plan as main holds it after a change no planning branch made: its spec says something the
+// branch's does not.
+func mainPlanFiles() map[string]string { return laneFiles("The draft on main.") }
+
+func checkMainChangesThePlanOfAWaitingBranch(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	stale, err := p.acceptedByHand()
+	if err != nil {
+		return err
+	}
+	// Main changes the plan while the branch waits in integrating for its approval, so intake reads a new version of the
+	// plan from the repository. The branch's plan is behind it, and approving its request could approve nothing.
+	if _, err := r.intake(p.store, acceptedSource(mainPlanFiles())); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Ready); err != nil {
+		return err
+	}
+	order, err := p.order()
+	if err != nil || order.Branch != branchName {
+		return Violatedf("the planning work continues %q: %v", order.Branch, err)
+	}
+	note, err := p.reworkNote()
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"changed on main", "behind", "Merge the current main into this branch"} {
+		if !strings.Contains(note.Reason, want) {
+			return Violatedf("the rework's brief leaves out %q: %q", want, note.Reason)
+		}
+	}
+	if err := p.approvesNothing(stale, authority.ErrApprovalClosed); err != nil {
+		return err
+	}
+	onMain, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if onMain.WorkOrder != "" || onMain.Plan != stale.Plan || onMain.PlanVersion != stale.PlanVersion+1 {
+		return Violatedf("the request for main's version is %+v, want version %d of plan %s naming no work order", onMain, stale.PlanVersion+1, stale.Plan)
+	}
+	// The next lane merges main into the branch, so its commit holds main's plan, and once accepted it asks for the
+	// approval of main's version naming the branch, which approves its merge.
+	p.files = mainPlanFiles()
+	next, err := p.laneAgain()
+	if err != nil {
+		return err
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	asked, err := p.askedAtAccepted(onMain, next)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(p.store, asked, true, theMember); err != nil {
+		return err
+	}
+	if _, err := p.approvedBy(next, ledger.ReviewApproves, onMain.PlanVersion); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Commit != next {
+		return Violatedf("the worker is asked to merge %+v, want %s: %v", merge, next, err)
+	}
+	if err := p.landed(merge, mergedBehindMain); err != nil {
+		return err
 	}
 	return r.CheckProjection(p.store)
 }
