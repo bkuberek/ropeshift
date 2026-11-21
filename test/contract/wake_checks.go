@@ -1478,7 +1478,8 @@ func (b *factBook) holds(fact parking.Fact, stored int64) bool {
 }
 
 // CheckWakes replays every wake at its firing time, against the facts recorded by then. A wake
-// that was false at that moment fired too early, and one with two firings fired twice.
+// that was false at that moment fired too early, and one with two firings fired twice. A run on a
+// test clock replays at the time its processes read, which WakeClockAheadMs adds.
 func (r *Rig) CheckWakes(s ports.Store) error {
 	events, err := r.Events(s, r.Scope)
 	if err != nil {
@@ -1511,7 +1512,7 @@ func (r *Rig) CheckWakes(s ports.Store) error {
 		if fired[id]++; fired[id] > 1 {
 			return Violatedf("wake %s fired %d times", id, fired[id])
 		}
-		if err := replayFiring(book, byID, id, e); err != nil {
+		if err := replayFiring(book, byID, id, e, r.WakeClockAheadMs); err != nil {
 			return err
 		}
 	}
@@ -1527,7 +1528,7 @@ func (r *Rig) CheckWakes(s ports.Store) error {
 	return nil
 }
 
-func replayFiring(book *factBook, byID map[string]parking.Wake, id string, e ledger.Event) error {
+func replayFiring(book *factBook, byID map[string]parking.Wake, id string, e ledger.Event, aheadMs int64) error {
 	wake, ok := byID[id]
 	if !ok {
 		return Violatedf("a firing names no wake: %s", id)
@@ -1540,7 +1541,7 @@ func replayFiring(book *factBook, byID map[string]parking.Wake, id string, e led
 	for _, fact := range expr.Facts() {
 		facts[fact] = book.holds(fact, wake.StoredRev)
 	}
-	if !expr.Holds(facts, e.RecordedAt) {
+	if !expr.Holds(facts, e.RecordedAt+aheadMs) {
 		return Violatedf("wake %s fired at rev %d with its expression false", id, e.Rev)
 	}
 	if wake.FiredAt != e.RecordedAt {

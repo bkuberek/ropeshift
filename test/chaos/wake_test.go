@@ -974,6 +974,7 @@ func lostWakeRun(w *world, drain time.Duration) (*lifecycleRun, error) {
 		return nil, err
 	}
 	run.timerLeadMs = testClockLeadMs
+	w.rig.WakeClockAheadMs = testClockLeadMs
 	return run, nil
 }
 
