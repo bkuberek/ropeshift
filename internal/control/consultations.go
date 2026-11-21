@@ -110,6 +110,9 @@ func grantConsultation(tx ports.WriteTx, call ledger.OrchestratorCall, request l
 		return ledger.ConsultGrant{}, fmt.Errorf("%w: %s was consulted on as %s, so %s", questions.ErrTaken, question.ID,
 			ledger.ConsultationCitation(started.ID), next)
 	}
+	if err := refuseUsedTarget(tx, call.Target, question.ID); err != nil {
+		return ledger.ConsultGrant{}, err
+	}
 	if question.ClaimedBy != "" && question.ClaimedBy != actor.ID && question.ClaimUntil > now {
 		return ledger.ConsultGrant{}, fmt.Errorf("%w: %s holds %s", questions.ErrTaken, question.ClaimedBy, question.ID)
 	}
@@ -117,7 +120,11 @@ func grantConsultation(tx ports.WriteTx, call ledger.OrchestratorCall, request l
 	if err != nil {
 		return ledger.ConsultGrant{}, err
 	}
-	budget, err := consultBudget(projectWritesOf(tx), policy)
+	running, err := runningConsultations(tx, now)
+	if err != nil {
+		return ledger.ConsultGrant{}, err
+	}
+	budget, err := consultBudget(projectWritesOf(tx), policy, running)
 	if err != nil {
 		return ledger.ConsultGrant{}, err
 	}
@@ -142,15 +149,73 @@ func grantConsultation(tx ports.WriteTx, call ledger.OrchestratorCall, request l
 		return ledger.ConsultGrant{}, err
 	}
 	_, err = tx.Append(ledger.EventDraft{
-		Type: ledger.EventConsultationStarted, Actor: actor, Data: data,
+		ID: ledger.ConsultationStartedID(grant.ID), Type: ledger.EventConsultationStarted, Actor: actor, Data: data,
 		Subject: ledger.Subject{Kind: ledger.SubjectConsultation, ID: question.ID},
 	})
 	return grant, err
 }
 
+// refuseUsedTarget refuses a target that began a consultation of another question. A target names one consultation for
+// good: the hold on its question, the decision that cites it, and its cost in the project's tally all go by it, so a
+// second question under it would share all three with the first.
+func refuseUsedTarget(tx ports.WriteTx, target, question string) error {
+	used, err := tx.Event(ledger.ConsultationStartedID(target))
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %s began the consultation of %s, so it names no consultation of %s", workorders.ErrInvalid, target, used.Subject.ID, question)
+}
+
+// consultationsRunning are the consultations that run now, counted for what the project's limits leave: how many, and the
+// budget each was granted, because what a consultation spends reaches the project's tally only when it ends.
+type consultationsRunning struct {
+	count  int
+	budget float64
+}
+
+// runningConsultations reads the consultations that hold a question now. A consultation holds its question from its
+// start until its end, so a question held under a consultation's name with time left stands for one that runs. A
+// question a member decided, dismissed, or escalated while its consultation ran let go of that hold, and a hold that ran
+// out is over, so neither counts.
+func runningConsultations(tx ports.WriteTx, now int64) (consultationsRunning, error) {
+	var running consultationsRunning
+	prefix := ledger.ConsultationHolder("")
+	for _, status := range []questions.Status{questions.StatusOpen, questions.StatusTriage} {
+		for after := ""; ; {
+			rows, err := tx.Questions().Questions(ports.RecordFilter{Status: string(status), After: after, Limit: questionPage})
+			if err != nil {
+				return consultationsRunning{}, err
+			}
+			for _, row := range rows {
+				after = row.ID
+				if !strings.HasPrefix(row.ClaimedBy, prefix) || row.ClaimUntil <= now {
+					continue
+				}
+				started, ended, err := consultationOf(tx.EventsAbout, row.ID)
+				if err != nil {
+					return consultationsRunning{}, err
+				}
+				if started != nil && ended == nil && ledger.ConsultationHolder(started.ID) == row.ClaimedBy {
+					running.count++
+					running.budget += started.BudgetUSD
+				}
+			}
+			if len(rows) < questionPage {
+				break
+			}
+		}
+	}
+	return running, nil
+}
+
 // consultBudget is the most a consultation may spend: `consultation_limit`, and no more than what the project's daily
-// and weekly limits leave. A project past either limit starts none, and neither does a limit of 0 (FR-SPEND-6).
-func consultBudget(reads spendReads, policy authority.SpendPolicy) (float64, error) {
+// and weekly limits leave once the consultations that run have each been given the budget they hold. A project past
+// either limit starts none, and neither does one whose limits leave nothing beyond what those hold, and a limit of 0
+// (FR-SPEND-6). Two consultations that run at once so spend no more together than a limit that either fits under alone.
+func consultBudget(reads spendReads, policy authority.SpendPolicy, running consultationsRunning) (float64, error) {
 	if policy.ConsultationLimit <= 0 {
 		return 0, fmt.Errorf("%w: consultation_limit is 0, so the project starts no consultation", workorders.ErrIneligible)
 	}
@@ -163,9 +228,19 @@ func consultBudget(reads spendReads, policy authority.SpendPolicy) (float64, err
 	}
 	budget := policy.ConsultationLimit
 	for _, window := range []ledger.ProjectWindowSpend{spend.Day, spend.Week} {
-		if window.HardLimit > 0 {
-			budget = min(budget, window.Remaining)
+		if window.HardLimit <= 0 {
+			continue
 		}
+		left := window.Remaining - running.budget
+		if left <= 0 {
+			name := "daily"
+			if window.Window == ledger.WindowWeek {
+				name = "weekly"
+			}
+			return 0, fmt.Errorf("%w: the project's %s limit leaves $%.2f, and the %d consultations that run hold $%.2f of it", workorders.ErrIneligible,
+				name, window.Remaining, running.count, running.budget)
+		}
+		budget = min(budget, left)
 	}
 	return budget, nil
 }

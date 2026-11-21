@@ -43,6 +43,11 @@ func ConsultationHolder(id string) string { return "consultation:" + id }
 // ConsultationCitation is how a decision cites a consultation, which the consultation's event explains.
 func ConsultationCitation(id string) string { return "consultation:" + id }
 
+// ConsultationStartedID is the ID of the event that records a consultation's start. It is made of the consultation's
+// ID, which the worker's call names as its target, so a target that began a consultation is found by it, whatever
+// question the consultation is about.
+func ConsultationStartedID(id string) string { return "consultation-started-" + id }
+
 // ConsultHold is how long a consultation holds its question. It outlasts the longest session a worker lets a
 // consultation run, so a consultation that ends lets the question go itself, and one whose worker went away leaves the
 // question held no longer than this (FR-ORCH-9).
