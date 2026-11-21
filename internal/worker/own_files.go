@@ -188,20 +188,55 @@ func (w *Worker) leaseFiles(ctx context.Context, record lanes.Record) *ledger.De
 	return nil
 }
 
-// foreignCommits lists what the lane's commits beyond base hold that is neither its own nor a path its repository
+// commitCheck is what the worker made of a lane's commits before a push (FR-LANE-20): what they hold that is neither
+// the lane's own nor a path its repository keeps, and, when it could not read them, why and what ends that.
+type commitCheck struct {
+	foreign          []string
+	unchecked, until string
+}
+
+// refusal is the reason a push is refused, and empty when it is not. Reset advice names the base, so a check with
+// none gives none.
+func (c commitCheck) refusal(base string) string {
+	switch {
+	case len(c.foreign) == 0:
+		return ""
+	case c.unchecked != "":
+		return lanes.UncheckedCommits(c.unchecked, c.until, c.foreign)
+	}
+	return lanes.ForeignCommits(base, c.foreign)
+}
+
+// staleCheck is a check that could not read the commits: what an earlier check refused stands, less each path the
+// orchestrator decided since is part of the project, until a check can read them.
+func staleCheck(record lanes.Record, files lanes.LaneFiles, unchecked, until string) commitCheck {
+	return commitCheck{foreign: files.Unkept(record.Guard.Refused), unchecked: unchecked, until: until}
+}
+
+// foreignCommits checks what the lane's commits beyond base hold that is neither its own nor a path its repository
 // keeps (FR-LANE-20). The worker reads them before every push it makes or lets a lane ask for. With no base, a store
-// that lists no commits, or a worktree it cannot read, it cannot tell, and a guard that refused a push before still
-// stands.
-func (w *Worker) foreignCommits(ctx context.Context, record lanes.Record, base string, files lanes.LaneFiles) []string {
+// that lists no commits, or a worktree it cannot read, it cannot tell (staleCheck).
+func (w *Worker) foreignCommits(ctx context.Context, record lanes.Record, base string, files lanes.LaneFiles) commitCheck {
 	trees, listed := w.config.Lanes.Provisioner.Worktrees.(ports.FileCommits)
-	if !listed || base == "" || record.Worktree == "" {
-		return record.Guard.Refused
+	switch {
+	case !listed:
+		return staleCheck(record, files, "this worker's worktrees list no commits", "a worker that lists them runs the lane")
+	case base == "":
+		return staleCheck(record, files, "no claim names the commit the lane's branch began at", "a claim names it")
+	case record.Worktree == "":
+		return staleCheck(record, files, "the lane has no worktree to read them in", "the lane has one")
 	}
 	commits, err := trees.Commits(ctx, record.Worktree, base)
 	if err != nil {
 		w.config.Report(fmt.Errorf("lane %s: reading its commits before a push: %w", record.ID, err))
-		return record.Guard.Refused
+		return staleCheck(record, files, "reading them failed: "+err.Error(), "the worker can read the lane's worktree")
 	}
+	return commitCheck{foreign: notTheLanes(commits, files)}
+}
+
+// notTheLanes is what the commits changed that is neither the lane's own nor a path its repository keeps, at most
+// maxLeftOut paths of it.
+func notTheLanes(commits []ports.Commit, files lanes.LaneFiles) []string {
 	var paths []string
 	for _, commit := range commits {
 		paths = append(paths, commit.Files...)
@@ -217,11 +252,7 @@ func (w *Worker) foreignCommits(ctx context.Context, record lanes.Record, base s
 // is the lane's own.
 func (w *Worker) refusedPush(ctx context.Context, record lanes.Record) string {
 	base := w.baseOf(ctx, record)
-	foreign := w.foreignCommits(ctx, record, base, w.laneFiles(ctx, record, w.leaseFiles(ctx, record)))
-	if len(foreign) == 0 {
-		return ""
-	}
-	return lanes.ForeignCommits(base, foreign)
+	return w.foreignCommits(ctx, record, base, w.laneFiles(ctx, record, w.leaseFiles(ctx, record))).refusal(base)
 }
 
 // ignoreDecided adds each path the orchestrator decided to ignore in this lane's repository to its .gitignore,
@@ -275,10 +306,11 @@ func (r *laneRun) ignoreLine(ctx context.Context, trees ports.FileCommits, workt
 	return line, true
 }
 
-// refusedPublish is the reason the worker refuses to push a branch for its pull request, read from the lane that
+// refusedPublish is the reason the worker refuses to push a branch for its pull request, read against the lane that
 // made it, and empty when the branch is not that lane's or holds only its own files. A lane this worker's journal
-// does not hold is not read.
-func (w *Worker) refusedPublish(ctx context.Context, request ledger.DesiredForge) string {
+// does not hold is not read. The commits are read in the checkout the push is sent from, which holds the branch
+// whether or not the lane's worktree is still there, and a checkout that cannot be read refuses the push, saying why.
+func (w *Worker) refusedPublish(ctx context.Context, request ledger.DesiredForge, checkout string) string {
 	if request.Lane == "" {
 		return ""
 	}
@@ -286,9 +318,19 @@ func (w *Worker) refusedPublish(ctx context.Context, request ledger.DesiredForge
 	if err != nil || record.Branch != request.Branch {
 		return ""
 	}
-	foreign := w.foreignCommits(ctx, record, request.BaseCommit, w.laneFiles(ctx, record, request.Files))
-	if len(foreign) == 0 {
-		return ""
+	files := w.laneFiles(ctx, record, request.Files)
+	branches, listed := w.config.Lanes.Provisioner.Worktrees.(ports.FileCommits)
+	switch {
+	case !listed:
+		return staleCheck(record, files, "this worker's worktrees list no commits", "a worker that lists them publishes it").refusal("")
+	case request.BaseCommit == "":
+		return staleCheck(record, files, "no claim names the commit the lane's branch began at", "a claim names it").refusal("")
 	}
-	return lanes.ForeignCommits(request.BaseCommit, foreign)
+	commits, err := branches.BranchChanges(ctx, checkout, request.BaseCommit, request.Branch)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: reading its branch before a publish: %w", record.ID, err))
+		return lanes.UncheckedCommits("reading the branch in the checkout it is pushed from failed: "+err.Error(),
+			"the worker can read the branch there", nil)
+	}
+	return commitCheck{foreign: notTheLanes(commits, files)}.refusal(request.BaseCommit)
 }

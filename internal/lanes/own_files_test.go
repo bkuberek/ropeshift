@@ -3,6 +3,7 @@ package lanes
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -250,5 +251,31 @@ func TestNoIgnoreLineNamesAnUnsafePathOrAGitignore(t *testing.T) {
 		if line, ok := IgnoreLine(path); ok || line != "" {
 			t.Errorf("%q ignores as %q", path, line)
 		}
+	}
+}
+
+// TestAPushRefusalAdvisesAResetOnlyToAKnownBase names the base a lane resets to only when the worker knows it, and a
+// refusal it could not check says why, what ends it, and what an earlier check found.
+func TestAPushRefusalAdvisesAResetOnlyToAKnownBase(t *testing.T) {
+	t.Parallel()
+	if text := ForeignCommits("b4se", []string{".atl/registry.md"}); !strings.Contains(text, "git reset --soft b4se") {
+		t.Errorf("with a base: %q", text)
+	}
+	if text := ForeignCommits("", []string{".atl/registry.md"}); strings.Contains(text, "git reset") || !strings.Contains(text, ".atl/registry.md") {
+		t.Errorf("with no base: %q", text)
+	}
+	text := UncheckedCommits("no claim names the base", "a claim names it", []string{".atl/registry.md"})
+	if !strings.Contains(text, "cannot check this lane's commits: no claim names the base") || !strings.Contains(text, "holds until a claim names it") ||
+		!strings.Contains(text, ".atl/registry.md") || strings.Contains(text, "git reset") {
+		t.Errorf("unchecked: %q", text)
+	}
+}
+
+// TestAnEarlierRefusalLosesWhatTheProjectKeeps reads an earlier refusal again against the paths decided since.
+func TestAnEarlierRefusalLosesWhatTheProjectKeeps(t *testing.T) {
+	t.Parallel()
+	files := LaneFiles{Kept: []string{".atl/", "Makefile"}}
+	if got := files.Unkept([]string{".atl/registry.md", "Makefile", ".cache/index"}); !slices.Equal(got, []string{".cache/index"}) {
+		t.Errorf("still refused %q", got)
 	}
 }

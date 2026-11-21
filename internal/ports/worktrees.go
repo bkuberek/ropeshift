@@ -143,6 +143,10 @@ type FileCommits interface {
 	// Commits lists the commits the worktree's branch holds beyond base, newest first, or its last few when
 	// base is empty. A worktree that is gone is ErrNotFound.
 	Commits(ctx context.Context, path, base string) ([]Commit, error)
+	// BranchChanges lists the commits a branch of the repository holds beyond base, newest first, as Commits does
+	// for a worktree's own branch, so a push is read in the checkout it is sent from. A repository that is gone, and a
+	// branch or base it does not hold, are ErrNotFound.
+	BranchChanges(ctx context.Context, repository, base, branch string) ([]Commit, error)
 	// Tracks says the worktree's index holds a file at name, or under it when it names a folder, reading name
 	// literally, so the worker never ignores a path whose new files a survey would then not see. A worktree that is
 	// gone is ErrNotFound.

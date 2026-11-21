@@ -84,11 +84,39 @@ func IgnoreLine(path string) (string, bool) {
 }
 
 // ForeignCommits is what a lane, and a member, are told of a push the worker refused (FR-LANE-20): the paths the
-// branch's commits beyond its base hold that the lane's session did not make, and how the lane takes them out.
+// branch's commits beyond its base hold that the lane's session did not make, and how the lane takes them out. Only a
+// known base is named as one to reset to.
 func ForeignCommits(base string, paths []string) string {
+	fix := "Take them out of the commits"
+	if base != "" {
+		fix += ", such as with git reset --soft " + base + " and new commits that name only your own files"
+	}
 	return "ropeshift policy: this lane's commits hold files its session did not create or edit: " + strings.Join(paths, ", ") +
-		". Nothing was pushed. Take them out of the commits, such as with git reset --soft " + base + " and new commits " +
-		"that name only your own files, then push again. The orchestrator decides whether each belongs to the project."
+		". Nothing was pushed. " + fix + ", then push again. The orchestrator decides whether each belongs to the project."
+}
+
+// UncheckedCommits is what a lane, and a member, are told of a push the worker refused because it could not read the
+// branch's commits (FR-LANE-20): why it cannot check, the paths an earlier check found that are still not the lane's
+// own, and what ends the refusal.
+func UncheckedCommits(reason, until string, paths []string) string {
+	text := "ropeshift policy: cannot check this lane's commits: " + reason + ". Nothing was pushed. "
+	if len(paths) == 0 {
+		return text + "This holds until " + until + "."
+	}
+	return text + "An earlier check found files its session did not create or edit: " + strings.Join(paths, ", ") +
+		". This holds until " + until + ", or until the orchestrator decides each belongs to the project."
+}
+
+// Unkept is what of the paths lies at or under no path the project keeps: what a refusal read earlier still holds
+// against the lane once the orchestrator decided more of its repository's paths.
+func (f LaneFiles) Unkept(paths []string) []string {
+	var unkept []string
+	for _, path := range paths {
+		if !atOrUnder(f.Kept, path) {
+			unkept = append(unkept, path)
+		}
+	}
+	return unkept
 }
 
 // CollapseLeft is a report's view of the files left out: each file in a folder git tracks nothing in, and that holds

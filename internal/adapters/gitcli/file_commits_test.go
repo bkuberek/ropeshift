@@ -197,3 +197,21 @@ func TestCommitsNameAFileWithALineBreakAsOneFile(t *testing.T) {
 		t.Errorf("the branch holds %+v beyond its base: %v", got, err)
 	}
 }
+
+// TestBranchChangesReadsABranchInItsRepository lists a lane's branch beyond its base from the repository it is
+// pushed from, whatever that checkout has checked out, and a branch it does not hold is ErrNotFound.
+func TestBranchChangesReadsABranchInItsRepository(t *testing.T) {
+	r := newGuardRig(t)
+	base := r.inWorktree("rev-parse", "HEAD")
+	r.commit("docs/a.md", "a\n")
+	got, err := r.worktrees.BranchChanges(t.Context(), r.repo.Dir, base, r.branch)
+	if err != nil || len(got) != 1 || strings.Join(got[0].Files, ",") != "docs/a.md" {
+		t.Fatalf("the branch holds %+v beyond its base: %v", got, err)
+	}
+	if _, err := r.worktrees.BranchChanges(t.Context(), r.repo.Dir, base, "lane/none"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a branch the repository does not hold: %v", err)
+	}
+	if _, err := r.worktrees.BranchChanges(t.Context(), filepath.Join(r.repo.Dir, "gone"), base, r.branch); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a repository that is gone: %v", err)
+	}
+}

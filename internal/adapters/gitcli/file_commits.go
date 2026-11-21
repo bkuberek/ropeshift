@@ -227,12 +227,36 @@ func (w Worktrees) Commits(ctx context.Context, worktree, base string) ([]ports.
 	}
 	git := w.git(worktree)
 	git.Config = plainNames
-	// Only the branch's own line, and a merge as what it changed against its first parent: the history a merge
-	// brings in is the other repository's, and listing every commit of it would read its whole past. Names come
-	// NUL-terminated, so a name with a line break in it is one name.
+	return changes(ctx, git, base, "HEAD")
+}
+
+// BranchChanges lists the commits a branch of the repository holds beyond base, with the files each changed, newest
+// first, as Commits does for a worktree's own branch. The branch is read by its full ref, so no name reads as an
+// option or as another ref.
+func (w Worktrees) BranchChanges(ctx context.Context, repository, base, branch string) ([]ports.Commit, error) {
+	if _, err := os.Stat(repository); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("repository %s: %w", repository, ports.ErrNotFound)
+		}
+		return nil, err
+	}
+	git := w.git(repository)
+	git.Config = plainNames
+	head, err := resolved(ctx, git, "refs/heads/"+branch)
+	if err != nil {
+		return nil, err
+	}
+	return changes(ctx, git, base, head)
+}
+
+// changes lists the commits head holds beyond base, or its last few when base is empty, each with the files it
+// changed. Only the branch's own line is read, and a merge as what it changed against its first parent: the history a
+// merge brings in is the other repository's, and listing every commit of it would read its whole past. Names come
+// NUL-terminated, so a name with a line break in it is one name.
+func changes(ctx context.Context, git Git, base, head string) ([]ports.Commit, error) {
 	args := []string{"log", "--no-color", "--first-parent", "-m", "--name-only", "-z", "--format=%x01%H%x1f%P%x1f%s"}
 	if base == "" {
-		args = append(args, "-n", fmt.Sprint(recentCommits), "HEAD", "--")
+		args = append(args, "-n", fmt.Sprint(recentCommits), head, "--")
 	} else {
 		if strings.HasPrefix(base, "-") {
 			return nil, fmt.Errorf("%w: %s", ports.ErrNotFound, base)
@@ -240,7 +264,7 @@ func (w Worktrees) Commits(ctx context.Context, worktree, base string) ([]ports.
 		if _, err := git.Commit(ctx, base); err != nil {
 			return nil, fmt.Errorf("%w: %s", ports.ErrNotFound, base)
 		}
-		args = append(args, base+"..HEAD", "--")
+		args = append(args, base+".."+head, "--")
 	}
 	out, err := git.Output(ctx, args...)
 	if err != nil {

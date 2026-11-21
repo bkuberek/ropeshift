@@ -105,8 +105,10 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 	var refused []string
 	if acts.Plan.Push || acts.Plan.PushSnapshot {
 		base := w.baseOf(ctx, record)
-		if refused = w.foreignCommits(ctx, record, base, files); len(refused) != 0 {
-			failed("pushing the branch", errors.New(lanes.ForeignCommits(base, refused)))
+		check := w.foreignCommits(ctx, record, base, files)
+		if reason := check.refusal(base); reason != "" {
+			refused = check.foreign
+			failed("pushing the branch", errors.New(reason))
 			acts.Plan.Push, acts.Plan.PushSnapshot = false, false
 		}
 	}

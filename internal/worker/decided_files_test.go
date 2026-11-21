@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -254,5 +255,35 @@ func TestAPathTheBranchTracksIsNeverIgnored(t *testing.T) {
 	}
 	if text, _ := worktrees.FileText(ownWorktree, ".gitignore"); text != "/.atl/\n" {
 		t.Errorf("the .gitignore holds %q", text)
+	}
+}
+
+// TestAWorkerThatCannotReadTheBranchItPublishesPushesNothing is the push for a pull request from a checkout the worker
+// cannot read: it pushes nothing, opens no pull request, and its report says why.
+func TestAWorkerThatCannotReadTheBranchItPublishesPushesNothing(t *testing.T) {
+	t.Parallel()
+	r, worktrees, g := pushingLaneOn(t, "", func(*laneRig) {}, true)
+	worktrees.FailBranchChanges(errors.New("the checkout is locked"))
+	g.free()
+	r.waitForTheLane(t)
+	forge := r.config.Forge.(*fake.Forge)
+	forge.Push(widgets, "lane/lane-1", fake.LaneHead)
+	for range 3 {
+		if err := r.subject.Converge(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if pushed := worktrees.Pushed(); slices.Contains(pushed, lanes.HeadsRef("lane/lane-1")) {
+		t.Errorf("the worker pushed %v", pushed)
+	}
+	if prs := forge.PullRequests(); len(prs) != 0 {
+		t.Errorf("the forge holds %+v", prs)
+	}
+	said := false
+	for _, event := range r.events() {
+		said = said || strings.Contains(string(event.Data), "cannot check") && strings.Contains(string(event.Data), "the checkout is locked")
+	}
+	if !said {
+		t.Error("no event says why the branch went unchecked")
 	}
 }
