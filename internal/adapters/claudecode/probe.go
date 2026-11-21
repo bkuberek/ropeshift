@@ -319,6 +319,10 @@ func (p *prober) screens(ctx context.Context) {
 	// left, before it opens its own.
 	name := probePane
 	_ = terminal.Close(ctx, name)
+	// A probe stopped before this point opens nothing, so nothing is left for the stopping worker to end.
+	if ctx.Err() != nil {
+		return
+	}
 	_, err = terminal.Open(ctx, ports.PaneSpec{
 		Name: name, Dir: dir, Width: paneWidth, Height: paneHeight, Command: []string{p.spec.Binary, lanePaneCommand, launch},
 	})

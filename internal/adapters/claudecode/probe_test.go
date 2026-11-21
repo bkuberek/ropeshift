@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -217,6 +218,48 @@ func TestAProbeStoppedAtItsPaneLeavesNoPane(t *testing.T) {
 				t.Errorf("the stopped probe left its pane: %+v, %v", pane, err)
 			}
 		})
+	}
+}
+
+// stopAtFirstCall ends a probe's context at the first call the probe makes on its terminal, which is the
+// closing of a pane an earlier probe left, and counts the panes the probe then asks to open.
+type stopAtFirstCall struct {
+	ports.Terminal
+	stop   context.CancelFunc
+	opened atomic.Int32
+}
+
+func (s *stopAtFirstCall) Close(ctx context.Context, name string) error {
+	s.stop()
+	return s.Terminal.Close(ctx, name)
+}
+
+func (s *stopAtFirstCall) Open(ctx context.Context, spec ports.PaneSpec) (ports.Pane, error) {
+	s.opened.Add(1)
+	return s.Terminal.Open(ctx, spec)
+}
+
+// A probe that is stopped before it opens its pane opens none, so a stopping worker starts no pane, and with
+// it no session of the agent CLI and no terminal server, that nothing is left to end.
+func TestAProbeStoppedBeforeItsPaneOpensOpensNone(t *testing.T) {
+	doubles.RequireTmux(t)
+	server := doubles.PrivateTmux(t)
+	ctx, stop := context.WithCancel(t.Context())
+	defer stop()
+	terminal := &stopAtFirstCall{Terminal: server, stop: stop}
+	driver, spec, _ := probeRigOn(t, terminal)
+	started := time.Now()
+	if _, err := driver.Probe(ctx, spec); !errors.Is(err, context.Canceled) {
+		t.Errorf("a stopped probe returned %v", err)
+	}
+	if took := time.Since(started); took > 10*time.Second {
+		t.Errorf("the stopped probe took %v to end", took)
+	}
+	if n := terminal.opened.Load(); n != 0 {
+		t.Errorf("the probe opened %d panes after it was stopped", n)
+	}
+	if pane, err := server.Pane(context.WithoutCancel(ctx), claudecode.ProbePane); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("the stopped probe left a pane: %+v, %v", pane, err)
 	}
 }
 
