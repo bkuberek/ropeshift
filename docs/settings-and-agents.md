@@ -170,6 +170,25 @@ A lane reads the built-in layer, then your profile over it, then the repository'
 
 A key the profile does not know refuses the whole profile, and no lane starts until it is fixed, so a misspelled setting never keeps its default in silence. A lane reads the files when it starts. The policies have a command too: `ropeshift policy publish --file F` publishes a version from a file, as Review change does ([the command line](cli.md)).
 
+## Your own agent CLI setup
+
+Lanes load none of your own Claude Code setup: no settings, hooks, status line, plugins, skills, commands, or subagents from `~/.claude`, no `~/.claude/CLAUDE.md` or `~/.claude/rules/`, no `.claude/settings.local.json` or `CLAUDE.local.md` of your clone, no `CLAUDE.md`, `AGENTS.md`, or rules of a directory above the lane's worktree, no MCP server or connector of yours, and no auto memory. They keep your sign-in. A lane reads the repository's own `.claude/settings.json`, skills, and subagents, its `CLAUDE.md` or `AGENTS.md`, the servers of its `.mcp.json` as the lane's base commit holds them, the agent roster above, and ropeshift's own MCP server, so put what a project's lanes need in the repository or in its lane profile. [Your own agent CLI setup](authorization.md#your-own-agent-cli-setup) names the switch that keeps out each piece. A lane that changes any key of its worktree's `.claude/settings.json` that is not known to be harmless, such as its hooks, plugins, permissions, environment, status line, or MCP servers, or a hook in the frontmatter of a skill, subagent, or command, is held before its next session, or in the middle of the session that changed its settings or a skill, for your choice: the repository's settings, the lane's own, or stop ([when a lane changes its own settings](authorization.md#when-a-lane-changes-its-own-settings)).
+
+A lane's page shows what its latest session loaded under Runs with. Your CLI setup reads none loaded when the flags held, or lists each piece of yours that reached the lane anyway, with where it is set up; below it are the model, the MCP servers with where each came from, and how many agents and skills the session loaded. A lane whose sessions reported nothing, such as one in a pane, reads not reported.
+
+When a piece of yours reaches lanes, Needs you holds one item for it on each machine and agent CLI version, Your CLI setup in lanes, which names the piece, where it is set up, and the lanes it reached. Lanes keep running while it waits. Accept it for this machine's lanes records your choice for that machine and version, and the item is not raised again for them; it is the recommended choice for an agent, a skill, a command, or an instruction file. For any other piece, such as an MCP server or a plugin, the item recommends running the machine's lanes in a separate configuration directory, which is not built yet. Remove it from my own setup is a change you make where the piece is set up, and the lanes started after it load clean. Each piece is set up in one place:
+
+| Piece | Where it is set up |
+|-------|--------------------|
+| MCP server from `user` or `local` | `~/.claude.json` ([MCP](https://code.claude.com/docs/en/mcp)) |
+| MCP server from `claudeai` | Your claude.ai connectors ([MCP](https://code.claude.com/docs/en/mcp)) |
+| MCP server from `plugin`, or a plugin | `enabledPlugins` in `~/.claude/settings.json` ([plugins](https://code.claude.com/docs/en/plugins/loading)) |
+| Agent | `~/.claude/agents/`, by the `name` in its frontmatter ([subagents](https://code.claude.com/docs/en/sub-agents)) |
+| Skill or command | `~/.claude/skills/` or `~/.claude/commands/` ([skills](https://code.claude.com/docs/en/skills)) |
+| Instruction file | The `CLAUDE.md`, `AGENTS.md`, or rules file the item names, which the lane's session loaded from outside its worktree ([memory](https://code.claude.com/docs/en/memory#how-claude-md-files-load)) |
+
+With `CLAUDE_CONFIG_DIR` set, every `~/.claude` path above is under that directory instead ([`.claude` directory](https://code.claude.com/docs/en/claude-directory)).
+
 ## On the command line
 
 [The CLI for power users](cli-for-power-users.md#settings-and-agents) gives the command for each step of this guide.

@@ -205,15 +205,39 @@ var sessionless = map[string]string{
 
 var routeLine = regexp.MustCompile(`mux\.HandleFunc\("((POST|PUT|PATCH|DELETE) ([^"]+))", (.+)\)$`)
 
+// projectWorkerRoutes are the project routes whose path starts as a worker's installation routes do: what a project
+// records about one machine, such as a member's acceptance of their own setup for the project's lanes there.
+var projectWorkerRoutes = []string{api.PersonalSetupAcceptancesPath}
+
 // reached is where a route a handler registers is served: an installation route where it reads, and a
 // project route under the harness's project.
 func reached(path string) string {
+	for _, route := range projectWorkerRoutes {
+		if pathMatches(path, route) {
+			return apitest.Route(path)
+		}
+	}
 	for _, prefix := range []string{"/v1/sessions", "/v1/passphrase", "/v1/workers", "/v1/autonomy", "/v1/telemetry", "/v1/health", "/v1/projects", "/v1/installation", "/v1/delegates", "/v1/operations"} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return path
 		}
 	}
 	return apitest.Route(path)
+}
+
+// pathMatches says a concrete path is one a route's path names, segment by segment, where a `{name}` segment takes any.
+func pathMatches(path, route string) bool {
+	got, want := strings.Split(path, "/"), strings.Split(route, "/")
+	if len(got) != len(want) {
+		return false
+	}
+	for i, segment := range want {
+		wildcard := strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}")
+		if segment != got[i] && !wildcard {
+			return false
+		}
+	}
+	return true
 }
 
 // TestEveryChangingRouteNeedsASession reads the routes from the source, so none can be

@@ -403,8 +403,10 @@ func TestNoVendorFileReadsCanFail(t *testing.T) {
 	}
 }
 
-// agentsListing finds a command line that runs the CLI's own listing.
-var agentsListing = []string{`"agents"`}
+// agentsListing finds a command line that runs the CLI's own listing: arguments whose first word is the listing. The
+// word alone is also the key of the agents a session's init names and the directory a member's agents are in, which a
+// read of what a session loaded names and which run nothing.
+var agentsListing = []string{`[]string{"agents"`}
 
 // listingFile is the one file that may run the listing. It reads as `idle` for a hung
 // process and drops a killed one with no record, so it is a read at adoption and never

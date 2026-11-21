@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -546,6 +547,28 @@ func (r *laneRun) continuation() *lanes.Continuation {
 // begins is the commit a new branch for this lane begins at: the tip of the branch it continues, or else
 // the base its claim resolved. A review lane's is the commit under review.
 func (r *laneRun) begins() string { return leaseBegins(r.lease) }
+
+// settingsBase is the commit a lane's own project settings are compared with, and restored to, and the repository's
+// `.mcp.json` and status line are read at (ADR-0040): the base its claim resolved, where the branch it continues left
+// the base, and never that branch's tip, which a lane wrote, so a lane that committed its own settings edit is still held
+// at its next generation. A claim that resolved no base compares at the commit the lane begins from.
+//
+// A review lane's claim base is the commit under review, which its writer wrote, so a review's is the commit the
+// reviewed lane began from, where the review's diff starts. It has no fallback: a review of a lane that recorded no base
+// has none (settingsUnbased), and never compares its settings with the writer's own commit.
+func (r *laneRun) settingsBase() string {
+	if r.reviewing() {
+		if r.lease.Attempt == nil {
+			return ""
+		}
+		return r.lease.Attempt.BaseCommit
+	}
+	return cmp.Or(r.lease.BaseCommit, r.begins())
+}
+
+// settingsUnbased says this lane is a review with no commit its settings can be compared with, so its driver reads none
+// of the repository's own files and holds every setting the worktree holds that runs code.
+func (r *laneRun) settingsUnbased() bool { return r.reviewing() && r.settingsBase() == "" }
 
 // leaseBegins is begins for a lease, which a lane's repository layer is read at (FR-PROF-5).
 func leaseBegins(lease ledger.DesiredLease) string {

@@ -78,6 +78,7 @@ func (h *handler) laneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.member(h.resetLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-respawn", h.member(h.respawnLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.member(h.archiveLane))
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-settings", h.member(h.decideLaneSettings))
 	mux.HandleFunc("GET /v1/fleet", h.showFleet)
 	mux.HandleFunc("PUT /v1/fleet/mode", h.member(h.setFleetMode))
 	mux.HandleFunc("PUT /v1/fleet/caps", h.member(h.setFleetCaps))

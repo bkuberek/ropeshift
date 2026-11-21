@@ -48,6 +48,9 @@ const (
 	// (ADR-0037).
 	TriggerSpendBlocked Trigger = "spend_blocked"
 	TriggerSpendReplan  Trigger = "spend_replan"
+	// TriggerSettingsBlocked blocks the parked work of a lane held on its own settings, which a member stopped. Only the
+	// lane settings use case takes it, with the end of the parked lane (ADR-0040).
+	TriggerSettingsBlocked Trigger = "settings_blocked"
 )
 
 // EndsSpendStop reports the edges that end a spend stop. The spend use case takes them, so the plain move of a work
@@ -55,6 +58,10 @@ const (
 func EndsSpendStop(trigger Trigger) bool {
 	return trigger == TriggerSpendBlocked || trigger == TriggerSpendReplan
 }
+
+// EndsSettingsHold reports the edge that ends a lane's hold on its own settings by blocking its work. The lane settings
+// use case takes it, so the plain move of a work order never does.
+func EndsSettingsHold(trigger Trigger) bool { return trigger == TriggerSettingsBlocked }
 
 // TriggerLaneFailedRetry is a failed lane returning its work to `ready` on its own, which a build before
 // retries were judged recorded (ADR-0014). Nothing takes it now, and a replay still reads it.
@@ -85,6 +92,7 @@ var edges = []Transition{
 	{Parked, TriggerWakeFired, Ready, false},
 	{Parked, TriggerSpendBlocked, Blocked, false},
 	{Parked, TriggerSpendReplan, Planning, false},
+	{Parked, TriggerSettingsBlocked, Blocked, false},
 	{Running, TriggerLeaseExpired, Lapsed, true},
 	{Lapsed, TriggerReturnedStarted, Running, true},
 	{Lapsed, TriggerReturnedUnstarted, Claimed, true},

@@ -649,6 +649,9 @@ func (w *Wakes) ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane s
 		if err := onlyAMemberEndsASpendStop(tx, row.WorkOrder, lane, actor); err != nil {
 			return err
 		}
+		if err := onlyAChoiceEndsASettingsHold(tx, lane); err != nil {
+			return err
+		}
 		fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: lane}, actor, noStamp)
 		return err
 	})
@@ -714,6 +717,9 @@ func (w *Wakes) ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOr
 			}
 			if row.WorkOrder == workOrder {
 				if err := onlyAMemberEndsASpendStop(tx, workOrder, wake.Lane, actor); err != nil {
+					return err
+				}
+				if err := onlyAChoiceEndsASettingsHold(tx, wake.Lane); err != nil {
 					return err
 				}
 				fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: wake.Lane}, actor, noStamp)

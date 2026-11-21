@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -233,8 +231,9 @@ func resolveRepositoryLayer(user, layer, overrides, where string) (lanes.Profile
 
 // repositoryLayer reads a repository's layer from its git objects at base, and says where it read it, which
 // names the file and the commit. A file absent at that commit is no layer. A path that is not a regular file
-// there is a layer that cannot be read. An empty repository is none, and not the directory the process happens
-// to run in.
+// there is a layer that cannot be read. Each object the read takes must hash to its name, so a replace ref, an
+// alternate, or a loose object written over the real one cannot stand in for the file (gitcli.FileAt). An empty
+// repository is none, and not the directory the process happens to run in.
 func (f Filesystem) repositoryLayer(ctx context.Context, repository, base string) (text, where string, err error) {
 	if repository == "" {
 		return "", "", nil
@@ -245,30 +244,20 @@ func (f Filesystem) repositoryLayer(ctx context.Context, repository, base string
 		return "", "", err
 	}
 	where = fmt.Sprintf("%s at commit %s", RepositoryFile, commit)
-	listing, err := git.Text(ctx, "ls-tree", "--long", commit, "--", RepositoryFile)
-	if err != nil {
-		return "", "", fmt.Errorf("reading %s: %w", where, err)
-	}
-	if listing == "" {
-		return "", where, nil
-	}
-	entry, _, _ := strings.Cut(listing, "\t")
-	fields := strings.Fields(entry)
-	if len(fields) != 4 || fields[1] != "blob" || fields[0] == symlinkMode {
+	raw, found, err := git.FileAt(ctx, commit, RepositoryFile, MaxLayerBytes)
+	var large *gitcli.FileTooLargeError
+	switch {
+	case errors.Is(err, gitcli.ErrNotAFile):
 		return "", "", fmt.Errorf("%w: %s is not a regular file", lanes.ErrBadProfile, where)
-	}
-	if size, err := strconv.ParseInt(fields[3], 10, 64); err != nil || size > MaxLayerBytes {
-		return "", "", fmt.Errorf("%w: %s is %s bytes, over the %d a layer may hold", lanes.ErrBadProfile, where, fields[3], MaxLayerBytes)
-	}
-	raw, err := git.Output(ctx, "cat-file", "blob", fields[2])
-	if err != nil {
+	case errors.As(err, &large):
+		return "", "", fmt.Errorf("%w: %s is %d bytes, over the %d a layer may hold", lanes.ErrBadProfile, where, large.Size, MaxLayerBytes)
+	case err != nil:
 		return "", "", fmt.Errorf("reading %s: %w", where, err)
+	case !found:
+		return "", where, nil
 	}
 	return string(raw), where, nil
 }
-
-// symlinkMode is the mode git records for a symbolic link.
-const symlinkMode = "120000"
 
 // MaxLayerBytes is the most a repository's layer may hold. A layer is a short file of settings, and the limit
 // keeps one that is not from being read into memory.

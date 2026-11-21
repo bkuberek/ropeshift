@@ -149,6 +149,12 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 	if !session.ReadOnly || session.Dir != spec.Path || sessions[0].ReadOnly {
 		t.Errorf("the review's session reads %+v, and the first lane's read-only is %v", session, sessions[0].ReadOnly)
 	}
+	// What the review's session runs of the repository, its `.mcp.json`, status line, settings, and hooks, is read at
+	// the commit the reviewed lane began from, where the diff starts, and never at the commit under review, which the
+	// writer wrote (ADR-0040).
+	if session.Base != head || session.SettingsBase != start || session.SettingsUnbased {
+		t.Errorf("the review's session reads the repository at %q and its settings at %q (unbased %v), want %q and %q", session.Base, session.SettingsBase, session.SettingsUnbased, head, start)
+	}
 	for _, want := range []string{head, start, lanes.ReviewDiffFile, lanes.ReviewFilesFile, "work order " + r.id} {
 		if !strings.Contains(session.Brief, want) {
 			t.Errorf("the brief leaves out %q:\n%s", want, session.Brief)

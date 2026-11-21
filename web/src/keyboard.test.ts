@@ -905,6 +905,14 @@ const paths: Record<string, KeyPath> = {
     sent: post(/\/work-orders\/wo-stop\/spend\/replan$/, {}),
     run: decide("Add the retry budget (spend stop)", "Send to replanning"),
   },
+  "POST /v1/projects/{project}/work-orders/{id}/lane-settings": {
+    sent: post(/\/work-orders\/wo-hooked\/lane-settings$/, { lane: "lane-wo-hooked", digest: "sha256:hooked", choice: "base" }),
+    run: decide("Lane lane-wo-hooked changed its own hooks/permissions", "Run with the repository's settings (base)"),
+  },
+  "POST /v1/projects/{project}/workers/{id}/personal-setup/acceptances": {
+    sent: post(/\/workers\/worker-a\/personal-setup\/acceptances$/, { version: "2.1.330", kind: "mcp_server", name: "github" }),
+    run: decide("Your MCP server github reached lanes on worker-a", "Accept it for this machine's lanes"),
+  },
 };
 
 const missing = changing.filter((name) => !(name in paths));

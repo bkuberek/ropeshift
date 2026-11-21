@@ -168,6 +168,9 @@ type Request struct {
 	Work *WorkRequest `json:"work,omitempty"`
 	// Who asks whom this token stands for, which only the worker can say.
 	Who bool `json:"who,omitempty"`
+	// Reload is a session's `ConfigChange` hook asking whether its agent CLI may apply a settings file or a skill that
+	// changed during the session, which the worker answers in Reply.Reload (ADR-0040).
+	Reload bool `json:"reload,omitempty"`
 }
 
 // LaneOnly says a line asks for what only a lane does. An orchestrator has no work to report on, no
@@ -209,7 +212,21 @@ type Reply struct {
 	// Parking answers a wait longer than the lane may hold a session for: the worker parks the lane, and the
 	// lane ends its turn (FR-SPEND-1).
 	Parking bool `json:"parking,omitempty"`
+	// Reload answers a Reload: ReloadAllow or ReloadBlock. A hook applies a change only on ReloadAllow.
+	Reload string `json:"reload,omitempty"`
 }
+
+// What the worker answers a session's hook that asks whether its agent CLI may apply a settings file or a skill that
+// changed during the session (ADR-0040).
+const (
+	// ReloadAllow says the change runs nothing a member has not chosen: the session's settings match the repository's
+	// at the commit the lane's work began from, in every key that runs code or widens access, or match what the
+	// session started with.
+	ReloadAllow = "allow"
+	// ReloadBlock says the session keeps the settings it has, because the change runs code or widens access, or
+	// because the worker could not tell.
+	ReloadBlock = "block"
+)
 
 // What a look at a call can answer.
 const (

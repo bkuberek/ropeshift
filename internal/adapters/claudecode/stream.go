@@ -142,6 +142,8 @@ type parsed struct {
 	tools []lanes.ToolUse
 	// call is one API call's usage, which the turn's running cost is estimated from.
 	call *streamCall
+	// init is what a session's `system/init` says it loaded.
+	init *initReport
 }
 
 func parseLine(raw []byte, windows bool) (parsed, error) {
@@ -157,7 +159,14 @@ func parseLineOf(raw []byte, windows, replies bool) (parsed, error) {
 	}
 	switch line.Type {
 	case "system":
-		return parseSystem(line), nil
+		out := parseSystem(line)
+		if line.Subtype == "init" {
+			var init initReport
+			if json.Unmarshal(raw, &init) == nil {
+				out.init = &init
+			}
+		}
+		return out, nil
 	case "stream_event":
 		return parseStreamEvent(line), nil
 	case "result":

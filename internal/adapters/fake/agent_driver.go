@@ -82,6 +82,8 @@ type DriverScript struct {
 	Turns     [][]DriverStep
 	// Silent admits no input, for a path with no acknowledgement of a brief.
 	Silent bool
+	// Setup is what the session reports it loaded when it binds.
+	Setup *lanes.Setup
 }
 
 // AgentDriver runs scripted sessions in memory. No process starts.
@@ -126,6 +128,10 @@ type AgentDriver struct {
 	sendErr      error
 	noCompact    bool
 	holds        []string
+	// settings is what each preflight says the lane's worktree changed of its project settings, until a test sets
+	// another, and restored counts the starts that asked for the repository's settings to be put back.
+	settings *lanes.SettingsChange
+	restored int
 	// calls counts the tool calls that ran, and denied those a hold stopped.
 	calls, denied int
 	// midTurnRefused stands for a socket that takes nothing, on a version that says it can.
@@ -509,9 +515,41 @@ func (d *AgentDriver) ReadUsage(context.Context, ports.SessionSpec) (string, err
 	return d.usageText, d.usageErr
 }
 
-// Preflight applies the checks a spec must pass on every driver.
+// ChangeSettings has each preflight from now on say that the lane's worktree changed its project settings as change
+// says, until a start puts the repository's back. Nil says they match.
+func (d *AgentDriver) ChangeSettings(change *lanes.SettingsChange) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.settings = change
+}
+
+// SettingsChange says what the test set of the worktree's settings, as each preflight does.
+func (d *AgentDriver) SettingsChange(context.Context, ports.SessionSpec) *lanes.SettingsChange {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.settings == nil {
+		return nil
+	}
+	change := *d.settings
+	return &change
+}
+
+// Restored counts the starts that put the repository's settings back.
+func (d *AgentDriver) Restored() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.restored
+}
+
+// Preflight applies the checks a spec must pass on every driver, and says what the test set of the worktree's settings.
 func (d *AgentDriver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.PreflightReport, error) {
 	var report ports.PreflightReport
+	d.mu.Lock()
+	if d.settings != nil {
+		change := *d.settings
+		report.Settings = &change
+	}
+	d.mu.Unlock()
 	if spec.PermissionMode == "" {
 		report.Problems = append(report.Problems, "no permission mode")
 	}
@@ -540,6 +578,10 @@ func (d *AgentDriver) Resume(ctx context.Context, spec ports.SessionSpec, from p
 func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if spec.SettingsAtBase {
+		d.restored++
+		d.settings = nil
+	}
 	if d.started != 0 && len(d.queue) != 0 {
 		d.next, d.queue = d.queue[0], d.queue[1:]
 	}
@@ -648,7 +690,7 @@ func (s *driverSession) playTurn(steps []DriverStep) (*ports.SessionEnd, bool) {
 	for _, step := range steps {
 		switch {
 		case step.Bound:
-			s.events <- ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.script.SessionID, ModelResolved: s.script.Model}
+			s.events <- ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.script.SessionID, ModelResolved: s.script.Model, Setup: s.script.Setup}
 		case step.Context != nil:
 			s.mu.Lock()
 			s.context = step.Context.Context()

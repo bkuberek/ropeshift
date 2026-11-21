@@ -66,6 +66,8 @@ const (
 	OpAutonomyWithdrawOneWay              = "autonomy.withdraw_one_way"
 	OpAutonomyWindow                      = "autonomy.window"
 	OpWorkerLaneCaps                      = "worker.lane_caps"
+	OpPersonalSetupAccept                 = "personal_setup.accept"
+	OpLaneSettingsDecide                  = "lane.settings_decide"
 	OpTemplateWrite                       = "template.write"
 	OpRepositoryCreateRemote              = "repository.create_remote"
 	OpOrchestratorRun                     = "orchestrator.run"
@@ -232,6 +234,12 @@ var operations = append(onInstallation(
 	// A worker's lane caps live in the user's profile on its machine and set what that machine admits. No
 	// ledger record holds them for a card to bind to, so a delegate's call is refused, not carded.
 	memberOnly(OpWorkerLaneCaps, "Set a worker's lane caps", ActionSetLaneCaps),
+	// Accepting a piece of a member's own CLI setup for a machine's lanes is that member's choice about what their own
+	// configuration brings into lanes, so a delegate's call is refused, not carded.
+	memberOnly(OpPersonalSetupAccept, "Accept your own agent CLI setup for a machine's lanes", ActionAcceptPersonalSetup),
+	// How a lane runs that changed its own hooks, plugins, or permissions is a security choice about what runs outside
+	// every rule, so a delegate's call is refused, not carded.
+	memberOnly(OpLaneSettingsDecide, "Choose how a lane that changed its own settings runs", ActionDecideLaneSettings),
 	// A template write puts files at a path a caller chooses on a machine, which a delegate could choose, and
 	// no ledger record holds them for a card to bind to, as for worker.lane_caps and
 	// repository.register_manifest, so a delegate's call is refused, not carded.

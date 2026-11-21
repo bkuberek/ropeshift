@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -117,6 +118,25 @@ type laneRun struct {
 	// reads beside it (ADR-0022). The handle's lock guards both.
 	worktree string
 	reads    []lanes.ReadTree
+	// loaded is what this generation's session reported it loaded at its start, and leaks the instruction files it
+	// loaded from outside its worktree, which the lane's setup record names among the member's own pieces. The
+	// handle's lock guards both, and a generation's start clears them.
+	loaded *lanes.Setup
+	leaks  []lanes.PersonalItem
+	// settingsFound is what this generation's preflight found its worktree changed of its project settings, and
+	// settingsNote what the generation is told first when a member restored the repository's (holdOnSettings). The
+	// handle's lock guards both, and a generation's start clears them.
+	settingsFound *lanes.SettingsChange
+	settingsNote  string
+	// reloadSpec is the spec this generation's session started with, which a reload of its settings is checked with,
+	// and settingsRan the digest of the change it started with, which a member chose, or empty for the repository's
+	// (reloadAllowed). reloadKnown says this process started the session, so both are set. The handle's lock guards all
+	// three, and a generation's start clears them.
+	reloadSpec  ports.SessionSpec
+	settingsRan string
+	reloadKnown bool
+	// reloadHeld says a blocked reload already began this generation's hold, so another reload holds nothing more.
+	reloadHeld atomic.Bool
 	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
 	maxReviewRounds int64
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
@@ -828,6 +848,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)
+	r.clearSetup()
 	r.setReads(r.prepareReads(ctx, prepared.Worktree.Path))
 	if r.assisting() {
 		grant := r.assistant().grantNow()
@@ -867,6 +888,11 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
+	if report, held := r.holdOnSettings(ctx, &spec, r.foundSettings()); held {
+		return report
+	}
+	r.startsWithSettings(spec)
+	spec.Brief = r.withSettingsNote(spec.Brief)
 	record := r.record()
 	record.TokenDigest, record.Worktree, record.Branch = lanes.TokenDigest(token), prepared.Worktree.Path, prepared.Worktree.Branch
 	// Setting a lane up can outlast its lease, and the worktree it left is what the guard reads.
@@ -930,7 +956,7 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 		return r.rt.Driver.Start(ctx, spec)
 	}
 	resumed := spec
-	resumed.Brief = r.resumePrompt()
+	resumed.Brief = r.withSettingsNote(r.resumePrompt())
 	if r.assisting() {
 		resumed.Brief = r.briefAssistant(true)
 	}
@@ -995,7 +1021,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	r.state.noteCapabilities(capabilities)
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
-		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
+		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Base: r.begins(), SettingsBase: r.settingsBase(), SettingsUnbased: r.settingsUnbased(), Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
 		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating() && !r.assisting(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
@@ -1028,7 +1054,17 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if len(report.Problems) != 0 {
 		return ports.SessionSpec{}, fmt.Errorf("preflight: %v", report.Problems)
 	}
+	r.handleLock.Lock()
+	r.settingsFound = report.Settings
+	r.handleLock.Unlock()
 	return spec, nil
+}
+
+// foundSettings is what this generation's preflight found its worktree changed of its project settings.
+func (r *laneRun) foundSettings() *lanes.SettingsChange {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.settingsFound
 }
 
 // errNoInteractive says a planning lane cannot start because the driver offers no run mode where a
@@ -1218,8 +1254,81 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	if !r.bindSession(ctx, event.SessionID, event.ModelResolved) {
 		return
 	}
+	r.recordSetup(ctx, event.Setup)
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
+	}
+}
+
+// recordSetup keeps on the lane what its session loaded at its start. The upload names the generation the session
+// runs, which the control plane records whatever the payload says. A lane's own work order holds it, so an assistant's
+// or an orchestrator's session, which runs none, records nothing here.
+func (r *laneRun) recordSetup(ctx context.Context, setup *lanes.Setup) {
+	if setup == nil || r.assisting() || r.orchestrating() {
+		return
+	}
+	r.handleLock.Lock()
+	r.loaded = setup
+	r.handleLock.Unlock()
+	r.uploadSetup(ctx)
+}
+
+// noteInstruction keeps an instruction file a lane's session loaded from outside its worktree as a leak on the lane's
+// setup record, beside what its start reported, or alone where the session reports nothing, such as in a pane. The
+// session's hook names each file once a load, so a file it names again changes nothing (ADR-0040).
+func (r *laneRun) noteInstruction(ctx context.Context, event lanes.HookEvent) {
+	if r.assisting() || r.orchestrating() {
+		return
+	}
+	worktree := r.worktreePath()
+	dirs := []string{worktree}
+	if real, err := filepath.EvalSymlinks(worktree); err == nil {
+		dirs = append(dirs, real)
+	}
+	leak, ok := lanes.InstructionLeak(dirs, event.Path, event.Detail)
+	if !ok {
+		return
+	}
+	r.handleLock.Lock()
+	known := slices.ContainsFunc(r.leaks, func(item lanes.PersonalItem) bool { return item.Name == leak.Name })
+	if !known {
+		r.leaks = append(r.leaks, leak)
+	}
+	r.handleLock.Unlock()
+	if !known {
+		r.uploadSetup(ctx)
+	}
+}
+
+// clearSetup forgets what an earlier generation's session loaded, before a generation starts.
+func (r *laneRun) clearSetup() {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	r.loaded, r.leaks = nil, nil
+	r.settingsFound, r.settingsNote = nil, ""
+	r.reloadSpec, r.settingsRan, r.reloadKnown = ports.SessionSpec{}, "", false
+	r.reloadHeld.Store(false)
+}
+
+// uploadSetup records what this generation's session loaded, with the instruction files that leaked among the member's
+// own pieces.
+func (r *laneRun) uploadSetup(ctx context.Context) {
+	r.handleLock.Lock()
+	setup := lanes.Setup{Version: r.version}
+	if r.loaded != nil {
+		setup = *r.loaded
+		setup.Personal = slices.Clone(r.loaded.Personal)
+	}
+	setup.Personal = append(setup.Personal, r.leaks...)
+	r.handleLock.Unlock()
+	lane := r.record()
+	payload, err := json.Marshal(setup)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return
+	}
+	if _, err := r.w.Record(ctx, r.w.event(ledger.UploadLaneSetup, lane, payload)); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 	}
 }
 

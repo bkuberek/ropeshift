@@ -35,6 +35,9 @@ const (
 	// unheld. It waits on the same wake: the limit above what was spent, which holds as soon as the ledger can say, or a
 	// person.
 	ParkSpendUnreadable ParkTrigger = "spend_unreadable"
+	// ParkSettings is a lane whose worktree changed the project settings its agent CLI reads in a key that runs code or
+	// widens access. It parks before its session starts and waits on a member's choice (ADR-0040).
+	ParkSettings ParkTrigger = "settings_changed"
 )
 
 // ParkRequest asks a lane to park.

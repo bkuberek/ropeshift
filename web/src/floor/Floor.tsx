@@ -6,6 +6,7 @@ import { useHealth } from "../api/useHealth";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
+import { SettingsHeld } from "../lanes/SettingsHeld";
 import { useAct } from "../needs/useAct";
 import { actionWords } from "../needs/WorkCard";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
@@ -156,6 +157,7 @@ function LaneTable({ rows, label, report, after }: { rows: Row[]; label: string;
                     <ConditionChip key={condition} name={condition} />
                   ))}
                 </span>
+                <SettingsHeld lane={row.lane.id} hold={row.lane.settings_hold} small />
               </td>
               <td data-label="Liveness">{words(row.lane.liveness)}</td>
               <td data-label="Reach">

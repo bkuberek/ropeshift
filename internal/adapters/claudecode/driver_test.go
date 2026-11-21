@@ -326,7 +326,7 @@ func TestTheSessionEnvironmentIsTheSpecs(t *testing.T) {
 		t.Fatalf("%d sessions", len(seen))
 	}
 	for name := range seen[0].Env {
-		if !slices.Contains([]string{"PATH", "ROPESHIFT_LANE_ID", "ROPESHIFT_POLICY", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "CLAUDE_CODE_TMPDIR", "BASH_MAX_TIMEOUT_MS", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"}, name) {
+		if !slices.Contains([]string{"PATH", "ROPESHIFT_LANE_ID", "ROPESHIFT_POLICY", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "CLAUDE_CODE_TMPDIR", "BASH_MAX_TIMEOUT_MS", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"}, name) {
 			t.Errorf("%s reached the session", name)
 		}
 	}
@@ -951,7 +951,7 @@ func TestGeneratedSettings(t *testing.T) {
 			t.Errorf("%s: %+v", event, groups)
 		}
 		fails := groups[0].Hooks[0].OnFailure
-		if (event == "PreToolUse") != (fails == "block") {
+		if (event == "PreToolUse" || event == "ConfigChange") != (fails == "block") {
 			t.Errorf("%s fails with %q", event, fails)
 		}
 	}

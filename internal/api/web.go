@@ -124,6 +124,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/lane-respawn", "lane respawn"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-resume", "lane resume"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-archive", "lane archive"},
+		{http.MethodPost, PersonalSetupAcceptancesPath, "worker accept-setup"},
+		{http.MethodPost, "/v1/work-orders/{id}/lane-settings", "lane settings"},
 		{http.MethodPost, "/v1/work-orders/{id}/retry", "work retry"},
 		{http.MethodPost, "/v1/work-orders/{id}/claims/{claim}/release", "work release"},
 		{http.MethodGet, "/v1/work-orders/{id}/acceptance", "work acceptance"},

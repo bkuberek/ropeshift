@@ -94,3 +94,12 @@ func TestProfileWindowsReadPerKind(t *testing.T) {
 		t.Errorf("window %+v", got)
 	}
 }
+
+// An `InstructionsLoaded` names the instruction file a session loaded and its scope, and nothing of the file.
+func TestAnInstructionsLoadedHookNamesTheFileAndItsScope(t *testing.T) {
+	input := `{"session_id":"s-1","hook_event_name":"InstructionsLoaded","file_path":"/srv/CLAUDE.md","memory_type":"Project","load_reason":"session_start"}`
+	event := lanes.NewHookEvent(lanes.EventInstructionsLoaded, []byte(input))
+	if event.Path != "/srv/CLAUDE.md" || event.Detail != "Project" {
+		t.Errorf("the hook named %q in scope %q", event.Path, event.Detail)
+	}
+}

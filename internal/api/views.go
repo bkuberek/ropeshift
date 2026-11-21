@@ -84,6 +84,10 @@ const (
 	// NeedOneWayReview is a one-way decision an orchestrator on an unattended worker made itself, which members review:
 	// one item for each decision, which blocks no work (FR-QD-8).
 	NeedOneWayReview = "one_way_review"
+	// NeedPersonalSetup is a piece of the member's own agent CLI setup that reached lanes despite the flags that keep it
+	// out: one item for each machine, CLI version, and piece, listing the lanes it reached (ADR-0040). Lanes keep running
+	// while it waits.
+	NeedPersonalSetup = "personal_setup"
 )
 
 // What a member can do about an orchestrator's one-way decision. Keep records the same decision as the member's in its
@@ -92,6 +96,43 @@ const (
 	ActDecisionKeep     = "decision_keep"
 	ActDecisionOverturn = "decision_overturn"
 )
+
+// What a member can do about personal setup that leaked. Accepting it is an operation of this API, and names the
+// command that does the same: `worker accept-setup`. Running lanes in a separate configuration directory and removing
+// the piece from their own setup have no operation: the first is not built yet, and the second is the member's own
+// change, which ropeshift never makes.
+const ActAcceptSetup = "setup_accept"
+
+// PersonalSetupActions lists what a read model can offer about personal setup, so every surface can be held to knowing
+// each one.
+var PersonalSetupActions = []string{ActAcceptSetup}
+
+// PersonalSetupNeed is one piece of the member's own setup that lanes of one worker loaded on one CLI version: the
+// piece and where it is set up, the lanes it reached, and the choice recommended for it, lanes.SetupAccept or
+// lanes.SetupSeparateDirectory, with why.
+type PersonalSetupNeed struct {
+	Worker                  string             `json:"worker"`
+	Version                 string             `json:"version"`
+	Piece                   lanes.PersonalItem `json:"piece"`
+	Lanes                   []SetupLane        `json:"lanes"`
+	Recommendation          string             `json:"recommendation"`
+	RecommendationRationale string             `json:"recommendation_rationale"`
+	Actions                 []string           `json:"actions"`
+}
+
+// SetupLane is one lane a leaked piece reached, with the work it runs.
+type SetupLane struct {
+	ID        string `json:"id"`
+	WorkOrder string `json:"work_order"`
+	Title     string `json:"title,omitempty"`
+}
+
+// AcceptPersonalSetup accepts one piece of the member's own setup for a worker's lanes on one CLI version.
+type AcceptPersonalSetup struct {
+	Version string `json:"version"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+}
 
 // Where a repository creation stands, as its Needs you item says.
 const (
@@ -285,6 +326,11 @@ type NeedItem struct {
 	Conflict *ConflictNeed `json:"conflict,omitempty"`
 	// OneWayReview is set for a one_way_review item, whose ID is the decision's.
 	OneWayReview *OneWayReviewNeed `json:"one_way_review,omitempty"`
+	// PersonalSetup is set for a personal_setup item, whose ID is the worker, the version, the kind, and the name, joined
+	// by slashes.
+	PersonalSetup *PersonalSetupNeed `json:"personal_setup,omitempty"`
+	// LaneSettings is set for a lane_settings item, whose ID is the lane.
+	LaneSettings *LaneSettingsNeed `json:"lane_settings,omitempty"`
 }
 
 // OneWayReviewNeed is a one-way decision an orchestrator on an unattended worker made itself, which waits for a member's
@@ -829,6 +875,12 @@ type FloorLane struct {
 	Archivable     bool   `json:"archivable,omitempty"`
 	// WaitsOn is set while the lane waits on a blocking question.
 	WaitsOn *WaitsOn `json:"waits_on,omitempty"`
+	// Setup is what the lane's latest session that reported it loaded at its start, the member's own pieces among them.
+	// A lane whose sessions reported nothing, such as one in a pane, has none.
+	Setup *lanes.Setup `json:"setup,omitempty"`
+	// SettingsHold is the change of its own settings the lane is held on for a member, which the lane names as what it
+	// waits on (FR-UI-13). A lane held on none has none.
+	SettingsHold *lanes.SettingsChange `json:"settings_hold,omitempty"`
 }
 
 // ShopFloor is workers, orchestrators, lanes, and their freshness.

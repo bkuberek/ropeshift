@@ -1062,6 +1062,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return reportGuard(tx, worker, id, e)
 	case ledger.UploadLaneArchived:
 		return reportArchived(tx, worker, id, e)
+	case ledger.UploadLaneSetup:
+		return reportSetup(tx, worker, id, e)
+	case ledger.UploadLaneSettingsHeld:
+		return reportSettingsHeld(tx, worker, id, e)
 	case ledger.UploadGenerationStarted:
 		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation - 1}
 		_, err := nextGeneration(tx, holder, startReason(e), ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
@@ -1247,6 +1251,26 @@ func reportArchived(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 		return err
 	}
 	return appendLaneEvent(tx, worker, id, ledger.EventLaneArchived, e)
+}
+
+// reportSetup records on a lane what one generation's session loaded at its start, as bounded plain text
+// (recordedSetup). The generation is the upload's, whatever the payload says, so a record names the session that
+// reported it.
+func reportSetup(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var setup lanes.Setup
+	if err := json.Unmarshal(e.Payload, &setup); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if err := ranLane(tx, worker, e); err != nil {
+		return err
+	}
+	setup.Generation = e.Generation
+	payload, err := json.Marshal(recordedSetup(setup))
+	if err != nil {
+		return err
+	}
+	e.Payload = payload
+	return appendLaneEvent(tx, worker, id, ledger.EventLaneSetup, e)
 }
 
 func appendLaneEvent(tx ports.WriteTx, worker, id, eventType string, e ledger.UploadEvent) error {

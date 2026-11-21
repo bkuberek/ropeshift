@@ -119,6 +119,9 @@ type Driver struct {
 	// policies names the file each session's hooks read.
 	policies map[string]string
 	listed   map[string][]listedSession
+	// bases keeps the repository's side of each lane's settings hold, so a running session's reload is checked in a
+	// hook's time (SettingsChange).
+	bases baseSides
 }
 
 // liveSession is one session this process follows, in either run mode.
@@ -333,7 +336,7 @@ func (d *Driver) Doctor(ctx context.Context) (ports.DoctorReport, error) {
 }
 
 // Preflight checks a spec before anything starts.
-func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.PreflightReport, error) {
+func (d *Driver) Preflight(ctx context.Context, spec ports.SessionSpec) (ports.PreflightReport, error) {
 	var report ports.PreflightReport
 	problem := func(format string, args ...any) {
 		report.Problems = append(report.Problems, fmt.Sprintf(format, args...))
@@ -391,6 +394,7 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	for _, found := range agentProblems(spec) {
 		problem("%s", found)
 	}
+	report.Settings = d.SettingsChange(ctx, spec)
 	return report, nil
 }
 
@@ -407,11 +411,11 @@ func args(spec ports.SessionSpec) []string {
 	return append(append(out, packArgs(spec)...), spec.Override.Args()...)
 }
 
-// packArgs states what every start and every resume says of a session beyond its files: its pack,
-// which sits in its system prompt, so generations of one version share a cache, and the vendor tools
-// it holds, which an MCP server's tools outlast.
+// packArgs states what every start and every resume says of a session beyond its files: that it runs
+// clean of the person's own setup, its pack, which sits in its system prompt, so generations of one
+// version share a cache, and the vendor tools it holds, which an MCP server's tools outlast.
 func packArgs(spec ports.SessionSpec) []string {
-	var out []string
+	out := isolationArgs(spec)
 	if spec.OnlyTools {
 		out = append(out, "--tools", "")
 	}
@@ -424,16 +428,10 @@ func packArgs(spec ports.SessionSpec) []string {
 	return append(out, agentArgs(spec)...)
 }
 
-// assistantArgs hold an assistant's session to what ropeshift gives it, whatever the person who signed the
-// CLI in has set up for themselves: its built-in tools alone, ropeshift's MCP server alone, which leaves out
-// the person's own servers and connectors, and no settings of the person's, so none of their plugins,
-// hooks, or permissions load. Its CLI keeps the person's home, where its sign-in lives, so a configuration
-// directory of its own, which would hold no sign-in, is not how it is held.
+// assistantArgs hold an assistant's session to its built-in tools alone. Like every session, it already
+// runs with ropeshift's MCP server alone and none of the person's own settings (isolationArgs).
 func assistantArgs() []string {
-	return []string{
-		"--tools", strings.Join(assistantBuiltIns, ","), "--strict-mcp-config",
-		flagSettingSources, sourceProject + "," + sourceLocal,
-	}
+	return []string{"--tools", strings.Join(assistantBuiltIns, ",")}
 }
 
 // flagMaxBudget is the client's own cap on a print-mode run's estimated spend ([CLI reference]); it counts one process,
@@ -620,6 +618,7 @@ func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, 
 	return &session{
 		handle: handle, client: client, dir: shimDir(spec), socket: shimSocket(spec), grace: d.grace,
 		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter, replies: spec.Assistant,
+		setup: setupContextOf(spec),
 	}
 }
 
@@ -709,6 +708,7 @@ func sessionEnv(spec ports.SessionSpec, use Use) []string {
 	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
+	env = append(env, isolationEnv()...)
 	env = append(env, agentEnv(spec)...)
 	env = append(env, foregroundEnv()...)
 	return append(env, TelemetryEnv(spec)...)
@@ -858,6 +858,8 @@ type session struct {
 	agents map[string]string
 	// turn is what the turn in progress is estimated to have spent, from the usage of its API calls.
 	turn turnCost
+	// setup tells the member's own pieces in what the session's init says it loaded.
+	setup setupContext
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -975,6 +977,9 @@ func (s *session) take(line []byte, seq int64) {
 	switch p.event.Kind {
 	case ports.EventSessionBound:
 		s.seen.SessionID, s.seen.ModelResolved = p.event.SessionID, p.event.ModelResolved
+		if p.init != nil {
+			p.event.Setup = s.setup.of(*p.init)
+		}
 	case ports.EventUsage:
 		s.seen.ContextTokens = p.event.ContextTokens
 	}

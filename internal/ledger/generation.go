@@ -139,6 +139,9 @@ type LaneFacts struct {
 	// Spend is what the lane's work order allows it to spend, for the worker that holds the lane to its hard limit.
 	// Nil says the work order has no hard limit.
 	Spend *SpendAllowance `json:"spend,omitempty"`
+	// Settings are the choices members made for this lane's settings changes, oldest first, so a generation that finds
+	// a change a member decided runs as they chose (ADR-0040).
+	Settings []SettingsDecision `json:"settings,omitempty"`
 }
 
 // LaneContextRequest is one read of what a workspace holds, for a lane a worker holds. A search

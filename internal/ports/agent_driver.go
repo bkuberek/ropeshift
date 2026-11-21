@@ -112,6 +112,10 @@ type DoctorReport struct {
 // PreflightReport says whether a spec can start. An empty list passes.
 type PreflightReport struct {
 	Problems []string
+	// Settings is what the lane's worktree changed of the project settings the session would read, in a key that runs
+	// code or widens access, against the repository's at the lane's base. Nil says they match, or the driver has no
+	// base to read them at.
+	Settings *lanes.SettingsChange
 }
 
 // SessionSpec is one session to start. Env is the whole environment, so nothing is
@@ -149,6 +153,22 @@ type SessionSpec struct {
 	// Repository is the checkout the worktree came from, whose local settings a worktree
 	// session shares.
 	Repository string
+	// Base is the commit the lane's worktree began from, which a driver reads the repository's own files at, such as
+	// its skills and subagents, and never from the worktree a lane can edit (FR-PROF-5). Empty names none.
+	Base string
+	// SettingsBase is the commit the lane's work began from, its claim's base, which a driver reads the repository's
+	// `.mcp.json` and the status line of its project settings at, compares the project settings in the worktree with, and
+	// restores them to, and never the tip of a branch the lane continues, which a lane wrote (ADR-0040). Empty reads at
+	// Base.
+	SettingsBase string
+	// SettingsUnbased says the lane has no commit its settings can be compared with, as a review of a lane that recorded
+	// none has: the repository's side is empty, so a driver reads none of the repository's `.mcp.json` servers or status
+	// line, holds every setting the worktree holds that runs code, and never reads at Base, which holds what the lane
+	// under review wrote (ADR-0040). SettingsBase is empty with it.
+	SettingsUnbased bool
+	// SettingsAtBase says a member chose to run the lane with the repository's settings: before the session starts, the
+	// driver restores the project settings files its preflight compares to what they hold at SettingsBase (ADR-0040).
+	SettingsAtBase bool
 	// Credential binds an API key to the CLI, for a lane that has one.
 	Credential SecretBinding
 	// TempDir is a short private directory for the session's sockets. Empty leaves
@@ -415,6 +435,9 @@ type DriverEvent struct {
 	// Tools are the calls the event's message made, with the path a file-writing call named and no other
 	// input.
 	Tools []lanes.ToolUse
+	// Setup is what an EventSessionBound's session loaded at its start, as its CLI reported it. A driver that
+	// reads no such report, or a session whose start it did not see, leaves it nil.
+	Setup *lanes.Setup
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64
@@ -484,6 +507,10 @@ type AgentDriver interface {
 	ReadUsage(ctx context.Context, spec SessionSpec) (string, error)
 	// Preflight checks a spec before start.
 	Preflight(ctx context.Context, spec SessionSpec) (PreflightReport, error)
+	// SettingsChange is what a running session's worktree changed now of the settings its session reads, as Preflight
+	// reports it, for the hook the agent CLI runs before it applies a settings file that changed during the session. It
+	// answers in a hook's time, and nil says nothing that runs code or widens access differs (ADR-0040).
+	SettingsChange(ctx context.Context, spec SessionSpec) *lanes.SettingsChange
 	// Start launches a session for a generation and returns its handle.
 	Start(ctx context.Context, spec SessionSpec) (SessionHandle, error)
 	// Resume continues an earlier session as a new generation.
