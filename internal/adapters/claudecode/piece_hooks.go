@@ -13,6 +13,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -168,9 +169,60 @@ const keyAllowedTools = "allowed-tools"
 // [subagents]: https://code.claude.com/docs/en/sub-agents#permission-modes
 const keyPermissionMode = "permissionMode"
 
-// heldFrontmatter are the frontmatter keys of a piece that widen what a session runs, sorted: its tools allowed with no
-// prompt, its hooks, which run a command as a settings hook does, and a subagent's permission mode.
-var heldFrontmatter = []string{keyAllowedTools, keyHooks, keyPermissionMode}
+// keyShellCommands names the shell commands a piece's body runs before Claude reads it, inline as !`command`, "only
+// recognized when `!` appears at the start of a line or immediately after whitespace", or in "a fenced code block opened
+// with ```!" ([inject dynamic context]). The page names the session's permission rules as their check and no PreToolUse
+// hook, so a command the lane writes there may run with none of the checks ropeshift's own hook makes, and a body whose
+// commands differ from the base's holds the lane as a hook does.
+//
+// [inject dynamic context]: https://code.claude.com/docs/en/skills#inject-dynamic-context
+const keyShellCommands = "!commands"
+
+// heldFrontmatter are the keys of a piece that widen what a session runs, sorted: the shell commands its body runs, its
+// tools allowed with no prompt, its hooks, which run a command as a settings hook does, and a subagent's permission
+// mode.
+var heldFrontmatter = []string{keyShellCommands, keyAllowedTools, keyHooks, keyPermissionMode}
+
+// inlineCommand is one inline shell command of a piece's body: !`command` at the start of a line or after whitespace.
+var inlineCommand = regexp.MustCompile("(?:^|\\s)!`([^`]+)`")
+
+// bodyCommands are the shell commands a piece's body runs, in order: each inline one, and each block opened with ```!,
+// as the lines up to the fence that closes it.
+func bodyCommands(body string) []string {
+	var out []string
+	lines := strings.Split(body, "\n")
+	for at := 0; at < len(lines); at++ {
+		if strings.HasPrefix(strings.TrimLeft(lines[at], " \t"), "```!") {
+			var block []string
+			for at++; at < len(lines) && !strings.HasPrefix(strings.TrimLeft(lines[at], " \t"), "```"); at++ {
+				block = append(block, lines[at])
+			}
+			out = append(out, strings.Join(block, "\n"))
+			continue
+		}
+		for _, found := range inlineCommand.FindAllStringSubmatch(lines[at], -1) {
+			out = append(out, found[1])
+		}
+	}
+	return out
+}
+
+// withBodyCommands is what a piece declares, with the shell commands its body runs under keyShellCommands.
+func withBodyCommands(front pieceFront, body string) pieceFront {
+	commands := bodyCommands(body)
+	if len(commands) == 0 {
+		return front
+	}
+	encoded, err := json.Marshal(commands)
+	if err != nil {
+		return pieceFront{}
+	}
+	if front.values == nil {
+		front.values = map[string]json.RawMessage{}
+	}
+	front.values[keyShellCommands] = encoded
+	return front
+}
 
 // pieceFront is what one piece's frontmatter declares of the keys that widen what a session runs (heldFrontmatter),
 // each as JSON, and none for a key it leaves out or leaves empty. A frontmatter that does not parse or that opens and is
@@ -189,7 +241,7 @@ type pieceFront struct {
 func frontmatterKeys(raw []byte) pieceFront {
 	text := strings.ReplaceAll(strings.TrimPrefix(string(raw), "\ufeff"), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---") {
-		return pieceFront{readable: true}
+		return withBodyCommands(pieceFront{readable: true}, text)
 	}
 	first, rest, _ := strings.Cut(text, "\n")
 	if first != "---" {
@@ -207,7 +259,7 @@ func frontmatterKeys(raw []byte) pieceFront {
 	out := pieceFront{readable: true}
 	for _, key := range heldFrontmatter {
 		value, declared := front[key]
-		if !declared || value == nil {
+		if key == keyShellCommands || !declared || value == nil {
 			continue
 		}
 		encoded, err := json.Marshal(value)
@@ -222,7 +274,7 @@ func frontmatterKeys(raw []byte) pieceFront {
 		}
 		out.values[key] = encoded
 	}
-	return out
+	return withBodyCommands(out, strings.Join(lines[end+1:], "\n"))
 }
 
 // pieceFile is one piece file the worktree holds: its slash-separated path there, and its content, whole unless it is
