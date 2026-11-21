@@ -394,8 +394,10 @@ export async function keptIDOf(decision: string): Promise<string> {
 // keepDecision records a decision again as the member's, in its place and with nothing else changed, as
 // `ropeshift decision record --supersedes` does. A decision that replaces one with the same content binds nothing anew,
 // so the work it reaches stands as it was. It is how a member keeps a one-way decision an orchestrator made (FR-QD-8).
+// The path is built before the ID is, because inProjectOf names an item's project only until the first await.
 export async function keepDecision(decision: RecordedDecision): Promise<RecordedDecision> {
-  return recordDecision({
+  const path = paths.decisions();
+  const request: RecordDecision = {
     id: await keptIDOf(decision.id),
     status: decision.status === "assumed" ? "assumed" : "decided",
     statement: decision.statement,
@@ -405,7 +407,8 @@ export async function keepDecision(decision: RecordedDecision): Promise<Recorded
     ...(decision.reversibility ? { reversibility: decision.reversibility } : {}),
     ...(decision.categories?.length ? { categories: decision.categories } : {}),
     supersedes: decision.id,
-  });
+  };
+  return call<RecordedDecision>("POST", path, request);
 }
 
 // overturnDecision reverses a decision with what takes its place, as `ropeshift decision overturn` does. It

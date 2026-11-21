@@ -75,6 +75,16 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     });
   });
 
+  it("keeps a decision of another project in that project", async () => {
+    const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { ...review().one_way_review.decision, id: "kept-d-repositories" } } : { status: 200, body: {} }));
+    const later = vi.fn(async () => {});
+    show({ ...review(), project: { id: "p-harbor", name: "harbor" } }, later);
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Keep" }));
+    await waitFor(() => expect(later).toHaveBeenCalled());
+    const posted = sent.filter((call) => call.method === "POST");
+    expect(posted.map((call) => [call.project, call.path])).toEqual([["harbor", "/v1/decisions"]]);
+  });
+
   it("overturns the decision from the dialog Decisions uses", async () => {
     const decision = review().one_way_review.decision;
     const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { old: { ...decision, status: "overturned" }, new: { ...decision, id: "d-new", statement: "One repository." } } } : { status: 200, body: {} }));
