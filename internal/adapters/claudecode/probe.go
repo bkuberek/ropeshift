@@ -27,7 +27,11 @@ const EnvProbe = lanes.TagPrefix + "PROBE"
 //
 // A stopping worker ends a probe within a bound of its own, which `ropeshift init`'s daemon must fit in:
 // a session ends within two probeExitWaits and a killWait, and a pane within a probeExitWait and a
-// probeCloseWait, and a stop that cancels the probe's context skips every wait but the last.
+// probeCloseWait. A stop that cancels the probe's context skips the interrupt and the waits before it, and
+// gives a session probeStopGrace after its stdin closed before the kill: the agent CLI runs with the person's
+// own home directory, and a session that is ending may be writing its configuration there. A stopped probe's
+// checks end at once, so its sessions end within probeStopGrace and a killWait, and its pane within a
+// probeCloseWait, together far inside the grace a stopping daemon gives its worker.
 var (
 	probeSocketWait  = 20 * time.Second
 	probeTurnWait    = 2 * time.Minute
@@ -35,6 +39,7 @@ var (
 	probeHoldWait    = 20 * time.Second
 	probeExitWait    = 5 * time.Second
 	probeCloseWait   = 5 * time.Second
+	probeStopGrace   = 1500 * time.Millisecond
 	probeScreenWait  = time.Minute
 )
 
@@ -842,9 +847,11 @@ func (s *probeSession) awaitExit(ctx context.Context, limit time.Duration) bool 
 }
 
 // end closes stdin, which ends a session between turns, and signals only the process it started when that
-// is not enough: an interrupt, then a kill. Each of the first two steps waits at most probeExitWait, and a
-// probe whose context ended skips both waits and the interrupt, because the worker that stopped it has a
-// bounded time to end. After the kill it waits killWait for the end, as a stop of a lane's session does.
+// is not enough: an interrupt, then a kill. Each of the first two steps waits at most probeExitWait. A probe
+// whose context ended skips the interrupt and what is left of those waits, because the worker that stopped it
+// has a bounded time to end, and waits probeStopGrace before the kill instead, because a session that is
+// ending may be writing its configuration in the person's own home directory. After the kill it waits
+// killWait for the end, as a stop of a lane's session does.
 func (s *probeSession) end(ctx context.Context) {
 	s.closeInput()
 	if s.awaitExit(ctx, probeExitWait) {
@@ -855,6 +862,9 @@ func (s *probeSession) end(ctx context.Context) {
 		if s.awaitExit(ctx, probeExitWait) {
 			return
 		}
+	}
+	if ctx.Err() != nil && s.awaitExit(context.WithoutCancel(ctx), probeStopGrace) {
+		return
 	}
 	_ = s.process.Signal(ports.SignalKill)
 	s.awaitExit(context.WithoutCancel(ctx), killWait)
