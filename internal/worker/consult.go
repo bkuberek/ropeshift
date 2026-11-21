@@ -42,6 +42,12 @@ const (
 	consultStopTries = 3
 	// consultStopGrace is how long a stopped consultation's session has to end before the worker stops reading it.
 	consultStopGrace = 30 * time.Second
+	// consultCatchUpQuiet is how long a session a worker that went away left may say nothing before the next start stops
+	// it. What the session streamed while nobody read it comes first, and holds what it spent past the cost the journal
+	// kept.
+	consultCatchUpQuiet = time.Second
+	// consultCatchUp is the longest the next start reads such a session before it stops it, however much it still says.
+	consultCatchUp = 10 * time.Second
 	// consultUploadDeadline bounds the upload of a consultation's end, which the next heartbeat sends if this one fails.
 	consultUploadDeadline = 5 * time.Second
 	// consultRoleFile holds a consultation's role, beside its settings.
@@ -460,8 +466,9 @@ func (w *Worker) forgetConsultation(dir string, paths ...string) {
 
 // followConsultation reads a consultation's session to its end. Its one turn is the consultation, so the session stops at
 // rest once that turn ends. A session that reaches its budget, or outlasts its deadline, is stopped where it stands,
-// and what it cost is counted either way. A session a worker that went away left is stopped at once, which why says, and
-// its cost starts from what the journal kept. Each cost the session reports past what the journal holds is journaled,
+// and what it cost is counted either way. A session a worker that went away left, which why says, is read until it
+// falls quiet, and stopped then: its cost starts from what the journal kept, and what it streamed while nobody read it
+// counts too, which a stop at once could lose. Each cost the session reports past what the journal holds is journaled,
 // so a worker that starts again counts what the session spent before it.
 func (w *Worker) followConsultation(ctx context.Context, run *consultation, handle ports.SessionHandle, events <-chan ports.DriverEvent,
 	why consultStop) ledger.ConsultationEnd {
@@ -490,13 +497,31 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 	var grace <-chan time.Time
 	done := ctx.Done()
 	why.limit = limit
+	// A left session is stopped once it has said nothing for consultCatchUpQuiet, or after consultCatchUp however much
+	// it still says.
+	var quiet *time.Timer
+	var hushed, readFor <-chan time.Time
 	if why.restarted {
+		quiet = time.NewTimer(consultCatchUpQuiet)
+		defer quiet.Stop()
+		hushed, readFor = quiet.C, time.After(consultCatchUp)
+	}
+	caughtUp := func() {
+		hushed, readFor = nil, nil
 		stop(ports.StopNow)
-		grace = time.After(consultStopGrace)
+		if grace == nil {
+			grace = time.After(consultStopGrace)
+		}
 	}
 	budget := run.grant.BudgetUSD
 	for {
 		select {
+		case <-hushed:
+			caughtUp()
+			continue
+		case <-readFor:
+			caughtUp()
+			continue
 		case <-deadline.C:
 			why.timedOut = true
 			stop(ports.StopNow)
@@ -515,6 +540,9 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 		case event, open := <-events:
 			if !open {
 				return consultationEnded(run, end, why)
+			}
+			if hushed != nil {
+				quiet.Reset(consultCatchUpQuiet)
 			}
 			switch event.Kind {
 			case ports.EventSessionBound:
