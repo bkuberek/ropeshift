@@ -88,6 +88,10 @@ type Rig struct {
 	Wrap func(ports.Store) ports.Store
 	// NewOps builds the use cases under test, and a variant replaces one.
 	NewOps func(ports.Store) Ops
+	// WakeClockAheadMs is how far ahead of the database a run's processes evaluate wakes, which a run on a
+	// test clock sets. CheckWakes replays each firing at its recorded time plus this, the time the firing
+	// read. Zero is the database's own time.
+	WakeClockAheadMs int64
 
 	backend Backend
 	trace   Trace

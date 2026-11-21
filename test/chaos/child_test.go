@@ -60,6 +60,10 @@ type childSpec struct {
 	TTLMs      int64  `json:"ttl_ms,omitempty"`
 	Key        string `json:"key,omitempty"`
 
+	// TimerLeadMs puts a lifecycle child on the test clock: lanes set timers this far ahead, and
+	// tickers read time this far ahead.
+	TimerLeadMs int64 `json:"timer_lead_ms,omitempty"`
+
 	Slot  int    `json:"slot,omitempty"`
 	Spawn int    `json:"spawn,omitempty"`
 	Seed  uint64 `json:"seed,omitempty"`

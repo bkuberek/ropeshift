@@ -32,6 +32,10 @@ const (
 	timerAheadMs = int64(120)
 	// timerTries bounds how often a slow commit doubles that.
 	timerTries = 6
+	// testClockLeadMs is the test clock of the lifecycle's lost-wake runs. Lanes set every timer this far
+	// ahead, an hour, which no commit on a slow runner reaches, and tickers read time this far ahead,
+	// so only a tick can wake a lane, and it wakes it at once.
+	testClockLeadMs = int64(time.Hour / time.Millisecond)
 	// killLimit bounds the killing, which KILLS=1500 stretches.
 	killLimit = 20 * time.Minute
 	// drainLimit bounds a drain, and a lost wake is a work order that never gets there.
@@ -58,7 +62,11 @@ func roleCommitParked(c *child) error {
 }
 
 func roleWakeTick(c *child) error {
+	c.traceDue("tick")
 	fired, err := c.ops.WakeTick(c.ctx, c.scope, c.member())
+	if len(fired) != 0 {
+		c.trace("tick fired %v", fired)
+	}
 	for _, id := range fired {
 		if err := c.completed("wake", "", id, 0, 0); err != nil {
 			return err
@@ -619,7 +627,9 @@ func (c *child) runningRound(row workorders.WorkOrder) error {
 
 // roundExpr picks one of four shapes by the fence, so a restart picks the same one. A round
 // moves the fence twice, once for its claim and once for its park, so it is half the fence
-// that counts rounds. A wake already stored keeps the time the first attempt wrote.
+// that counts rounds. A wake already stored keeps the time the first attempt wrote. Its timer is
+// a few milliseconds ahead, which a slow commit can pass, so a run on the test clock sets it out of
+// reach, and only a tick reading ahead of the database can fire it.
 func (c *child) roundExpr(row workorders.WorkOrder) (string, error) {
 	var now int64
 	err := c.store.Read(c.ctx, c.scope, func(tx ports.ReadTx) error {
@@ -630,7 +640,11 @@ func (c *child) roundExpr(row workorders.WorkOrder) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	timer := timerExpr(now + int64(c.rng.IntN(20)) + 5)
+	ahead := int64(c.rng.IntN(20)) + 5
+	if c.spec.TimerLeadMs != 0 {
+		ahead = c.spec.TimerLeadMs
+	}
+	timer := timerExpr(now + ahead)
 	question := laneAt(row) + "-q"
 	draft := questions.Question{ID: question, Text: "Round " + question}
 	if _, err := c.ops.RecordQuestion(c.ctx, c.scope, draft, c.member()); err != nil {
@@ -647,8 +661,56 @@ func (c *child) roundExpr(row workorders.WorkOrder) (string, error) {
 	return fmt.Sprintf(`{"all_of":[%s,%s]}`, timer, askedExpr(question)), nil
 }
 
+// readsAhead puts a process on the test clock: it evaluates wakes at the database's time plus the
+// lead, through the seam that evaluates a wake early. Every process that decides a wake but a
+// lane's own park commit takes it, because an answer decides a wake too, and an answerer on the
+// database's time reads a timer an hour ahead as not yet due, so no event would ever finish an
+// `all_of` that a tick found half true.
+func (c *child) readsAhead() {
+	if c.spec.TimerLeadMs != 0 {
+		control.Sabotaged(control.Sabotage{EarlyMs: c.spec.TimerLeadMs})
+	}
+}
+
+// traceFile is where the processes of a run on the test clock write what they read and decided.
+func traceFile(dir string) string { return filepath.Join(dir, "lifecycle-trace.log") }
+
+// trace appends one line to the run's trace, which a failing run prints. Each line is one write in
+// append mode, so processes do not tear each other's lines. A run off the test clock traces nothing.
+func (c *child) trace(format string, args ...any) {
+	if c.spec.TimerLeadMs == 0 {
+		return
+	}
+	f, err := os.OpenFile(traceFile(filepath.Dir(c.spec.LogPath)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	line := fmt.Sprintf("%s %s/%d.%d ", time.Now().Format("15:04:05.000"), c.spec.Role, c.spec.Slot, c.spec.Spawn)
+	_, _ = fmt.Fprintf(f, line+format+"\n", args...)
+}
+
+// traceDue records the database's time, the time this process evaluates at, and the wakes due then.
+func (c *child) traceDue(what string) {
+	if c.spec.TimerLeadMs == 0 {
+		return
+	}
+	var now int64
+	var due []string
+	err := c.store.Read(c.ctx, c.scope, func(tx ports.ReadTx) error {
+		var err error
+		if now, err = tx.Now(); err != nil {
+			return err
+		}
+		due, err = tx.Wakes().Due(now + c.spec.TimerLeadMs)
+		return err
+	})
+	c.trace("%s db=%d evaluatedAt=%d lead=%d due=%v err=%v", what, now, now+c.spec.TimerLeadMs, c.spec.TimerLeadMs, due, err)
+}
+
 // roleWakeTicker ticks until the work is over.
 func roleWakeTicker(c *child) error {
+	c.readsAhead()
 	for !c.overNow() {
 		if err := roleWakeTick(c); err != nil {
 			return err
@@ -661,6 +723,7 @@ func roleWakeTicker(c *child) error {
 // roleWakeAnswerer answers what is open until the work is over. A client's ID makes a repeat
 // the same answer.
 func roleWakeAnswerer(c *child) error {
+	c.readsAhead()
 	for !c.overNow() {
 		var open []questions.Question
 		err := c.store.Read(c.ctx, c.scope, func(tx ports.ReadTx) error {
@@ -676,6 +739,7 @@ func roleWakeAnswerer(c *child) error {
 			if _, err := c.ops.Answer(c.ctx, c.scope, question.ID, answer, c.member()); err != nil {
 				return err
 			}
+			c.trace("answered %s", question.ID)
 		}
 		time.Sleep(6 * time.Millisecond)
 	}
@@ -695,8 +759,10 @@ type lifecycleRun struct {
 	limit  int64
 	drain  time.Duration
 	orders []string
-	mu     sync.Mutex
-	broken []string
+	// timerLeadMs, when set, puts the run on the test clock.
+	timerLeadMs int64
+	mu          sync.Mutex
+	broken      []string
 	// steps counts the kills that landed on a named step.
 	steps map[string]int
 }
@@ -713,7 +779,7 @@ func (r *lifecycleRun) keepRunning(role, workOrder string, slot int) {
 	spawn := 0
 	for !r.over() {
 		spawn++
-		spec := r.world.spec(childSpec{Role: role, WorkOrder: workOrder, Slot: slot, Spawn: spawn, Seed: crashSeed()})
+		spec := r.world.spec(childSpec{Role: role, WorkOrder: workOrder, Slot: slot, Spawn: spawn, Seed: crashSeed(), TimerLeadMs: r.timerLeadMs})
 		killing := r.kills.Load() < r.limit
 		aimed := killing && rng.IntN(2) == 0
 		if aimed {
@@ -900,15 +966,73 @@ func newLifecycle(w *world, kills int64, drain time.Duration) (*lifecycleRun, er
 	return run, nil
 }
 
-// checkLostWake runs the lifecycle on a build whose tick finds nothing, which loses every wake
+// lostWakeRun is the lifecycle on the test clock. No park commit reaches a timer, so a lane's first
+// wake, which waits on a timer alone, comes from a tick or not at all.
+func lostWakeRun(w *world, drain time.Duration) (*lifecycleRun, error) {
+	run, err := newLifecycle(w, 8, drain)
+	if err != nil {
+		return nil, err
+	}
+	run.timerLeadMs = testClockLeadMs
+	w.rig.WakeClockAheadMs = testClockLeadMs
+	return run, nil
+}
+
+// checkLostWake runs the lost-wake run on a build whose tick finds nothing, which loses every wake
 // that waits on a timer alone. It proves the drain can fail.
 func checkLostWake(w *world) error {
-	run, err := newLifecycle(w, 8, 3*time.Second)
+	run, err := lostWakeRun(w, 3*time.Second)
 	if err != nil {
 		return err
 	}
 	_, err = run.execute()
 	return err
+}
+
+// dumpTrace logs what a run on the test clock read and decided, and the wakes still open with the
+// time the tick next reads each, which is zero for one only an event can change.
+func (r *lifecycleRun) dumpTrace(t *testing.T) {
+	t.Helper()
+	if data, err := os.ReadFile(traceFile(r.world.target.Dir)); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		t.Logf("%d trace lines, the last %d:\n%s", len(lines), min(len(lines), 400), strings.Join(lines[max(0, len(lines)-400):], "\n"))
+	}
+	err := r.world.store.Read(r.world.rig.Ctx, r.world.rig.Scope, func(tx ports.ReadTx) error {
+		open, err := tx.Wakes().Open()
+		if err != nil {
+			return err
+		}
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		t.Logf("database time %d, test clock reads %d", now, now+testClockLeadMs)
+		for _, wake := range open {
+			t.Logf("open wake %s on %s: next_eval_at=%d expr=%s", wake.ID, wake.Lane, wake.NextEvalAt, wake.Expr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Logf("open wakes: %v", err)
+	}
+}
+
+// TestLostWakeRunDrainsOnAHealthyTick is the other half of the lost-wake variant: the same run on
+// the same test clock with no sabotage wakes every lane, so the variant is caught for the tick it
+// breaks and not for the clock.
+func TestLostWakeRunDrainsOnAHealthyTick(t *testing.T) {
+	run, err := lostWakeRun(newWorld(t, ""), drainLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parks, err := run.execute()
+	if err != nil {
+		run.dumpTrace(t)
+		t.Fatalf("a healthy tick on the test clock lost a wake: %v", err)
+	}
+	if parks == 0 {
+		t.Error("no lane parked, so the run woke nothing")
+	}
 }
 
 // TestWakesSurviveRandomKills runs the whole cycle across cyclers, tickers, and an answerer,
