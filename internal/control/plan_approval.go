@@ -81,9 +81,15 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 		return err
 	}
 	// A request that names a work order approves the merge of the commit it names, which is the commit the member read.
+	// One whose planning work still waits for acceptance at that commit accepts it first, as approving a branch nothing
+	// has read does: Needs you asks for this approval in place of that acceptance, such as for a second branch that
+	// proposed the version another branch's accepted commit recorded.
 	commit := ""
 	if approval.WorkOrder != "" {
 		commit = requestCommit(approval)
+		if err := acceptNamedPlan(tx, approval, member); err != nil {
+			return err
+		}
 	}
 	if err := approvePlanMerge(tx, version, approval, member, commit); err != nil {
 		return err
@@ -611,6 +617,20 @@ func acceptLanesPlan(tx ports.WriteTx, approval authority.Approval, member ledge
 		return fmt.Errorf("%w: %s", workorders.ErrNotAcceptable, strings.Join(assessment.Failed, ", "))
 	}
 	return accept(tx, order.ID, assessment, member, func() {})
+}
+
+// acceptNamedPlan accepts the `plan` work order a request for a version the ledger holds names, when it waits for
+// acceptance, as acceptLanesPlan does for a branch nothing has read. A request that names no such work order accepts
+// nothing.
+func acceptNamedPlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
+	order, err := tx.WorkOrders().Get(approval.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil || order.Kind != workorders.KindPlan || order.State != workorders.Acceptance {
+		return err
+	}
+	return acceptLanesPlan(tx, approval, member)
 }
 
 // PlanApprovalIsCurrent reports whether a request to approve a plan was raised for the commit a work order's

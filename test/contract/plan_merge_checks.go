@@ -40,6 +40,7 @@ var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM18", "a request that named an earlier commit of a planning branch is refused while the branch waits for acceptance at another, and once that commit is accepted the plan's approval is asked for at it, which approves its merge", checkMovedPlanAsksOnceAccepted},
 	{"PM19", "two planning branches that hold one plan each ask for the plan's approval naming their own commit once accepted, and approving each approves the merge of its own branch", checkTwoBranchesOfOnePlanAskEach},
 	{"PM20", "a planning branch that waits in integrating for its plan approval when main changes the plan goes back to rework on the same branch, with why in its brief, and its next commit asks for main's version naming it", checkMainChangesThePlanOfAWaitingBranch},
+	{"PM21", "of two planning branches that propose one new version of a plan the ledger holds, approving the second's request once the first's commit recorded that version accepts the second's work and approves its merge", checkSecondBranchOfAHeldPlanIsAcceptedByItsApproval},
 })
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -1277,18 +1278,26 @@ func checkTwoBranchesOfOnePlanAskEach(r *Rig) error {
 		}
 	}
 	for order, commit := range commits {
-		view, err := r.NewOps(p.store).Standing(r.Ctx, r.Scope, order)
-		if err != nil {
+		if err := p.mergeApprovedAt(order, commit, plan, version); err != nil {
 			return err
-		}
-		if !slices.ContainsFunc(view.Integrations, func(record ledger.IntegrationRecord) bool {
-			return record.WorkOrder == order && record.ApprovedCommit == commit && record.ApprovedByKind == ledger.ApprovedByMember &&
-				record.Plan == plan && record.PlanVersion == version
-		}) {
-			return Violatedf("the merge approvals of %s are %+v, want the member's of %s for version %d", order, view.Integrations, commit, version)
 		}
 	}
 	return r.CheckProjection(p.store)
+}
+
+// mergeApprovedAt says the member's plan approval of a version approved the merge of a planning work order at a commit.
+func (p *planMergeRig) mergeApprovedAt(order, commit, plan string, version int64) error {
+	view, err := p.r.NewOps(p.store).Standing(p.r.Ctx, p.r.Scope, order)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(view.Integrations, func(record ledger.IntegrationRecord) bool {
+		return record.WorkOrder == order && record.ApprovedCommit == commit && record.ApprovedByKind == ledger.ApprovedByMember &&
+			record.Plan == plan && record.PlanVersion == version
+	}) {
+		return Violatedf("the merge approvals of %s are %+v, want the member's of %s for version %d", order, view.Integrations, commit, version)
+	}
+	return nil
 }
 
 // mainPlanFiles are the plan as main holds it after a change no planning branch made: its spec says something the
@@ -1360,6 +1369,70 @@ func checkMainChangesThePlanOfAWaitingBranch(r *Rig) error {
 		return Violatedf("the worker is asked to merge %+v, want %s: %v", merge, next, err)
 	}
 	if err := p.landed(merge, mergedBehindMain); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkSecondBranchOfAHeldPlanIsAcceptedByItsApproval(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	// The ledger holds the plan as main has it, and two planning branches propose the same new version of it.
+	if _, err := r.intake(p.store, acceptedSource(mainPlanFiles())); err != nil {
+		return err
+	}
+	first := p.grant.WorkOrder
+	second, secondHead, err := p.anotherLane("plan-again")
+	if err != nil {
+		return err
+	}
+	commits := map[string]string{first: p.head, second: secondHead}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	proposed, err := p.requestsByWorkOrder(commits)
+	if err != nil {
+		return err
+	}
+	plan, version := proposed[second].Plan, proposed[second].PlanVersion
+	if plan == "" || version != 2 || proposed[first].Plan != plan || proposed[first].PlanVersion != version {
+		return Violatedf("the branches ask %+v, want both for version 2 of the plan", proposed)
+	}
+	// The member accepts the first branch by hand, and intake records version 2 from its commit. The second branch's
+	// request now names a version the ledger holds, and waits in Needs you in place of the second work's acceptance.
+	if err := p.accept(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	waiting, err := p.requestsByWorkOrder(commits)
+	if err != nil {
+		return err
+	}
+	if waiting[second].ID != proposed[second].ID {
+		return Violatedf("the second branch's request is %+v, want %s still waiting", waiting[second], proposed[second].ID)
+	}
+	// Approving it accepts the second branch's work, as approving a plan accepts the planning work it came from, and
+	// approves its merge at its commit.
+	if _, err := r.approve(p.store, waiting[second], true, theMember); err != nil {
+		return err
+	}
+	if order, err := r.WorkOrder(p.store, second); err != nil || order.State != workorders.Integrating {
+		return Violatedf("the second planning work is %+v after its plan approval, want integrating: %v", order, err)
+	}
+	if err := p.mergeApprovedAt(second, secondHead, plan, version); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if _, err := r.approve(p.store, waiting[first], true, theMember); err != nil {
+		return err
+	}
+	if err := p.mergeApprovedAt(first, p.head, plan, version); err != nil {
 		return err
 	}
 	return r.CheckProjection(p.store)
