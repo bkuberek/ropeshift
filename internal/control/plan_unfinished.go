@@ -221,8 +221,10 @@ func unfinishedRequest(approvals ports.ApprovalReader, plan string, version int6
 
 // offerHeldVersion asks again about the newest version of a plan that stands as a placeholder, when something other than
 // its digest finished it, such as the plan's goal, which the digest does not cover. A version that is still unfinished
-// keeps its request, with what is missing now.
-func offerHeldVersion(tx ports.WriteTx, plan string) error {
+// keeps its request, with what is missing now. When intake read the commit of an accepted plan work order, that work
+// order's commit is what changed the plan, so the request names it: approving the request is then the approval of the
+// branch's merge, which a version made from the repository, with no work order of its own, could not be.
+func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin) error {
 	latest, err := tx.Planning().LatestPlanVersion(plan)
 	if err != nil {
 		return err
@@ -243,8 +245,12 @@ func offerHeldVersion(tx ports.WriteTx, plan string) error {
 	if err != nil {
 		return err
 	}
+	workOrder, source := latest.WorkOrder, latest.Source
+	if origin.workOrder != "" {
+		workOrder, source = origin.workOrder, origin.commit
+	}
 	return askForPlanApproval(tx, planAsk{
 		plan: plan, ref: planFileRef(latest.Records), title: record.Title, version: latest.Version, digest: latest.Digest, entries: latest.Records,
-		decisions: len(latest.Decisions), source: latest.Source, workOrder: latest.WorkOrder, unfinished: missing,
+		decisions: len(latest.Decisions), source: source, workOrder: workOrder, unfinished: missing,
 	})
 }

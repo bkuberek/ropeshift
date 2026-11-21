@@ -30,6 +30,8 @@ var PlanMergeChecks = []Check{
 	{"PM9", "a planning branch accepted by hand waits in integrating for its plan approval, and a member's acceptance never approves its merge", checkPlanAcceptedByHandWaits},
 	{"PM10", "a plan approved before the pull request is on record has its merge record name the pull request the worker merged through, in the record and in the merge event", checkPlanMergeNamesItsPullRequest},
 	{"PM11", "a plan approved before the pull request is on record has the person's merge on the forge recorded with the pull request's number", checkPlanForgeMergeNamesItsPullRequest},
+	{"PM12", "at review_approves, a plan held for its goal that a planning branch finishes is asked about again naming the branch's work order once intake reads its accepted commit, and approving it records the merge approval", checkHeldPlanFinishedByABranchMergesAtReviewApproves},
+	{"PM13", "at person_approves, a plan held for its goal that a planning branch finishes is asked about again naming the branch's work order once intake reads its accepted commit, and approving it records the merge approval", checkHeldPlanFinishedByABranchMergesAtPersonApproves},
 }
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -709,6 +711,93 @@ func checkPlanForgeMergeNamesItsPullRequest(r *Rig) error {
 	events, err := p.integrationEvents(ledger.EventIntegrationMerged)
 	if err != nil || len(events) != 1 || !strings.Contains(string(events[0].Data), `"pull_request":7`) {
 		return Violatedf("the merge events %+v want pull request 7: %v", events, err)
+	}
+	return r.CheckProjection(p.store)
+}
+
+// heldPlanFiles are a plan that names a goal and holds a contract that lists work, with the goal titled as given. The
+// plan's digest does not cover its goal, so the same plan with a written goal has the digest of the one with the
+// template's.
+func heldPlanFiles(goalTitle string) map[string]string {
+	return map[string]string{
+		"plan.md":   "+++\nkind = \"plan\"\nid = \"" + approvalPlan + "\"\ntitle = \"Retry budget\"\ngoal = \"retry-goal\"\n+++\n\nHow.\n",
+		"goal.md":   GoalText("retry-goal", goalTitle),
+		"budget.md": placedContract{ID: "budget", Plan: approvalPlan}.text(),
+	}
+}
+
+func checkHeldPlanFinishedByABranchMergesAtReviewApproves(r *Rig) error {
+	return heldPlanFinishedByABranchMerges(r, ledger.ReviewApproves)
+}
+
+func checkHeldPlanFinishedByABranchMergesAtPersonApproves(r *Rig) error {
+	return heldPlanFinishedByABranchMerges(r, ledger.PersonApproves)
+}
+
+// heldPlanFinishedByABranchMerges walks a plan the repository holds with the template's goal to its merge: a planning
+// branch finishes only the goal, so it asks nothing, a member accepts its work order, and intake reads the accepted
+// commit, records the goal, and asks about the held version again, naming that work order, so that approving the
+// request is the approval of the branch's merge at the level.
+func heldPlanFinishedByABranchMerges(r *Rig, level ledger.MergeAuthority) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, level, false)
+	if err != nil {
+		return err
+	}
+	if _, err := r.intake(p.store, acceptedSource(heldPlanFiles(planning.PlaceholderGoalTitle))); err != nil {
+		return err
+	}
+	held, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if len(planDetailOf(held).Unfinished) == 0 || held.WorkOrder != "" {
+		return Violatedf("the request for the plan with the template's goal is %+v", held)
+	}
+	p.files = heldPlanFiles("Retries are bounded")
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if open, err := r.theOpenPlanApproval(p.store); err != nil || open.ID != held.ID {
+		return Violatedf("the branch that only finishes the goal left the request %+v, want %s: %v", open, held.ID, err)
+	}
+	if _, err := r.NewOps(p.store).Accept(r.Ctx, r.Scope, p.grant.WorkOrder, theMember); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Integrating); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	again, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if detail := planDetailOf(again); len(detail.Unfinished) != 0 || detail.Source != p.head || again.WorkOrder != p.grant.WorkOrder ||
+		again.Plan != held.Plan || again.PlanVersion != held.PlanVersion {
+		return Violatedf("the request asked again is %+v, want version %d of the plan finished at %s for work order %s", again, held.PlanVersion, p.head, p.grant.WorkOrder)
+	}
+	if err := p.noMerge(); err != nil {
+		return err
+	}
+	if records, err := p.integrations(); err != nil || len(records) != 0 {
+		return Violatedf("an approval on record before the plan's approval: %+v, %v", records, err)
+	}
+	if _, err := r.approve(p.store, again, true, theMember); err != nil {
+		return err
+	}
+	if _, err := p.approvedBy(p.head, level, held.PlanVersion); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Commit != p.head || merge.WorkOrder != p.grant.WorkOrder {
+		return Violatedf("the worker is asked to merge %+v: %v", merge, err)
+	}
+	if err := p.noMergeRequest(); err != nil {
+		return err
+	}
+	if err := p.landed(merge, mergedPlan); err != nil {
+		return err
 	}
 	return r.CheckProjection(p.store)
 }

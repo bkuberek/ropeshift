@@ -141,7 +141,7 @@ func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.Workspa
 	}
 	made := 0
 	for _, plan := range retry {
-		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error { return offerHeldVersion(tx, plan) })
+		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error { return offerHeldVersion(tx, plan, origin) })
 		if err != nil {
 			return made, err
 		}

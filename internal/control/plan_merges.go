@@ -15,12 +15,18 @@ import (
 // not by the review agent, and that approval lets ropeshift merge it. It runs once the ledger holds the
 // approved version, so the plan's records exist before any merge, and it binds to the commit intake read the
 // version at, which is the commit the member approved. Planning work that is not waiting for its merge, and a
-// branch that moved since that commit, approve nothing: a moved head has a plan of its own to approve.
+// branch that moved since that commit, approve nothing: a moved head has a plan of its own to approve. The branch is the
+// work order the approval names, which is the version's own except for a version made from the repository, whose request
+// intake raised again for the work order whose commit finished the plan (offerHeldVersion).
 func approvePlanMerge(tx ports.WriteTx, version planning.PlanVersion, approval authority.Approval, member ledger.Actor, commit string) error {
-	if version.WorkOrder == "" {
+	workOrder := approval.WorkOrder
+	if workOrder == "" {
+		workOrder = version.WorkOrder
+	}
+	if workOrder == "" {
 		return nil
 	}
-	order, err := tx.WorkOrders().Get(version.WorkOrder)
+	order, err := tx.WorkOrders().Get(workOrder)
 	if errors.Is(err, ports.ErrNotFound) {
 		return nil
 	}
