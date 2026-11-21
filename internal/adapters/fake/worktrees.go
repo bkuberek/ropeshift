@@ -64,6 +64,8 @@ type Worktrees struct {
 	// BranchCommits and CommitPaths read.
 	subjects map[string]string
 	trees    map[string][]string
+	// hold makes each survey wait while it is set.
+	hold *surveyHold
 }
 
 // NewWorktrees returns an empty store.
@@ -155,6 +157,41 @@ func (w *Worktrees) FailSurvey(err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.survey = err
+}
+
+// surveyHold is a survey that takes its time: started closes when one is waiting, and release lets every one go on.
+type surveyHold struct {
+	started, release       chan struct{}
+	startOnce, releaseOnce sync.Once
+}
+
+// HoldSurveys makes every survey wait until release is called, as a survey of a large worktree on a busy machine
+// takes its time, and started closes once one is waiting. Release can be called more than once.
+func (w *Worktrees) HoldSurveys() (started <-chan struct{}, release func()) {
+	hold := &surveyHold{started: make(chan struct{}), release: make(chan struct{})}
+	w.mu.Lock()
+	w.hold = hold
+	w.mu.Unlock()
+	return hold.started, func() {
+		w.mu.Lock()
+		if w.hold == hold {
+			w.hold = nil
+		}
+		w.mu.Unlock()
+		hold.releaseOnce.Do(func() { close(hold.release) })
+	}
+}
+
+// awaitHold waits out a hold, if one is set.
+func (w *Worktrees) awaitHold() {
+	w.mu.Lock()
+	hold := w.hold
+	w.mu.Unlock()
+	if hold == nil {
+		return
+	}
+	hold.startOnce.Do(func() { close(hold.started) })
+	<-hold.release
 }
 
 // Commit stands for a commit only this branch holds.
@@ -345,6 +382,7 @@ const DirtyPath = "changed.txt"
 
 // Survey reads what a stop must account for.
 func (w *Worktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindings, error) {
+	w.awaitHold()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.survey != nil {

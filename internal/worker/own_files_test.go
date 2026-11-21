@@ -1,12 +1,14 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -54,8 +56,62 @@ func runOwning(t *testing.T) *laneRig {
 	t.Helper()
 	r, g := owningLane(t)
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 1000})
+	r.awaitReading(t)
 	r.endOwning(t, g)
 	return r
+}
+
+// awaitReading waits until the reading the first prompt began is kept or given up on. Its survey runs after the
+// prompt's hook has its answer.
+func (r *laneRig) awaitReading(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if kept, err := r.journal.Digest(t.Context(), "lane-1", 1); err == nil {
+			if builder, err := lanes.RestoreDigest(kept.State); err == nil && builder.Settled() {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the reading of the lane's start was never kept or given up on")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// answerBound is how long a test waits for a hook's answer that must not wait on a survey. A held survey never ends on
+// its own, so an answer that waits on one never comes.
+const answerBound = 5 * time.Second
+
+// promptWhileSurveysHeld sends the first prompt as its hook does while every survey is held, and fails unless the
+// answer comes while a survey still waits: a hook has milliseconds for its answer, and a survey runs git. It returns
+// what lets the surveys go on.
+func (r *laneRig) promptWhileSurveysHeld(t *testing.T) (release func()) {
+	t.Helper()
+	started, release := r.worktrees().HoldSurveys()
+	t.Cleanup(release)
+	line, err := json.Marshal(lanes.Request{
+		Version: lanes.SocketProtocol, Token: r.token(t), Hook: &lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 1000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered := make(chan lanes.Reply, 1)
+	go func() { answered <- r.subject.AnswerLane(context.Background(), line) }()
+	select {
+	case reply := <-answered:
+		if !reply.OK {
+			t.Fatalf("the prompt's hook was refused: %+v", reply)
+		}
+	case <-time.After(answerBound):
+		t.Fatal("the first prompt's hook waited for the survey of the worktree")
+	}
+	select {
+	case <-started:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no survey began after the first prompt")
+	}
+	return release
 }
 
 func (r *laneRig) lastGuard(t *testing.T) ledger.LaneGuard {
@@ -126,6 +182,7 @@ func TestAFailedFirstReadingLeavesTheLaneOwningEverything(t *testing.T) {
 	r, g := owningLane(t)
 	r.worktrees().FailSurvey(errors.New("the worktree is busy"))
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 1000})
+	r.awaitReading(t)
 	r.worktrees().FailSurvey(nil)
 	r.worktrees().ChangeFiles(ownWorktree, cacheFile, "gen/out.go")
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s-2", AtMs: 1050})
@@ -174,4 +231,46 @@ func TestAReadingIsNeverTakenAfterTheSessionBeganWork(t *testing.T) {
 	r.hook(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "s-2", AtMs: 1050})
 	r.endOwning(t, g)
 	r.savesEverything(t)
+}
+
+// TestAFirstPromptIsAnsweredBeforeItsSurvey is a survey that takes longer than a hook's answer may: the hook has its
+// answer at once, so it never misses its ack and spools a copy, and the reading still holds what the worktree had at
+// the prompt.
+func TestAFirstPromptIsAnsweredBeforeItsSurvey(t *testing.T) {
+	t.Parallel()
+	r, g := owningLane(t)
+	r.promptWhileSurveysHeld(t)()
+	r.awaitReading(t)
+	r.endOwning(t, g)
+	paths, scoped := r.worktrees().ScopedSnapshot(lanes.CheckpointRef("lane-1", 1))
+	if !scoped || !slices.Equal(paths, []string{"docs/a.md", "gen/out.go"}) {
+		t.Errorf("the checkpoint took %q (scoped %v)", paths, scoped)
+	}
+	if left := r.lastGuard(t).LeftOut; !slices.Equal(left, []string{".atl/"}) {
+		t.Errorf("the lane reported %q as left out", left)
+	}
+}
+
+// TestACallDuringTheSurveyGivesTheReadingUp is a session whose tools begin before the survey of its start comes back:
+// a file a call made by then would read as there before, so the lane owns every change. A call whose hook missed its
+// ack is in the spool before the call runs, and the spool is taken before a reading is kept.
+func TestACallDuringTheSurveyGivesTheReadingUp(t *testing.T) {
+	t.Parallel()
+	call := lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: lanes.EventPreToolUse, Subject: "t-0", Tool: "Bash", AtMs: 1010}
+	for name, hear := range map[string]func(*testing.T, *laneRig){
+		"live":    func(t *testing.T, r *laneRig) { r.hook(t, call) },
+		"spooled": func(t *testing.T, r *laneRig) { r.spoolAll(t, call) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r, g := owningLane(t)
+			release := r.promptWhileSurveysHeld(t)
+			hear(t, r)
+			r.worktrees().ChangeFiles(ownWorktree, cacheFile, "gen/out.go")
+			release()
+			r.awaitReading(t)
+			r.endOwning(t, g)
+			r.savesEverything(t)
+		})
+	}
 }

@@ -84,9 +84,11 @@ type DigestState struct {
 	OpenMs int64 `json:"open_ms,omitempty"`
 	// Before is every file the worktree held changed or untracked when the session began its first turn, and nil
 	// until a worker read it (FR-LANE-20). Unread says no reading will be taken, because the moment for one passed
-	// or the reading failed. It stays with the worker and never reaches the ledger.
-	Before *[]string `json:"before,omitempty"`
-	Unread bool      `json:"before_unread,omitempty"`
+	// or the reading failed. Reading says the moment came and the survey that reads the worktree has not come back.
+	// They stay with the worker and never reach the ledger.
+	Before  *[]string `json:"before,omitempty"`
+	Unread  bool      `json:"before_unread,omitempty"`
+	Reading bool      `json:"before_reading,omitempty"`
 }
 
 // MaxBefore is how many files a reading of the worktree before the first turn keeps. A worktree that holds more,
@@ -167,30 +169,52 @@ func (b *DigestBuilder) Source() DigestSource { return b.state.Digest.Source }
 // Missed records that the worker knows it missed events of this generation.
 func (b *DigestBuilder) Missed() { b.state.Digest.Complete = false }
 
+// Await marks the moment for the reading, the session's first prompt, and says whether it is one. A survey runs git
+// several times and the prompt's hook has milliseconds, so the survey comes back after the digest has seen the
+// prompt, and Begin keeps what it found. Only a digest that has seen no turn, no prompt, and no call, and that awaits
+// no reading already, has the moment. A digest past it is left unread for good.
+func (b *DigestBuilder) Await() bool {
+	if b.Settled() {
+		return false
+	}
+	if !b.Fresh() || b.state.Reading {
+		b.LeaveUnread()
+		return false
+	}
+	b.state.Reading = true
+	return true
+}
+
+// Awaiting says a reading's moment came and nothing kept it or gave it up yet.
+func (b *DigestBuilder) Awaiting() bool { return b.state.Reading && !b.Settled() }
+
 // Begin keeps what the worktree held before the session's first turn, and says whether it kept it. Only a digest
-// that has seen no turn, no prompt, and no call may keep one: later, the session's own files would read as there
-// before. A digest past that moment, or a reading of more than MaxBefore files, is left unread for good.
+// that has seen no turn, no prompt, and no call may keep one, or one that awaits the reading it began at that moment:
+// later, the session's own files would read as there before. A digest past that moment, or a reading of more than
+// MaxBefore files, is left unread for good.
 func (b *DigestBuilder) Begin(changes []string) bool {
 	if b.Settled() {
 		return false
 	}
-	if !b.Fresh() || len(changes) > MaxBefore {
-		b.state.Unread = true
+	if (!b.state.Reading && !b.Fresh()) || len(changes) > MaxBefore {
+		b.LeaveUnread()
 		return false
 	}
 	before := slices.Clone(changes)
 	if before == nil {
 		before = []string{}
 	}
-	b.state.Before = &before
+	b.state.Before, b.state.Reading = &before, false
 	return true
 }
 
-// LeaveUnread says no reading will be taken, as when the one taken at the first prompt failed.
+// LeaveUnread says no reading will be taken, as when the one taken at the first prompt failed, or a call came before
+// its survey did.
 func (b *DigestBuilder) LeaveUnread() {
 	if b.state.Before == nil {
 		b.state.Unread = true
 	}
+	b.state.Reading = false
 }
 
 // Fresh says the digest has seen no turn, no prompt, and no call, which is the only time a reading may be taken.
