@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalDecided, ApprovalRecord, CandidateList, CIWatch, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, ScheduledStart, Search, WorkAction, WorkOrder } from "./types";
+import type { ApprovalDecided, ApprovalRecord, CandidateList, CIWatch, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PaneScrollback, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, ScheduledStart, Search, WorkAction, WorkOrder } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -82,6 +82,7 @@ export const paths = {
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
   pane: (lane: string) => project(`/panes/${encodeURIComponent(lane)}`),
   paneInput: (lane: string) => project(`/panes/${encodeURIComponent(lane)}/input`),
+  paneScrollback: (lane: string, lines: number) => project(`/panes/${encodeURIComponent(lane)}/scrollback?lines=${lines}`),
 };
 
 // The named keys a chord in a lane's pane may end with: tmux's names for them, which the server holds the
@@ -485,4 +486,12 @@ export function typeIntoPane(lane: string, text: string, enter: boolean): Promis
 // sendPaneKeys presses a key sequence in a lane's pane, such as Shift-Tab or Ctrl-X Ctrl-S.
 export function sendPaneKeys(lane: string, keys: string): Promise<void> {
   return call("POST", paths.paneInput(lane), { key: keys });
+}
+
+// maxPaneScrollback is the most lines one read of a pane's scrollback asks for, as the server bounds it.
+export const maxPaneScrollback = 10000;
+
+// readPaneScrollback reads the newest lines of the scrollback of a lane's pane, up to the count asked for.
+export function readPaneScrollback(lane: string, lines: number): Promise<PaneScrollback> {
+  return call("GET", paths.paneScrollback(lane, lines));
 }

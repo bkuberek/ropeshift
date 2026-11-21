@@ -32,6 +32,15 @@ type Pane struct {
 	Exit ExitStatus
 }
 
+// Scrollback is a read of a pane's history, the lines that scrolled off the top of its visible screen:
+// the newest of them a read asked for, oldest first, each ending in a newline, with the escape sequences
+// that set their colours and emphasis, and how many lines the history holds now and keeps at most.
+type Scrollback struct {
+	Lines string
+	Size  int
+	Limit int
+}
+
 // Console is a person's terminal: the streams a client attaches with. A client reads the keyboard
 // and draws on the screen itself, so these are the process's own terminal and not a copy of it.
 type Console struct {
@@ -56,6 +65,9 @@ type Terminal interface {
 	// Screen returns the visible screen for a person to look at, with the escape sequences
 	// that set its colours and emphasis. ErrNotFound means the server holds no such pane.
 	Screen(ctx context.Context, name string) (string, error)
+	// History reads the newest lines of a pane's scrollback, up to the count asked for, for a person to
+	// look at. ErrNotFound means the server holds no such pane.
+	History(ctx context.Context, name string, lines int) (Scrollback, error)
 	// Keys sends named keys, such as Down or Enter.
 	Keys(ctx context.Context, name string, keys ...string) error
 	// Type sends literal text, with no key to submit it.

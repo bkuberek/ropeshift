@@ -1213,6 +1213,12 @@ details.older[open] > summary {
   color: var(--terminal-bg);
 }
 
+.pane-history {
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--s-4);
+}
+
 /* The shortcut sheet */
 .sheet {
   display: flex;
@@ -1308,11 +1314,12 @@ details.older[open] > summary {
 }
 
 /* ---------- Planning pane ---------- */
+/* The page is as tall as the content area, from .screen-flush, so the pane's column has a height to fill
+   and its screen scrolls inside it. */
 .planning {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  height: auto;
 }
 
 .planning .grid-pane {
@@ -1372,12 +1379,22 @@ details.older[open] > summary {
   min-height: 0;
 }
 
+/* Beside the outline and in the conversation panel, the pane fills its column and its screen is the
+   scroller, so the screen opens at the newest line and a scroll to its top reads older lines. */
 .convo-term .pane {
+  flex: 1;
+  min-height: 0;
   margin-top: 0;
   padding: var(--s-12) var(--s-16);
 }
 
+.convo-term .pane-frame {
+  flex: 1;
+  min-height: 0;
+}
+
 .convo-term .pane-screen {
+  flex: 1;
   max-height: none;
   min-height: 240px;
 }

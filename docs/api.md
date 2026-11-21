@@ -267,6 +267,10 @@ The server reads each chord into tmux's name for it: Ctrl is `C-`, Alt is `M-`, 
 | 409 | `lane_ended` | The lane has ended, so it will never have a pane again |
 | 409 | `no_pane` | The lane has no pane now: it runs without a terminal, its pane has not opened yet, it is parked, or no worker this control plane reaches holds it |
 
+## A lane pane's scrollback
+
+`GET /v1/projects/{project}/panes/{id}/scrollback?lines=N` reads the scrollback of a lane's pane, the lines that scrolled off the top of its screen, and needs a member's session. `lines` is a whole number from 1 to 10000, and 200 without one. It answers `lane_id`, `generation`, `lines`, the newest of the history's lines up to that count, oldest first, each ending in a newline, with the escape sequences that set their colours and emphasis; `size`, how many lines the history holds now; and `limit`, how many lines tmux keeps, its `history-limit` ([tmux](https://man.openbsd.org/tmux.1#history-limit)). A count out of bounds answers 400 `invalid`, an ended lane 409 `lane_ended`, and a lane with no pane to read now, such as a parked one, 409 `no_pane`. `ropeshift lane scrollback <lane> [--lines N]` prints the same lines as plain text, and with `--json` prints this answer.
+
 ## Searching a project's records
 
 `GET /v1/projects/{project}/views/search` is the read model the web UI's command palette reads. It lists the project's work orders, lanes, plans, contracts, requirements, decisions, questions, planning documents, and repositories, and the calling member's conversations by name as kind `conversation`, each with its kind, ID, title, and state, and it changes nothing. `q` keeps the records whose ID or title holds every word, in any order and any case: an exact ID first, then an ID that begins with the words, then words that each begin a word of the title, then the rest. `category` names one kind. `limit` caps the list, 20 by default when `q` is set, and `more` says the cap cut it. With no `q`, every record is listed.

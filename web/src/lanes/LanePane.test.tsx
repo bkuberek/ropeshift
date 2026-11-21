@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InProgress, OnHold, ShopFloor } from "../api/types";
 import { go } from "../app/route";
 import { openPage } from "../opening";
-import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, refusal, serveViews, withStyles } from "../testing";
 import type { Sent } from "../testing";
 
 const lane = "lane:plan 1";
@@ -632,6 +632,118 @@ describe("a lane's pane, scrolled and sized", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(typed.map((sent) => sent.body)).toEqual([{ key: "Escape" }]));
     expect(screen.getByRole("region", { name: `Pane of lane ${lane}` }).classList.contains("is-full")).toBe(true);
+  });
+});
+
+describe("a lane's pane's scrollback", () => {
+  const named = { name: `Screen of lane ${lane}` };
+  const scrollbackPath = `/v1/panes/${encodeURIComponent(lane)}/scrollback`;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // old is the history's lines from one to another, oldest first, each ending in a newline.
+  const old = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, at) => `old ${from + at}\n`).join("");
+
+  // serveHistory answers each read of the scrollback with the newest lines of a history of `size` lines.
+  function serveHistory(size: number) {
+    const asked: number[] = [];
+    serve((call) => {
+      if (call.method === "GET" && call.path.startsWith(`${scrollbackPath}?`)) {
+        const lines = Number(new URL(call.url, "http://ropeshift").searchParams.get("lines"));
+        asked.push(lines);
+        return { status: 200, body: { lane_id: lane, generation: 1, lines: size === 0 ? "" : old(Math.max(1, size - lines + 1), size), size, limit: 2000 } };
+      }
+      return undefined;
+    });
+    return asked;
+  }
+
+  // lineHeights stands for the browser's layout: each line of the screen's text is 18 pixels tall, and the
+  // screen shows 360 of them.
+  function lineHeights() {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return (this.textContent ?? "").split("\n").length * 18;
+    });
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => 360);
+  }
+
+  // The screen is the pane's scroller, held to a height, so it opens at the newest line and a scroll to its
+  // top reads older lines.
+  // happy-dom reads the rules a page declares, not its layout, so this test holds the rules that bound the
+  // screen, and a browser makes the layout from them.
+  it("scrolls in the screen itself on the lane page", async () => {
+    withStyles();
+    serveHistory(2);
+    openPage(page);
+    show(await opened(), "the screen");
+    const log = screen.getByRole("log", named);
+    expect(getComputedStyle(log).overflow).toBe("auto");
+    // The lane page fills the view, so its screen is held to the height the page shows under it.
+    expect(log.style.height).toMatch(/px$/);
+    expect(["auto", "scroll"]).not.toContain(getComputedStyle(screen.getByRole("region", { name: `Pane of lane ${lane}` })).overflowY);
+  });
+
+  it("shows the scrollback above the screen, at the newest line, and says how much there is", async () => {
+    lineHeights();
+    const asked = serveHistory(2);
+    openPage(page);
+    show(await opened(), "the screen");
+    const log = screen.getByRole("log", named);
+    await waitFor(() => expect(log.textContent).toBe("old 1\nold 2\nthe screen"));
+    expect(asked).toEqual([200]);
+    expect(screen.getByText("Showing 2 of the 2,000 lines tmux keeps")).toBeTruthy();
+    expect(log.scrollTop).toBe(3 * 18 - 360);
+  });
+
+  it("loads older lines as the member scrolls up, and keeps their place", async () => {
+    lineHeights();
+    const asked = serveHistory(500);
+    openPage(page);
+    show(await opened(), "the screen");
+    const log = screen.getByRole("log", named);
+    await waitFor(() => expect(screen.getByText("Showing 200 of the 2,000 lines tmux keeps")).toBeTruthy());
+    log.scrollTop = 0;
+    fireEvent.scroll(log);
+    await waitFor(() => expect(screen.getByText("Showing 400 of the 2,000 lines tmux keeps")).toBeTruthy());
+    expect(log.scrollTop).toBe(200 * 18);
+    expect(log.textContent?.startsWith("old 101\n")).toBe(true);
+    log.scrollTop = 0;
+    fireEvent.scroll(log);
+    await waitFor(() => expect(screen.getByText("Showing 500 of the 2,000 lines tmux keeps")).toBeTruthy());
+    log.scrollTop = 0;
+    fireEvent.scroll(log);
+    expect(asked).toEqual([200, 400, 800]);
+  });
+
+  it("keeps a colour the scrollback left open out of the screen", async () => {
+    serve((call) => (call.method === "GET" && call.path.startsWith(`${scrollbackPath}?`) ? { status: 200, body: { lane_id: lane, generation: 1, lines: "\x1b[31mred line\n", size: 1, limit: 2000 } } : undefined));
+    openPage(page);
+    show(await opened(), "the screen");
+    const log = screen.getByRole("log", named);
+    await waitFor(() => expect(log.textContent).toBe("red line\nthe screen"));
+    expect(within(log).getByText("the screen").className).toBe("");
+  });
+
+  it("says when the scrollback could not be read", async () => {
+    serve((call) => (call.method === "GET" && call.path.startsWith(`${scrollbackPath}?`) ? refusal(409, "no_pane", "lane x has no pane for generation 1") : undefined));
+    openPage(page);
+    show(await opened(), "the screen");
+    expect(await screen.findByText("The scrollback could not be read: lane x has no pane for generation 1")).toBeTruthy();
+    expect(screen.queryByText("Reading the scrollback.")).toBeNull();
+  });
+
+  it("copies the whole scrollback and the screen with Copy all", async () => {
+    const asked = serveHistory(500);
+    openPage(page);
+    show(await opened(), "the \x1b[1mscreen\x1b[0m");
+    const user = userEvent.setup();
+    await waitFor(() => expect(asked).toEqual([200]));
+    await user.click(screen.getByRole("button", { name: "Copy all" }));
+    await waitFor(() => expect(asked).toEqual([200, 2000]));
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(old(1, 500) + "the screen"));
+    expect(screen.getByText("Copied the scrollback and the screen: 501 lines.")).toBeTruthy();
   });
 });
 

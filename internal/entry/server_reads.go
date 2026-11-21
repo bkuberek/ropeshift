@@ -276,6 +276,10 @@ func (unavailablePanes) Send(context.Context, string, int64, server.PaneInput) e
 	return paneRead(readPanes)
 }
 
+func (unavailablePanes) Scrollback(context.Context, string, int64, int) (ports.Scrollback, error) {
+	return ports.Scrollback{}, paneRead(readPanes)
+}
+
 // unavailableWorkSource reads no work from a repository, and names which one.
 type unavailableWorkSource struct{ what string }
 

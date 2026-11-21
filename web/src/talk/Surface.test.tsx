@@ -1,10 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionTarget } from "../api/talk";
 import { openPage } from "../opening";
-import { here, openLedgerStream, refusal } from "../testing";
+import { FakeEvents, here, openLedgerStream, refusal, withStyles } from "../testing";
 import type { Sent } from "../testing";
 import { aConversation, serveTalk, talking } from "./serve";
 import type { Talking } from "./serve";
@@ -365,6 +365,30 @@ describe("switching the target", () => {
     await userEvent.click(screen.getByRole("link", { name: "Floor" }));
     await screen.findByRole("heading", { level: 1, name: "Floor" });
     expect(await screen.findByRole("log", { name: "Event stream of lane L-88" })).toBeTruthy();
+  });
+
+  // In the panel the pane fills the conversation and its screen is the scroller, so the screen opens at the
+  // newest line and a scroll to its top reads older lines.
+  // happy-dom reads the rules a page declares, not its layout, so this test holds the rules that bound the
+  // screen, and a browser makes the layout from them.
+  it("scrolls an interactive lane's pane in its screen, which fills the panel", async () => {
+    withStyles();
+    withLanes();
+    state.targets.lanes = [lane({ run_mode: "tmux" })];
+    const { dock } = await open(state);
+    await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Lane.*L-88/ }));
+    const pane = await within(dock).findByRole("region", { name: "Pane of lane L-88" });
+    const stream = await waitFor(() => {
+      const found = FakeEvents.opened.find((opened) => opened.path === "/v1/panes/L-88");
+      expect(found).toBeTruthy();
+      return found as FakeEvents;
+    });
+    act(() => stream.send("screen", { lane_id: "L-88", generation: 2, screen: "Running npm install" }));
+    const log = await within(dock).findByRole("log", { name: "Screen of lane L-88" });
+    expect([getComputedStyle(log).overflow, getComputedStyle(log).flexGrow, getComputedStyle(log).minHeight]).toEqual(["auto", "1", "240px"]);
+    expect([getComputedStyle(pane).flexGrow, getComputedStyle(pane).minHeight]).toEqual(["1", "0"]);
+    expect(["auto", "scroll"]).not.toContain(getComputedStyle(pane).overflowY);
   });
 
   it("shows an interactive lane's pane and no composer, with what waits on the member above it", async () => {

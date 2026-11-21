@@ -333,7 +333,7 @@ func exitOf(refused *api.Error) int {
 		api.CodeOverlap, api.CodeDecisionEnded, api.CodeDecisionClash, api.CodeNotHeld, api.CodeReversibilityChanged, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
 		api.CodeEffectDecided, api.CodeCannotRepeat, api.CodeRepositoryHeld, api.CodeRepositoryState, api.CodeAcknowledged, api.CodeProjectExists, api.CodeProjectState, api.CodeProjectArchived,
 		api.CodeAlreadyPlanned, api.CodeRosterConflict, api.CodeDelegateActive, api.CodeNoAssistantWorker, api.CodeTargetNotRunning, api.CodeNoWorkerURL, api.CodeJoinTokenUsed,
-		api.CodeSpendLimit:
+		api.CodeSpendLimit, api.CodeNoPane, api.CodeLaneEnded:
 		return ExitConflict
 	case api.CodeInvalid, api.CodeNoProject:
 		return ExitUsage

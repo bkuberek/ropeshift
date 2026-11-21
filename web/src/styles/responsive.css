@@ -124,6 +124,16 @@
 }
 
 @media (max-width: 639px) {
+  /* On a phone the planning page grows with its content, stacked, and the pane's screen keeps a height
+     of its own to scroll in. */
+  .planning {
+    height: auto;
+  }
+
+  .planning .pane-screen {
+    max-height: 60vh;
+  }
+
   :root {
     --control-h: 40px;
     --control-h-sm: 32px;

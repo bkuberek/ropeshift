@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, RefObject } from "react";
 
-import { followPane, paneRefusal } from "../api/client";
+import { ApiError, followPane, maxPaneScrollback, paneRefusal, readPaneScrollback } from "../api/client";
 import { readView } from "../api/client";
 import type { PaneLane, PaneScreen, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
@@ -162,6 +162,26 @@ function statusOf(shown: Shown): string {
   }
 }
 
+// How many lines of the scrollback a pane reads first, how near the top of the screen a scroll reads older
+// lines, and how often the scrollback follows output while the member reads at the bottom.
+const firstScrollback = 200;
+const topSlack = 8;
+const followScrollbackMs = 1000;
+
+type History = { lines: string; size: number; limit: number; asked: number };
+
+// resetStyle ends any colour or emphasis the scrollback left open, so none of it reaches the screen.
+const resetStyle = "\x1b[0m";
+
+const plainOf = (text: string) =>
+  parseScreen(text)
+    .map((run) => run.text)
+    .join("");
+
+const countLines = (lines: string) => (lines === "" ? 0 : lines.split("\n").length - 1);
+
+const number = (n: number) => n.toLocaleString("en-US");
+
 // ScreenKeys is how a screen that holds the keyboard sends each key, or null while the pane takes no keys:
 // the person is detached, or the lane has no live pane.
 type ScreenKeys = { send: (chord: string) => void } | null;
@@ -194,6 +214,11 @@ function fitScreen(pre: HTMLElement, pane: HTMLElement): void {
 // Release gives the keys back and leaves focus on the screen, so Tab moves on from there (WCAG 2.1.2,
 // https://www.w3.org/TR/WCAG21/#no-keyboard-trap). Command shortcuts on a Mac stay with the browser and the
 // page. Opening a page never captures keys.
+//
+// The screen reads the newest lines of the tmux scrollback when it opens, and shows the newest line; scrolling
+// up to the top reads older lines, up to all that tmux keeps, and keeps the member's place. While the member
+// reads at the bottom, the scrollback follows the lines that scroll off the screen. Copy all copies the whole
+// scrollback and the screen.
 //
 // The screen opens at the newest line and stays there as output arrives, until the member scrolls up; it
 // then stays where they are and offers Jump to latest, and scrolling back to the bottom follows the newest
@@ -228,7 +253,9 @@ function Screen({
   const [query, setQuery] = useState("");
   const [matchCase, setMatchCase] = useState(false);
   const [current, setCurrent] = useState(0);
-  const runs = parseScreen(trimScreen(text));
+  const [history, setHistory] = useState<History | null>(null);
+  const [unread, setUnread] = useState("");
+  const runs = parseScreen(history?.lines ? history.lines + resetStyle + trimScreen(text) : trimScreen(text));
   const plain = runs.map((run) => run.text).join("");
   const starts = searching ? findIn(plain, query, matchCase) : [];
   const at = starts.length === 0 ? 0 : Math.min(current, starts.length - 1);
@@ -280,6 +307,8 @@ function Screen({
       toLatest();
     }
   }, [text]);
+  // The scrollback follows the screen while the member reads at the bottom, and a scroll to the top reads
+  // older lines.
   const scrolled = () => {
     const pre = screen.current;
     if (!pre) {
@@ -287,6 +316,9 @@ function Screen({
     }
     following.current = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - bottomSlack;
     setAway(!following.current);
+    if (history && pre.scrollTop <= topSlack && countLines(history.lines) < history.size && history.asked < history.limit) {
+      read(Math.min(history.asked * 2, history.limit, maxPaneScrollback), "place");
+    }
   };
   // Jump to latest goes once it has jumped, so it leaves focus on the screen.
   const jump = () => {
@@ -294,6 +326,58 @@ function Screen({
     setAway(false);
     toLatest();
     screen.current?.focus();
+  };
+
+  const reading = useRef(false);
+  const place = useRef<"bottom" | { fromBottom: number } | null>(null);
+  const followTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const read = (asked: number, keep: "bottom" | "place") => {
+    if (reading.current) {
+      return;
+    }
+    reading.current = true;
+    readPaneScrollback(lane, asked)
+      .then((got) => {
+        const pre = screen.current;
+        place.current = (keep === "bottom" && following.current) || !pre ? "bottom" : { fromBottom: pre.scrollHeight - pre.scrollTop };
+        setUnread("");
+        setHistory({ lines: got.lines, size: got.size, limit: got.limit, asked });
+      })
+      .catch((error: unknown) => setUnread(error instanceof ApiError ? error.message : String(error)))
+      .finally(() => {
+        reading.current = false;
+      });
+  };
+  useEffect(() => {
+    read(firstScrollback, "bottom");
+    return () => clearTimeout(followTimer.current);
+    // A pane reads its scrollback once when it opens, and the reads after that follow the member.
+  }, [lane]);
+  useLayoutEffect(() => {
+    const pre = screen.current;
+    const at = place.current;
+    place.current = null;
+    if (pre && at) {
+      pre.scrollTop = at === "bottom" ? pre.scrollHeight - pre.clientHeight : pre.scrollHeight - at.fromBottom;
+    }
+  }, [history]);
+  useEffect(() => {
+    if (!history || followTimer.current || !following.current) {
+      return;
+    }
+    followTimer.current = setTimeout(() => {
+      followTimer.current = undefined;
+      if (following.current) {
+        read(history.asked, "bottom");
+      }
+    }, followScrollbackMs);
+    // Each change of the screen may scroll lines into the scrollback.
+  }, [text]);
+
+  const copyAll = () => {
+    readPaneScrollback(lane, Math.min(history?.limit ?? maxPaneScrollback, maxPaneScrollback))
+      .then((got) => copyText(plainOf(got.lines) + plainOf(trimScreen(text)), "the scrollback and the screen"))
+      .then(setSaid, (error: unknown) => setSaid(error instanceof ApiError ? error.message : String(error)));
   };
 
   const release = () => {
@@ -359,7 +443,7 @@ function Screen({
   return (
     <div className={holding ? "pane-frame is-captured" : "pane-frame"}>
       <PaneTools
-        onCopyScreen={() => void copyText(plain, "the screen").then(setSaid)}
+        onCopyScreen={() => void copyText(plainOf(trimScreen(text)), "the screen").then(setSaid)}
         onSelectAll={selectAll}
         onSearch={() => (searching ? closeSearch() : setSearching(true))}
         searching={searching}
@@ -385,6 +469,18 @@ function Screen({
           onClose={closeSearch}
         />
       ) : null}
+      <div className="pane-history row-tight">
+        <span className="small muted">
+          {unread
+            ? `The scrollback could not be read: ${unread}`
+            : history
+              ? `Showing ${number(countLines(history.lines))} of the ${number(history.limit)} lines tmux keeps`
+              : "Reading the scrollback."}
+        </span>
+        <button className="btn btn-sm" type="button" onClick={copyAll}>
+          Copy all
+        </button>
+      </div>
       {holding ? (
         <div className="pane-capture">
           <span>

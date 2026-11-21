@@ -310,7 +310,7 @@ func TestADelegateRunsNoMachineLocalCommand(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"service", "install"}, {"service", "uninstall"}, {"init"}, {"worker", "doctor"}, {"login"}, {"passphrase", "set"},
-		{"lane", "attach", "l1"}, {"plan", "start"}, {"adopt"}, {"backup", "/tmp/copy.db"}, {"repository", "add", "."},
+		{"lane", "attach", "l1"}, {"lane", "scrollback", "l1"}, {"plan", "start"}, {"adopt"}, {"backup", "/tmp/copy.db"}, {"repository", "add", "."},
 		{"new", "workspace", filepath.Join(opts.StateDir, "w")}, {"new", "monorepo", filepath.Join(opts.StateDir, "m")},
 		{"new", "repository", filepath.Join(opts.StateDir, "r")},
 	} {

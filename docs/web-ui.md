@@ -280,6 +280,8 @@ The key row sends one key or combination with a click: Esc, Tab, Shift-Tab, Ente
 
 Type into the session types a line, and Press Enter after the text, checked by default, ends it with Enter, as if you typed it in the pane. With the field empty, Enter, Escape, and the up and down arrows go to the session, so a menu can be answered from the field. What you send goes in the order you sent it, and a refusal, such as for a lane that has no pane now, is said under the pane.
 
+A lane's pane, on the Lane page, the Planning page, and in the conversation panel, shows the scrollback tmux keeps above the screen. The pane reads the newest 200 lines when it opens and shows the newest line, and the line above the screen says how much it shows, such as "Showing 200 of the 2,000 lines tmux keeps". Scrolling up to the top reads twice as many older lines, up to all that tmux keeps, and keeps your place. While you read at the bottom, the scrollback follows the lines that scroll off the screen. Copy all copies the whole scrollback and the screen as text, and says how many lines it copied. `ropeshift lane scrollback <lane>` prints the same lines in a terminal.
+
 ## Import an existing project
 
 Import, at `/import`, adopts a project that already has code, documents, and branches, as `ropeshift adopt` does ([adopt an existing project](adopt.md)). The command palette lists it as Adopt a project, and the project switcher, Projects, Repositories, and an empty Overview open the same page. It has four steps: Worker and folders, Dry run, Planning repository, and Adopt session.
