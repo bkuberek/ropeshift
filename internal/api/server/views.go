@@ -668,6 +668,9 @@ func planApprovalNeed(tx ports.ReadTx, a authority.Approval) (*api.PlanApprovalN
 	if err != nil {
 		return nil, err
 	}
+	if need.FinishedBy, err = control.FinishingBranch(tx.WorkOrders(), tx.Evidence(), a); err != nil {
+		return nil, err
+	}
 	if need.Replaced, err = control.ReplacedDrafts(tx.Questions(), a.Plan, a.PlanVersion, drafts); err != nil {
 		return nil, err
 	}

@@ -244,6 +244,10 @@ type PlanApprovalNeed struct {
 	// of the same plan, so a member tells their cards apart: approving each approves the merge of its own branch. It is
 	// absent when no other request shares the version, and for a request that names no work order.
 	Branch *planning.PlanBranch `json:"branch,omitempty"`
+	// FinishedBy names the planning branch whose commit finishes a placeholder version, while its work order waits for
+	// acceptance beside this request: accepting it asks about the version again, finished and naming the branch, so
+	// approving that request also approves the branch's merge. It is absent once the work order no longer waits there.
+	FinishedBy *planning.PlanBranch `json:"finished_by,omitempty"`
 }
 
 // ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its

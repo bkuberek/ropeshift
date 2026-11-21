@@ -295,6 +295,34 @@ function SharedBranch({ branch }: { branch: PlanBranch }) {
   );
 }
 
+// FinishingBranch points a request held back as a placeholder to the planning branch whose commit finishes it, whose
+// acceptance waits in Needs you beside it: accepting that work order asks about this version again, finished, and
+// approving that request also approves the branch's merge.
+function FinishingBranch({ branch }: { branch: PlanBranch }) {
+  return (
+    <div role="group" aria-label="Finished by">
+      <p>
+        Branch <span className="mono">{branch.branch || branch.work_order}</span> of work order <span className="mono">{branch.work_order}</span>
+        {branch.commit ? (
+          <>
+            {" "}
+            finishes this plan at <Digest value={branch.commit} length={7} />
+          </>
+        ) : (
+          " finishes this plan"
+        )}
+        . Accept that work order, and ropeshift asks about this version again, finished and naming its branch, so approving it also approves
+        the branch&apos;s merge.
+      </p>
+      <p>
+        <Link to={addressOf("/needs-you", { item: `work:${branch.work_order}` })} aria-label={`Open the acceptance of ${branch.work_order}`}>
+          Open its acceptance
+        </Link>
+      </p>
+    </div>
+  );
+}
+
 type CardProps = {
   id: string;
   need: PlanApprovalNeed;
@@ -361,6 +389,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
             ))}
           </ul>
           <p className="muted">A commit that finishes the plan replaces this request.</p>
+          {need.finished_by ? <FinishingBranch branch={need.finished_by} /> : null}
         </>
       ) : (
       <p>

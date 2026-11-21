@@ -47,3 +47,34 @@ describe("plan cards that share a version", () => {
     expect(headingOf(item)).toMatch(/^Approve [^,]+, version \d+\?$/);
   });
 });
+
+describe("a plan request held back as a placeholder", () => {
+  it("points to the branch that finishes it while that branch waits for acceptance beside it", () => {
+    const view = golden<View>("needs-you-held-plan-finishing");
+    const [held] = planItems(view);
+    if (!held) {
+      throw new Error("no plan approval in the golden view");
+    }
+    expect(view.items.some((item) => item.kind === "work" && item.id === "wo-plan")).toBe(true);
+    show(view, held);
+    const card = screen.getByRole("article", { name: /^Approve Harbor berth booking/ });
+    const pointer = within(card).getByRole("group", { name: "Finished by" });
+    expect(pointer.textContent).toContain("plan/harbor");
+    expect(pointer.textContent).toContain("wo-plan");
+    expect(pointer.textContent).toContain("abc1230");
+    expect(within(pointer).getByRole("link", { name: "Open the acceptance of wo-plan" }).getAttribute("href")).toContain("item=work%3Awo-plan");
+    expect(within(card).queryByRole("button", { name: "Approve this plan" })).toBeNull();
+  });
+
+  it("points to no branch when none finishes it", () => {
+    const view = golden<View>("needs-you-held-plan-finishing");
+    const [held] = planItems(view);
+    if (!held) {
+      throw new Error("no plan approval in the golden view");
+    }
+    delete held.plan_approval.finished_by;
+    show(view, held);
+    const card = screen.getByRole("article", { name: /^Approve Harbor berth booking/ });
+    expect(within(card).queryByRole("group", { name: "Finished by" })).toBeNull();
+  });
+});

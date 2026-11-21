@@ -665,6 +665,28 @@ func RequestBranch(orders ports.WorkOrderReader, evidence ports.EvidenceReader, 
 	return &planning.PlanBranch{WorkOrder: order.ID, Branch: branch, Commit: requestCommit(approval)}, nil
 }
 
+// FinishingBranch names the planning branch whose commit finishes the placeholder version a request holds back, while
+// that branch's work order waits for acceptance at that commit, which is when Needs you asks for its acceptance beside
+// the request. A request no branch finishes, and one whose branch was sent back, accepted, or moved on, names none.
+func FinishingBranch(orders ports.WorkOrderReader, evidence ports.EvidenceReader, approval authority.Approval) (*planning.PlanBranch, error) {
+	finishing := planDetailOf(approval).FinishedBy
+	if finishing == nil || len(planDetailOf(approval).Unfinished) == 0 {
+		return nil, nil
+	}
+	order, err := orders.Get(finishing.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil || order.Kind != workorders.KindPlan || order.State != workorders.Acceptance {
+		return nil, err
+	}
+	commit, err := AttemptCommit(evidence, order)
+	if err != nil || commit != finishing.Commit {
+		return nil, err
+	}
+	return finishing, nil
+}
+
 // AttemptCommit is the commit a work order's branch held when its current attempt last reported it: the one a
 // member accepts, and empty when the attempt reported no branch.
 func AttemptCommit(evidence ports.EvidenceReader, order workorders.WorkOrder) (string, error) {
