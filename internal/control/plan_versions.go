@@ -100,8 +100,9 @@ func orderParts(file planning.ContractFile) []planning.Part {
 // reconcilePlanVersions gives a plan a new version for each digest it has not had, and returns how
 // many it made. It runs after a batch is recorded, and it is idempotent: a plan whose digest is the
 // newest version's is only read, so a poll that changes nothing appends nothing. A poll that stops
-// before it runs leaves the cursor where it was, and the next poll runs it (FR-PLAN-9, FR-PLAN-11).
-func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.WorkspaceID, files map[string]planFileRead, origin planOrigin) (int, error) {
+// before it runs leaves the cursor where it was, and the next poll runs it (FR-PLAN-9, FR-PLAN-11). Goals are
+// the goals the batch changed, which a version held for what it lacked is asked about again for.
+func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.WorkspaceID, files map[string]planFileRead, goals map[string]bool, origin planOrigin) (int, error) {
 	var drifted, retry []string
 	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		plans, err := tx.Planning().Plans()
@@ -141,7 +142,7 @@ func (i *Intake) reconcilePlanVersions(ctx context.Context, scope ledger.Workspa
 	}
 	made := 0
 	for _, plan := range retry {
-		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error { return offerHeldVersion(tx, plan, origin) })
+		err := i.store.Write(ctx, scope, "intake.plan_version", func(tx ports.WriteTx) error { return offerHeldVersion(tx, plan, origin, goals) })
 		if err != nil {
 			return made, err
 		}

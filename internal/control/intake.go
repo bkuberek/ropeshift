@@ -195,7 +195,7 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 	if err != nil {
 		return report, err
 	}
-	report.PlanVersions, err = i.reconcilePlanVersions(ctx, scope, refs.plans, origin)
+	report.PlanVersions, err = i.reconcilePlanVersions(ctx, scope, refs.plans, refs.goals, origin)
 	return report, err
 }
 

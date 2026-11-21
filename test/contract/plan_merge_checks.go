@@ -41,6 +41,7 @@ var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM19", "two planning branches that hold one plan each ask for the plan's approval naming their own commit once accepted, and approving each approves the merge of its own branch", checkTwoBranchesOfOnePlanAskEach},
 	{"PM20", "a planning branch that waits in integrating for its plan approval when main changes the plan goes back to rework on the same branch, with why in its brief, and its next commit asks for main's version naming it", checkMainChangesThePlanOfAWaitingBranch},
 	{"PM21", "of two planning branches that propose one new version of a plan the ledger holds, approving the second's request once the first's commit recorded that version accepts the second's work and approves its merge", checkSecondBranchOfAHeldPlanIsAcceptedByItsApproval},
+	{"PM22", "a plan held for its goal that main finished is asked about again naming no work order when an accepted planning branch that did not change it is read first, so approving it approves no branch's merge", checkHeldPlanTheBranchLeftAloneNamesNoBranch},
 })
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -1434,6 +1435,80 @@ func checkSecondBranchOfAHeldPlanIsAcceptedByItsApproval(r *Rig) error {
 	}
 	if err := p.mergeApprovedAt(first, p.head, plan, version); err != nil {
 		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+// auditPlanFiles are a second plan of the repository, which names a goal titled as given and holds a contract that
+// lists work.
+func auditPlanFiles(goalTitle string) map[string]string {
+	return map[string]string{
+		"audit.md":      "+++\nkind = \"plan\"\nid = \"audit\"\ntitle = \"Audit trail\"\ngoal = \"audit-goal\"\n+++\n\nHow.\n",
+		"audit-goal.md": GoalText("audit-goal", goalTitle),
+		"audit-log.md":  placedContract{ID: "audit-log", Plan: "audit"}.text(),
+	}
+}
+
+func checkHeldPlanTheBranchLeftAloneNamesNoBranch(r *Rig) error {
+	// The poll that reads the goal main finished stops before it asks about the held plan again, as a process that stops
+	// between two writes of a tick does.
+	stop := &atomicCount{}
+	stop.disarm()
+	inner := r.Wrap
+	r.Wrap = func(store ports.Store) ports.Store {
+		if inner != nil {
+			store = inner(store)
+		}
+		return StopAfter(store, "intake.plan_version", 0, stop)
+	}
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	onMain := acceptedSource(auditPlanFiles(planning.PlaceholderGoalTitle))
+	if _, err := r.intake(p.store, onMain); err != nil {
+		return err
+	}
+	onMain.Write("audit-goal.md", []byte(auditPlanFiles("Every change is traced")["audit-goal.md"]))
+	stop.off.Store(false)
+	if _, err := r.intake(p.store, onMain); !errors.Is(err, ErrStopped) {
+		return Violatedf("the poll that finished the goal answered %v, want it stopped", err)
+	}
+	stop.disarm()
+	held, err := r.theOpenPlanApprovalFor(p.store, "Audit trail")
+	if err != nil {
+		return err
+	}
+	if len(planDetailOf(held).Unfinished) == 0 {
+		return Violatedf("the request for the plan held for its goal is %+v", held)
+	}
+	// The planning branch holds the repository as main has it, with a plan of its own beside it. The member accepts it,
+	// and intake reads its commit, which leaves the held plan as main has it.
+	for name, text := range auditPlanFiles("Every change is traced") {
+		p.files[name] = text
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	again, err := r.theOpenPlanApprovalFor(p.store, "Audit trail")
+	if err != nil {
+		return err
+	}
+	if detail := planDetailOf(again); again.ID == held.ID || len(detail.Unfinished) != 0 || again.WorkOrder != "" || detail.Source == p.head ||
+		again.Plan != held.Plan || again.PlanVersion != held.PlanVersion {
+		return Violatedf("the held plan is asked about again as %+v, want version %d finished, naming no work order", again, held.PlanVersion)
+	}
+	if _, err := r.approve(p.store, again, true, theMember); err != nil {
+		return err
+	}
+	if records, err := p.integrations(); err != nil || len(records) != 0 {
+		return Violatedf("approving the plan the branch left alone approved its merge: %+v, %v", records, err)
 	}
 	return r.CheckProjection(p.store)
 }
