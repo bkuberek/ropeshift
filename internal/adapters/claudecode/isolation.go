@@ -302,3 +302,63 @@ func ownPieceDirs(spec ports.SessionSpec) error {
 	}
 	return nil
 }
+
+// A lane is a linked worktree of the member's clone, and "plugins installed at project scope from the main checkout
+// also load in worktrees of the same repository" ([worktrees]). The `--settings` value does not replace what the other
+// files enable: their `enabledPlugins` "merge key by key. For each plugin id, the value that applies is the one from the
+// highest-precedence source that mentions the id. A source that doesn't mention the id leaves the value from the
+// lower-precedence source in effect", and the `flag` source, `--settings`, outranks the project and local files there
+// ([plugin loading]). No documented switch gives a worktree a plugin scope of its own. So a lane's generated settings
+// name each plugin the main checkout's working tree enables, in its shared or its local settings, that neither the
+// repository's settings at the lane's base nor the worktree's own enable, and turn it off, which holds whether the CLI
+// reaches the main checkout through its project scope or its install records. A plugin the base enables is left as the
+// repository's settings set it, and not stated as on, which would also fetch one with an external source ([plugin
+// loading]). Managed settings, which "no other source overrides", are the organization's.
+//
+// [worktrees]: https://code.claude.com/docs/en/worktrees#what-worktrees-share-with-the-main-checkout
+// [plugin loading]: https://code.claude.com/docs/en/plugins/loading#find-where-a-plugin-is-enabled
+func lanePlugins(spec ports.SessionSpec) map[string]bool {
+	if spec.Repository == "" || spec.Dir == "" {
+		return nil
+	}
+	allowed := enabledPlugins(repositoryFile(spec, projectSettingsFile))
+	for _, file := range settingsFiles(spec) {
+		for id := range enabledPlugins(worktreeFile(spec, file)) {
+			allowed[id] = true
+		}
+	}
+	var out map[string]bool
+	for _, file := range []string{projectSettingsFile, localSettingsFile} {
+		raw, whole := boundedFile(filepath.Join(spec.Repository, filepath.FromSlash(file)))
+		if !whole {
+			continue
+		}
+		for id := range enabledPlugins(raw) {
+			if !allowed[id] {
+				if out == nil {
+					out = map[string]bool{}
+				}
+				out[id] = false
+			}
+		}
+	}
+	return out
+}
+
+// enabledPlugins are the plugins a settings file's `enabledPlugins` turns on. A file that is absent or does not parse
+// turns none on.
+func enabledPlugins(raw []byte) map[string]bool {
+	var file struct {
+		Plugins map[string]bool `json:"enabledPlugins"`
+	}
+	out := map[string]bool{}
+	if len(raw) == 0 || json.Unmarshal(raw, &file) != nil {
+		return out
+	}
+	for id, on := range file.Plugins {
+		if on {
+			out[id] = true
+		}
+	}
+	return out
+}

@@ -580,3 +580,56 @@ func TestALinkedWorktreeHasItsOwnSkillsAgentsAndCommands(t *testing.T) {
 		t.Errorf("a clone that is no linked worktree was given a .claude: %v", err)
 	}
 }
+
+// generatedPlugins reads the plugins a generation's `--settings` turns on or off.
+func generatedPlugins(t *testing.T, spec ports.SessionSpec) map[string]bool {
+	t.Helper()
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := generatedPaths(spec)
+	raw, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Plugins map[string]bool `json:"enabledPlugins"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	return file.Plugins
+}
+
+// A plugin the main checkout's working tree enables, in its shared or its local settings, and that the lane's settings
+// base does not, is turned off in the lane's `--settings`, whose value outranks both files for that plugin ([plugin
+// loading]), so a plugin a member enabled in their clone, with its hooks and MCP servers, never reaches a lane. A plugin
+// the base enables is left as the repository's settings set it, and so is one the main checkout only turns off.
+//
+// [plugin loading]: https://code.claude.com/docs/en/plugins/loading#find-where-a-plugin-is-enabled
+func TestAPluginOnlyTheMainCheckoutEnablesIsOffInALane(t *testing.T) {
+	const base = `{"enabledPlugins": {"formatter@tools": true}}`
+	spec := laneSpec(t)
+	spec.Repository = t.TempDir()
+	spec.Base = committed(t, spec.Repository, map[string]string{projectSettingsFile: base})
+	writeFile(t, filepath.Join(spec.Repository, filepath.FromSlash(projectSettingsFile)),
+		`{"enabledPlugins": {"formatter@tools": true, "leak@tools": true, "off@tools": false}}`)
+	writeFile(t, filepath.Join(spec.Repository, filepath.FromSlash(localSettingsFile)), `{"enabledPlugins": {"local-leak@tools": true}}`)
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(projectSettingsFile)), base)
+	plugins := generatedPlugins(t, spec)
+	if on, set := plugins["leak@tools"]; on || !set {
+		t.Errorf("a plugin only the main checkout's settings enable is %v (set %v): %v", on, set, plugins)
+	}
+	if on, set := plugins["local-leak@tools"]; on || !set {
+		t.Errorf("a plugin only the main checkout's local settings enable is %v (set %v): %v", on, set, plugins)
+	}
+	if on, set := plugins["formatter@tools"]; set && !on {
+		t.Errorf("the plugin the base enables is turned off: %v", plugins)
+	}
+	if _, set := plugins["off@tools"]; set {
+		t.Errorf("a plugin the main checkout turns off is named: %v", plugins)
+	}
+	if plugins := generatedPlugins(t, laneSpec(t)); len(plugins) != 0 {
+		t.Errorf("a session with no clone turns plugins %v", plugins)
+	}
+}
