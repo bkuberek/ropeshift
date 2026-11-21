@@ -157,9 +157,15 @@ func nestedDirOf(path string) string {
 // [skills]: https://code.claude.com/docs/en/skills#frontmatter-reference
 const keyAllowedTools = "allowed-tools"
 
+// keyPermissionMode is the frontmatter key of a subagent that sets "the permission mode a subagent runs in", which in a
+// session in `default` mode it runs in ([subagents]), so a mode such as `acceptEdits` widens what it may do.
+//
+// [subagents]: https://code.claude.com/docs/en/sub-agents#permission-modes
+const keyPermissionMode = "permissionMode"
+
 // heldFrontmatter are the frontmatter keys of a piece that widen what a session runs, sorted: its tools allowed with no
-// prompt, and its hooks, which run a command as a settings hook does.
-var heldFrontmatter = []string{keyAllowedTools, keyHooks}
+// prompt, its hooks, which run a command as a settings hook does, and a subagent's permission mode.
+var heldFrontmatter = []string{keyAllowedTools, keyHooks, keyPermissionMode}
 
 // pieceFront is what one piece's frontmatter declares of the keys that widen what a session runs (heldFrontmatter),
 // each as JSON, and none for a key it leaves out or leaves empty. A frontmatter that does not parse or that opens and is

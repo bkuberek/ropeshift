@@ -317,3 +317,29 @@ func TestAllowedToolsALaneAddsInAFrontmatterHoldIt(t *testing.T) {
 		t.Errorf("tools the lane changed hold %+v", change)
 	}
 }
+
+// A subagent's `permissionMode` sets the mode it runs in, and in a session in `default` mode it runs in the mode it
+// sets, such as `acceptEdits` ([subagents]), so a lane that adds or changes it widens what the subagent may do and is
+// held, naming the key. The mode the base sets holds nothing.
+//
+// [subagents]: https://code.claude.com/docs/en/sub-agents#permission-modes
+func TestAPermissionModeALaneSetsInASubagentHoldsIt(t *testing.T) {
+	agent := pieceFiles[1]
+	modal := strings.Replace(plainPiece, "description: Takes notes\n", "description: Takes notes\npermissionMode: acceptEdits\n", 1)
+	spec := pieceSpec(t, nil)
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(agent)), modal)
+	change := settingsChange(spec)
+	if change == nil || !slices.Equal(change.Keys, []string{"permissionMode"}) || !slices.Equal(change.Files, []string{agent}) ||
+		!slices.Contains(change.Summary, agent+` permissionMode: added`) {
+		t.Fatalf("a permission mode added in a subagent holds %+v", change)
+	}
+	kept := pieceSpec(t, map[string]string{agent: modal})
+	if change := settingsChange(kept); change != nil {
+		t.Errorf("the mode the base sets holds %+v", change)
+	}
+	writeFile(t, filepath.Join(kept.Dir, filepath.FromSlash(agent)), strings.Replace(modal, "acceptEdits", "auto", 1))
+	if change := settingsChange(kept); change == nil || !slices.Equal(change.Keys, []string{"permissionMode"}) ||
+		!slices.Contains(change.Summary, agent+` permissionMode: changed "auto"`) {
+		t.Errorf("a mode the lane changed holds %+v", change)
+	}
+}
