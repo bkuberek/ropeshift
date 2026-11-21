@@ -59,12 +59,14 @@ const (
 
 // SetupAdvice is the choice a member is recommended for one piece of their own setup that leaked, and why. An agent, a
 // skill, or a command adds context, and the lane's generated rules still bound its tool calls, so the lane keeps moving
-// with it accepted. An MCP server or a plugin, which can carry hooks and servers, runs commands or reaches data outside
-// the project with no person watching, so the recommendation is the separate configuration directory, the one choice
-// that keeps it out of unattended lanes without changing the member's own sessions.
+// with it accepted. Any other piece, an MCP server or a plugin, which can carry hooks and servers, and a kind this build
+// does not know, can run commands or reach data outside the project with no person watching, so the recommendation is
+// the separate configuration directory, the one choice that keeps it out of unattended lanes without changing the
+// member's own sessions.
 func SetupAdvice(item PersonalItem) (choice, rationale string) {
-	if item.Kind == PieceMCPServer || item.Kind == PiecePlugin {
-		return SetupSeparateDirectory, "it can run commands or reach data outside the project with no person watching, and a separate configuration directory keeps it out of unattended lanes without changing your own sessions"
+	switch item.Kind {
+	case PieceAgent, PieceSkill, PieceCommand:
+		return SetupAccept, "it adds context, and the lane's generated rules still bound every tool call it leads to, so lanes keep moving with it named on each"
 	}
-	return SetupAccept, "it adds context, and the lane's generated rules still bound every tool call it leads to, so lanes keep moving with it named on each"
+	return SetupSeparateDirectory, "it can run commands or reach data outside the project with no person watching, and a separate configuration directory keeps it out of unattended lanes without changing your own sessions"
 }
