@@ -110,3 +110,13 @@ func TestADaemonProbesUnlessToldNotTo(t *testing.T) {
 		}
 	}
 }
+
+// A daemon that init stops ends within the limit init gives it, or init kills it. The daemon's stop waits for its
+// server to drain and then for what its worker started, so the two waits fit in the limit together, with room
+// for the rest of what a stop does.
+func TestADaemonInitStopsEndsWithinTheLimitInitGivesIt(t *testing.T) {
+	t.Parallel()
+	if got := soloShutdownGrace + workerStopGrace; got >= initDaemonStop {
+		t.Errorf("a stopping daemon waits %v for its server and its worker, and init kills it after %v", got, initDaemonStop)
+	}
+}

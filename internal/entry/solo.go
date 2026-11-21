@@ -206,6 +206,9 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 
 var errBusy = errors.New("already running for this installation")
 
+// soloShutdownGrace is how long a stopping daemon waits for its server's requests to finish.
+const soloShutdownGrace = 2 * time.Second
+
 // holdInstallation takes the lock that makes this daemon the only one. It is a record
 // lock, which belongs to this process, so the kernel releases it when the process dies
 // and a crash leaves nothing to clean up. A flock would belong to the open file instead,
@@ -351,7 +354,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	select {
 	case err = <-serveErr:
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), soloShutdownGrace)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdown)
 		err = nil
@@ -536,8 +539,9 @@ func stopWorker(subject stoppingWorker, socketDone <-chan struct{}, grace time.D
 // closes the journal and the link anyway. Each of them ends with the worker's context, so this is for one
 // that does not: a service manager kills a daemon slow to stop, systemd after 90 seconds by default
 // (https://www.freedesktop.org/software/systemd/man/latest/systemd-system.conf.html), and a kill closes
-// nothing.
-const workerStopGrace = 20 * time.Second
+// nothing. ropeshift init kills the daemon it started 15 seconds after it asked it to stop, so the grace and
+// the server's own wait fit in that time with room to spare.
+const workerStopGrace = 10 * time.Second
 
 // stoppingWorker is what a stopping daemon waits on before it closes its worker's journal and link.
 type stoppingWorker interface {
