@@ -1316,6 +1316,10 @@ func (h *handler) readInProgress(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 	if err != nil {
 		return nil, err
 	}
+	waiting, err := lanesWaiting(tx)
+	if err != nil {
+		return nil, err
+	}
 	view := api.InProgress{Stamp: stamp, Items: []api.WorkLine{}}
 	for _, order := range f.orders {
 		if order.State != workorders.Claimed && order.State != workorders.Running {
@@ -1325,7 +1329,11 @@ func (h *handler) readInProgress(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 		if err != nil {
 			return nil, err
 		}
-		view.Items = append(view.Items, api.WorkLine{WorkOrder: order, Lane: f.ofWork[order.ID], Since: since})
+		line := api.WorkLine{WorkOrder: order, Lane: f.ofWork[order.ID], Since: since}
+		if line.Lane != nil {
+			line.WaitsOn = waiting[line.Lane.ID]
+		}
+		view.Items = append(view.Items, line)
 	}
 	slices.SortStableFunc(view.Items, func(a, b api.WorkLine) int {
 		return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))
@@ -1342,6 +1350,10 @@ func (h *handler) readOnHold(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) 
 	if err != nil {
 		return nil, err
 	}
+	waiting, err := lanesWaiting(tx)
+	if err != nil {
+		return nil, err
+	}
 	view := api.OnHold{Stamp: stamp, Items: []api.HeldLane{}}
 	for _, order := range f.orders {
 		if order.State != workorders.Parked {
@@ -1353,7 +1365,7 @@ func (h *handler) readOnHold(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) 
 		}
 		item := api.HeldLane{WorkOrder: order, Lane: f.ofWork[order.ID], Since: since, Wakes: []api.WakeView{}}
 		if item.Lane != nil {
-			item.Wakes = wakeViews(wakes[item.Lane.ID])
+			item.Wakes, item.WaitsOn = wakeViews(wakes[item.Lane.ID]), waiting[item.Lane.ID]
 		}
 		view.Items = append(view.Items, item)
 	}
@@ -1361,6 +1373,44 @@ func (h *handler) readOnHold(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) 
 		return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))
 	})
 	return view, nil
+}
+
+// lanesWaiting reads who each lane waits on, from the blocking questions it asked that are not settled: the
+// orchestrator while one climbs the ladder, and a member once one reached the last rung (FR-ORCH-1). A lane with
+// several waits on the one it asked first, and the time is when it asked.
+func lanesWaiting(tx ports.ReadTx) (map[string]*api.WaitsOn, error) {
+	attached, err := tx.Questions().Attachments("")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]*api.WaitsOn{}
+	read := map[string]questions.Question{}
+	for _, attachment := range attached {
+		if !attachment.Blocking {
+			continue
+		}
+		question, found := read[attachment.QuestionID]
+		if !found {
+			if question, err = tx.Questions().Question(attachment.QuestionID); err != nil {
+				return nil, err
+			}
+			read[attachment.QuestionID] = question
+		}
+		who := ""
+		switch question.Status {
+		case questions.StatusOpen, questions.StatusTriage:
+			who = api.WaitsOnOrchestrator
+		case questions.StatusNeedsHuman:
+			who = api.WaitsOnMember
+		default:
+			continue
+		}
+		if held := out[attachment.Lane]; held != nil && held.Since <= attachment.AttachedAt {
+			continue
+		}
+		out[attachment.Lane] = &api.WaitsOn{Who: who, Question: question.ID, Since: attachment.AttachedAt}
+	}
+	return out, nil
 }
 
 func (h *handler) readCompleted(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
