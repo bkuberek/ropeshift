@@ -25,6 +25,12 @@ import (
 func probeRig(t *testing.T, drops ...string) (*claudecode.Driver, ports.ProbeSpec, string) {
 	t.Helper()
 	doubles.RequireTmux(t)
+	return probeRigOn(t, doubles.PrivateTmux(t), drops...)
+}
+
+// probeRigOn is probeRig on a terminal the test gives.
+func probeRigOn(t *testing.T, terminal ports.Terminal, drops ...string) (*claudecode.Driver, ports.ProbeSpec, string) {
+	t.Helper()
 	t.Cleanup(claudecode.ShortenProbeWaits(3 * time.Second))
 	path := doubles.InstallFakeClaudeVersion(t, "lane-completed", "2.1.399")
 	if len(drops) != 0 {
@@ -48,7 +54,7 @@ func probeRig(t *testing.T, drops ...string) (*claudecode.Driver, ports.ProbeSpe
 	}
 	home, shared := t.TempDir(), apitest.ShortDir(t)
 	env := []string{"PATH=" + path, "HOME=" + home, "FAKECLAUDE_SOCKETS=" + shared}
-	driver := claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: doubles.PrivateTmux(t), StopGrace: 2 * time.Second})
+	driver := claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal, StopGrace: 2 * time.Second})
 	spec := ports.ProbeSpec{
 		Dir: t.TempDir(), TempDir: apitest.ShortDir(t), Env: env, Model: "haiku", Binary: doubles.Ropeshift(t), SignIn: ports.SignInSubscription,
 	}
@@ -154,6 +160,63 @@ func TestAProbePaneThatDiesEndsTheScreenCheck(t *testing.T) {
 	}
 	if took := time.Since(started); took > 20*time.Second {
 		t.Errorf("the probe took %v, and waited on a pane that had died", took)
+	}
+}
+
+// stoppingTerminal ends a probe's context once tmux has made the probe's pane, as a worker that stops
+// then does. With cut, the open answers with that end, as a call the stop cut short after tmux made the
+// pane. Without it, the end comes once the pane shows its trust dialog, which takes no interrupt.
+type stoppingTerminal struct {
+	ports.Terminal
+	stop context.CancelFunc
+	cut  bool
+}
+
+func (s *stoppingTerminal) Open(ctx context.Context, spec ports.PaneSpec) (ports.Pane, error) {
+	pane, err := s.Terminal.Open(context.WithoutCancel(ctx), spec)
+	defer s.stop()
+	if err != nil {
+		return pane, err
+	}
+	if s.cut {
+		return ports.Pane{}, context.Canceled
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if screen, err := s.Screen(ctx, spec.Name); err != nil || strings.Contains(screen, "Accessing workspace") {
+			break
+		}
+	}
+	return pane, nil
+}
+
+// A probe stopped as its pane opens removes the pane at once, whether the open answered or the stop
+// cut it short. A stopping worker has a bounded time to end, and a pane it leaves keeps an agent CLI
+// session and the terminal server running after it, with every descriptor the worker inherited.
+func TestAProbeStoppedAtItsPaneLeavesNoPane(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cut  bool
+	}{{"opened", false}, {"cut short", true}} {
+		t.Run(tt.name, func(t *testing.T) {
+			doubles.RequireTmux(t)
+			server := doubles.PrivateTmux(t)
+			ctx, stop := context.WithCancel(t.Context())
+			defer stop()
+			driver, spec, _ := probeRigOn(t, &stoppingTerminal{Terminal: server, stop: stop, cut: tt.cut})
+			// The pane's session ignores the interrupt a probe that ends on its own sends first, so a
+			// stopped probe that waited for it would wait this long.
+			t.Cleanup(claudecode.ShortenProbeWaits(30 * time.Second))
+			started := time.Now()
+			if _, err := driver.Probe(ctx, spec); !errors.Is(err, context.Canceled) {
+				t.Errorf("a stopped probe returned %v", err)
+			}
+			if took := time.Since(started); took > 10*time.Second {
+				t.Errorf("the stopped probe took %v to end", took)
+			}
+			if pane, err := server.Pane(context.WithoutCancel(ctx), claudecode.ProbePane); !errors.Is(err, ports.ErrNotFound) {
+				t.Errorf("the stopped probe left its pane: %+v, %v", pane, err)
+			}
+		})
 	}
 }
 

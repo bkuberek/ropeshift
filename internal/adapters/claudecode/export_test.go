@@ -8,6 +8,9 @@ const EventBuffer = eventBuffer
 // KillWait is how long a stop waits for a session's end after its last signal.
 const KillWait = killWait
 
+// ProbePane names the probe's pane.
+const ProbePane = probePane
+
 // ShortenProbeWaits bounds every wait of a probe to d, so a stand-in that never answers fails a
 // check in a test's time, and returns what restores them.
 func ShortenProbeWaits(d time.Duration) (restore func()) {
