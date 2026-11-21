@@ -70,6 +70,8 @@ func TestAReportedModelIsMadeToFitTheBoundsOfAnEnd(t *testing.T) {
 		"opus\x1b[31m\x00":              "opus",
 		strings.Repeat("m", 500):        strings.Repeat("m", ledger.MaxConsultationModel),
 		strings.Repeat("\xc3\xa9", 200): strings.Repeat("\xc3\xa9", ledger.MaxConsultationModel/2),
+		// One byte ahead of the two-byte runes puts the bound inside one, so the cut steps back to that rune's start.
+		"m" + strings.Repeat("\xc3\xa9", 200):       "m" + strings.Repeat("\xc3\xa9", (ledger.MaxConsultationModel-1)/2),
 		"op" + zeroWidthSpace + "us" + bidiOverride: "opus",
 		"opus" + invalidUTF8Octet:                   "opus" + replacementRune,
 		"\n\n":                                      "",
