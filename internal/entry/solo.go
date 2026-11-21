@@ -187,6 +187,9 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 	keepDescriptorsFromChildren()
 	if opts.noProbe {
 		fmt.Fprintf(stderr, "ropeshiftd solo: %s is set, so this daemon qualifies no agent CLI and starts no session: it is the daemon ropeshift init starts, and it runs no work\n", envInitDaemon)
+		// The mark is this daemon's alone: a process it starts, the terminal server that outlives it included,
+		// would hand it on to what that process starts.
+		_ = os.Unsetenv(envInitDaemon)
 	}
 	paths, err := installationPaths()
 	if err != nil {

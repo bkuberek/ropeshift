@@ -118,6 +118,25 @@ func TestADaemonProbesUnlessInitStartedIt(t *testing.T) {
 	}
 }
 
+// The mark is for the daemon alone. A process it starts, the terminal server that outlives it included, would hand
+// it on to what that process starts, so the daemon takes it out of its environment once it has read it.
+func TestTheDaemonInitStartsKeepsItsMarkFromWhatItStarts(t *testing.T) {
+	t.Setenv(envInitDaemon, "1")
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(api.EnvStateDir, apitest.ShortDir(t))
+	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
+	var stdout, stderr bytes.Buffer
+	if code := runSolo(nil, &stdout, &stderr); code != exitError {
+		t.Fatalf("exit %d, want %d (git is not on PATH); stderr %q", code, exitError, stderr.String())
+	}
+	if value, set := os.LookupEnv(envInitDaemon); set {
+		t.Errorf("the daemon still hands %s=%q to what it starts", envInitDaemon, value)
+	}
+	if !strings.Contains(stderr.String(), "starts no session") {
+		t.Errorf("the daemon said %q, want it to say it starts no session", stderr.String())
+	}
+}
+
 // Qualification is no option of the daemon: ADR-0040 runs a lane only on a qualified CLI, so no flag skips it, and
 // neither the daemon's help nor docs/cli.md says how init's daemon is told.
 func TestNoCommandLineSkipsQualification(t *testing.T) {
