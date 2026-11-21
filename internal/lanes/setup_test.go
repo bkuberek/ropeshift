@@ -22,12 +22,12 @@ func TestSetupAdviceAcceptsOnlyTheKindsThatAddContext(t *testing.T) {
 func TestAnInstructionFileLeaksOnlyFromOutsideTheWorktree(t *testing.T) {
 	worktrees := []string{"/var/lanes/l1", "/private/var/lanes/l1"}
 	for path, want := range map[string]bool{
-		"/var/lanes/l1/CLAUDE.md":                   false,
-		"/private/var/lanes/l1/docs/CLAUDE.md":      false,
-		"/var/lanes/CLAUDE.md":                      true,
-		"/var/lanes/l10/CLAUDE.md":                  true,
-		"/home/member/.claude/CLAUDE.md":            true,
-		"/home/member/development/AGENTS.md":        true,
+		"/var/lanes/l1/CLAUDE.md":                    false,
+		"/private/var/lanes/l1/docs/CLAUDE.md":       false,
+		"/var/lanes/CLAUDE.md":                       true,
+		"/var/lanes/l10/CLAUDE.md":                   true,
+		"/home/member/.claude/CLAUDE.md":             true,
+		"/home/member/development/AGENTS.md":         true,
 		"/private/var/lanes/l1/../outside/CLAUDE.md": true,
 	} {
 		item, leaks := InstructionLeak(worktrees, path, "Project")
