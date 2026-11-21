@@ -277,7 +277,7 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 	}
 	end := w.followConsultation(ctx, run, handle, events)
 	if end.Model == "" {
-		end.Model = model
+		end.Model = ledger.ConsultationModel(model)
 	}
 	return end
 }
@@ -349,8 +349,8 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 			}
 			switch event.Kind {
 			case ports.EventSessionBound:
-				if event.ModelResolved != "" {
-					end.Model = event.ModelResolved
+				if model := ledger.ConsultationModel(event.ModelResolved); model != "" {
+					end.Model = model
 				}
 			case ports.EventCost:
 				end.CostUSD = max(end.CostUSD, event.RunningUSD)

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/roster"
 )
@@ -52,6 +53,8 @@ const (
 	MaxConsultationOptions = 8
 	maxConsultationText    = 4000
 	maxConsultationAsk     = 4000
+	// MaxConsultationModel is the most bytes the model of a consultation's end holds.
+	MaxConsultationModel = 128
 )
 
 // ErrInvalidConsultation marks a consultation the ledger must not accept.
@@ -167,8 +170,23 @@ type ConsultationEnd struct {
 	ConsultationReport
 }
 
-// Check refuses an end that names no consultation, an outcome nobody offers, a cost that is no amount, or a report
-// that does not hold together. Only a reported end carries a report.
+// ConsultationModel makes the model a session reports fit what an end holds: one line of plain text, with each run of
+// space a single space, and cut at MaxConsultationModel bytes on a character's edge. The agent CLI wrote it, and it
+// stands in the line an orchestrator reads of the consultation.
+func ConsultationModel(model string) string {
+	model = strings.Join(strings.Fields(PlainText(model)), " ")
+	if len(model) <= MaxConsultationModel {
+		return model
+	}
+	cut := MaxConsultationModel
+	for cut > 0 && !utf8.RuneStart(model[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(model[:cut])
+}
+
+// Check refuses an end that names no consultation, an outcome nobody offers, a cost that is no amount, a model that is
+// not one bounded line of plain text, or a report that does not hold together. Only a reported end carries a report.
 func (e ConsultationEnd) Check() error {
 	switch {
 	case !PlainID(e.ID) || !PlainID(e.Question):
@@ -179,6 +197,10 @@ func (e ConsultationEnd) Check() error {
 		return fmt.Errorf("%w: cost %v", ErrInvalidConsultation, e.CostUSD)
 	case len(e.Detail) > maxConsultationText:
 		return fmt.Errorf("%w: the detail holds more than %d bytes", ErrInvalidConsultation, maxConsultationText)
+	case len(e.Model) > MaxConsultationModel:
+		return fmt.Errorf("%w: the model holds %d bytes, past %d", ErrInvalidConsultation, len(e.Model), MaxConsultationModel)
+	case strings.ContainsAny(e.Model, "\n\t") || PlainText(e.Model) != e.Model:
+		return fmt.Errorf("%w: the model is not one line of plain text", ErrInvalidConsultation)
 	case e.Outcome == ConsultationReported:
 		return e.ConsultationReport.Check()
 	case len(e.Options) != 0 || e.Recommendation != "" || e.Rationale != "":
