@@ -82,7 +82,7 @@ const (
 var ErrSessionExists = errors.New("a shim already holds this generation")
 
 // ErrStopUnconfirmed means a stop sent its last signal and read no end of the session within killWait.
-var ErrStopUnconfirmed = errors.New("the stop sent its last signal and read no end of the session")
+var ErrStopUnconfirmed = ports.ErrStopUnconfirmed
 
 // ErrNoBinary means the lane's PATH holds no agent CLI.
 var ErrNoBinary = errors.New("claude is not on PATH")

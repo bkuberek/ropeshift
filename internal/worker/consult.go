@@ -28,8 +28,11 @@ const (
 	consultIDBytes = 8
 	// consultLanePrefix names a consultation's session. The name reaches the session's socket path, so it stays short.
 	consultLanePrefix = "consult-"
-	// consultDeadline is the longest a consultation's session runs. It ends well inside the ledger's hold on the question.
-	consultDeadline = 20 * time.Minute
+	// defaultConsultDeadline is the longest a consultation's session runs, unless the runtime says otherwise. It ends well
+	// inside the ledger's hold on the question.
+	defaultConsultDeadline = 20 * time.Minute
+	// consultStopTries is how many times a consultation's session is asked to stop while each stop reads no end of it.
+	consultStopTries = 3
 	// consultStopGrace is how long a stopped consultation's session has to end before the worker stops reading it.
 	consultStopGrace = 30 * time.Second
 	// consultUploadDeadline bounds the upload of a consultation's end, which the next heartbeat sends if this one fails.
@@ -124,6 +127,13 @@ func (w *Worker) consult(ctx context.Context, lane lanes.Record, call ledger.Orc
 		Consultation: grant.ID, Question: grant.Question, Agent: grant.Agent.Name, Class: grant.Agent.Class, BudgetUSD: grant.BudgetUSD,
 		Next: "The consultation holds " + grant.Question + " while it runs. End your turn: a later wake brings its options and recommendation.",
 	})
+}
+
+func (rt *LaneRuntime) consultDeadline() time.Duration {
+	if rt.ConsultDeadline > 0 {
+		return rt.ConsultDeadline
+	}
+	return defaultConsultDeadline
 }
 
 // errNoConsultation is a consultation this worker cannot run now.
@@ -275,20 +285,29 @@ func (w *Worker) forgetConsultation(dir string, paths ...string) {
 }
 
 // followConsultation reads a consultation's session to its end. Its one turn is the consultation, so the session stops at
-// rest once that turn ends. A session that reaches its budget, or outlasts consultDeadline, is stopped where it stands,
+// rest once that turn ends. A session that reaches its budget, or outlasts its deadline, is stopped where it stands,
 // and what it cost is counted either way.
 func (w *Worker) followConsultation(ctx context.Context, run *consultation, handle ports.SessionHandle, events <-chan ports.DriverEvent) ledger.ConsultationEnd {
 	rt := w.config.Lanes
 	var end ledger.ConsultationEnd
 	var once sync.Once
+	// A stop that sent its last signal and read no end of the session leaves it running, and spending, with nobody to
+	// read it, so it is asked again.
 	stop := func(how ports.StopMode) {
 		once.Do(func() {
-			if err := rt.Driver.Stop(context.WithoutCancel(ctx), handle, how); err != nil && !errors.Is(err, ports.ErrNoSession) {
+			var err error
+			for try := 0; try < consultStopTries; try++ {
+				if err = rt.Driver.Stop(context.WithoutCancel(ctx), handle, how); !errors.Is(err, ports.ErrStopUnconfirmed) {
+					break
+				}
+			}
+			if err != nil && !errors.Is(err, ports.ErrNoSession) {
 				w.config.Report(fmt.Errorf("consultation %s: stopping its session: %w", run.grant.ID, err))
 			}
 		})
 	}
-	deadline := time.NewTimer(consultDeadline)
+	limit := rt.consultDeadline()
+	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
 	var grace <-chan time.Time
 	done := ctx.Done()
@@ -309,10 +328,10 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 			}
 			continue
 		case <-grace:
-			return consultationEnded(run, end, atCap, timedOut)
+			return consultationEnded(run, end, atCap, timedOut, limit)
 		case event, open := <-events:
 			if !open {
-				return consultationEnded(run, end, atCap, timedOut)
+				return consultationEnded(run, end, atCap, timedOut, limit)
 			}
 			switch event.Kind {
 			case ports.EventSessionBound:
@@ -337,7 +356,7 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 
 // consultationEnded says how a consultation ended: with its agent's report when it gave one, and otherwise at its budget,
 // at its deadline, or with no report.
-func consultationEnded(run *consultation, end ledger.ConsultationEnd, atCap, timedOut bool) ledger.ConsultationEnd {
+func consultationEnded(run *consultation, end ledger.ConsultationEnd, atCap, timedOut bool, limit time.Duration) ledger.ConsultationEnd {
 	if report := run.reported(); report != nil {
 		end.Outcome, end.ConsultationReport = ledger.ConsultationReported, *report
 		return end
@@ -346,7 +365,7 @@ func consultationEnded(run *consultation, end ledger.ConsultationEnd, atCap, tim
 	case atCap:
 		end.Outcome, end.Detail = ledger.ConsultationAtCap, fmt.Sprintf("It reached its budget of $%.2f before it reported.", run.grant.BudgetUSD)
 	case timedOut:
-		end.Outcome, end.Detail = ledger.ConsultationUnreported, fmt.Sprintf("It ran %s and reported nothing.", consultDeadline)
+		end.Outcome, end.Detail = ledger.ConsultationUnreported, fmt.Sprintf("It ran %s and reported nothing.", limit)
 	default:
 		end.Outcome, end.Detail = ledger.ConsultationUnreported, "Its session ended with no report."
 	}

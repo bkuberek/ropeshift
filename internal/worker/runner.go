@@ -75,6 +75,9 @@ type LaneRuntime struct {
 	// ForgeEvery is how often the forge's sign-in is read for each repository, and how long a failed forge
 	// request waits before its next attempt. Zero takes a minute.
 	ForgeEvery time.Duration
+	// ConsultDeadline is the longest the session of an orchestrator's consultation runs once it has started (FR-ORCH-9).
+	// Zero takes twenty minutes.
+	ConsultDeadline time.Duration
 	// ManifestTemplate and IntakeDirectory are what a planning lane's first brief shows of the manifest of a
 	// project's code repositories and of where intake reads plan files (FR-TPL-3). The entry package renders
 	// the manifest and passes the daemon's --dir, because this package never imports the templates.
