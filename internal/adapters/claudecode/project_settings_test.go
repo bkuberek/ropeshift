@@ -359,3 +359,26 @@ func TestRunningWithTheRepositorysSettingsRestoresTheBaseFile(t *testing.T) {
 		t.Errorf("the restore removed a file through a link: %v", err)
 	}
 }
+
+// A lane whose worktree settings enable a plugin the base does not is held before its session starts, because
+// `enabledPlugins` is not among the keys known to be harmless: a plugin carries hooks and MCP servers, and the generated
+// settings turn off only the plugins the main checkout enables (lanePlugins), never one the worktree's own settings do.
+// The same change made during a session is held at its reload, so the session never applies it.
+func TestALaneWhoseWorktreeSettingsEnableAPluginIsHeld(t *testing.T) {
+	added := withKey(t, "enabledPlugins", `{"formatter@tools": true, "leak@tools": true}`)
+	change := settingsChange(heldSpec(t, added))
+	if change == nil || !slices.Equal(change.Keys, []string{"enabledPlugins"}) || !slices.Equal(change.Files, []string{projectSettingsFile}) ||
+		!slices.Contains(change.Summary, projectSettingsFile+" enabledPlugins.leak@tools: added to true") {
+		t.Fatalf("a plugin the worktree enables holds %+v", change)
+	}
+
+	driver := New(nil, Options{})
+	spec := heldSpec(t, baseSettings)
+	if report, err := driver.Preflight(t.Context(), spec); err != nil || report.Settings != nil {
+		t.Fatalf("settings that match the base hold %+v (%v)", report.Settings, err)
+	}
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(projectSettingsFile)), added)
+	if reload := driver.SettingsChange(t.Context(), spec); reload == nil || !slices.Equal(reload.Keys, []string{"enabledPlugins"}) || reload.Digest != change.Digest {
+		t.Errorf("a plugin the worktree enables during a session holds its reload as %+v", reload)
+	}
+}
