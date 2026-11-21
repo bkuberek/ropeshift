@@ -94,6 +94,10 @@ func (t installationReadTx) Events(after int64, limit int) ([]ledger.Event, erro
 	return listInstallationEvents(t.session, after, limit)
 }
 
+func (t installationReadTx) Event(id string) (ledger.Event, error) {
+	return findInstallationEvent(t.session, id)
+}
+
 func (t installationReadTx) Workers() ports.WorkerReader {
 	return workerTx{session: t.session, scope: ledger.InstallationScope}
 }
@@ -109,7 +113,12 @@ func (t installationReadTx) Policies() ports.PolicyReader {
 func (t *installationTx) Now() int64 { return t.now }
 
 func (t *installationTx) Event(id string) (ledger.Event, error) {
-	row, err := t.row(stmtFindInstallationEvent, params{"id": id})
+	return findInstallationEvent(t.session, id)
+}
+
+// findInstallationEvent reads the event of the installation's log with an ID, through the key of its table.
+func findInstallationEvent(se *session, id string) (ledger.Event, error) {
+	row, err := se.row(stmtFindInstallationEvent, params{"id": id})
 	if err != nil {
 		return ledger.Event{}, err
 	}
@@ -210,6 +219,10 @@ func (r ownSharedRead) Revision() (int64, error) { return 0, nil }
 
 func (r ownSharedRead) Events(after int64, limit int) ([]ledger.Event, error) {
 	return r.t.Events(after, limit)
+}
+
+func (r ownSharedRead) Event(id string) (ledger.Event, error) {
+	return findEvent(r.t.session, r.t.scope, id)
 }
 
 func (r ownSharedRead) Workers() ports.WorkerReader {

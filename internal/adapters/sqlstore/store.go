@@ -603,7 +603,12 @@ func (t *writeTx) EventsOfKind(kind string, since int64) ([]ledger.Event, error)
 }
 
 func (t *writeTx) Event(id string) (ledger.Event, error) {
-	row, err := t.row(stmtFindEvent, params{"workspace_id": string(t.scope), "id": id})
+	return findEvent(t.session, t.scope, id)
+}
+
+// findEvent reads the event of a workspace's log with an ID, through the key of its table.
+func findEvent(se *session, scope ledger.WorkspaceID, id string) (ledger.Event, error) {
+	row, err := se.row(stmtFindEvent, params{"workspace_id": string(scope), "id": id})
 	if err != nil {
 		return ledger.Event{}, err
 	}

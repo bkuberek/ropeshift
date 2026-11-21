@@ -128,45 +128,49 @@ func readParty(ctx context.Context, store ports.Store, scope ledger.WorkspaceID,
 	return by, err
 }
 
-// oneWayAcceptance reads the acceptance of a worker's one-way acknowledgement that stands, or nil, from the
-// installation's log, which holds its acceptances and withdrawals as events and nowhere else.
+// oneWayAcceptance reads the acceptance of a worker's one-way acknowledgement that stands, or nil. The installation's
+// log holds acceptances and withdrawals as events and nowhere else, and the ID of each names its worker and its position
+// in that worker's history, so the read finds the worker's own acts by their IDs, one for each act and one for the
+// position after them, and never lists the log: what it reads grows with a member's acts on this worker and not with the
+// installation's history.
 func oneWayAcceptance(tx ports.SharedReadTx, worker string) (*authority.OneWayAcknowledgement, error) {
-	var history authority.OneWayHistory
-	for after := int64(0); ; {
-		page, err := tx.Events(after, eventPage)
-		if err != nil {
-			return nil, err
-		}
-		for _, event := range page {
-			if _, err := history.Take(event, worker); err != nil {
-				return nil, err
-			}
-		}
-		if len(page) < eventPage {
-			return history.Accepted, nil
-		}
-		after = page[len(page)-1].Rev
-	}
+	history, _, err := oneWayHistory(tx, worker)
+	return history.Accepted, err
 }
 
-// oneWayWritten reads a worker's one-way history in a write, by the ID of each position in turn, so an act that
-// follows appends at the next position.
+// oneWayWritten reads a worker's one-way history in a write, so an act that follows appends at the next position.
 func oneWayWritten(tx ports.SharedTx, worker string) (authority.OneWayHistory, error) {
+	history, stray, err := oneWayHistory(tx, worker)
+	if err == nil && stray != nil {
+		err = fmt.Errorf("the one-way history of worker %s holds an event %s no member recorded", worker, stray.ID)
+	}
+	return history, err
+}
+
+// eventFinder reads one event of the installation's log by its ID, in a read and in a write.
+type eventFinder interface {
+	Event(id string) (ledger.Event, error)
+}
+
+// oneWayHistory reads a worker's one-way history by the ID of each position in turn, up to the first position no event
+// holds. An event at a position that no member's act made is not part of the history, and is returned as the stray that
+// ends it.
+func oneWayHistory(tx eventFinder, worker string) (authority.OneWayHistory, *ledger.Event, error) {
 	var history authority.OneWayHistory
 	for {
 		event, err := tx.Event(authority.OneWayEventID(worker, history.Next))
 		if errors.Is(err, ports.ErrNotFound) {
-			return history, nil
+			return history, nil, nil
 		}
 		if err != nil {
-			return history, err
+			return history, nil, err
 		}
 		took, err := history.Take(event, worker)
 		if err != nil {
-			return history, err
+			return history, nil, err
 		}
 		if !took {
-			return history, fmt.Errorf("the one-way history of worker %s holds an event %s no member recorded", worker, event.ID)
+			return history, &event, nil
 		}
 	}
 }
