@@ -211,11 +211,16 @@ func (w *Worker) desired(ctx context.Context) (ledger.DesiredState, error) {
 	return state, err
 }
 
-// sessionSpec is what a driver needs to look for a session it did not start.
+// sessionSpec is what a driver needs to look for a session it did not start. An orchestrator's lane records no
+// worktree, because its session runs in its private directory, so it is looked for there.
 func (w *Worker) sessionSpec(record lanes.Record) ports.SessionSpec {
 	rt := w.config.Lanes
+	dir := record.Worktree
+	if dir == "" && record.Owner == lanes.OwnerOrchestrator {
+		dir = rt.privateDir(record.ID)
+	}
 	return ports.SessionSpec{
-		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.ProcessGeneration(), Dir: record.Worktree,
+		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.ProcessGeneration(), Dir: dir,
 		ConfigDir: rt.configDir(record.ID), TempDir: rt.tempDir(record.ID), Binary: rt.Binary, Override: rt.Override,
 	}
 }

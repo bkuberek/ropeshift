@@ -51,6 +51,9 @@ const VersionCheckEvery = versionCheckEvery
 // PublishFailed opens the report of a settled publish that failed.
 const PublishFailed = publishFailed
 
+// OrchestratorDir is where an orchestrator's session runs.
+func OrchestratorDir(rt *LaneRuntime, lane string) string { return rt.privateDir(lane) }
+
 // WakeWaiting counts what a worker read for its orchestrator and has not told it. A debounce starts
 // where a worker reads an item, so a test has to see that before it moves its clock.
 func (w *Worker) WakeWaiting() int {
