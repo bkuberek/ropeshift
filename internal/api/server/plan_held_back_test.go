@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -423,6 +424,25 @@ func readSource(t *testing.T, d *apitest.Daemon, source *fake.WorkSource) {
 	}
 }
 
+// planApprovalRows reads every plan approval request of the ledger.
+func planApprovalRows(t *testing.T, d *apitest.Daemon) []authority.Approval {
+	t.Helper()
+	var out []authority.Approval
+	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		rows, err := tx.Approvals().All()
+		for _, row := range rows {
+			if row.Kind == authority.KindPlan {
+				out = append(out, row)
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 // A branch that holds exactly the plan the ledger holds, and has only finished the goal, which the digest does not
 // cover, has no plan version to approve. A request at the held version could not accept the work order and would hide
 // its acceptance, and approving it would approve the version with the goal the ledger holds. The work order is accepted
@@ -465,5 +485,37 @@ func TestABranchThatOnlyFinishesTheGoalOfAHeldPlaceholderIsAcceptedBeforeTheVers
 	}
 	if err := decide(t, d, offered[0]); err != nil {
 		t.Errorf("the finished version was refused: %v", err)
+	}
+}
+
+// A request raised for a version before ropeshift held a template back says nothing of what it lacks. Approving it
+// reads the version the ledger holds, and refuses it while a plan, goal, or requirement still says what its template says.
+func TestApprovingARequestRaisedBeforeTheTemplateWasHeldBackIsRefused(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	w.Planned(sourceOf(templatePlanFiles(t)))
+	held := pendingPlanRequests(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if len(held) != 1 || len(held[0].Unfinished) == 0 {
+		t.Fatalf("the template plan's request lists %+v", held)
+	}
+	was := held[0].Approval
+	detail, err := json.Marshal(planning.PlanDetail{Title: was.Subject, Ref: planning.PlaceholderPlanTitle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := authority.Approval{
+		ID: "raised-before", Kind: authority.KindPlan, Plan: was.Plan, Subject: was.Subject, SubjectDigest: was.SubjectDigest, Summary: was.Summary,
+		RequestedBy: "system:intake", State: authority.ApprovalPending, RaisedAt: was.RaisedAt + 1, PlanVersion: was.PlanVersion, Detail: string(detail),
+	}
+	raiseBranchRequest(t, d, old)
+	_, err = d.Client.DecideApproval(t.Context(), old.ID, api.DecideApproval{Digest: old.SubjectDigest, Allow: true})
+	if err == nil {
+		t.Fatal("the template was approved by a request that did not say it was one")
+	}
+	for _, row := range planApprovalRows(t, d) {
+		if row.State == authority.ApprovalApproved {
+			t.Errorf("a plan approval stands approved: %+v", row)
+		}
 	}
 }

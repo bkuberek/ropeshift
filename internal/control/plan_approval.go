@@ -20,7 +20,7 @@ import (
 )
 
 // approvePlan is what approving a plan version does, in the transaction that records the approval. It
-// holds the approval to the digest the ledger has now, decides what the plan drafted as the member's
+// holds the approval to the digest the ledger has now, refuses a version that is still a placeholder, decides what the plan drafted as the member's
 // decisions, passes the contract review of the work the version covers, approves the merge of the
 // planning branch the version came from, and records the estimates and forecasts it showed as the
 // baseline. A kill leaves all of that or none of it (FR-PLAN-9, FR-PLAN-10, FR-EST-10).
@@ -58,6 +58,15 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 	}
 	if current != approval.SubjectDigest {
 		return fmt.Errorf("%w: the plan is now %s", authority.ErrStaleDigest, current)
+	}
+	// A request says what its version lacked when it was raised, and one raised before a placeholder was held back
+	// says nothing, so the version the ledger holds is read again.
+	finish, err := versionFinish(tx, version)
+	if err != nil {
+		return err
+	}
+	if missing := planning.Unfinished(finish); len(missing) != 0 {
+		return fmt.Errorf("%w: the plan is not finished: %s", workorders.ErrInvalid, strings.Join(missing, " "))
 	}
 	if err := decideDrafts(tx, version, member); err != nil {
 		return err
