@@ -169,20 +169,25 @@ func refuseUsedTarget(tx ports.WriteTx, target, question string) error {
 	return fmt.Errorf("%w: %s began the consultation of %s, so it names no consultation of %s", workorders.ErrInvalid, target, used.Subject.ID, question)
 }
 
-// consultationsRunning are the consultations that run now, counted for what the project's limits leave: how many, and the
-// budget each was granted, because what a consultation spends reaches the project's tally only when it ends.
+// consultReservationMs is ledger.ConsultReservation in the milliseconds the ledger's clock counts.
+const consultReservationMs = int64(ledger.ConsultReservation / time.Millisecond)
+
+// consultationsRunning are the consultations that hold their budget now, counted for what the project's limits leave: how
+// many, and the budget each was granted, because what a consultation spends reaches the project's tally only when it ends.
 type consultationsRunning struct {
 	count  int
 	budget float64
 }
 
-// runningConsultations reads the consultations that run now: each that has a start, no end, and a hold with time left.
-// What becomes of its question does not end one: a member who decides or dismisses the question, or escalates it, while
-// the session runs takes the question from the consultation, and the session still spends until it ends or its hold
-// runs out, which a decided or dismissed question brings sooner (consultationsToCancel). A consultation starts inside
-// its hold, so only the starts of the last hold's length are read.
+// runningConsultations reads the consultations that hold their budget now: each that has a start and no end, from a start
+// within the reservation. Its hold on the question running out does not end one: a worker that went away may leave its
+// session spending, and records what it spent once it starts again, so the budget stays held until that end arrives, and
+// a worker that never comes back holds it until the reservation, counted from the start, runs out. What becomes of its
+// question does not end one either: a member who decides or dismisses the question, or escalates it, while the session
+// runs takes the question from the consultation, and the session still spends until it ends, which a decided or
+// dismissed question brings sooner (consultationsToCancel).
 func runningConsultations(tx ports.WriteTx, now int64) (consultationsRunning, error) {
-	events, err := tx.EventsOfKind(ledger.SubjectConsultation, now-consultHoldMs)
+	events, err := tx.EventsOfKind(ledger.SubjectConsultation, now-consultReservationMs)
 	if err != nil {
 		return consultationsRunning{}, err
 	}
@@ -192,10 +197,8 @@ func runningConsultations(tx ports.WriteTx, now int64) (consultationsRunning, er
 	}
 	var running consultationsRunning
 	for _, started := range open {
-		if started.HoldUntil > now {
-			running.count++
-			running.budget += started.BudgetUSD
-		}
+		running.count++
+		running.budget += started.BudgetUSD
 	}
 	return running, nil
 }
@@ -261,9 +264,10 @@ func consultationsToCancel(tx ports.ReadTx, worker string) ([]string, error) {
 }
 
 // consultBudget is the most a consultation may spend: `consultation_limit`, and no more than what the project's daily
-// and weekly limits leave once the consultations that run have each been given the budget they hold. A project past
-// either limit starts none, and neither does one whose limits leave nothing beyond what those hold, and a limit of 0
-// (FR-SPEND-6). Two consultations that run at once so spend no more together than a limit that either fits under alone.
+// and weekly limits leave once the consultations that have not ended have each been given the budget they hold. A
+// project past either limit starts none, and neither does one whose limits leave nothing beyond what those hold, and a
+// limit of 0 (FR-SPEND-6). Two consultations that run at once so spend no more together than a limit that either fits
+// under alone.
 func consultBudget(reads spendReads, policy authority.SpendPolicy, running consultationsRunning) (float64, error) {
 	if policy.ConsultationLimit <= 0 {
 		return 0, fmt.Errorf("%w: consultation_limit is 0, so the project starts no consultation", workorders.ErrIneligible)
@@ -286,7 +290,7 @@ func consultBudget(reads spendReads, policy authority.SpendPolicy, running consu
 			if window.Window == ledger.WindowWeek {
 				name = "weekly"
 			}
-			return 0, fmt.Errorf("%w: the project's %s limit leaves $%.2f, and the %d consultations that run hold $%.2f of it", workorders.ErrIneligible,
+			return 0, fmt.Errorf("%w: the project's %s limit leaves $%.2f, and the %d consultations that have not ended hold $%.2f of it", workorders.ErrIneligible,
 				name, window.Remaining, running.count, running.budget)
 		}
 		budget = min(budget, left)
