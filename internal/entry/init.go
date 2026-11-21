@@ -48,13 +48,15 @@ func startDaemonForInit(paths api.Paths) func(context.Context) (func() error, er
 	}
 }
 
-// initDaemonCommand is the daemon an init runs, before its output is set. A process the daemon leaves
-// behind can hold its output open after the daemon ended, and the wait for the daemon would wait for
-// that process too, so the wait is bounded, as the installed-build read's is.
+// initDaemonCommand is the daemon an init runs, before its output is set. It starts no probe of the agent CLI:
+// the probe starts real sessions that spend turns, and this daemon is stopped, and the probe cancelled, within
+// seconds of its start. A process the daemon leaves behind can hold its output open after the daemon ended,
+// and the wait for the daemon would wait for that process too, so the wait is bounded, as the installed-build
+// read's is.
 func initDaemonCommand(executable string) *exec.Cmd {
 	return &exec.Cmd{
 		Path:      executable,
-		Args:      []string{commandDaemon, "solo", "--web", api.WebOff, "--telemetry", api.WebOff},
+		Args:      []string{commandDaemon, "solo", "--web", api.WebOff, "--telemetry", api.WebOff, "--no-probe"},
 		Env:       os.Environ(),
 		WaitDelay: initDaemonOutputGrace,
 	}
@@ -68,8 +70,10 @@ type initDaemon struct {
 	limit time.Duration
 }
 
-// launchInitDaemon starts cmd and watches for its end.
+// launchInitDaemon starts cmd and watches for its end. Init hands the daemon no descriptor it was started with:
+// the daemon starts the terminal server, which outlives it and holds every descriptor it was given.
 func launchInitDaemon(cmd *exec.Cmd, limit time.Duration) (*initDaemon, error) {
+	keepDescriptorsFromChildren()
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

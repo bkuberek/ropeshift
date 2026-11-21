@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -341,6 +342,30 @@ func TestAVersionThatChangesUnderARunningWorkerIsProbedAgain(t *testing.T) {
 	got := r.qualifications()
 	if len(got) != 2 || got[1].Version != "1.0.1" || !got[1].Degraded {
 		t.Errorf("recorded %+v", got)
+	}
+}
+
+// TestAWorkerToldNotToProbeStartsNoProbe is the worker of a daemon that runs for the length of one command and
+// is stopped within seconds: a probe runs real agent CLI sessions that spend turns, and one that is always
+// cancelled before it ends keeps nothing. The worker still registers, which is all that daemon is for.
+func TestAWorkerToldNotToProbeStartsNoProbe(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	driver := fake.NewAgentDriver()
+	subject := worker.New(base.link, base.journal, base.clock, worker.Config{
+		Name:      "test",
+		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
+		Lanes:     &worker.LaneRuntime{Driver: driver, NoProbe: true},
+	})
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	subject.Wait()
+	if n := len(driver.Probes()); n != 0 {
+		t.Errorf("%d probes by a worker told not to probe", n)
+	}
+	if subject.Auth().WorkerID == "" {
+		t.Error("a worker told not to probe did not register")
 	}
 }
 

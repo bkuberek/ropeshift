@@ -48,3 +48,5 @@ A running process keeps the version it started on. A new process reads the insta
 - A session that a restarted worker takes over uses the result for the version it started on, not the installed one.
 
 So an update never moves a lane between qualified and degraded without a probe's result for the version it runs, and no process uses an undocumented surface that no check of its version passed.
+
+The probe starts real sessions on the signed-in account, each for a turn or less, so a daemon that runs for the length of one command does not start one. `ropeshift init` starts its daemon with `--no-probe` for that reason: the daemon registers the worker and is stopped within seconds, and a probe it started would be cancelled before it ended. A daemon started with `--no-probe` by hand never probes, so a lane runs on the surfaces the shipped matrix passed for its version, and on documented surfaces when the matrix does not hold it.

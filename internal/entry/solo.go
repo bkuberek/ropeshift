@@ -95,6 +95,8 @@ type soloOptions struct {
 	forecastTick time.Duration
 	leaseTTL     time.Duration
 	heartbeat    time.Duration
+	// noProbe keeps the worker from probing the agent CLI, which starts real sessions that spend turns.
+	noProbe bool
 	// records reads the first project's records, which name the repositories of the daemon's sources: a
 	// source with no checkout kept for it keeps the ID of the record registration would match it to.
 	records func(ctx context.Context, id string) (ledger.Repository, bool, error)
@@ -160,6 +162,7 @@ func soloFlags(opts *soloOptions) *flag.FlagSet {
 	flags.DurationVar(&opts.forecastTick, "forecast-tick", time.Minute, "how often each plan's forecast is made again when what it rests on changed, and at least hourly")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
+	flags.BoolVar(&opts.noProbe, "no-probe", false, "do not probe the agent CLI for the surfaces it passes, which starts real sessions that spend turns")
 	return flags
 }
 
@@ -177,6 +180,9 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return exitUsage
 	}
+	// Before the daemon starts anything, so no process it starts, git first and the terminal server last,
+	// holds a descriptor the daemon was started with.
+	keepDescriptorsFromChildren()
 	paths, err := installationPaths()
 	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd solo: %v\n", err)
@@ -746,6 +752,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept *checkouts.File, stderr i
 		StateDir:   paths.StateDir,
 		RunDir:     paths.RunDir,
 		Override:   override,
+		NoProbe:    opts.noProbe,
 		Inventory:  inventory.Git{},
 		// An adopt lane that carries a restructuring reads the layout around its clones again, from this
 		// worker's own checkouts, before it commits the workspace files (FR-ADOPT-14).

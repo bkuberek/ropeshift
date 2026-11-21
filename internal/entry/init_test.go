@@ -2,6 +2,7 @@ package entry
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // heldOutputShell is a daemon that ends on SIGTERM and leaves a child behind that holds its output open,
@@ -63,5 +67,46 @@ func TestInitStopsADaemonWhoseChildHoldsItsOutput(t *testing.T) {
 		}
 	case <-time.After(12 * time.Second):
 		t.Fatal("init's stop never returned for a daemon whose child held its output")
+	}
+}
+
+// The daemon ropeshift init starts runs for a few seconds, and its first start registers the worker. A
+// probe of the agent CLI starts real sessions that spend turns, and this daemon's stop always cancels it
+// within a second, so the daemon is told not to start one.
+func TestTheDaemonInitStartsIsToldNotToProbe(t *testing.T) {
+	t.Parallel()
+	args := initDaemonCommand("/ropeshiftd").Args
+	opts, ok := parseSolo(args[2:], io.Discard)
+	if !ok {
+		t.Fatalf("the daemon init starts refuses its own flags: %v", args)
+	}
+	if !opts.noProbe {
+		t.Errorf("the daemon init starts probes the agent CLI: %v", args)
+	}
+	if opts.web != api.WebOff || opts.telemetry != api.WebOff {
+		t.Errorf("the daemon init starts listens on web %q and telemetry %q", opts.web, opts.telemetry)
+	}
+}
+
+// A daemon probes the agent CLI unless it is told not to, and the lane runtime it builds carries what it was told.
+func TestADaemonProbesUnlessToldNotTo(t *testing.T) {
+	t.Parallel()
+	if opts, ok := parseSolo(nil, io.Discard); !ok || opts.noProbe {
+		t.Errorf("a daemon given no flags reads noProbe %v (%v)", opts.noProbe, ok)
+	}
+	opts, ok := parseSolo([]string{"--no-probe"}, io.Discard)
+	if !ok || !opts.noProbe {
+		t.Fatalf("--no-probe reads noProbe %v (%v)", opts.noProbe, ok)
+	}
+	root := apitest.ShortDir(t)
+	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run"), WorktreeDir: filepath.Join(root, "worktrees")}
+	for _, told := range []bool{false, true} {
+		runtime, _, err := soloLanes(paths, soloOptions{noProbe: told}, soloCheckouts(paths), io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if runtime.NoProbe != told {
+			t.Errorf("a daemon told noProbe=%v builds a lane runtime with NoProbe=%v", told, runtime.NoProbe)
+		}
 	}
 }

@@ -61,6 +61,10 @@ type LaneRuntime struct {
 	Machine ports.Machine
 	// Override carries a real-session suite's guard flags.
 	Override lanes.SessionOverride
+	// NoProbe keeps the worker from starting the qualification probe, which runs real agent CLI sessions that
+	// spend turns. A lane then runs on the surfaces the shipped matrix passed for its version, or on documented
+	// surfaces when the matrix does not hold it.
+	NoProbe bool
 	// Telemetry is where each session's telemetry goes. Empty sends none.
 	Telemetry LaneTelemetry
 	// Inventory reads what each repository holds for a lane whose lease asks for an inventory before it
