@@ -1,11 +1,13 @@
 package claudecode
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -344,27 +346,6 @@ func TestAPermissionModeALaneSetsInASubagentHoldsIt(t *testing.T) {
 	}
 }
 
-// A worktree with more directories than the walk for nested skills reads holds the lane for its size, and the hold says
-// so, because nothing the lane changed is named: the CLI's skills pages name no directory, such as one git ignores, that
-// discovery leaves out, so a large tree of dependencies counts too.
-func TestATreeTooLargeToWalkHoldsTheLaneForItsSize(t *testing.T) {
-	was := maxNestedDirs
-	maxNestedDirs = 4
-	t.Cleanup(func() { maxNestedDirs = was })
-	spec := pieceSpec(t, nil)
-	for _, dir := range []string{"a", "b", "c", "d", "e", "f"} {
-		if err := os.MkdirAll(filepath.Join(spec.Dir, "node_modules", dir), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	change := settingsChange(spec)
-	if change == nil || !slices.ContainsFunc(change.Summary, func(line string) bool {
-		return strings.Contains(line, "the size of the tree holds the lane, and no change the lane made")
-	}) {
-		t.Errorf("a tree past the walk's bound holds %+v", change)
-	}
-}
-
 // A skill's or a command's body can run shell commands before Claude reads it, inline as !`command` or in a block
 // opened with ```!, and the page that documents them names permission rules as their check and no PreToolUse hook
 // ([skills]), so a body whose commands the lane added or changed holds the lane, named `!commands`: inline and as a
@@ -412,5 +393,64 @@ func TestASubagentsUserMemoryHoldsNothingBecauseAutoMemoryIsOff(t *testing.T) {
 	}
 	if env := sessionEnv(spec, Use{}); !slices.Contains(env, envNoMemory) {
 		t.Errorf("a session starts with auto memory on: %v", env)
+	}
+}
+
+// bigIgnoredTree is a lane whose base ignores node_modules, and whose worktree holds more directories there than the
+// walk for nested skills once counted, as a JavaScript repository's does.
+func bigIgnoredTree(t *testing.T) ports.SessionSpec {
+	t.Helper()
+	spec := pieceSpec(t, map[string]string{".gitignore": "node_modules/\n"})
+	for a := range 257 {
+		for b := range 256 {
+			if err := os.MkdirAll(filepath.Join(spec.Dir, "node_modules", fmt.Sprintf("a%03d", a), fmt.Sprintf("b%03d", b)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return spec
+}
+
+// waitAtMost sets the bound of the walk of ignored directories for one test.
+func waitAtMost(t *testing.T, bound time.Duration) {
+	was := nestedWalkWait
+	nestedWalkWait = bound
+	t.Cleanup(func() { nestedWalkWait = was })
+}
+
+// The directories git ignores, such as node_modules, are walked by their names alone, so a large tree of them with no
+// skills holds nothing, and a skills directory in one holds the lane for what it holds and is named, whatever the size
+// of the tree around it. The bound is a minute here, so the outcome does not hang on how fast the machine is.
+func TestAnIgnoredTreeIsWalkedForSkillsByName(t *testing.T) {
+	waitAtMost(t, time.Minute)
+	spec := bigIgnoredTree(t)
+	t.Run("a large ignored tree with no skills holds nothing", func(t *testing.T) {
+		if change := settingsChange(spec); change != nil {
+			t.Errorf("an ignored tree with no skills holds %+v", change)
+		}
+	})
+	t.Run("a skill under node_modules holds and is named", func(t *testing.T) {
+		const skill = "node_modules/a256/b255/.claude/skills/deploy/SKILL.md"
+		writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(skill)), hookedPiece)
+		change := settingsChange(spec)
+		if change == nil || !slices.Equal(change.Files, []string{skill}) || !slices.Contains(change.Summary, skill+" hooks.PreToolUse: added") {
+			t.Errorf("a skill under node_modules holds %+v", change)
+		}
+	})
+}
+
+// A walk of the ignored directories that runs past its bound holds the lane for the size of the tree, and says that the
+// time ran out and no change of the lane's holds it. The bound is injected, so the test does not hang on the machine.
+func TestAWalkPastItsBoundHoldsTheLaneForTheTreesSize(t *testing.T) {
+	waitAtMost(t, 0)
+	spec := pieceSpec(t, map[string]string{".gitignore": "node_modules/\n"})
+	if err := os.MkdirAll(filepath.Join(spec.Dir, "node_modules", "pkg", "lib"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	change := settingsChange(spec)
+	if change == nil || !slices.ContainsFunc(change.Summary, func(line string) bool {
+		return strings.Contains(line, "could not all be read within") && strings.Contains(line, "the size of the tree holds the lane, and no change the lane made")
+	}) {
+		t.Errorf("a walk past its bound holds %+v", change)
 	}
 }
