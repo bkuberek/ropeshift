@@ -224,14 +224,12 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 			ask.plan = link.RecordID
 			latest, err := tx.Planning().LatestPlanVersion(ask.plan)
 			if err == nil && latest.Digest == ask.digest {
-				// The ledger already holds exactly this plan, so there is nothing to approve, unless the version
-				// stands only because it was a placeholder when it was read, and the branch has finished it.
-				if _, held, err := unfinishedRequest(tx.Approvals(), ask.plan, latest.Version); err != nil {
-					return err
-				} else if !held {
-					continue
-				}
-				ask.version = latest.Version
+				// The ledger already holds exactly this plan, so there is nothing to approve: a request for the held
+				// version could not accept the work order, and approving it would approve the version as the ledger
+				// holds it. A branch that only finished a goal, which the digest does not cover, is accepted as any
+				// work order is, and reading its commit records the goal and asks about the held version again
+				// (offerHeldVersion).
+				continue
 			} else if err == nil {
 				ask.version = latest.Version + 1
 			} else if !errors.Is(err, ports.ErrNotFound) {

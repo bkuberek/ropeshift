@@ -413,3 +413,57 @@ func TestABranchWhoseGoalIsFixedLastIsOffered(t *testing.T) {
 		t.Fatalf("the plan with its goal written is %+v", needs)
 	}
 }
+
+// readSource reads the files of a source as intake does on the repository's ref.
+func readSource(t *testing.T, d *apitest.Daemon, source *fake.WorkSource) {
+	t.Helper()
+	report, err := control.NewIntake(d.Store).Poll(t.Context(), apitest.Scope, source)
+	if err != nil || len(report.Problems) != 0 {
+		t.Fatalf("intake read %+v: %v", report, err)
+	}
+}
+
+// A branch that holds exactly the plan the ledger holds, and has only finished the goal, which the digest does not
+// cover, has no plan version to approve. A request at the held version could not accept the work order and would hide
+// its acceptance, and approving it would approve the version with the goal the ledger holds. The work order is accepted
+// as any is, and reading its commit records the goal and offers the held version again, finished.
+func TestABranchThatOnlyFinishesTheGoalOfAHeldPlaceholderIsAcceptedBeforeTheVersionIsOffered(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	files := templatePlanFiles(t)
+	planTitled(files, "Harbor berth booking")
+	source := sourceOf(files)
+	readSource(t, d, source)
+	held := pendingPlanRequests(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if len(held) != 1 || len(held[0].Unfinished) == 0 {
+		t.Fatalf("the plan with the template's goal lists %+v", held)
+	}
+	goalWritten(files)
+	source.Write("plan/goal.md", []byte(files["plan/goal.md"]))
+	aPlanLane(t, d, "wo-plan", 1, laneHead)
+	proposePlans(t, d, source)
+
+	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
+	for _, need := range pendingPlanRequests(t, view) {
+		if need.Approval.WorkOrder != "" {
+			t.Errorf("the branch raised a request that approves the held version and cannot accept its work order: %+v", need.Approval)
+		}
+	}
+	if !waitsForAcceptance(view, "wo-plan") {
+		t.Fatal("Needs you does not ask for the acceptance of the branch's work order")
+	}
+	if _, err := d.Client.Accept(t.Context(), "wo-plan"); err != nil {
+		t.Fatal(err)
+	}
+	open := func(context.Context, string, string) (ports.WorkSource, error) { return source, nil }
+	if _, err := control.NewIntake(d.Store).TakeInPlans(t.Context(), apitest.Scope, open); err != nil {
+		t.Fatal(err)
+	}
+	offered := pendingPlanRequests(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if len(offered) != 1 || len(offered[0].Unfinished) != 0 || offered[0].Version != held[0].Version {
+		t.Fatalf("the held version with its goal read is %+v", offered)
+	}
+	if err := decide(t, d, offered[0]); err != nil {
+		t.Errorf("the finished version was refused: %v", err)
+	}
+}
