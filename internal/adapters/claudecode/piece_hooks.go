@@ -45,8 +45,13 @@ const skillsDir = ".claude/skills"
 // because a reload has milliseconds: a nested skill a lane adds during a session in a directory the start did not find
 // is held at the next generation's start.
 //
-// [skills]: https://code.claude.com/docs/en/skills
-const maxNestedDirs = 1 << 16
+// The walk reads every directory, those git ignores, such as `node_modules`, among them: the skills page says nested
+// skills "load the first time Claude reads or edits a file in that subdirectory" and names no directory discovery leaves
+// out ([skills]). So a tree past the bound holds the lane for its size, and the hold says that no change of the lane's
+// is what holds it.
+//
+// [skills]: https://code.claude.com/docs/en/skills#load-skills-in-monorepos-and-subdirectories
+var maxNestedDirs = 1 << 16
 
 // nestedRoot is the path a hold names for the nested skills it could not compare.
 const nestedRoot = "."
@@ -371,7 +376,7 @@ func nestedOverflow(scan nestedScan) []heldPiece {
 func (p heldPiece) summary() []string {
 	switch {
 	case p.overflow && p.path == nestedRoot:
-		return []string{fmt.Sprintf("the worktree: more than %d directories, so the hooks of the skills nested below its root were not compared", maxNestedDirs)}
+		return []string{fmt.Sprintf("the worktree: more than %d directories, so the skills nested below its root were not compared: the size of the tree holds the lane, and no change the lane made", maxNestedDirs)}
 	case p.overflow:
 		return []string{fmt.Sprintf(".claude: more than %d skill, subagent, and command files, so the hooks of those past the bound were not compared", maxRepositoryPieceFiles)}
 	case !p.lane.readable:

@@ -343,3 +343,24 @@ func TestAPermissionModeALaneSetsInASubagentHoldsIt(t *testing.T) {
 		t.Errorf("a mode the lane changed holds %+v", change)
 	}
 }
+
+// A worktree with more directories than the walk for nested skills reads holds the lane for its size, and the hold says
+// so, because nothing the lane changed is named: the CLI's skills pages name no directory, such as one git ignores, that
+// discovery leaves out, so a large tree of dependencies counts too.
+func TestATreeTooLargeToWalkHoldsTheLaneForItsSize(t *testing.T) {
+	was := maxNestedDirs
+	maxNestedDirs = 4
+	t.Cleanup(func() { maxNestedDirs = was })
+	spec := pieceSpec(t, nil)
+	for _, dir := range []string{"a", "b", "c", "d", "e", "f"} {
+		if err := os.MkdirAll(filepath.Join(spec.Dir, "node_modules", dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	change := settingsChange(spec)
+	if change == nil || !slices.ContainsFunc(change.Summary, func(line string) bool {
+		return strings.Contains(line, "the size of the tree holds the lane, and no change the lane made")
+	}) {
+		t.Errorf("a tree past the walk's bound holds %+v", change)
+	}
+}
