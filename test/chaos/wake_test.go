@@ -32,6 +32,11 @@ const (
 	timerAheadMs = int64(120)
 	// timerTries bounds how often a slow commit doubles that.
 	timerTries = 6
+	// lostWakeVariant names the build whose tick finds nothing.
+	lostWakeVariant = "a tick that finds nothing"
+	// lostWakeAheadMs is how far ahead that build's lanes set every timer: an hour, which no commit
+	// on a slow runner reaches, so only a tick can wake a lane, and this build's tick finds nothing.
+	lostWakeAheadMs = int64(time.Hour / time.Millisecond)
 	// killLimit bounds the killing, which KILLS=1500 stretches.
 	killLimit = 20 * time.Minute
 	// drainLimit bounds a drain, and a lost wake is a work order that never gets there.
@@ -456,7 +461,7 @@ func wakeVariants() []variant {
 			check:    "W16",
 		},
 		{
-			name:     "a tick that finds nothing",
+			name:     lostWakeVariant,
 			sabotage: sqlstore.Sabotage{Rewrite: replace("wake.due", "AND next_eval_at <= :now", "AND next_eval_at <= :now\n   AND 1 = 0")},
 			check:    "lifecycle",
 		},
@@ -619,7 +624,9 @@ func (c *child) runningRound(row workorders.WorkOrder) error {
 
 // roundExpr picks one of four shapes by the fence, so a restart picks the same one. A round
 // moves the fence twice, once for its claim and once for its park, so it is half the fence
-// that counts rounds. A wake already stored keeps the time the first attempt wrote.
+// that counts rounds. A wake already stored keeps the time the first attempt wrote. Its timer is
+// a few milliseconds ahead, which a slow commit can pass, so the build whose tick finds nothing
+// sets it out of reach and the park commit cannot fire the wake that variant must lose.
 func (c *child) roundExpr(row workorders.WorkOrder) (string, error) {
 	var now int64
 	err := c.store.Read(c.ctx, c.scope, func(tx ports.ReadTx) error {
@@ -630,7 +637,11 @@ func (c *child) roundExpr(row workorders.WorkOrder) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	timer := timerExpr(now + int64(c.rng.IntN(20)) + 5)
+	ahead := int64(c.rng.IntN(20)) + 5
+	if c.spec.Variant == lostWakeVariant {
+		ahead = lostWakeAheadMs
+	}
+	timer := timerExpr(now + ahead)
 	question := laneAt(row) + "-q"
 	draft := questions.Question{ID: question, Text: "Round " + question}
 	if _, err := c.ops.RecordQuestion(c.ctx, c.scope, draft, c.member()); err != nil {
