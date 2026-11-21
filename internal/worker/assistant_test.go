@@ -39,9 +39,17 @@ func newAssistantRig(t *testing.T, scripts ...fake.DriverScript) *assistantRig {
 // plane through a wrapper.
 func newAssistantRigOn(t *testing.T, base *rig, scripts ...fake.DriverScript) *assistantRig {
 	t.Helper()
+	a := newIdleAssistantRig(t, base, scripts...)
+	a.tick(t)
+	return a
+}
+
+// newIdleAssistantRig is an assistant rig whose worker has made no pass yet, so its lane is a claim it has not acted
+// on.
+func newIdleAssistantRig(t *testing.T, base *rig, scripts ...fake.DriverScript) *assistantRig {
+	t.Helper()
 	o := newOrchestratorRigOn(t, base, scripts...)
 	o.config.AssistantCommands, o.config.Routes = []string{"lane list", "work show"}, []string{"lane-shim", "hook"}
-	o.tick(t)
 	a := &assistantRig{orchestratorRig: o}
 	a.convs = control.NewConversations(o.store, nil).Hosting(func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
 		return map[string]control.AssistantHost{o.subject.Auth().WorkerID: {Headless: true}}, nil

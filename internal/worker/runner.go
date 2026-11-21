@@ -64,7 +64,8 @@ type LaneRuntime struct {
 	// NoProbe marks the worker of the daemon `ropeshift init` starts, which runs for the length of one command and is
 	// stopped within seconds. Such a worker never qualifies the agent CLI: it starts no probe, which runs real
 	// sessions that spend turns, advertises the CLI as not qualified, and starts no session of any kind, because a
-	// session runs only on a qualified version (ADR-0040).
+	// session runs only on a qualified version (ADR-0040). It takes no work either, so the installation's own daemon
+	// finds the work as it left it.
 	NoProbe bool
 	// Telemetry is where each session's telemetry goes. Empty sends none.
 	Telemetry LaneTelemetry

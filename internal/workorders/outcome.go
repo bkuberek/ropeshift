@@ -70,8 +70,8 @@ const (
 	ReasonBackgroundUnreported = "background_unreported"
 	// ReasonCLINotQualified says a session did not start because the worker that was to start it never qualifies the
 	// agent CLI, as the short-lived daemon `ropeshift init` starts does, and a session runs only on a qualified
-	// version. The work did not run and nothing about it failed, so the report is blocked, and the work goes on when
-	// the installation's own daemon runs it.
+	// version. That daemon takes no work, so the reason is a backstop for a session reached anyway. The work did not
+	// run and nothing about it failed, so the report is blocked, and a member or the orchestrator sends it on.
 	ReasonCLINotQualified = "cli_not_qualified"
 )
 
