@@ -1251,8 +1251,9 @@ func reportArchived(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 	return appendLaneEvent(tx, worker, id, ledger.EventLaneArchived, e)
 }
 
-// reportSetup records on a lane what one generation's session loaded at its start. The generation is the upload's,
-// whatever the payload says, so a record names the session that reported it.
+// reportSetup records on a lane what one generation's session loaded at its start, as bounded plain text
+// (recordedSetup). The generation is the upload's, whatever the payload says, so a record names the session that
+// reported it.
 func reportSetup(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	var setup lanes.Setup
 	if err := json.Unmarshal(e.Payload, &setup); err != nil {
@@ -1262,7 +1263,7 @@ func reportSetup(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return err
 	}
 	setup.Generation = e.Generation
-	payload, err := json.Marshal(setup)
+	payload, err := json.Marshal(recordedSetup(setup))
 	if err != nil {
 		return err
 	}

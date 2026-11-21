@@ -16,6 +16,13 @@ type Setup struct {
 	Personal   []PersonalItem `json:"personal,omitempty"`
 }
 
+// The bounds of what a lane records of what its session loaded: the entries each list keeps, and the bytes each name,
+// version, or source keeps.
+const (
+	MaxSetupEntries = 512
+	MaxSetupText    = 512
+)
+
 // SetupServer is one MCP server a session loaded, and where it came from.
 type SetupServer struct {
 	Name string `json:"name"`

@@ -1,7 +1,10 @@
 package server_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -180,5 +183,45 @@ func TestALeakGoesWithTheLanesItReached(t *testing.T) {
 	other.End(workorders.OutcomeCompleted, "")
 	if needs := setupNeeds(t, d); len(needs) != 0 {
 		t.Errorf("an ended lane still raises %+v", needs)
+	}
+}
+
+// What a session reports it loaded is a stranger's text, which the repository's and the member's files shape, so a lane
+// records it as plain text on one line, with the shapes of credentials taken out, each name held to a bound, and each
+// list to a count.
+func TestALanesSetupIsRecordedAsBoundedPlainText(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	lane := w.Running("wo-noisy", "Noisy work")
+	skills := make([]string, 0, 2*lanes.MaxSetupEntries)
+	for i := range 2 * lanes.MaxSetupEntries {
+		skills = append(skills, fmt.Sprintf("skill-%d", i))
+	}
+	lane.Upload(ledger.UploadLaneSetup, lanes.Setup{
+		Version: "2.1.330\x1b[31m", Model: "resolved\nmodel", Skills: skills,
+		MCPServers: []lanes.SetupServer{{Name: "docs\x1b]8;;https://link.example.test\x07", From: "api_key=sk-live-0123456789abcdef"}},
+		Personal: []lanes.PersonalItem{{
+			Kind: lanes.PieceAgent, Name: strings.Repeat("a", 4*lanes.MaxSetupText), From: "https://member:hunter2hunter2@example.test/agents",
+		}},
+	})
+	got := floorLane(t, d, lane.ID).Setup
+	if got == nil {
+		t.Fatal("the lane records no setup")
+	}
+	if got.Version != "2.1.330" || got.Model != "resolved model" || len(got.Skills) != lanes.MaxSetupEntries || got.Skills[0] != "skill-0" {
+		t.Errorf("the lane records the version %q, the model %q, and %d skills", got.Version, got.Model, len(got.Skills))
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{`\u001b`, "sk-live-0123456789abcdef", "hunter2hunter2", "link.example.test"} {
+		if strings.Contains(string(raw), kept) {
+			t.Errorf("the lane records %q: %s", kept, raw)
+		}
+	}
+	if len(got.Personal) != 1 || len(got.Personal[0].Name) > lanes.MaxSetupText {
+		t.Errorf("the lane records the personal pieces %+v", got.Personal)
 	}
 }
