@@ -235,7 +235,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.goto(`${base}/import`);
         await ready(page);
         await page.getByLabel("Folders", { exact: true }).fill("/work/ws");
-        await page.waitForFunction(() => document.querySelector("select")?.value === "worker-1");
+        await page.waitForFunction(() => [...document.querySelectorAll("select")].some((select) => select.value === "worker-1"));
         await page.getByRole("button", { name: "Run dry run" }).click();
         await page.getByRole("region", { name: "Clones found" }).waitFor();
         await check("import dry run");
@@ -272,7 +272,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.goto(`${base}/import`);
         await ready(page);
         await page.getByLabel("Folders", { exact: true }).fill("/work/ws");
-        await page.waitForFunction(() => document.querySelector("select")?.value === "worker-1");
+        await page.waitForFunction(() => [...document.querySelectorAll("select")].some((select) => select.value === "worker-1"));
         await page.getByRole("button", { name: "Run dry run" }).click();
         await page.getByRole("region", { name: "Practices found" }).waitFor();
         await check("import dry run practices closed");
