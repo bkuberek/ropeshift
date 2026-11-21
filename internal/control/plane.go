@@ -412,6 +412,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			check.Project = name
 			state.PracticesChecks = append(state.PracticesChecks, check)
 		}
+		state.CancelConsultations = append(state.CancelConsultations, part.CancelConsultations...)
 	}
 	return state, nil
 }

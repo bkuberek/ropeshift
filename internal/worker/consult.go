@@ -77,12 +77,13 @@ func (c *consultation) reported() *ledger.ConsultationReport {
 }
 
 // consultationRuns are the consultations this process runs, by the digest of each session's token, and the ID of each
-// that it runs or recovers. A restart keeps none of them in memory: the journal keeps each consultation's start, and the
-// next start ends the consultation and stops the session the process left (recoverConsultations).
+// that it runs or recovers, with how to cancel one whose session it runs. A restart keeps none of them in memory: the
+// journal keeps each consultation's start, and the next start ends the consultation and stops the session the process
+// left (recoverConsultations).
 type consultationRuns struct {
 	mu      sync.Mutex
 	byToken map[string]*consultation
-	live    map[string]bool
+	live    map[string]context.CancelCauseFunc
 }
 
 // begin says this process takes a consultation, and reports false when it has taken it already.
@@ -90,13 +91,32 @@ func (c *consultationRuns) begin(id string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.live == nil {
-		c.live = map[string]bool{}
+		c.live = map[string]context.CancelCauseFunc{}
 	}
-	if c.live[id] {
+	if _, taken := c.live[id]; taken {
 		return false
 	}
-	c.live[id] = true
+	c.live[id] = nil
 	return true
+}
+
+// cancelWith keeps how to cancel a consultation this process took, while its session runs.
+func (c *consultationRuns) cancelWith(id string, cancel context.CancelCauseFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, taken := c.live[id]; taken {
+		c.live[id] = cancel
+	}
+}
+
+// cancel stops a consultation's session this process runs. One it does not run, or recovers, is left as it is.
+func (c *consultationRuns) cancel(id string) {
+	c.mu.Lock()
+	cancel := c.live[id]
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel(errConsultCancelled)
+	}
 }
 
 func (c *consultationRuns) finish(id string) {
@@ -185,6 +205,22 @@ var errNoConsultation = errors.New("no consultation")
 // errConsultHoldEnded is why a consultation's session was stopped when the ledger's hold on its question was about to end.
 var errConsultHoldEnded = errors.New("the hold on the question is about to end")
 
+// errConsultCancelled is why a consultation's session was stopped when desired state named it, because its question was
+// decided or dismissed while it ran.
+var errConsultCancelled = errors.New("the question was decided or dismissed")
+
+// cancelledEnd is the end of a consultation cancelled before its session started, which cost nothing.
+func cancelledEnd() ledger.ConsultationEnd {
+	return ledger.ConsultationEnd{Outcome: ledger.ConsultationCancelled, Detail: consultCancelledDetail}
+}
+
+// consultCancelledDetail is what a cancelled consultation's end says of it.
+const consultCancelledDetail = "Its question was decided or dismissed while it ran, so its worker stopped its session."
+
+// cancelled says desired state named a consultation whose question was decided or dismissed, which is what ends its
+// session's context.
+func cancelled(ctx context.Context) bool { return errors.Is(context.Cause(ctx), errConsultCancelled) }
+
 // lifeOr is the context a session outlives the call that started it under: the worker's own, once it started, and
 // otherwise the call's with its deadline taken off, because the call ends long before the session.
 func (w *Worker) lifeOr(ctx context.Context) context.Context {
@@ -200,12 +236,31 @@ func (w *Worker) lifeOr(ctx context.Context) context.Context {
 // that a failed upload left is sent again with the next.
 func (w *Worker) runConsultation(ctx context.Context, run *consultation) {
 	// The session, from its preparation to its stop, never outlasts the ledger's hold on the question, or the question
-	// could be decided on while the session still reads it.
-	bounded, release := context.WithDeadlineCause(ctx, holdCutoff(run.grant), errConsultHoldEnded)
+	// could be decided on while the session still reads it. Desired state that names the consultation ends it sooner,
+	// once its question was decided or dismissed (cancelConsultations).
+	cancellable, cancel := context.WithCancelCause(ctx)
+	w.consults.cancelWith(run.grant.ID, cancel)
+	bounded, release := context.WithDeadlineCause(cancellable, holdCutoff(run.grant), errConsultHoldEnded)
 	end := w.consultSession(bounded, run)
 	release()
+	cancel(nil)
 	defer w.consults.finish(run.grant.ID)
 	w.recordConsultationEnd(ctx, run, end)
+}
+
+// cancelConsultations stops the session of each consultation this process runs that desired state names: its question
+// was decided or dismissed while it ran, so what it would report decides nothing, and it spends while it runs (FR-ORCH-9).
+// Its end says it was cancelled, with what its session cost until then. The ledger names it until that end arrives, and a
+// consultation cancelled again is stopped already.
+func (w *Worker) cancelConsultations(ctx context.Context) {
+	state, err := w.desired(ctx)
+	if err != nil {
+		w.config.Report(fmt.Errorf("reading the consultations to cancel: %w", err))
+		return
+	}
+	for _, id := range state.CancelConsultations {
+		w.consults.cancel(id)
+	}
 }
 
 // recordConsultationEnd journals how a consultation ended, in the one write that forgets its start, and sends it. A
@@ -294,11 +349,18 @@ func (rt *LaneRuntime) consultDirs(id string) (dir, private, config string) {
 // source of that worktree and nothing more: the session neither runs in it, nor shares its settings, nor reads it.
 func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.ConsultationEnd {
 	rt := w.config.Lanes
+	// A step that fails because the consultation was cancelled meanwhile is the cancellation, not a failure.
 	failed := func(format string, args ...any) ledger.ConsultationEnd {
+		if cancelled(ctx) {
+			return cancelledEnd()
+		}
 		return ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: fmt.Sprintf(format, args...)}
 	}
-	if heldOut(ctx) {
+	switch {
+	case heldOut(ctx):
 		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin+consultClockSkew)
+	case cancelled(ctx):
+		return cancelledEnd()
 	}
 	dir, private, config := rt.consultDirs(run.grant.ID)
 	// Nothing reads what the session left once it ends. This runs last, after the worktree below is removed, and the
@@ -442,7 +504,7 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 			continue
 		case <-done:
 			done = nil
-			why.heldOut = heldOut(ctx)
+			why.heldOut, why.cancelled = heldOut(ctx), cancelled(ctx)
 			stop(ports.StopNow)
 			if grace == nil {
 				grace = time.After(consultStopGrace)
@@ -487,12 +549,12 @@ func (w *Worker) keepConsultationCost(ctx context.Context, run *consultation, co
 	}
 }
 
-// consultStop is why a consultation's session was stopped when its own end did not come first: it reached its budget, it
-// outlasted its deadline of limit, the ledger's hold on its question was about to end, or the worker that ran it went
-// away and the next one found it still running.
+// consultStop is why a consultation's session was stopped when its own end did not come first: it reached its budget, its
+// question was decided or dismissed, it outlasted its deadline of limit, the ledger's hold on its question was about to
+// end, or the worker that ran it went away and the next one found it still running.
 type consultStop struct {
-	atCap, timedOut, heldOut, restarted bool
-	limit                               time.Duration
+	atCap, cancelled, timedOut, heldOut, restarted bool
+	limit                                          time.Duration
 }
 
 // holdCutoff is when a consultation's session is stopped, wherever it has got to: before the ledger's hold on its question
@@ -506,7 +568,7 @@ func holdCutoff(grant ledger.ConsultGrant) time.Time {
 func heldOut(ctx context.Context) bool { return errors.Is(context.Cause(ctx), errConsultHoldEnded) }
 
 // consultationEnded says how a consultation ended: with its agent's report when it gave one, and otherwise at its budget,
-// at its deadline, where the ledger's hold on its question was about to end, or with no report.
+// cancelled, at its deadline, where the ledger's hold on its question was about to end, or with no report.
 func consultationEnded(run *consultation, end ledger.ConsultationEnd, why consultStop) ledger.ConsultationEnd {
 	if report := run.reported(); report != nil {
 		end.Outcome, end.ConsultationReport = ledger.ConsultationReported, *report
@@ -515,6 +577,8 @@ func consultationEnded(run *consultation, end ledger.ConsultationEnd, why consul
 	switch {
 	case why.atCap:
 		end.Outcome, end.Detail = ledger.ConsultationAtCap, fmt.Sprintf("It reached its budget of $%.2f before it reported.", run.grant.BudgetUSD)
+	case why.cancelled:
+		end.Outcome, end.Detail = ledger.ConsultationCancelled, consultCancelledDetail
 	case why.timedOut:
 		end.Outcome, end.Detail = ledger.ConsultationUnreported, fmt.Sprintf("It ran %s and reported nothing.", why.limit)
 	case why.heldOut:

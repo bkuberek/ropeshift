@@ -136,9 +136,12 @@ const (
 	ConsultationUnreported = "no_report"
 	// ConsultationFailed says its session could not start or run.
 	ConsultationFailed = "failed"
+	// ConsultationCancelled says the worker stopped its session because its question was decided or dismissed while it
+	// ran, so what it would report decides nothing.
+	ConsultationCancelled = "cancelled"
 )
 
-var consultationOutcomes = []string{ConsultationReported, ConsultationAtCap, ConsultationUnreported, ConsultationFailed}
+var consultationOutcomes = []string{ConsultationReported, ConsultationAtCap, ConsultationUnreported, ConsultationFailed, ConsultationCancelled}
 
 // ConsultationReport is what a consultation's agent reports: the options it found, the one it recommends, and why.
 type ConsultationReport struct {

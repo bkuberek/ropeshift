@@ -550,6 +550,9 @@ type DesiredState struct {
 	// PracticesChecks are the requests to run the practices check that name this worker and that it has not
 	// reported, until each expires. A worker on a protocol older than ProtocolPracticesChecks is offered none.
 	PracticesChecks []DesiredPracticesCheck `json:"practices_checks,omitempty"`
+	// CancelConsultations are the IDs of the consultations this worker began whose question was decided or
+	// dismissed while they run, for it to stop each one's session and record its end as cancelled (FR-ORCH-9).
+	CancelConsultations []string `json:"cancel_consultations,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

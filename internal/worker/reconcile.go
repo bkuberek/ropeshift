@@ -409,6 +409,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.parkOnPolicy(ctx)
 	w.parkOnWaits(ctx)
 	w.tendOrchestrator(ctx)
+	w.cancelConsultations(ctx)
 	w.tendAssistants(ctx)
 	w.forgetAssistants(ctx)
 	w.tendForge(ctx)
