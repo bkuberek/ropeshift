@@ -104,7 +104,7 @@ func TestLaneScrollbackTakesOneLane(t *testing.T) {
 }
 
 // A lane with no pane to read, such as a parked one, is the API's refusal: the command prints nothing, says why on
-// stderr, exits 1 as for a refusal with no code of its own, and with --json names the code.
+// stderr, exits 4 as `lane attach` does, and with --json names the code.
 func TestLaneScrollbackSaysWhyALaneHasNoPane(t *testing.T) {
 	p := newPlane(t)
 	p.on(scrollbackRoute, func(*http.Request, []byte) (any, *api.Error) {
@@ -112,7 +112,7 @@ func TestLaneScrollbackSaysWhyALaneHasNoPane(t *testing.T) {
 	})
 	var stdout, stderr bytes.Buffer
 	code := cli.Run([]string{"lane", "scrollback", "lane-1"}, &stdout, &stderr, cli.Options{Socket: p.Socket})
-	if code != cli.ExitError || stdout.Len() != 0 || !strings.Contains(stderr.String(), "lane lane-1 is parked, so it has no pane") {
+	if code != cli.ExitConflict || stdout.Len() != 0 || !strings.Contains(stderr.String(), "lane lane-1 is parked, so it has no pane") {
 		t.Errorf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 	stdout.Reset()
