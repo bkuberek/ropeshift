@@ -76,6 +76,10 @@ const (
 	// NeedRepositoryCreation is a repository an approved plan version creates whose creation was refused, failed, or was
 	// interrupted, or that runs now: one item for each, which a member retries or skips (ADR-0039).
 	NeedRepositoryCreation = "repository_creation"
+	// NeedConflict is a lane whose branch changed files a person changed too, in their clone or in pushes to the base:
+	// one item for the work order, for a member to settle, which ropeshift never resolves by overwriting either side
+	// (FR-UI-14).
+	NeedConflict = "conflict"
 )
 
 // Where a repository creation stands, as its Needs you item says.
@@ -248,6 +252,8 @@ type NeedItem struct {
 	// RepositoryCreation is set for a repository_creation item, whose ID is the approval and the entry's name, joined by a
 	// slash.
 	RepositoryCreation *RepositoryCreationNeed `json:"repository_creation,omitempty"`
+	// Conflict is set for a conflict item, whose ID is the work order's.
+	Conflict *ConflictNeed `json:"conflict,omitempty"`
 }
 
 // RepositoryCreationNeed is a repository an approved plan version creates that waits for a member, or runs: the approval

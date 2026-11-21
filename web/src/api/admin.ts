@@ -51,6 +51,27 @@ export type RepositoryView = Repository & {
 
 export type RepositoryList = { repositories: RepositoryView[] };
 
+// What a registered repository's clone holds that intake and lanes cannot read (FR-UI-14). Every name, path, and
+// problem git gave is untrusted text, which a page shows through plainText.
+export type EditState = "uncommitted" | "untracked" | "unpushed";
+export type EditStepKind = "commit" | "copy" | "push";
+export type EditStep = { kind: EditStepKind; title: string; detail: string; branch: string; paths: string[]; commands: string[] };
+export type EditView = { path: string; state: EditState; steps: EditStepKind[]; hidden?: boolean };
+export type CloneEditsView = {
+  repository: string;
+  name: string;
+  planning?: boolean;
+  path?: string;
+  branch?: string;
+  head?: string;
+  remote?: string;
+  edits: EditView[];
+  cut?: boolean;
+  steps: EditStep[];
+  problem?: string;
+};
+export type OutsideEdits = { as_of: number; limit: number; clones: CloneEditsView[] };
+
 export type RepositoryChange = Partial<{
   name: string;
   base: string;
@@ -405,6 +426,7 @@ export const adminPaths = {
   repositories: () => project("/repositories"),
   repository: (id: string) => project(`/repositories/${encodeURIComponent(id)}`),
   removeRepository: (id: string) => project(`/repositories/${encodeURIComponent(id)}/remove`),
+  outsideEdits: () => project("/outside-edits"),
   adoptionPlan: (scope: Scope) => scoped(scope, "/adoption/plan"),
   fleet: () => project("/fleet"),
   fleetMode: () => project("/fleet/mode"),
@@ -470,6 +492,7 @@ export const readRepositories = () => call<RepositoryList>("GET", adminPaths.rep
 export const changeRepository = (id: string, change: RepositoryChange) => call<RepositoryView>("PATCH", adminPaths.repository(id), change);
 export const addRepositories = (paths: string[], depth: number, dryRun: boolean) => call<RepositoryAddReport>("POST", adminPaths.repositories(), { paths, depth, dry_run: dryRun });
 export const removeRepository = (id: string) => call<RepositoryView>("POST", adminPaths.removeRepository(id), {});
+export const readOutsideEdits = () => call<OutsideEdits>("GET", adminPaths.outsideEdits());
 
 // Fleet and policies
 

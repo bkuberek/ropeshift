@@ -170,6 +170,7 @@ func registry() []section {
 			command("repository add", "(<path>... [--depth N] | --manifest <file>) [--dry-run]", "register the git clones at or below paths on this machine in the project", (*invocation).repositoryAdd),
 			command("repository list", "", "list each repository, the branch its lanes start from, and how it merges", (*invocation).repositoryList),
 			command("repository show", "<name>", "show a repository's record: remote, default branch, base, merge method, and start", (*invocation).repositoryShow),
+			command("repository edits", "", "list the uncommitted, untracked, and unpushed files of each clone that intake and lanes cannot read, with the commands that make them readable", (*invocation).repositoryEdits),
 			command("repository remove", "<name>", "take a repository out of the project once no open work targets it", (*invocation).repositoryRemove),
 			command("repository set", "<name>... [--name N] [--base B] [--merge-method M] [--start-from S] [--review-target T] [--forge-binding HOST/OWNER/REPO] [--merge-authority A] [--planning] [ci.<key>=<value>...]", "change a repository's settings, which only a member can do", (*invocation).repositorySet),
 			command("practices", "[--repository R] [--latest]", "check each repository's practices and print its findings, or with --latest print the last result without asking for a check", (*invocation).practicesCommand),

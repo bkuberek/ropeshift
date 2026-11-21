@@ -537,6 +537,26 @@ export type RepositoryCreationNeed = {
   actions: RepositoryCreationAction[];
 };
 
+// ConflictNeed is a lane whose branch changed files a person changed too, in their clone or in pushes to the base, with
+// the ways a member settles it (FR-UI-14). Every name and path git gave is untrusted text.
+export type ConflictOption = { kind: "keep_both" | "keep_person" | "stop"; title: string; detail: string; branch: string; paths: string[]; commands: string[] };
+export type ConflictNeed = {
+  work_order: string;
+  title: string;
+  state: string;
+  lane: string;
+  branch: string;
+  base: string;
+  repository: string;
+  name: string;
+  clone: string;
+  paths: { path: string; person: "uncommitted" | "untracked" | "unpushed" | "pushed"; hidden?: boolean }[];
+  cut?: boolean;
+  options: ConflictOption[];
+  // clears says what ends the conflict (FR-UI-13).
+  clears: string;
+};
+
 export type NeedItem = {
   id: string;
   since: number;
@@ -553,6 +573,7 @@ export type NeedItem = {
   | { kind: "ci"; ci: CINeed }
   | { kind: "spend"; spend: SpendNeed }
   | { kind: "repository_creation"; repository_creation: RepositoryCreationNeed }
+  | { kind: "conflict"; conflict: ConflictNeed }
 );
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.

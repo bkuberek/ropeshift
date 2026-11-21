@@ -106,6 +106,9 @@ type Config struct {
 	// Layouts reads how the clones on that machine are laid out, for the plan of an adoption (FR-ADOPT-12). Nil
 	// reads none, and the plan refuses.
 	Layouts ports.Layouts
+	// OutsideEdits reads what each registered repository's clone on that machine holds that intake and lanes cannot
+	// read (FR-UI-14). Nil reads no clone, and the list refuses.
+	OutsideEdits *control.OutsideEdits
 	// PracticeSources are the reads the plan of an adoption makes of each clone's practices, on the machine of the
 	// worker this daemon runs (FR-PRAC-6). The zero value reads none.
 	PracticeSources practicerun.Sources

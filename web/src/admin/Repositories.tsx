@@ -21,6 +21,7 @@ import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
 import { forgeBindingProblem, outcomeOf } from "./logic";
+import { OutsideEditsPanel } from "./OutsideEdits";
 import { GridField, Reading, SaveBar, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 const authorities: { level: MergeAuthority; text: string }[] = [
@@ -331,6 +332,7 @@ export function RepositoriesPage({
                 </table>
               </TableRegion>
             </Panel>
+            <OutsideEditsPanel live={live} project={project} />
             {chosen ? (
               <LinkTabs
                 label="Record"

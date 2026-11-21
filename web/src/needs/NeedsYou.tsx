@@ -16,6 +16,7 @@ import { useNarrow } from "../ui/narrow";
 import { ApprovalDecision } from "./ApprovalDecision";
 import { CICard } from "./CICard";
 import { ConfirmCard, ResolvedCard, voidAsk } from "./ConfirmCard";
+import { ConflictCard } from "./ConflictCard";
 import { ContractReviewCard } from "./ContractReviewCard";
 import type { Decided } from "./decided";
 import { EffectCard } from "./EffectCard";
@@ -77,6 +78,8 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
       return <RepositoryCreationCard need={item.repository_creation} after={after} frame={frame} onResolved={settled.onResolved} />;
     case "confirm":
       return <ConfirmCard need={item.card} after={after} frame={frame} {...assistant} />;
+    case "conflict":
+      return <ConflictCard need={item.conflict} frame={frame} />;
   }
 }
 

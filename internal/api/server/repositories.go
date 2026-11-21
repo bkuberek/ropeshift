@@ -21,6 +21,7 @@ func (h *handler) repositoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/repositories/{id}", h.member(h.changeRepository))
 	mux.HandleFunc("POST /v1/repositories", h.member(h.addRepositories))
 	mux.HandleFunc("POST /v1/repositories/{id}/remove", h.member(h.removeRepository))
+	mux.HandleFunc("GET "+api.OutsideEditsPath, h.outsideEdits)
 }
 
 // ciAfter applies a change's CI keys over the settings in force, one key at a time in name order, and returns the

@@ -1,0 +1,80 @@
+{
+  "as_of": 1794000000000,
+  "revision": 18,
+  "items": [
+    {
+      "kind": "conflict",
+      "id": "wo-1",
+      "since": 1794000000000,
+      "conflict": {
+        "work_order": "wo-1",
+        "title": "Retry within a budget",
+        "state": "running",
+        "lane": "lane-wo-1",
+        "branch": "lane/lane-wo-1",
+        "base": "origin/main",
+        "repository": "repository-1",
+        "name": "app",
+        "clone": "/srv/repository-1",
+        "paths": [
+          {
+            "path": "docs/guide.md",
+            "person": "pushed"
+          },
+          {
+            "path": "plans/plan.md",
+            "person": "uncommitted"
+          }
+        ],
+        "options": [
+          {
+            "kind": "keep_both",
+            "title": "Keep both changes",
+            "detail": "Commits the person's files in the clone on the new branch edits/wo-1-7130cd7a239a, leaving the clone's checkout, index, and files as they are, then asks the lane to merge that branch and keep both changes.",
+            "branch": "edits/wo-1-7130cd7a239a",
+            "paths": [
+              "docs/guide.md",
+              "plans/plan.md"
+            ],
+            "commands": [
+              "(cd /srv/repository-1 &&",
+              "  export GIT_INDEX_FILE=\"$(git rev-parse --absolute-git-dir)/ropeshift-edits-index\" &&",
+              "  git read-tree HEAD &&",
+              "  git update-index --add --remove -- plans/plan.md &&",
+              "  git branch edits/wo-1-7130cd7a239a \"$(git commit-tree \"$(git write-tree)\" -p HEAD -m 'Commit files from a clone that ropeshift could not read')\"",
+              "  code=$?; rm -f \"$GIT_INDEX_FILE\"; exit $code)",
+              "ropeshift message send lane-wo-1 --project default --kind instruction --body 'A person changed docs/guide.md, plans/plan.md too. Merge the branch edits/wo-1-7130cd7a239a into your branch in your own worktree: it holds their files. Merge origin/main into your branch: it holds the commits they pushed. Keep both changes: overwrite neither side, and ask when they cannot both stand.'"
+            ]
+          },
+          {
+            "kind": "keep_person",
+            "title": "Keep the person's side",
+            "detail": "Asks the lane to revert its branch's change to these files and keep the rest of its work, so the person's change stands.",
+            "branch": "",
+            "paths": [
+              "docs/guide.md",
+              "plans/plan.md"
+            ],
+            "commands": [
+              "ropeshift message send lane-wo-1 --project default --kind instruction --body 'A person changed docs/guide.md, plans/plan.md too. Keep their change: revert your branch'\\''s change to docs/guide.md, plans/plan.md, and keep the rest of your work.'"
+            ]
+          },
+          {
+            "kind": "stop",
+            "title": "Stop the lane's work",
+            "detail": "Cancels the work order, so its branch merges nowhere and the person's change stands. The branch stays.",
+            "branch": "",
+            "paths": [
+              "docs/guide.md",
+              "plans/plan.md"
+            ],
+            "commands": [
+              "ropeshift work cancel wo-1 --project default --reason 'A person changed the same files: docs/guide.md, plans/plan.md.'"
+            ]
+          }
+        ],
+        "clears": "This clears when the lane's branch holds edits/wo-1-7130cd7a239a and the commits of origin/main that changed these files, or no longer changes them, or when the lane's work is merged or stopped."
+      }
+    }
+  ]
+}

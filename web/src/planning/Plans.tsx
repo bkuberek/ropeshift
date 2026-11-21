@@ -6,6 +6,7 @@ import type { PlanForecast } from "../api/measures";
 import type { Contract, ContractHistory, PlanDetail, PlanReview, PlanView, Plans as View, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { OutsideEditsPanel } from "../admin/OutsideEdits";
 import { addressOf, Link } from "../app/route";
 import { ReviewOf } from "../floor/ReviewOf";
 import { approvalStates, workLabel } from "../floor/states";
@@ -119,15 +120,18 @@ function PlanLine({ detail }: { detail: PlanDetail }) {
   );
 }
 
-export function PlanList({ view, project }: { view: View; project: string }) {
+export function PlanList({ view, project, live }: { view: View; project: string; live: Live }) {
   const reviews = view.reviews ?? [];
   if (view.plans.length === 0 && view.unplanned.length === 0 && reviews.length === 0) {
     return (
-      <div className="panel">
-        <EmptyState icon="plan" title="No plans yet" action={<StartSession project={project} variant="primary" />}>
-          A plan holds the contracts and work a goal needs. Start a planning session to write one.
-        </EmptyState>
-      </div>
+      <>
+        <div className="panel">
+          <EmptyState icon="plan" title="No plans yet" action={<StartSession project={project} variant="primary" />}>
+            A plan holds the contracts and work a goal needs. Start a planning session to write one.
+          </EmptyState>
+        </div>
+        <OutsideEditsPanel live={live} project={project} planningOnly />
+      </>
     );
   }
   return (
@@ -147,6 +151,7 @@ export function PlanList({ view, project }: { view: View; project: string }) {
           <WorkRows orders={reviews} />
         </Section>
       ) : null}
+      <OutsideEditsPanel live={live} project={project} planningOnly />
     </>
   );
 }

@@ -135,7 +135,7 @@ function plansPage(live: Live, id: string, project: string) {
             <StartReview />
           </>
         }
-        body={(view) => <PlanList view={view} project={project} />}
+        body={(view) => <PlanList view={view} project={project} live={live} />}
       />
     );
   }

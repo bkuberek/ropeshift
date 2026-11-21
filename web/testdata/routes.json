@@ -440,6 +440,11 @@
     "command": "repository remove"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/outside-edits",
+    "command": "repository edits"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/projects/{project}/adoption/plan",
     "command": "adopt"

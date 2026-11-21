@@ -319,7 +319,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	ticks := append(soloTicks(state, soloScope, opts, kept, batches, windows),
-		noticeTick(config, state, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(state), installed.tick())
+		noticeTick(config, state, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(state), installed.tick(), outsideEditsTick(config, state, opts.intakeTick, outsideReadTimeout))
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)
@@ -590,6 +590,7 @@ func soloConfig(w soloWiring) server.Config {
 		Branches: branchSource(w.opts, w.kept), LaneBranchPrefix: soloLaneBranchPrefix(w.paths),
 		Checkouts: w.kept, Layouts: w.kept, PracticeSources: practiceSources(), Creator: w.local, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(w.paths),
 		Profile: soloProfiles(w.paths), Profiles: soloProfiles(w.paths), LocalWorker: w.local.id, Reserved: reservedFolders(w.paths),
+		OutsideEdits: control.NewOutsideEdits(soloStarts(w.opts, w.kept), gitcli.Worktrees{}, soloLaneBranchPrefix(w.paths)).Reusing(w.opts.intakeTick),
 		// The keys of the CI webhooks are in the daemon's environment. The route is on the control socket, which a
 		// solo daemon does not expose, so a delivery reaches it only where a person forwards the socket to GitHub.
 		Env: os.LookupEnv, Warn: warnTo(w.stderr),
