@@ -131,9 +131,23 @@ func TestALanesStatusLineLeavesOutThePersonsOwn(t *testing.T) {
 	if line := composedStatusLine(spec); strings.Contains(line.Command, "personal-line") {
 		t.Errorf("a lane's status line runs the person's own command: %q", line.Command)
 	}
-	writeStatusLine(t, filepath.Join(spec.Dir, ".claude", "settings.json"), "project-line")
+	spec.Repository = spec.Dir
+	spec.Base = committed(t, spec.Dir, map[string]string{".claude/settings.json": `{"statusLine":{"type":"command","command":"project-line"}}`})
 	if line := composedStatusLine(spec); !strings.Contains(line.Command, "project-line") {
 		t.Errorf("a lane's status line leaves out the repository's command: %q", line.Command)
+	}
+}
+
+// The status line ropeshift composes runs the repository's command outside every permission rule, so it is the one the
+// repository's settings name at the commit the lane began from, and an edit a lane makes to them runs nothing.
+func TestALanesStatusLineRunsNoCommandALaneWrote(t *testing.T) {
+	spec := laneSpec(t)
+	spec.RunMode = ports.RunModeInteractive
+	spec.Repository = spec.Dir
+	spec.Base = committed(t, spec.Dir, map[string]string{".claude/settings.json": `{"statusLine":{"type":"command","command":"project-line"}}`})
+	writeStatusLine(t, filepath.Join(spec.Dir, ".claude", "settings.json"), "edited-line")
+	if line := composedStatusLine(spec); strings.Contains(line.Command, "edited-line") || !strings.Contains(line.Command, "project-line") {
+		t.Errorf("a lane's status line follows the worktree's edit: %q", line.Command)
 	}
 }
 

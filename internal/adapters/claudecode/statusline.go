@@ -2,8 +2,6 @@ package claudecode
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -43,15 +41,17 @@ func settingSources(spec ports.SessionSpec) []string {
 }
 
 // existingStatusLine finds the line the repository's shared settings configure, because `--settings`
-// replaces it and a repository keeps the status line it set. The person's own line is in their user or
-// local settings, which a session does not read, and a suite that names no project source reads none. A file
-// that does not parse holds no line.
+// replaces it and a repository keeps the status line it set. The composed line runs that command outside every
+// permission rule, so the settings are read as the repository holds them at the commit the lane began from
+// (repositoryFile), and an edit a lane makes to them runs nothing. The person's own line is in their user or local
+// settings, which a session does not read, and a suite that names no project source reads none. A file that does not
+// parse holds no line.
 func existingStatusLine(spec ports.SessionSpec) *statusLine {
 	if !slices.Contains(settingSources(spec), sourceProject) {
 		return nil
 	}
-	raw, err := os.ReadFile(filepath.Join(spec.Dir, ".claude", "settings.json"))
-	if err != nil {
+	raw := repositoryFile(spec, ".claude/settings.json")
+	if raw == nil {
 		return nil
 	}
 	var file struct {

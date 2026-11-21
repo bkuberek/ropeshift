@@ -22,6 +22,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // paneRig is the real driver, a real private tmux server, fakeclaude in the pane, and a
@@ -287,14 +288,10 @@ func (s *driverSession) send2(t *testing.T) {
 
 func TestPaneStatusLineComposesWithAPersonsCommand(t *testing.T) {
 	r := newPaneRig(t, "pane-two-turns")
-	dir := filepath.Join(r.spec.Dir, ".claude")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	// The line is the one the repository's settings name at the commit the lane began from.
+	repo := gittest.New(t)
 	settings := `{"statusLine":{"type":"command","command":"printf person-line # a comment"}}`
-	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	r.spec.Repository, r.spec.Base = repo.Dir, repo.Commit(".claude/settings.json", settings)
 	s := r.start()
 	if got := s.until(ports.EventUsage).ContextTokens; got != 1003 {
 		t.Errorf("the worker's copy: %d", got)
