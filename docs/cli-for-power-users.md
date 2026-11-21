@@ -228,7 +228,7 @@ ropeshift work claim <work-order> --worker <worker>
 ropeshift lane start <work-order>
 ```
 
-The first command names the work order, and the second passes its review. The third and the fourth are Start in [watch work run](watch-work-run.md#3-start-a-work-order-yourself), or start the orchestrator and open a run window, and it claims the work for you.
+The first command names the work order, and the second passes its review. The third and the fourth are Start in [watch work run](watch-work-run.md#3-start-a-work-order-yourself), or open a run window, and the worker's orchestrator, which starts with the worker once a passphrase is set, claims the work for you.
 
 ## Adopt from a terminal
 

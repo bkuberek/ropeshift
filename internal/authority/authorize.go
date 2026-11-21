@@ -124,8 +124,9 @@ const (
 	// and no row below may ever grant one to anything but a delegate's card.
 	ActionAcknowledgePractices Action = "practices.acknowledge"
 	ActionWithdrawPractices    Action = "practices.withdraw"
-	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
-	// first passphrase needs no session, which is safe only while no agent runs unasked.
+	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one. The system asks for a
+	// worker's own only once a member exists, in the worker's session or in the transaction that stores the first
+	// passphrase, because that passphrase needs no session, which is safe only while no agent runs before it exists.
 	ActionRunOrchestrator Action = "orchestrator.run"
 	// ActionManageProject creates, renames, archives, restores, removes, or imports a project of the
 	// installation (ADR-0021). A project holds every record of a product, so no agent has this, and no row
