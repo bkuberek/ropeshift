@@ -141,8 +141,10 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 }
 
 // Qualify hands the driver what a probe observed of a version on this machine. From then on a
-// version qualifies only through it, so a version that changes under a worker runs on documented
-// surfaces until its own probe ends, whichever way the last one went.
+// version qualifies only through it, and only the version it names, so a version no result names, such
+// as one the CLI updated itself to, runs on documented surfaces until the worker's background probe of
+// it hands over its own result, whichever way the last probe went. The surfaces that result passed are
+// the ones a process that starts afterward uses.
 func (d *Driver) Qualify(q lanes.Qualification) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

@@ -11,7 +11,7 @@ import { addressOf, Link } from "../app/route";
 import { SpendPanel } from "../floor/SpendPanel";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
-import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
+import { Absent, Badge, CheckingChip, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
 import type { TargetKind } from "../ui/display";
 import { AskedQuestions } from "../planning/AskedQuestions";
 import { useTalk } from "../talk/state";
@@ -519,6 +519,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                       {(lane.conditions ?? []).map((condition) => (
                         <ConditionChip key={condition} name={condition} />
                       ))}
+                      {lane.checking ? <CheckingChip check={lane.checking} /> : null}
                     </span>
                   </Fact>
                   <Fact name="Seen">

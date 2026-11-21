@@ -380,6 +380,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	if w.config.Lanes == nil {
 		return nil, nil
 	}
+	w.tendVersion(ctx)
 	if err := w.reissueResumes(ctx); err != nil {
 		w.config.Report(fmt.Errorf("sending again what the ledger refused after a resume: %w", err))
 	}

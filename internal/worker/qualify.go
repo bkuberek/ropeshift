@@ -19,18 +19,17 @@ const (
 	probeModel = "haiku"
 	// probeLimit bounds one probe, whose own waits end well within it.
 	probeLimit = 10 * time.Minute
-	// qualifyNoteAfter is how long a lane waits on a probe before a person hears why.
-	qualifyNoteAfter = time.Second
+	// versionCheckEvery is how often a running worker reads the installed version, so a CLI that
+	// updated itself is probed before a lane asks.
+	versionCheckEvery = time.Minute
 )
 
 // errNoVersion is a driver that reports no installed version.
 var errNoVersion = errors.New("the driver reports no version")
 
-// probeRun is the one probe a worker runs at a time. Every lane that reaches a version with no
-// result waits on it.
+// probeRun is the one probe a worker runs at a time.
 type probeRun struct {
 	version string
-	done    chan struct{}
 }
 
 // loadQualification hands the driver what this worker's last probe observed, so a restart on the
@@ -48,88 +47,99 @@ func (w *Worker) loadQualification(ctx context.Context) error {
 	w.life = ctx
 	if q.Version != "" {
 		w.qual = q
-		w.config.Lanes.Driver.Qualify(q)
 	}
+	w.handOverLocked()
 	return nil
 }
 
-// awaitQualified holds a lane's next process until the installed version has a probe's result on
-// this machine (FR-DRV-2): a version is probed before any work runs on it, and a CLI that updated
-// itself under a running worker is probed again before its first new process. The first lane to see
-// a version starts the probe, and every lane waits on the same one. A wait that lasts reaches a
-// person as a held lane.
-func (w *Worker) awaitQualified(ctx context.Context, lease ledger.DesiredLease) error {
-	noted := false
-	for {
-		done, err := w.qualify(ctx)
-		if err != nil {
-			// A version nobody can read fails the start where the driver reads it again.
-			w.config.Report(fmt.Errorf("lane %s: reading the CLI's version: %w", lease.Lane, err))
-			return nil
-		}
-		if done == nil {
-			return nil
-		}
-		if !noted {
-			select {
-			case <-done:
-				continue
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(qualifyNoteAfter):
-			}
-			noted = true
-			if err := w.hold(ctx, lease, lanes.HeldQualifying); err != nil {
-				w.config.Report(fmt.Errorf("lane %s: %w", lease.Lane, err))
-			}
-		}
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+// lookAtVersion reads the installed version and starts its probe when no probe's result holds for it,
+// with no lane asking (FR-DRV-2). A version nobody can read is the doctor's to report, and the next
+// look reads it again.
+func (w *Worker) lookAtVersion(ctx context.Context) {
+	if w.config.Lanes == nil {
+		return
+	}
+	w.qualLock.Lock()
+	w.lookedAt = w.clock.Now()
+	w.qualLock.Unlock()
+	_ = w.qualify(ctx)
+}
+
+// tendVersion looks at the installed version once in each versionCheckEvery, so a CLI that updated
+// itself under a running worker is probed before its next lane.
+func (w *Worker) tendVersion(ctx context.Context) {
+	w.qualLock.Lock()
+	due := w.clock.Now().Sub(w.lookedAt) >= versionCheckEvery
+	w.qualLock.Unlock()
+	if due {
+		w.lookAtVersion(ctx)
 	}
 }
 
-// qualify returns nil when a probe's result holds for the installed version, and otherwise what
-// closes when the running probe ends, starting one when none runs. A probe of another version that
-// ends leaves its waiters to look again. No result holds for an empty version, so a driver that read
-// none is not probed: each probe would end only for the next to start.
-func (w *Worker) qualify(ctx context.Context) (<-chan struct{}, error) {
+// qualifyLane is a lane's look at the installed version before its next process. It starts the probe
+// of a version no probe's result holds for, and never waits for it: the lane starts on what the driver
+// holds meanwhile.
+func (w *Worker) qualifyLane(ctx context.Context, lease ledger.DesiredLease) {
+	if err := w.qualify(ctx); err != nil {
+		// A version nobody can read fails the start where the driver reads it again.
+		w.config.Report(fmt.Errorf("lane %s: reading the CLI's version: %w", lease.Lane, err))
+	}
+}
+
+// qualify starts the probe of the installed version when no probe's result holds for it and no probe
+// runs. One probe runs at a time, and a probe of another version that ends leaves the next look to
+// start this one. No result holds for an empty version, so a driver that read none is not probed:
+// each probe would end only for the next to start.
+func (w *Worker) qualify(ctx context.Context) error {
 	capabilities, err := w.config.Lanes.Driver.Capabilities(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if capabilities.Version == "" {
-		return nil, errNoVersion
+		return errNoVersion
 	}
 	w.qualLock.Lock()
 	defer w.qualLock.Unlock()
-	if w.qual.Holds(capabilities.Version) {
-		return nil, nil
-	}
-	if w.probe != nil {
-		return w.probe.done, nil
+	if w.qual.Holds(capabilities.Version) || w.probe != nil {
+		return nil
 	}
 	life := w.life
 	if life == nil {
 		life = ctx
 	}
-	p := &probeRun{version: capabilities.Version, done: make(chan struct{})}
+	p := &probeRun{version: capabilities.Version}
 	w.probe = p
 	w.probes.Go(func() { w.runProbe(life, p) })
-	return p.done, nil
+	return nil
+}
+
+// handOverLocked hands the driver the last probe's result. The driver qualifies the version that result
+// names and no other, so a version no result names, such as one that is being probed, runs on documented
+// surfaces until its own result arrives. With no result before, the driver keeps its own answer for the
+// version, which uses only the surfaces the shipped matrix passed.
+func (w *Worker) handOverLocked() {
+	if w.qual.Version != "" {
+		w.config.Lanes.Driver.Qualify(w.qual)
+	}
 }
 
 // runProbe runs one probe and keeps its result: in the journal with the event that records it, and
 // in the driver, which from then on qualifies that version alone. A probe that could not run leaves
-// every surface unobserved, so the version runs degraded and nothing waits on it forever.
+// every surface unobserved, so the version runs degraded.
 func (w *Worker) runProbe(life context.Context, p *probeRun) {
+	// A probe's end moves the status of every lane on its version, so the loop publishes at once. A probe
+	// that ends with no result of its own, because the version moved under it, leaves the driver what the
+	// worker holds.
+	ownResult := false
 	defer func() {
 		w.qualLock.Lock()
 		w.probe = nil
+		if !ownResult {
+			// Hands the driver the last result the worker holds, which names no version this probe checked.
+			w.handOverLocked()
+		}
 		w.qualLock.Unlock()
-		close(p.done)
+		w.laneMoved()
 	}()
 	ctx, cancel := context.WithTimeout(life, probeLimit)
 	defer cancel()
@@ -151,7 +161,9 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	}
 	if err := w.keepQualification(life, q); err != nil {
 		w.config.Report(fmt.Errorf("keeping the probe of %s: %w", q.Version, err))
+		return
 	}
+	ownResult = true
 }
 
 // keepQualification stores a result and its event in one write, then hands it to the driver, so the
@@ -169,6 +181,32 @@ func (w *Worker) keepQualification(ctx context.Context, q lanes.Qualification) e
 	w.qual = q
 	w.config.Lanes.Driver.Qualify(q)
 	return nil
+}
+
+// qualificationOf is what a lane whose process runs on a version reads of its worker's probes: the
+// result that holds for that version, when one does, and otherwise the check of it that runs now, which
+// the lane names.
+func (w *Worker) qualificationOf(version string) (check *ledger.CLICheck, held lanes.Qualification, holds bool) {
+	if version == "" {
+		return nil, lanes.Qualification{}, false
+	}
+	driver := w.driverName()
+	w.qualLock.Lock()
+	defer w.qualLock.Unlock()
+	switch {
+	case w.qual.Holds(version):
+		return nil, w.qual, true
+	case w.probe != nil && w.probe.version == version:
+		return ledger.CheckingCLI(driver, version), lanes.Qualification{}, false
+	}
+	return nil, lanes.Qualification{}, false
+}
+
+// runVersion is the version the lane's process runs, and empty before its first process starts.
+func (r *laneRun) runVersion() string {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.version
 }
 
 // driverName is the driver this epoch advertised.

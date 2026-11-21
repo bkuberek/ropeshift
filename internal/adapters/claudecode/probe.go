@@ -22,8 +22,8 @@ import (
 // EnvProbe marks a probe's session, so a hook or a double can tell it from a lane's.
 const EnvProbe = lanes.TagPrefix + "PROBE"
 
-// The probe's bounds. A probe holds a worker's dispatch, so each wait is short, and a check whose
-// wait ran out reads unobserved or failed, which keeps its surface off. A test shortens them.
+// The probe's bounds. Each wait is short, so a probe ends soon whatever its checks see, and a check
+// whose wait ran out reads unobserved or failed, which keeps its surface off. A test shortens them.
 var (
 	probeSocketWait  = 20 * time.Second
 	probeTurnWait    = 2 * time.Minute
@@ -58,7 +58,7 @@ const (
 var ErrVersionMoved = ports.ErrVersionMoved
 
 // Probe runs the qualification probe on the installed version (FR-DRV-2). It starts a few short
-// sessions with this machine's own settings, as a lane would, and runs each check of the
+// sessions at once, with this machine's own settings, as a lane would, and runs each check of the
 // qualification matrix on what they do:
 //
 //   - under `accept`, one turn opened by a message on the session's own socket: the socket line,
@@ -98,11 +98,11 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	q := unqualified(version)
 	q.Source, q.SignIn = lanes.QualifiedByProbe, spec.SignIn
 	p := &prober{d: d, spec: spec, binary: binary, checks: q.Checks}
-	p.accept(ctx)
-	p.refuse(ctx)
-	p.hold(ctx)
-	p.budget(ctx)
-	p.screens(ctx)
+	var checks sync.WaitGroup
+	for _, check := range []func(context.Context){p.accept, p.refuse, p.hold, p.budget, p.screens} {
+		checks.Go(func() { check(ctx) })
+	}
+	checks.Wait()
 	if err := ctx.Err(); err != nil {
 		return lanes.Qualification{}, err
 	}
@@ -112,16 +112,31 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	return judged(q, d.terminal != nil), nil
 }
 
-// prober is one probe's run.
+// prober is one probe's run. Its checks run at once, each in a session and directories of its own, and
+// mu guards what they share: the results, and the count that names each session's socket directory.
 type prober struct {
 	d      *Driver
 	spec   ports.ProbeSpec
 	binary string
+
+	mu     sync.Mutex
 	checks map[lanes.Surface]lanes.CheckResult
 	count  int
 }
 
-func (p *prober) set(surface lanes.Surface, result lanes.CheckResult) { p.checks[surface] = result }
+func (p *prober) set(surface lanes.Surface, result lanes.CheckResult) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.checks[surface] = result
+}
+
+// next numbers a session's socket directory.
+func (p *prober) next() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.count++
+	return p.count
+}
 
 // observed is a check's result from what was seen: a pass, a failure where the session got far
 // enough to show the surface, and unobserved where it did not.
@@ -324,8 +339,8 @@ func (p *prober) screens(ctx context.Context) {
 }
 
 // watchPane ends a start check whose session exited, because a dead pane keeps its last screen and
-// the check would read it until its wait ran out, holding every lane that waits on the probe. It
-// reports whether the pane died, once the check has stopped.
+// the check would read it until its wait ran out, and the probe would not end before it. It reports
+// whether the pane died, once the check has stopped.
 func (p *prober) watchPane(ctx context.Context, stop context.CancelFunc, name string) <-chan bool {
 	died := make(chan bool, 1)
 	go func() {
@@ -410,9 +425,8 @@ func (p *prober) start(ctx context.Context, inbound string) (*probeSession, erro
 
 // startAs is start for a session of a name of its own, with flags beyond the ones every probe session holds.
 func (p *prober) startAs(ctx context.Context, name, inbound string, extra ...string) (*probeSession, error) {
-	p.count++
 	dir, config := p.dirs(name)
-	sockets := filepath.Join(p.spec.TempDir, strconv.Itoa(p.count))
+	sockets := filepath.Join(p.spec.TempDir, strconv.Itoa(p.next()))
 	for _, path := range []string{dir, config, sockets} {
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			return nil, err

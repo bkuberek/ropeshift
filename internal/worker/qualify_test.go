@@ -3,7 +3,7 @@ package worker_test
 import (
 	"encoding/json"
 	"errors"
-	"strings"
+	"slices"
 	"testing"
 	"time"
 
@@ -35,52 +35,21 @@ func (r *laneRig) qualifications() []lanes.Qualification {
 	return out
 }
 
-// awaitProbes waits until the driver has been asked for n probes.
-func (r *laneRig) awaitProbes(n int) {
-	r.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for len(r.driver.Probes()) < n {
-		if time.Now().After(deadline) {
-			r.t.Fatalf("%d probes, want %d", len(r.driver.Probes()), n)
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 func completedLane(r *laneRig) fake.DriverScript {
 	return script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.1)})
 }
 
-// TestANewVersionIsProbedOnceAndHoldsDispatchUntilItEnds is FR-DRV-2 on a real upgrade: the first
-// lane to see a version starts one probe, no session starts until it ends, a pass that comes while
-// it runs starts no second probe, and a probe that lasts reaches a person as a held lane.
-func TestANewVersionIsProbedOnceAndHoldsDispatchUntilItEnds(t *testing.T) {
-	r := laneRigWith(t, "")
-	release := r.driver.HoldProbes()
-	r.driver.Play(completedLane(r))
-	for range 3 {
-		if _, err := r.subject.Reconcile(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	r.awaitProbes(1)
-	time.Sleep(1500 * time.Millisecond)
-	if n := len(r.driver.Specs()); n != 0 {
-		t.Fatalf("%d sessions started while the probe ran", n)
-	}
-	if n := len(r.driver.Probes()); n != 1 {
-		t.Errorf("%d probes of one version", n)
-	}
-	if notes := r.heldNotes(); len(notes) != 1 || !strings.Contains(notes[0], lanes.HeldQualifying) {
-		t.Errorf("held notes %v", notes)
-	}
-	release()
+// TestAWorkerProbesTheInstalledVersionWhenItStarts is FR-DRV-2 with no lane: a worker that starts on a
+// version it has no probe's result for probes it at once, and keeps the result, before any lane asks.
+func TestAWorkerProbesTheInstalledVersionWhenItStarts(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
 	r.subject.Wait()
-	if n := len(r.driver.Specs()); n != 1 {
-		t.Fatalf("%d sessions after the probe ended", n)
-	}
 	if n := len(r.driver.Probes()); n != 1 {
-		t.Errorf("%d probes", n)
+		t.Fatalf("%d probes of the version the worker started on", n)
+	}
+	if n := len(r.driver.Specs()); n != 0 {
+		t.Errorf("%d sessions on a worker no lane reached", n)
 	}
 	got := r.qualifications()
 	if len(got) != 1 || got[0].Version != "1.0.0" || got[0].Source != lanes.QualifiedByProbe {
@@ -89,9 +58,202 @@ func TestANewVersionIsProbedOnceAndHoldsDispatchUntilItEnds(t *testing.T) {
 	if q := r.driver.Qualified(); q.Version != "1.0.0" {
 		t.Errorf("the driver was handed %+v", q)
 	}
-	stored, err := r.journal.Qualification(t.Context())
-	if err != nil || stored.Version != "1.0.0" {
-		t.Errorf("the journal holds %+v, %v", stored, err)
+}
+
+// TestAWorkerProbesAVersionThatChangesUnderIt is the worker's own look at the installed version: a CLI
+// that updated itself is probed on the next look, with no lane, and the worker looks once in each
+// interval and not on every pass.
+func TestAWorkerProbesAVersionThatChangesUnderIt(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	if n := len(r.driver.Probes()); n != 1 {
+		t.Fatalf("%d probes before the worker looked again", n)
+	}
+	r.clock.Advance(worker.VersionCheckEvery)
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	got := r.qualifications()
+	if len(got) != 2 || got[1].Version != "1.0.1" {
+		t.Fatalf("recorded %+v", got)
+	}
+	if n := len(r.driver.Specs()); n != 0 {
+		t.Errorf("%d sessions on a worker no lane reached", n)
+	}
+}
+
+// TestAProbeThatEndsWhereTheVersionMovedLeavesTheDriverWhatTheWorkerHolds is a probe whose version changed
+// while it ran, so it names no result: the driver is handed what the worker holds, which is the last probe's
+// result, and the worker says why the probe ended.
+func TestAProbeThatEndsWhereTheVersionMovedLeavesTheDriverWhatTheWorkerHolds(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	r.driver.FailProbe(ports.ErrVersionMoved)
+	r.clock.Advance(worker.VersionCheckEvery)
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	if n := len(r.driver.Probes()); n != 2 {
+		t.Fatalf("%d probes, want one for each version", n)
+	}
+	if q := r.driver.Qualified(); q.Version != "1.0.0" || q.Degraded {
+		t.Errorf("after a probe that named no result, the driver was handed %+v", q)
+	}
+	if got := r.qualifications(); len(got) != 1 || got[0].Version != "1.0.0" {
+		t.Errorf("a probe that named no result recorded %+v", got)
+	}
+	if problems := r.problems(); len(problems) != 1 || !errors.Is(problems[0], ports.ErrVersionMoved) {
+		t.Errorf("the worker said %v", problems)
+	}
+}
+
+// TestALaneStartsAtOnceOnDocumentedSurfacesWhileItsVersionIsProbed is a lane that starts while the probe of a
+// version no probe's result names runs: it does not wait, it runs on documented surfaces, and not on what the
+// last probe passed for another version, and every pass that comes meanwhile shares the one probe.
+func TestALaneStartsAtOnceOnDocumentedSurfacesWhileItsVersionIsProbed(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	release := r.driver.HoldProbes()
+	t.Cleanup(release)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	view := r.atGate(g)
+	for range 2 {
+		if _, err := r.subject.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(r.driver.Probes()); n != 2 {
+		t.Errorf("%d probes, want one for each version", n)
+	}
+	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a lane that started while its version is probed reads %v", view.Conditions)
+	}
+	if q := r.driver.Qualified(); q.Version != "1.0.0" {
+		t.Errorf("while the probe runs, the driver was handed %+v, which is no probe's result for 1.0.1", q)
+	}
+	caps, err := r.driver.Capabilities(t.Context())
+	if err != nil || !caps.Degraded || caps.Injection != ports.InjectionNone {
+		t.Errorf("capabilities %+v, %v", caps, err)
+	}
+	if got := r.qualifications(); len(got) != 1 {
+		t.Errorf("a probe that has not ended recorded %+v", got)
+	}
+}
+
+// TestALaneStartsAtOnceWithNothingQualified is a lane that starts while a worker's first probe runs: it
+// does not wait, and the driver's own answer for the version stands, so only what nothing has checked
+// runs degraded.
+func TestALaneStartsAtOnceWithNothingQualified(t *testing.T) {
+	t.Parallel()
+	var release func()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", true)
+		release = driver.HoldProbes()
+	})
+	t.Cleanup(release)
+	r.dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	view := r.atGate(g)
+	if n := len(r.driver.Probes()); n != 1 {
+		t.Errorf("%d probes", n)
+	}
+	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a lane on a version nothing has checked reads %v", view.Conditions)
+	}
+	if q := r.driver.Qualified(); q.Version != "" {
+		t.Errorf("with nothing qualified, the driver was handed %+v", q)
+	}
+}
+
+// TestALaneSaysWhichVersionItsWorkerChecks is a lane whose process runs on a version its worker is probing:
+// it says so in words, it runs on documented surfaces meanwhile, and the probe's end moves the lane's status
+// at once. A process keeps the surfaces it started with, so a probe that passes clears the check and leaves
+// the condition, and a respawn is what starts on the checked surfaces.
+func TestALaneSaysWhichVersionItsWorkerChecks(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	release := r.driver.HoldProbes()
+	t.Cleanup(release)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	view := r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
+	if c := view.Checking; c.Driver != fake.FakeDriverName || c.Version != "1.0.1" || c.Words != ledger.CheckingCLI(fake.FakeDriverName, "1.0.1").Words {
+		t.Errorf("the lane names %+v", c)
+	}
+	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a lane on documented surfaces reads %v", view.Conditions)
+	}
+	release()
+	view = r.eventually("the check ended", func(view ledger.LaneView) bool { return view.Checking == nil })
+	if got := r.qualifications(); len(got) != 2 || got[1].Version != "1.0.1" || got[1].Degraded {
+		t.Fatalf("the probe recorded %+v", got)
+	}
+	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("a process that started on documented surfaces reads %v once its probe passed", view.Conditions)
+	}
+}
+
+// TestAProbeThatFailsAddsDegradedModeToARunningLane is a lane that started on what the driver answered for its
+// version, whose probe then found a surface failed: the lane reads degraded from the probe's end.
+func TestAProbeThatFailsAddsDegradedModeToARunningLane(t *testing.T) {
+	t.Parallel()
+	var release func()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", false)
+		release = driver.HoldProbes()
+	})
+	t.Cleanup(release)
+	r.dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	if view := r.atGate(g); slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Fatalf("a lane on a version the driver answers for reads %v", view.Conditions)
+	}
+	r.driver.SetVersion("1.0.0", true)
+	release()
+	r.eventually("the probe's result", func(view ledger.LaneView) bool {
+		return view.Checking == nil && slices.Contains(view.Conditions, string(lanes.DegradedMode))
+	})
+}
+
+// A lane that ends while its version's probe runs names no check: nothing of it waits on the probe.
+func TestALaneThatEndsDuringAProbeNamesNoCheck(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	r.subject.Wait()
+	r.driver.SetVersion("1.0.1", false)
+	release := r.driver.HoldProbes()
+	t.Cleanup(release)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), r.reports(workorders.OutcomeCompleted), completed(0.1)}))
+	r.atGate(g)
+	r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
+	g.free()
+	view := r.eventually("the lane's end", func(view ledger.LaneView) bool { return view.ActualState == ledger.StateEnded })
+	if view.Checking != nil {
+		t.Errorf("an ended lane names %+v", view.Checking)
 	}
 }
 
@@ -211,9 +373,10 @@ func TestARestartOnTheSameVersionDoesNotProbeAgain(t *testing.T) {
 // version again.
 func TestAVersionNobodyCouldReadIsNotProbed(t *testing.T) {
 	t.Parallel()
-	r := laneRigWith(t, "")
-	r.driver.SetVersion("", true)
-	r.driver.HoldProbes()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("", true)
+		driver.HoldProbes()
+	}).dispatched()
 	r.driver.Play(completedLane(r))
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
@@ -235,8 +398,9 @@ func TestAVersionNobodyCouldReadIsNotProbed(t *testing.T) {
 // check is unobserved, and the lane starts on documented surfaces.
 func TestAProbeThatCannotRunLeavesTheVersionDegraded(t *testing.T) {
 	t.Parallel()
-	r := laneRigWith(t, "")
-	r.driver.FailProbe(errors.New("the CLI would not start"))
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.FailProbe(errors.New("the CLI would not start"))
+	}).dispatched()
 	r.driver.Play(completedLane(r))
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)

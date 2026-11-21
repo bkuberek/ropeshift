@@ -1131,12 +1131,23 @@ func reportLane(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error
 	if err := checkHolder(tx, e); err != nil {
 		return err
 	}
+	// A check that is no plain driver, version, and words is no reason to lose the lane's state: the status is
+	// kept without it, in the ledger and in its event.
+	payload := e.Payload
+	if status.Checking != nil && status.Checking.Validate() != nil {
+		status.Checking = nil
+		kept, err := json.Marshal(status)
+		if err != nil {
+			return err
+		}
+		payload = kept
+	}
 	err := tx.Lanes().Report(ledger.LaneRow{ID: e.Lane, WorkerID: worker, Status: status, ReportedByEpoch: e.Epoch})
 	if err != nil {
 		return err
 	}
 	_, err = tx.Append(ledger.EventDraft{
-		ID: id, Type: ledger.EventLaneStatus, OccurredAt: e.OccurredAt, Data: e.Payload,
+		ID: id, Type: ledger.EventLaneStatus, OccurredAt: e.OccurredAt, Data: payload,
 		Actor:   ledger.Actor{Kind: ledger.ActorWorker, ID: worker},
 		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
 	})
@@ -1340,7 +1351,8 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 		return view, err
 	}
 	if row.Status.ActualState == ledger.StateEnded || row.Status.ActualState == ledger.StateParked {
-		view.Freshness = ledger.FreshnessObserved
+		// A lane with no process runs no version, so no probe's check is its own.
+		view.Freshness, view.Checking = ledger.FreshnessObserved, nil
 		return view, nil
 	}
 	if row.WorkerID == "" {

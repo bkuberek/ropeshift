@@ -525,15 +525,20 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 			liveness = observation.Liveness
 		}
 	}
+	// The process uses the surfaces it started with, so the condition it launched with stands, and a
+	// probe's result for its version can add to it and never clears it. While the probe runs, the lane
+	// names it.
+	check, held, holds := r.w.qualificationOf(r.runVersion())
 	s := r.state
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	degraded := s.degraded || (holds && held.Degraded)
 	now := r.w.clock.Now()
 	state := s.tracker.State()
 	facts := lanes.Facts{
 		State: state, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, ToolInFlight: len(s.tools) != 0,
 		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
-		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
+		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: degraded,
 		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded, PackOversized: s.policy.Oversized(s.baseline),
 		DayCapped: s.dayCapped, WaitingForPerson: s.forPerson && state == lanes.Idle, AwaitingWake: s.forWake,
 	}
@@ -541,6 +546,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		ActualState: string(state), Liveness: string(liveness),
 		ModelReach:  string(lanes.ReadReach(state, evidenceOf(s.model, now), reachWindow)),
 		LedgerReach: string(lanes.ReadReach(state, evidenceOf(s.ledger, now), reachWindow)),
+		Checking:    check,
 	}
 	for _, condition := range lanes.Conditions(facts) {
 		out.Conditions = append(out.Conditions, string(condition))
@@ -554,7 +560,7 @@ func evidenceOf(seen reachSeen, now time.Time) lanes.ReachEvidence {
 
 func sameStatus(a, b ledger.LaneStatus) bool {
 	return a.ActualState == b.ActualState && a.Liveness == b.Liveness && a.ModelReach == b.ModelReach &&
-		a.LedgerReach == b.LedgerReach && slices.Equal(a.Conditions, b.Conditions)
+		a.LedgerReach == b.LedgerReach && slices.Equal(a.Conditions, b.Conditions) && ledger.SameCheck(a.Checking, b.Checking)
 }
 
 // Publish journals what changed about each lane, for the next upload. A status travels on

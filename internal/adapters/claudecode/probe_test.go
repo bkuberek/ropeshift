@@ -1,12 +1,14 @@
 package claudecode_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -187,6 +189,85 @@ func TestAProbeRefusesAVersionThatMovedUnderIt(t *testing.T) {
 	<-done
 	if !errors.Is(err, claudecode.ErrVersionMoved) {
 		t.Errorf("err %v", err)
+	}
+}
+
+// gatedRunner starts processes with the system's runner, and holds each headless session's start until
+// every one of the probe's headless checks has asked for its own. A probe whose checks run one after
+// another never gets a second start while its first is held, so the gate opens only on checks that overlap.
+type gatedRunner struct {
+	ports.ProcessRunner
+	want int
+	open chan struct{}
+
+	mu      sync.Mutex
+	waiting int
+}
+
+// headlessChecks is how many of the probe's checks start a headless session: accept, refuse, hold, and budget.
+const headlessChecks = 4
+
+func newGatedRunner() *gatedRunner {
+	return &gatedRunner{ProcessRunner: osexec.Runner{}, want: headlessChecks, open: make(chan struct{})}
+}
+
+func (r *gatedRunner) Start(ctx context.Context, spec ports.ProcessSpec) (ports.Process, error) {
+	if slices.Contains(spec.Args, "-p") {
+		r.mu.Lock()
+		if r.waiting++; r.waiting == r.want {
+			close(r.open)
+		}
+		r.mu.Unlock()
+		select {
+		case <-r.open:
+		case <-ctx.Done():
+			r.leave()
+		// The bound only ends a wait the gate never opens, so a probe that runs its checks one at a time
+		// fails the test and does not hang it. A start that leaves no longer counts as waiting.
+		case <-time.After(10 * time.Second):
+			r.leave()
+		}
+	}
+	return r.ProcessRunner.Start(ctx, spec)
+}
+
+// leave takes a held start out of the count, unless the gate opened meanwhile.
+func (r *gatedRunner) leave() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.opened() {
+		r.waiting--
+	}
+}
+
+// opened says every headless check asked for its session while the others were held.
+func (r *gatedRunner) opened() bool {
+	select {
+	case <-r.open:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestAProbeRunsItsChecksAtOnce is the probe's checks running side by side: each headless check's session
+// is held at its start until all four have asked for theirs, which only checks that overlap can do, and
+// the result is still every check's own.
+func TestAProbeRunsItsChecksAtOnce(t *testing.T) {
+	_, spec, _ := probeRig(t)
+	// Every check here passes, so its waits bound only a failure, and a busy machine does not end one early.
+	t.Cleanup(claudecode.ShortenProbeWaits(30 * time.Second))
+	runner := newGatedRunner()
+	driver := claudecode.New(runner, claudecode.Options{Env: spec.Env, Terminal: doubles.PrivateTmux(t), StopGrace: 2 * time.Second})
+	q, err := driver.Probe(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.opened() {
+		t.Errorf("the probe's headless checks never ran at once: no more than one asked for a session while the others were held")
+	}
+	if missing := notPassed(q); len(missing) != 0 {
+		t.Errorf("checks that ran at once left %v not passed: %+v", missing, q.Checks)
 	}
 }
 

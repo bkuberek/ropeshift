@@ -250,6 +250,23 @@
   white-space: nowrap;
 }
 
+/* The sentence a condition says beside its chip. */
+.cond-note {
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-2);
+}
+
+/* A check's words are a sentence, so its chip wraps within its row. */
+.cond.checking {
+  height: auto;
+  min-height: 18px;
+  max-width: 100%;
+  padding: 1px 6px;
+  line-height: var(--lh-12);
+  white-space: normal;
+}
+
 .cond.warn {
   border-color: var(--warning);
   color: var(--warning);

@@ -303,6 +303,51 @@ describe("a planning session", () => {
     expect(within(head).getByText("Waiting for you").className).toContain("cond");
   });
 
+  it("names the agent CLI version its worker checks, beside its state", async () => {
+    const checkingWords = "Checking Claude Code 2.1.400: this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces";
+    serve((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/in-progress") {
+        const running = golden<InProgress>("in-progress");
+        const first = running.items.find((item) => item.lane?.id === lane);
+        if (first?.lane) {
+          first.work_order.kind = "plan";
+          first.work_order.title = "Saved searches v2";
+          first.lane.checking = { driver: "claude-code", version: "2.1.400", words: checkingWords };
+        }
+        return { status: 200, body: running };
+      }
+      return undefined;
+    });
+    openPage(here(`/planning?lane=${lane}`));
+    const title = await screen.findByRole("heading", { level: 1, name: "Saved searches v2" });
+    const head = title.closest(".convo-head") as HTMLElement;
+    expect(within(head).getByText("Working")).toBeTruthy();
+    expect(within(head).getByText(checkingWords)).toBeTruthy();
+  });
+
+  it("says beside Degraded mode, in a sentence the chip points to, when the session restarts on qualified surfaces", async () => {
+    serve((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/in-progress") {
+        const running = golden<InProgress>("in-progress");
+        const first = running.items.find((item) => item.lane?.id === lane);
+        if (first?.lane) {
+          first.work_order.kind = "plan";
+          first.work_order.title = "Saved searches v2";
+          first.lane.conditions = ["degraded_mode"];
+        }
+        return { status: 200, body: running };
+      }
+      return undefined;
+    });
+    openPage(here(`/planning?lane=${lane}`));
+    const title = await screen.findByRole("heading", { level: 1, name: "Saved searches v2" });
+    const head = title.closest(".convo-head") as HTMLElement;
+    const chip = within(head).getByText("Degraded mode");
+    const sentence = within(head).getByText("Runs on documented surfaces until it restarts on a qualified version.");
+    expect(sentence.id).not.toBe("");
+    expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
+  });
+
   it("opens in Conversations, which names no target", async () => {
     serve();
     openPage(here(`/planning?lane=${lane}`));

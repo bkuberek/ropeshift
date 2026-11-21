@@ -314,7 +314,7 @@ func initDriverLine(driver ledger.DriverManifest) string {
 			name, v.Command)
 	}
 	if !driver.Qualified {
-		line += " This version is not in the qualification matrix, so the worker probes it before its first lane, and a lane on it runs degraded if the probe fails."
+		line += " This version is not in the qualification matrix, so the worker probes it in the background as it starts, and a lane that starts before the probe passes runs on documented surfaces."
 	}
 	return line
 }

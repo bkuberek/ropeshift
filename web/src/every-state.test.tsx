@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { Lane, ShopFloor, Stuck } from "./api/types";
-import { cardStates, conditionWords, conversationStates, deliveryStates, delegateStates, laneStates, workStates } from "./floor/states";
+import { cardStates, conditions, conditionWords, conversationStates, deliveryStates, delegateStates, laneStates, workStates } from "./floor/states";
 import { openPage } from "./opening";
 import { golden, serveViews } from "./testing";
 
@@ -146,7 +146,12 @@ describe("what stands beside a lane's state", () => {
     openPage("/floor");
     const lane = floor.lanes.find((row) => row.conditions?.includes(condition));
     expect(lane, `no lane holds ${condition}`).toBeDefined();
-    expect(within(await rowOf(lane?.id ?? "")).getByText(said ?? "")).toBeTruthy();
+    const row = within(await rowOf(lane?.id ?? ""));
+    expect(row.getByText(said ?? "")).toBeTruthy();
+    const note = conditions[condition]?.note;
+    if (note) {
+      expect(row.getByText(note), `no sentence beside ${condition}`).toBeTruthy();
+    }
   });
 
   it.each(fixture.conditions.filter((condition) => orchestratorHolding(condition)))("%s has words and shows on its orchestrator", async (condition) => {

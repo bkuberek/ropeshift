@@ -151,6 +151,27 @@ func TestLaneShowSaysWhereTheLaneBegan(t *testing.T) {
 	}
 }
 
+func TestLaneShowSaysWhichVersionItsWorkerChecks(t *testing.T) {
+	lane := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Checking: ledger.CheckingCLI("claude-code", "2.1.400")}}
+	if text := cli.LaneDetail(lane); !strings.Contains(text, "status\tChecking Claude Code 2.1.400: this lane runs on documented surfaces until the check passes; a respawn then picks up the qualified surfaces\n") {
+		t.Errorf("lane show does not name the check:\n%s", text)
+	}
+	if text := cli.LaneDetail(ledger.LaneView{ID: "lane-2"}); strings.Contains(text, "Checking") {
+		t.Errorf("a lane no check holds names one:\n%s", text)
+	}
+}
+
+func TestLaneShowSaysWhatDegradedModeMeans(t *testing.T) {
+	degraded := ledger.LaneView{ID: "lane-1", LaneStatus: ledger.LaneStatus{ActualState: "working", Conditions: []string{"stalled", "degraded_mode"}}}
+	if text := cli.LaneDetail(degraded); !strings.Contains(text, "degraded_mode\tRuns on documented surfaces until it restarts on a qualified version.\n") {
+		t.Errorf("lane show does not say what degraded_mode means:\n%s", text)
+	}
+	stalled := ledger.LaneView{ID: "lane-2", LaneStatus: ledger.LaneStatus{ActualState: "working", Conditions: []string{"stalled"}}}
+	if text := cli.LaneDetail(stalled); strings.Contains(text, "Runs on") {
+		t.Errorf("a lane that is not degraded says what degraded_mode means:\n%s", text)
+	}
+}
+
 // calibrate leaves the records of a member's decisions after a review: two the member agreed with, and one
 // approval the member sent back.
 func (s *session) calibrate(repository string) {

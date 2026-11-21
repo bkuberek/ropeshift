@@ -1,9 +1,10 @@
 import { useId } from "react";
 import type { ReactNode } from "react";
 
+import type { CLICheck } from "../api/types";
 import { Link } from "../app/route";
 import type { StateLook, Tone } from "../floor/states";
-import { conditions, laneStates, lookOf, workStates } from "../floor/states";
+import { conditions, laneStates, lookOf, noteOf, workStates } from "../floor/states";
 import { Ago } from "../parts/parts";
 import type { GlyphName, IconName } from "./Icon";
 import { Glyph, Icon } from "./Icon";
@@ -39,11 +40,47 @@ export function LaneBadge({ state }: { state: string }) {
   return <StateBadge table={laneStates} state={state} />;
 }
 
-// ConditionChip is a flag beside a lane's state, outlined so it never reads as a second state.
-export function ConditionChip({ name }: { name: string }) {
+// ConditionChip is a flag beside a lane's state, outlined so it never reads as a second state. A condition that has a
+// note says it in a sentence beside the chip, which the chip points to as its description. A page that sets the
+// sentence apart, with ConditionNote, passes the sentence's id as `describedBy`, and the chip then stands alone.
+export function ConditionChip({ name, describedBy }: { name: string; describedBy?: string }) {
+  const own = useId();
   const look = conditions[name] ?? { label: name, tone: "neutral" as const };
   const tone = look.tone === "warning" ? " warn" : look.tone === "danger" ? " danger" : "";
-  return <span className={`cond${tone}`}>{look.label}</span>;
+  if (!look.note) {
+    return <span className={`cond${tone}`}>{look.label}</span>;
+  }
+  if (describedBy) {
+    return (
+      <span className={`cond${tone}`} aria-describedby={describedBy}>
+        {look.label}
+      </span>
+    );
+  }
+  return (
+    <>
+      <span className={`cond${tone}`} aria-describedby={own}>
+        {look.label}
+      </span>
+      <ConditionNote name={name} id={own} />
+    </>
+  );
+}
+
+// ConditionNote is the sentence of a condition that has one, for a chip that points to it.
+export function ConditionNote({ name, id }: { name: string; id: string }) {
+  const note = noteOf(name);
+  return note ? (
+    <span id={id} className="cond-note">
+      {note}
+    </span>
+  ) : null;
+}
+
+// CheckingChip says which agent CLI version a lane's worker is checking, what that means for the lane, and what ends
+// it, in the words the server gives, while the check runs. Its words are a sentence, so the chip wraps.
+export function CheckingChip({ check }: { check: CLICheck }) {
+  return <span className="cond checking">{check.words}</span>;
 }
 
 // Id shows an identifier in mono on one line. One too long for its column ends in an ellipsis, and the

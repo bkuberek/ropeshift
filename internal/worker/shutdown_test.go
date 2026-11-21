@@ -53,6 +53,12 @@ func runStoppable(t *testing.T, profile string, setup func(*laneRig) []fake.Driv
 	}
 	r.dispatched()
 	r.driver.Play(script(setup(r)))
+	// The probe the worker started with ends, and its result goes up, before Run opens the next epoch, so a read
+	// while that epoch opens has nothing of the first one's to send.
+	r.subject.Wait()
+	if err := r.subject.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	ran := make(chan error, 1)
 	go func() { ran <- r.subject.Run(ctx) }()

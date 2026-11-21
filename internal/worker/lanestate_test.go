@@ -314,8 +314,7 @@ func TestABriefWithNoEvidenceGoesIdleAndIsFlagged(t *testing.T) {
 
 func TestAnUnqualifiedVersionIsDegradedMode(t *testing.T) {
 	t.Parallel()
-	r := laneRigWith(t, "")
-	r.driver.SetVersion("9.9.9", true)
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) { driver.SetVersion("9.9.9", true) }).dispatched()
 	g := newGate()
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
