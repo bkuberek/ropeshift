@@ -60,11 +60,15 @@ func (w Worktrees) Edits(ctx context.Context, clone string, limit int) (ledger.C
 		return ledger.CloneEdits{}, fmt.Errorf("%w: no clone at %s", ports.ErrNotFound, clone)
 	}
 	git := w.cloneGit(clone)
-	if _, err := git.Text(ctx, "rev-parse", "--git-dir"); err != nil {
-		if ctx.Err() != nil {
-			return ledger.CloneEdits{}, ctx.Err()
-		}
-		return ledger.CloneEdits{}, fmt.Errorf("%w: %s holds no clone: %v", ports.ErrNotFound, clone, err)
+	switch result, err := git.run(ctx, "rev-parse", "--git-dir"); {
+	case err != nil:
+		return ledger.CloneEdits{}, err
+	case ctx.Err() != nil:
+		return ledger.CloneEdits{}, ctx.Err()
+	case result.code != 0 && strings.Contains(result.stderr, "not a git repository"):
+		return ledger.CloneEdits{}, fmt.Errorf("%w: %s holds no clone: %s", ports.ErrNotFound, clone, result.stderr)
+	case result.code != 0:
+		return ledger.CloneEdits{}, fmt.Errorf("git rev-parse --git-dir in %s: exit %d: %s", clone, result.code, result.stderr)
 	}
 	out := ledger.CloneEdits{Edits: []ledger.CloneEdit{}}
 	// A detached head has no symbolic name, which is an answer and not a failure.
@@ -284,30 +288,92 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 	return out, nil
 }
 
-// Contents reads the blob each path's file in the clone would be stored as, with no filter run and no object written,
-// and empty for a path whose file is gone.
+// unstorable is what Contents reads for a path git cannot store as a file, a link, or a submodule: a pipe, a socket, a device,
+// or a directory the index records no submodule at.
+const unstorable = "unstorable"
+
+// Contents reads what each path in the clone would be stored as, with no filter run and no object written, and empty for
+// a path whose file is gone. A file is its blob. A symlink is the blob of its link text, as git stores it, and what it
+// points at is never opened. A submodule is the commit the index records for it. A pipe, a socket, a device, or any other
+// directory is never opened. A file whose name holds a line break or begins with a quote is hashed on its own, because
+// git reads a list of names a line each.
 func (w Worktrees) Contents(ctx context.Context, clone string, paths []string) (map[string]string, error) {
 	out := make(map[string]string, len(paths))
-	var present []string
+	git := w.cloneGit(clone)
+	var listed, directories []string
 	for _, path := range paths {
 		out[path] = ""
-		if _, err := os.Lstat(filepath.Join(clone, filepath.FromSlash(path))); err == nil {
-			present = append(present, path)
+		full := filepath.Join(clone, filepath.FromSlash(path))
+		info, err := os.Lstat(full)
+		switch {
+		case err != nil:
+		case info.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(full)
+			if err != nil {
+				return nil, err
+			}
+			blob, err := git.Feed(ctx, []byte(target), "hash-object", "--no-filters", "--stdin")
+			if err != nil {
+				return nil, err
+			}
+			out[path] = strings.TrimSpace(string(blob))
+		case info.IsDir():
+			directories = append(directories, path)
+		case !info.Mode().IsRegular():
+			out[path] = unstorable
+		case strings.ContainsAny(path, "\r\n") || strings.HasPrefix(path, `"`):
+			blob, err := git.Text(ctx, "hash-object", "--no-filters", "--", path)
+			if err != nil {
+				return nil, err
+			}
+			out[path] = blob
+		default:
+			listed = append(listed, path)
 		}
 	}
-	if len(present) == 0 {
-		return out, nil
+	if len(listed) > 0 {
+		hashed, err := git.Feed(ctx, []byte(strings.Join(listed, "\n")+"\n"), "hash-object", "--no-filters", "--stdin-paths")
+		if err != nil {
+			return nil, err
+		}
+		blobs := strings.Fields(string(hashed))
+		if len(blobs) != len(listed) {
+			return nil, fmt.Errorf("git hash-object printed %d blobs for %d files", len(blobs), len(listed))
+		}
+		for i, path := range listed {
+			out[path] = blobs[i]
+		}
 	}
-	hashed, err := w.cloneGit(clone).Feed(ctx, []byte(strings.Join(present, "\n")+"\n"), "hash-object", "--no-filters", "--stdin-paths")
+	if len(directories) > 0 {
+		recorded, err := w.recordedSubmodules(ctx, git, directories)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range directories {
+			out[path] = cmp.Or(recorded[strings.TrimSuffix(path, "/")], unstorable)
+		}
+	}
+	return out, nil
+}
+
+// recordedSubmodules reads the commit the index records for each of the paths that is a submodule.
+func (w Worktrees) recordedSubmodules(ctx context.Context, git Git, paths []string) (map[string]string, error) {
+	args := []string{"--literal-pathspecs", "--no-optional-locks", "ls-files", "--stage", "-z", "--"}
+	for _, path := range paths {
+		args = append(args, strings.TrimSuffix(path, "/"))
+	}
+	listed, err := git.Output(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
-	blobs := strings.Fields(string(hashed))
-	if len(blobs) != len(present) {
-		return nil, fmt.Errorf("git hash-object printed %d blobs for %d files", len(blobs), len(present))
-	}
-	for i, path := range present {
-		out[path] = blobs[i]
+	out := map[string]string{}
+	for entry := range strings.SplitSeq(string(listed), "\x00") {
+		// Each entry is the mode, the object, and the stage, a tab, and the path.
+		meta, path, found := strings.Cut(entry, "\t")
+		fields := strings.Fields(meta)
+		if found && len(fields) == 3 && fields[0] == "160000" {
+			out[path] = fields[1]
+		}
 	}
 	return out, nil
 }

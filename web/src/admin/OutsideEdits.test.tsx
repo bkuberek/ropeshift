@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -14,8 +14,10 @@ const served = () => JSON.parse(JSON.stringify(golden<OutsideEdits>("outside-edi
 
 function serving(list: OutsideEdits | { status: number; body: unknown }) {
   const answer = "clones" in list ? { status: 200, body: list } : list;
-  serveViews((call) => (call.method === "GET" && call.path === "/v1/outside-edits" ? answer : undefined));
+  return serveViews((call) => (call.method === "GET" && call.path.split("?")[0] === "/v1/outside-edits" ? answer : undefined));
 }
+
+const readsOf = (sent: ReturnType<typeof serving>) => sent.filter((call) => call.path.startsWith("/v1/outside-edits"));
 
 const region = () => screen.findByRole("region", { name: "Files ropeshift cannot read" });
 
@@ -72,6 +74,17 @@ describe("the files ropeshift cannot read", () => {
     expect(await within(files).findByRole("table", { name: "Files in app" })).toBeTruthy();
     expect(within(files).queryByText("app-2")).toBeNull();
     expect(within(files).getByRole("group", { name: "Copy them into the planning branch lane/lane-plan-1 in app" })).toBeTruthy();
+  });
+
+  it("asks for a fresh reading when Read again is pressed, and for none when it reads on its own", async () => {
+    const sent = serving(served());
+    openPage("/repositories");
+    const files = await region();
+    expect(await within(files).findByRole("table", { name: "Files in app" })).toBeTruthy();
+    expect(readsOf(sent).map((call) => call.path)).toEqual(["/v1/outside-edits"]);
+    await userEvent.click(within(files).getByRole("button", { name: "Read again" }));
+    await waitFor(() => expect(readsOf(sent)).toHaveLength(2));
+    expect(readsOf(sent).map((call) => call.path)).toEqual(["/v1/outside-edits", "/v1/outside-edits?fresh=1"]);
   });
 
   it("says why the clones could not be read", async () => {

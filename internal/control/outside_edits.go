@@ -19,6 +19,9 @@ import (
 // CloneEditsLimit is how many paths of one clone a reading lists.
 const CloneEditsLimit = 500
 
+// FreshLimit is how long a reading a member asks for may take, unless Bounding says another.
+const FreshLimit = 2 * time.Minute
+
 // OutsideEdits reads what each registered repository's clone on this machine holds that intake and lanes cannot read,
 // with the steps that make it readable, and finds each lane whose branch changed a path a person changed too (FR-UI-14).
 // It reads the clones through the ports it is given and changes nothing. What it last found of each project's
@@ -31,6 +34,8 @@ type OutsideEdits struct {
 	// reuse is how long a reading answers Recent, and now the clock it is timed by.
 	reuse time.Duration
 	now   func() time.Time
+	// limit bounds a reading a member asks for with Fresh.
+	limit time.Duration
 	// begun numbers the readings in the order they began, so an older one never replaces what a newer one found.
 	begun atomic.Int64
 
@@ -38,6 +43,20 @@ type OutsideEdits struct {
 	found  map[ledger.WorkspaceID]map[string]Conflict
 	latest map[ledger.WorkspaceID]int64
 	recent map[ledger.WorkspaceID]recentReading
+	// running and waiting are each project's reading a member asked for that is under way, and the one that waits for it.
+	running map[ledger.WorkspaceID]*freshTurn
+	waiting map[ledger.WorkspaceID]*freshTurn
+}
+
+// freshTurn is one reading a member asked for, shared by every call that arrived before it began.
+type freshTurn struct {
+	ctx     context.Context
+	store   ports.Store
+	scope   ledger.WorkspaceID
+	project string
+	done    chan struct{}
+	reading OutsideReading
+	err     error
 }
 
 // recentReading is a project's newest reading, with when it began.
@@ -52,8 +71,9 @@ type recentReading struct {
 // the one its work order keeps, or else prefix and the lane's ID.
 func NewOutsideEdits(starts *Starts, edits ports.CloneEdits, prefix string) *OutsideEdits {
 	return &OutsideEdits{
-		starts: starts, edits: edits, prefix: prefix, now: time.Now,
+		starts: starts, edits: edits, prefix: prefix, now: time.Now, limit: FreshLimit,
 		found: map[ledger.WorkspaceID]map[string]Conflict{}, latest: map[ledger.WorkspaceID]int64{}, recent: map[ledger.WorkspaceID]recentReading{},
+		running: map[ledger.WorkspaceID]*freshTurn{}, waiting: map[ledger.WorkspaceID]*freshTurn{},
 	}
 }
 
@@ -61,6 +81,12 @@ func NewOutsideEdits(starts *Starts, edits ports.CloneEdits, prefix string) *Out
 // more often than a tick does.
 func (o *OutsideEdits) Reusing(window time.Duration) *OutsideEdits {
 	o.reuse = window
+	return o
+}
+
+// Bounding sets how long a reading a member asks for with Fresh may take.
+func (o *OutsideEdits) Bounding(limit time.Duration) *OutsideEdits {
+	o.limit = limit
 	return o
 }
 
@@ -265,6 +291,55 @@ func (o *OutsideEdits) Recent(ctx context.Context, store ports.Store, scope ledg
 		}
 	}
 	return o.Read(ctx, store, scope, project)
+}
+
+// Fresh reads the clones again, however recent the reading Reusing lets Recent answer, for a member who asked to read
+// again. A project has at most one such reading under way and one waiting for it: the calls that arrive while one runs
+// share the next, which begins after they arrived, so none answers with a reading older than itself and a flood of calls
+// runs git twice. A reading ends at the bound Bounding sets, and a call whose context ends stops waiting and leaves the
+// reading to the calls that still do.
+func (o *OutsideEdits) Fresh(ctx context.Context, store ports.Store, scope ledger.WorkspaceID, project string) (OutsideReading, error) {
+	o.mu.Lock()
+	turn := o.waiting[scope]
+	if turn == nil {
+		turn = &freshTurn{ctx: context.WithoutCancel(ctx), store: store, scope: scope, project: project, done: make(chan struct{})}
+		if o.running[scope] == nil {
+			o.running[scope] = turn
+			go o.take(turn)
+		} else {
+			o.waiting[scope] = turn
+		}
+	}
+	o.mu.Unlock()
+	select {
+	case <-turn.done:
+		return turn.reading, turn.err
+	case <-ctx.Done():
+		return OutsideReading{}, ctx.Err()
+	}
+}
+
+// take runs a turn's reading within the bound, answers the calls that wait on it, and begins the turn that waited.
+func (o *OutsideEdits) take(turn *freshTurn) {
+	bounded, cancel := context.WithTimeout(turn.ctx, o.limit)
+	turn.reading, turn.err = o.Read(bounded, turn.store, turn.scope, turn.project)
+	cancel()
+	if errors.Is(turn.err, context.DeadlineExceeded) {
+		turn.err = fmt.Errorf("reading the clones took longer than %s: %w", o.limit, turn.err)
+	}
+	o.mu.Lock()
+	next := o.waiting[turn.scope]
+	delete(o.waiting, turn.scope)
+	if next != nil {
+		o.running[turn.scope] = next
+	} else {
+		delete(o.running, turn.scope)
+	}
+	o.mu.Unlock()
+	close(turn.done)
+	if next != nil {
+		go o.take(next)
+	}
 }
 
 // Read reads the clone of each of a project's repositories, and says of each clone it could not read why. project is

@@ -23,7 +23,16 @@ func (h *handler) outsideEdits(w http.ResponseWriter, r *http.Request) {
 	if held, ok := projectOf(r.Context()); ok {
 		project = held.Name
 	}
-	reading, err := h.OutsideEdits.Recent(r.Context(), h.Store, h.Scope, project)
+	read := h.OutsideEdits.Recent
+	switch r.URL.RawQuery {
+	case "":
+	case api.FreshQuery:
+		read = h.OutsideEdits.Fresh
+	default:
+		invalid(w, "a read of the clones takes no query, or "+api.FreshQuery)
+		return
+	}
+	reading, err := read(r.Context(), h.Store, h.Scope, project)
 	if err != nil {
 		fail(w, err)
 		return

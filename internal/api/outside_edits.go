@@ -12,6 +12,10 @@ import (
 // lanes cannot read (FR-UI-14).
 const OutsideEditsPath = "/v1/outside-edits"
 
+// FreshQuery is the query of a read of OutsideEditsPath that reads the clones again, however recent the reading the
+// daemon holds.
+const FreshQuery = "fresh=1"
+
 // OutsideEdits is every registered repository's clone, read at one time.
 type OutsideEdits struct {
 	AsOf int64 `json:"as_of"`
@@ -90,5 +94,12 @@ type ConflictPathView struct {
 func (c *ProjectClient) OutsideEdits(ctx context.Context) (OutsideEdits, error) {
 	var out OutsideEdits
 	err := c.do(ctx, http.MethodGet, OutsideEditsPath, nil, &out)
+	return out, err
+}
+
+// FreshOutsideEdits reads the clones again, however recent the reading the daemon holds.
+func (c *ProjectClient) FreshOutsideEdits(ctx context.Context) (OutsideEdits, error) {
+	var out OutsideEdits
+	err := c.do(ctx, http.MethodGet, OutsideEditsPath+"?"+FreshQuery, nil, &out)
 	return out, err
 }
