@@ -49,3 +49,24 @@ func TestALaneThatContinuesABranchComparesItsSettingsAtTheClaimsBase(t *testing.
 		t.Errorf("a claim that resolved no base compares its settings at %q", got)
 	}
 }
+
+// ADR-0040: a review lane begins at the commit under review, which its writer wrote, so its settings are those of the
+// commit the reviewed lane began from, where the review's diff starts, and never the commit under review.
+func TestAReviewLaneComparesItsSettingsAtTheCommitTheReviewedLaneBeganFrom(t *testing.T) {
+	review := &laneRun{lease: ledger.DesiredLease{
+		WorkOrder: "rv", Kind: "review", BaseCommit: "head",
+		Attempt: &ledger.DesiredAttempt{Commit: "head", BaseCommit: "fork"},
+	}}
+	if got := review.begins(); got != "head" {
+		t.Errorf("a review begins at %q", got)
+	}
+	if got := review.settingsBase(); got != "fork" {
+		t.Errorf("a review compares its settings at %q", got)
+	}
+	unrecorded := &laneRun{lease: ledger.DesiredLease{
+		WorkOrder: "rv", Kind: "review", BaseCommit: "head", Attempt: &ledger.DesiredAttempt{Commit: "head"},
+	}}
+	if got := unrecorded.settingsBase(); got != "" {
+		t.Errorf("a review of a lane that recorded no base compares its settings at %q", got)
+	}
+}

@@ -161,6 +161,11 @@ type SessionSpec struct {
 	// restores them to, and never the tip of a branch the lane continues, which a lane wrote (ADR-0040). Empty reads at
 	// Base.
 	SettingsBase string
+	// SettingsUnbased says the lane has no commit its settings can be compared with, as a review of a lane that recorded
+	// none has: the repository's side is empty, so a driver reads none of the repository's `.mcp.json` servers or status
+	// line, holds every setting the worktree holds that runs code, and never reads at Base, which holds what the lane
+	// under review wrote (ADR-0040). SettingsBase is empty with it.
+	SettingsUnbased bool
 	// SettingsAtBase says a member chose to run the lane with the repository's settings: before the session starts, the
 	// driver restores the project settings files its preflight compares to what they hold at SettingsBase (ADR-0040).
 	SettingsAtBase bool

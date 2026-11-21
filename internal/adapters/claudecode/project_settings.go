@@ -83,9 +83,13 @@ func sessionSources(spec ports.SessionSpec) []string {
 
 // atSettingsBase is a spec that reads the repository's files at the commit the lane's work began from, its claim's
 // base, and not at the tip of a branch it continues, which a lane wrote: a lane that committed its own settings edit
-// would otherwise compare that edit with itself (ADR-0040).
+// would otherwise compare that edit with itself (ADR-0040). A spec with no such commit (SettingsUnbased) reads none: it
+// is no commit at all, never the one the worktree began at, which holds what the lane under review wrote.
 func atSettingsBase(spec ports.SessionSpec) ports.SessionSpec {
-	if spec.SettingsBase != "" {
+	switch {
+	case spec.SettingsUnbased:
+		spec.Base = ""
+	case spec.SettingsBase != "":
 		spec.Base = spec.SettingsBase
 	}
 	return spec
@@ -95,7 +99,8 @@ func atSettingsBase(spec ports.SessionSpec) ports.SessionSpec {
 // the commit the lane's work began from (atSettingsBase), read from git's objects as repositoryFile reads them, and
 // names each widening key that differs. A file absent from either side holds no keys, and so does a file that does not
 // parse, which the CLI skips ([settings]). A lane with no base, an orchestrator's or an assistant's among them, has
-// nothing to compare.
+// nothing to compare, and a review with no commit to compare with (SettingsUnbased) compares with an empty repository:
+// every setting its worktree holds that runs code holds it.
 //
 // [settings]: https://code.claude.com/docs/en/settings#fix-a-broken-settings-file
 func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
@@ -107,9 +112,13 @@ func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
 	return compareSettings(spec, base)
 }
 
-// comparable says a spec names a worktree and the clone and commit its repository's side is read at.
+// comparable says a spec names a worktree and the clone and commit its repository's side is read at, or says its
+// repository's side is empty (SettingsUnbased).
 func comparable(spec ports.SessionSpec) bool {
-	return spec.Repository != "" && spec.Base != "" && spec.Dir != ""
+	if spec.Dir == "" {
+		return false
+	}
+	return spec.SettingsUnbased || (spec.Repository != "" && spec.Base != "")
 }
 
 // SettingsChange is what a lane's worktree changed now of the settings its session reads, as its preflight compares
@@ -139,6 +148,9 @@ type baseSide struct {
 // that failed reads as no file, as repositoryFile reads it, and leaves the side incomplete, so it is not kept.
 func readBaseSide(spec ports.SessionSpec) (*baseSide, bool) {
 	side := &baseSide{files: map[string][]byte{}, pieces: map[string]string{}, hooks: map[string]pieceHooks{}}
+	if spec.SettingsUnbased {
+		return side, true
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
 	git := repositoryGit(spec)
@@ -411,7 +423,7 @@ var errSettingsNotRestorable = errors.New("a directory on the way to a settings 
 // link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
 	spec = atSettingsBase(spec)
-	if !spec.SettingsAtBase || spec.Repository == "" || spec.Base == "" {
+	if !spec.SettingsAtBase || !comparable(spec) {
 		return nil
 	}
 	dir := filepath.Join(spec.Dir, ".claude")

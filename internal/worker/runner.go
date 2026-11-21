@@ -1021,7 +1021,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	r.state.noteCapabilities(capabilities)
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
-		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Base: r.begins(), SettingsBase: r.settingsBase(), Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
+		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Base: r.begins(), SettingsBase: r.settingsBase(), SettingsUnbased: r.settingsUnbased(), Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
 		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating() && !r.assisting(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,

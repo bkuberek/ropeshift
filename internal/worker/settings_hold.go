@@ -160,6 +160,7 @@ func (r *laneRun) reloadSpecOf(ctx context.Context) (ports.SessionSpec, string, 
 	}
 	spec = r.w.sessionSpec(r.record())
 	spec.Dir, spec.Repository, spec.Base, spec.SettingsBase = r.worktreePath(), repository, r.begins(), r.settingsBase()
+	spec.SettingsUnbased = r.settingsUnbased()
 	return spec, "", true
 }
 
