@@ -486,8 +486,9 @@ var questionAttachTool = objectTool(lanes.ToolQuestionAttach, "Close a question 
 	map[string]any{"question": questionField, "into": textField("The ID of the open question that stays."), "lookup": considered}, "question", "into")
 
 var decisionRecordTool = objectTool(lanes.ToolDecisionRecord, "Answer a question. Name a decision the record holds, or decide or assume within policy, "+
-	"with what you considered. A one-way category is a member's. On an unattended worker, a one-way choice in any other category is yours: "+
-	"record it decided, with reversibility one_way. question_next says which applies. When decisions overlap, state supersedes or no_conflict.",
+	"with what you considered. A one-way category is a member's. On an unattended worker whose one-way acknowledgement a member accepted, "+
+	"a one-way choice that names a category, none of which the decision policy keeps, is yours: record it decided, with reversibility one_way, "+
+	"or escalate it. question_next says which applies. When decisions overlap, state supersedes or no_conflict.",
 	map[string]any{
 		"question": questionField, "decision": textField("A decision the record holds that answers this."),
 		"status":    map[string]any{"type": "string", "enum": []string{string(questions.DecisionDecided), string(questions.DecisionAssumed)}},
@@ -500,8 +501,7 @@ var decisionRecordTool = objectTool(lanes.ToolDecisionRecord, "Answer a question
 var questionEscalateTool = objectTool(lanes.ToolQuestionEscalate, "Take a question to a member, through a gate that refuses one with no record of rungs 1 and 2, "+
 	"no reason, no category, fewer than two options, no recommendation, or a recommendation with no rationale. The gate checks the question as it "+
 	"will reach the member: the options, the recommendation, and the rationale the lane gave it stand when this call gives none, and a recommendation "+
-	"given here replaces the lane's. On an unattended worker it also refuses one_way when the decision policy keeps none of the question's categories, "+
-	"because that choice is yours to decide. A refusal names what is missing.",
+	"given here replaces the lane's. A refusal names what is missing.",
 	map[string]any{
 		"question":   questionField,
 		"reason":     map[string]any{"type": "string", "enum": []string{questions.ReasonOneWay, questions.ReasonRequirementConflict, questions.ReasonScopeChange}},

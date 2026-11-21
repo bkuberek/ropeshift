@@ -419,8 +419,8 @@ func (w *Workers) nextQuestion(ctx context.Context, actor ledger.Actor) (*Ladder
 
 // yours says what an orchestrator settles of a question it took, by the rule its calls are held to: the decision
 // policy keeps whole categories for a member, and an unattended worker's orchestrator, once a member accepted its
-// one-way acknowledgement, decides every other choice, a one-way one too, so that only a conflict between requirements
-// or a change of scope reaches a member (FR-QD-8).
+// one-way acknowledgement, may decide every other choice that names a category, a one-way one too, or take it to a
+// member (FR-QD-8).
 func (w *Workers) yours(ctx context.Context, question questions.Question, actor ledger.Actor) (string, error) {
 	by, err := readParty(ctx, w.store, w.scope, actor)
 	if err != nil {
@@ -458,7 +458,7 @@ func (w *Workers) yours(ctx context.Context, question questions.Question, actor 
 	case unattended:
 		return "This worker is unattended, so a member left this question to you. Decide it from the goals, requirements, and " +
 			"contracts, or assume a choice that can be undone, and record why. A one-way choice is yours too: record it decided, with " +
-			"reversibility one_way. Escalate it only for a conflict between requirements or a change of scope.", nil
+			"reversibility one_way, or escalate it when a member should make it. Escalate a conflict between requirements or a change of scope.", nil
 	}
 	return "A member attends this worker. Decide or assume a choice that can be undone, and record why. Escalate a one-way " +
 		"choice, a conflict between requirements, or a change of scope.", nil

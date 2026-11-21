@@ -98,8 +98,8 @@ func acceptOneWay(t *testing.T, r *planeRig) {
 
 // TestAnUnattendedOrchestratorDecidesAOneWayChoiceThePolicyLeavesIt holds the ladder of a worker a member set to
 // unattended and whose one-way acknowledgement a member accepted: a one-way choice in a category the decision policy
-// leaves open is the orchestrator's, so the gate refuses to take it to a member, and the orchestrator records it as
-// decided, with its rationale, for a member to overturn.
+// leaves open is the orchestrator's to decide, and it records it as decided, with its rationale, for a member to
+// overturn.
 func TestAnUnattendedOrchestratorDecidesAOneWayChoiceThePolicyLeavesIt(t *testing.T) {
 	r := newPlaneRig(t, ledger.ProtocolVersion)
 	acceptOneWay(t, r)
@@ -107,16 +107,34 @@ func TestAnUnattendedOrchestratorDecidesAOneWayChoiceThePolicyLeavesIt(t *testin
 	if !strings.Contains(read.Yours, "unattended") {
 		t.Errorf("question_next says %q of what the orchestrator decides, which does not say the worker is unattended", read.Yours)
 	}
-	var gate *questions.GateError
-	if err := escalateOneWay(r, call); !errors.As(err, &gate) {
-		t.Fatalf("escalating a one-way architecture choice from an unattended worker: %v, want the gate's refusal", err)
-	}
 	decision, err := decideOneWay(r, call)
 	if err != nil {
 		t.Fatalf("deciding the one-way choice: %v", err)
 	}
 	if decision.Reversibility != questions.OneWay || decision.DecidedBy != "worker-1" || decision.Rationale == "" {
 		t.Errorf("the decision %+v, want a one-way decision of worker-1 with its rationale", decision)
+	}
+}
+
+// TestAnUnattendedOrchestratorMayEscalateAOneWayChoiceFromAnyRung holds "may decide" to what it says: an unattended
+// orchestrator whose acknowledgement a member accepted may still take a one-way choice the policy leaves it to a member.
+// One that climbed rung 3, and so stands on rung 4, where it can neither decide nor assume a one-way choice, escalates
+// it rather than leaving the question stuck (FR-QD-8).
+func TestAnUnattendedOrchestratorMayEscalateAOneWayChoiceFromAnyRung(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	acceptOneWay(t, r)
+	call, _ := ladderAtRungThree(t, r, questions.CategoryArchitecture)
+	step, err := json.Marshal(questions.Step{Rung: questions.RungDecide, Outcome: "no_match"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	climb := call
+	climb.Body = step
+	if _, err := r.plane.Orchestrate(t.Context(), ledger.VerbClimb, climb); err != nil {
+		t.Fatal(err)
+	}
+	if err := escalateOneWay(r, call); err != nil {
+		t.Errorf("escalating a one-way choice from rung 4 of an unattended worker: %v", err)
 	}
 }
 

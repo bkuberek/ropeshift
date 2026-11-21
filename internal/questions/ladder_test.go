@@ -62,52 +62,6 @@ func TestGateRefusesWhatIsMissing(t *testing.T) {
 	}
 }
 
-// TestTheUnattendedGateKeepsAOneWayChoiceThePolicyLeavesOpen is the gate an orchestrator a member set to unattended
-// passes: a one-way choice reaches a member only in a category the decision policy keeps, and a conflict between
-// requirements or a change of scope reaches one whatever its category (FR-QD-8).
-func TestTheUnattendedGateKeepsAOneWayChoiceThePolicyLeavesOpen(t *testing.T) {
-	policy := DefaultPolicy()
-	tests := []struct {
-		name   string
-		change func(*Question)
-		want   []GateCheck
-	}{
-		{"a one-way choice in a category the policy keeps", func(*Question) {}, nil},
-		{"a one-way choice in a category the policy leaves open", func(q *Question) { q.Categories = []string{CategoryArchitecture} }, []GateCheck{GateReason}},
-		{"one kept category among open ones", func(q *Question) { q.Categories = []string{CategoryArchitecture, CategorySecurity} }, nil},
-		{
-			"a conflict between requirements in an open category",
-			func(q *Question) {
-				q.Categories, q.EscalationReason = []string{CategoryArchitecture}, ReasonRequirementConflict
-			}, nil,
-		},
-		{"a change of scope in an open category", func(q *Question) { q.Categories, q.EscalationReason = []string{CategoryProduct}, ReasonScopeChange }, nil},
-		{"what the gate refuses still fails", func(q *Question) { q.Categories, q.Options = []string{CategoryArchitecture}, nil }, []GateCheck{GateReason, GateOptions}},
-		// A one-way choice that names no category counts as kept: the gate asks for a category, as it does at
-		// attended, and never calls the choice the orchestrator's.
-		{"a one-way choice with no category", func(q *Question) { q.Categories = nil }, []GateCheck{GateCategories}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			q := escalatable()
-			tt.change(&q)
-			var got []GateCheck
-			for _, failure := range policy.GateUnattended(q) {
-				if failure.Detail == "" {
-					t.Errorf("%s has no detail", failure.Check)
-				}
-				got = append(got, failure.Check)
-			}
-			slices.Sort(got)
-			want := slices.Clone(tt.want)
-			slices.Sort(want)
-			if !slices.Equal(got, want) {
-				t.Errorf("failed %v, want %v", got, want)
-			}
-		})
-	}
-}
-
 // TestAOneWayCategorySkipsRungsThreeAndFour keeps rungs 1 and 2 for it, because an earlier
 // human decision may already answer it.
 func TestAOneWayCategorySkipsRungsThreeAndFour(t *testing.T) {
