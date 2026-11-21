@@ -2,10 +2,14 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FakeEvents, goldenNeedsYou, openLedgerStream, refusal, serveApi, stubEvents } from "../testing";
+import { FakeEvents, golden, goldenNeedsYou, openLedgerStream, refusal, type Sent, serveApi, stubEvents } from "../testing";
 import { App } from "./App";
 
 const needsYou = "/v1/needs-you";
+
+// read answers a signed-in read: the sidebar counts the project's open questions from their own view, so that read
+// keeps its shape, and every other one is Needs you's.
+const read = (call: Sent) => ({ status: 200, body: call.path.startsWith("/v1/views/questions") ? golden("questions") : goldenNeedsYou() });
 
 beforeEach(() => {
   // These tests open the application on Needs you, the view a person signs in to.
@@ -29,7 +33,7 @@ describe("signing in", () => {
         signedIn = true;
         return { status: 201, body: { member: "local", expires_at: 1 } };
       }
-      return signedIn ? { status: 200, body: goldenNeedsYou() } : refusal(401, "session_required");
+      return signedIn ? read(call) : refusal(401, "session_required");
     });
     render(<App />);
     await userEvent.type(await screen.findByLabelText("Passphrase"), "a passphrase");
@@ -45,7 +49,7 @@ describe("signing in", () => {
         signedIn = true;
         return { status: 201, body: { member: "local", expires_at: 1 } };
       }
-      return signedIn ? { status: 200, body: goldenNeedsYou() } : refusal(401, "session_required");
+      return signedIn ? read(call) : refusal(401, "session_required");
     });
     render(<App />);
     await userEvent.type(await screen.findByLabelText("Passphrase"), "a passphrase");
@@ -87,6 +91,11 @@ describe("signing in", () => {
     });
     render(<App />);
     await userEvent.click(await screen.findByRole("link", { name: /2 questions/ }));
+    // A card leads with the recommendation, and its other choices open with Choose another.
+    const [unfold] = await screen.findAllByRole("button", { name: "Choose another" });
+    if (unfold) {
+      await userEvent.click(unfold);
+    }
     const somethingElse = (await screen.findAllByRole("radio", { name: "Something else" }))[0];
     if (!somethingElse) {
       throw new Error("no such choice");
@@ -106,7 +115,7 @@ describe("signing in", () => {
 describe("a session's token", () => {
   it("goes with every change, from the cookie a page can read", async () => {
     document.cookie = "ropeshift_csrf=token-from-cookie";
-    const sent = serveApi((call) => (call.method === "GET" ? { status: 200, body: goldenNeedsYou() } : { status: 200 }));
+    const sent = serveApi((call) => (call.method === "GET" ? read(call) : { status: 200 }));
     render(<App />);
     await userEvent.click(await screen.findByRole("link", { name: /^Allow / }));
     await userEvent.click(await screen.findByRole("button", { name: "Allow this one call" }));
@@ -124,7 +133,7 @@ describe("signing out", () => {
         live = false;
         return { status: 204 };
       }
-      return live ? { status: 200, body: goldenNeedsYou() } : refusal(401, "session_required");
+      return live ? read(call) : refusal(401, "session_required");
     });
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: "Account" }));
@@ -137,7 +146,7 @@ describe("signing out", () => {
 });
 
 describe("the stream", () => {
-  const live = () => serveApi(() => ({ status: 200, body: goldenNeedsYou() }));
+  const live = () => serveApi(read);
 
   it("follows from the revision the page read", async () => {
     live();
@@ -182,7 +191,7 @@ describe("the stream", () => {
 
 describe("the shell", () => {
   it("offers a way past the masthead", async () => {
-    serveApi(() => ({ status: 200, body: goldenNeedsYou() }));
+    serveApi(read);
     render(<App />);
     expect(screen.getByRole("link", { name: "Skip to content" }).getAttribute("href")).toBe("#main");
     expect(screen.getByRole("main").id).toBe("main");
@@ -196,7 +205,7 @@ describe("the shell", () => {
   });
 
   it("walks the themes and remembers the choice", async () => {
-    serveApi(() => ({ status: 200, body: goldenNeedsYou() }));
+    serveApi(read);
     render(<App />);
     const toggle = screen.getByRole("button", { name: "Theme: system" });
     await userEvent.click(toggle);
@@ -210,7 +219,7 @@ describe("the shell", () => {
   });
 
   it("runs with no storage at all", async () => {
-    serveApi(() => ({ status: 200, body: goldenNeedsYou() }));
+    serveApi(read);
     vi.stubGlobal("localStorage", {
       getItem: () => {
         throw new Error("blocked");
