@@ -22,9 +22,6 @@ import (
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
-// heldTerminalFD is where a child finds its terminal: the first of cmd.ExtraFiles.
-const heldTerminalFD = 3
-
 // terminal is a person at a keyboard: it answers each prompt, and keeps what the screen
 // showed.
 type terminal struct {
@@ -87,9 +84,9 @@ func (in *install) runWith(term *terminal, stdin string, extraEnv []string, args
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if term != nil {
-		cmd.ExtraFiles = []*os.File{term.held}
-		cmd.SysProcAttr.Setctty = true
-		cmd.SysProcAttr.Ctty = heldTerminalFD
+		// The command has the terminal as its controlling terminal and holds no descriptor for it, so no process it
+		// starts holds the terminal open once it ends.
+		ptypair.Controlling(cmd, term.held)
 	}
 	err := cmd.Run()
 	var exit *exec.ExitError

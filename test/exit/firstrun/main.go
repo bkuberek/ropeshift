@@ -430,30 +430,13 @@ func (r *run) onTerminal(name string, limit time.Duration, args []string, answer
 	step := runStep(ctx, name, args, func(cmd *exec.Cmd) {
 		cmd.Env = r.env
 		cmd.Stdin = strings.NewReader("")
-		cmd.ExtraFiles = []*os.File{held}
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: terminalFD}
-		closeTerminalDescriptor(cmd)
+		ptypair.Controlling(cmd, held)
 	})
 	_ = held.Close()
 	_ = typed.Close()
 	<-done
 	step.Terminal = screen.String()
 	return step
-}
-
-// terminalFD is where a step on a terminal is given the terminal, the first of its extra files.
-const terminalFD = 3
-
-// closeTerminalDescriptor runs the step's program behind a shell that closes the terminal's descriptor and then
-// replaces itself with the program. The new session takes the terminal as its controlling terminal while the
-// descriptor is open, and keeps it after the descriptor is closed, which is all a program that asks for a
-// passphrase on /dev/tty needs. A program that kept the descriptor would hand it to everything it starts,
-// and the terminal server a daemon starts outlives that daemon and its run, and holds the terminal's slave
-// side open for as long as it runs.
-func closeTerminalDescriptor(cmd *exec.Cmd) {
-	program := cmd.Path
-	cmd.Path = "/bin/sh"
-	cmd.Args = append([]string{"sh", "-c", `exec ` + strconv.Itoa(terminalFD) + `<&-; exec "$0" "$@"`, program}, cmd.Args[1:]...)
 }
 
 // answer types each answer after its prompt, a line that ends in ": ", has shown.
