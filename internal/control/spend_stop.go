@@ -224,7 +224,7 @@ func (s *Spend) endStop(ctx context.Context, scope ledger.WorkspaceID, workOrder
 		if !won {
 			return workorders.ErrIllegalMove
 		}
-		if err := endStoppedLanes(tx, order, actor); err != nil {
+		if err := endStoppedLanes(tx, order, workorders.ReasonSpendLimit, actor); err != nil {
 			return err
 		}
 		if err := retireWakes(tx, workOrder, parking.RetiredSpendStop); err != nil {
@@ -252,9 +252,10 @@ func (s *Spend) endStop(ctx context.Context, scope ledger.WorkspaceID, workOrder
 }
 
 // endStoppedLanes ends the lanes of a work order whose stop a member ended, which have no process and which no worker
-// will report. A lane still parking has one, and the work order is not parked until its process is gone. A review's lane
-// is discarded, as a canceled review's is, because its worktree holds nothing to save.
-func endStoppedLanes(tx ports.WriteTx, order workorders.WorkOrder, actor ledger.Actor) error {
+// will report, as blocked for the reason that stopped them. A lane still parking has one, and the work order is not
+// parked until its process is gone. A review's lane is discarded, as a canceled review's is, because its worktree holds
+// nothing to save.
+func endStoppedLanes(tx ports.WriteTx, order workorders.WorkOrder, reason string, actor ledger.Actor) error {
 	rows, err := tx.Lanes().Rows()
 	if err != nil {
 		return err
@@ -263,12 +264,12 @@ func endStoppedLanes(tx ports.WriteTx, order workorders.WorkOrder, actor ledger.
 		if row.WorkOrder != order.ID || row.Status.ActualState != ledger.StateParked {
 			continue
 		}
-		data, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonSpendLimit})
+		data, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: reason})
 		if err != nil {
 			return err
 		}
 		draft := ledger.EventDraft{Type: ledger.EventLaneEnded, Actor: actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: row.ID}}
-		if err := closeLane(tx, row, draft, workorders.OutcomeBlocked, workorders.ReasonSpendLimit); err != nil {
+		if err := closeLane(tx, row, draft, workorders.OutcomeBlocked, reason); err != nil {
 			return err
 		}
 		if order.Kind == workorders.KindReview {

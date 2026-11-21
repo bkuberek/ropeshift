@@ -18,6 +18,8 @@ const (
 	RetiredCanceled     = "retired:canceled"
 	// RetiredSpendStop closes the wake of a lane a member's block or replan ended at its work order's hard spend limit.
 	RetiredSpendStop = "retired:spend_stop"
+	// RetiredSettingsStop closes the wake of a lane held on its own settings that a member stopped (ADR-0040).
+	RetiredSettingsStop = "retired:settings_stop"
 )
 
 // EventSignal records a fact only a signal can establish, such as a member resuming a lane.

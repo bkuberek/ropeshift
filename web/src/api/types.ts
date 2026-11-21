@@ -596,6 +596,7 @@ export type NeedItem = {
   | { kind: "conflict"; conflict: ConflictNeed }
   | { kind: "one_way_review"; one_way_review: OneWayReviewNeed }
   | { kind: "personal_setup"; personal_setup: PersonalSetupNeed }
+  | { kind: "lane_settings"; lane_settings: LaneSettingsNeed }
 );
 
 // What a member can do about an orchestrator's one-way decision: keep it as their own, or overturn it.
@@ -624,6 +625,23 @@ export type PersonalSetupNeed = {
   recommendation: "accept" | "separate_directory";
   recommendation_rationale: string;
   actions: "setup_accept"[];
+};
+
+// SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in a key that runs code
+// or widens access, against the repository's at the lane's base: the files and keys, a plain-text summary of each
+// entry, and the digest a member's choice binds to.
+export type SettingsChange = { generation: number; files: string[]; keys: string[]; summary?: string[]; digest: string };
+
+// LaneSettingsNeed is a lane held on its own settings before its session started, in the security category, which only
+// a member answers: the change, the choice recommended, "base", with why, and the three choices.
+export type LaneSettingsNeed = {
+  lane: string;
+  work_order: WorkOrder;
+  category: "security";
+  change: SettingsChange;
+  recommendation: "base" | "lane" | "stop";
+  recommendation_rationale: string;
+  actions: ("settings_base" | "settings_lane" | "settings_stop")[];
 };
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
@@ -1239,7 +1257,7 @@ export type LaneSetup = {
 // archivable says a member may ask for the lane's worktree to be removed: the lane ended, and it still stands.
 // waits_on is set while the lane waits on a blocking question. setup is what its latest session reported it loaded; a lane
 // whose sessions reported nothing, such as one in a pane, has none.
-export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean; waits_on?: WaitsOn; setup?: LaneSetup };
+export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean; waits_on?: WaitsOn; setup?: LaneSetup; settings_hold?: SettingsChange };
 
 export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: FloorLane[] };
 

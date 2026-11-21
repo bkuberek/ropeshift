@@ -6,7 +6,7 @@ import type { Page, Route } from "playwright-core";
 import type { ViteDevServer } from "vite";
 import { createServer } from "vite";
 
-import type { NeedItem } from "./api/types";
+import type { NeedItem, WorkOrder } from "./api/types";
 
 // What the browser suites share: the application served by Vite, the daemon's answers from what the Go tests wrote
 // from a real ledger, the wait for a view to finish reading, and axe-core's run over the page.
@@ -172,6 +172,27 @@ function otherCards(): NeedItem[] {
         recommendation_rationale:
           "it can run commands or reach data outside the project with no person watching, and a separate configuration directory keeps it out of unattended lanes without changing your own sessions",
         actions: ["setup_accept"],
+      },
+    },
+    // A lane whose worktree changed its own hooks or permissions waits on a member's choice, in the security category.
+    {
+      kind: "lane_settings",
+      id: "lane-wo-hooked",
+      since: lapsed.since,
+      lane_settings: {
+        lane: "lane-wo-hooked",
+        work_order: { ...(stalled.work.work_order as WorkOrder), id: "wo-hooked", title: "Add the retry hook", state: "parked" },
+        category: "security",
+        change: {
+          generation: 2,
+          files: [".claude/settings.json"],
+          keys: ["hooks", "permissions"],
+          summary: [".claude/settings.json hooks.PermissionRequest: added", '.claude/settings.json permissions.allow: added "Bash(curl *)"'],
+          digest: "sha256:hooked",
+        },
+        recommendation: "base",
+        recommendation_rationale: "the lane wrote what its next session would run outside every rule ropeshift gives it, and the repository's settings run what was reviewed and merged",
+        actions: ["settings_base", "settings_lane", "settings_stop"],
       },
     },
     history(

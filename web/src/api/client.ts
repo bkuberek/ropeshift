@@ -459,6 +459,12 @@ export function actOnWork(id: string, action: WorkAction, reason: string): Promi
   return call("POST", paths.work(id, verb), needsReason ? { reason } : {});
 }
 
+// decideLaneSettings is a member's choice for a lane held on its own settings: the repository's settings, the lane's own,
+// or stop, bound to the change the member read by its digest.
+export function decideLaneSettings(workOrder: string, decided: { lane: string; digest: string; choice: "base" | "lane" | "stop" }): Promise<unknown> {
+  return call("POST", paths.work(workOrder, "lane-settings"), decided);
+}
+
 // acceptPersonalSetup accepts a piece of the member's own agent CLI setup for a worker's lanes on one CLI version, so
 // the leak is not raised again there.
 export function acceptPersonalSetup(worker: string, accepted: { version: string; kind: string; name: string }): Promise<unknown> {

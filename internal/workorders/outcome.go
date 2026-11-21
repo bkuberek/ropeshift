@@ -34,6 +34,10 @@ const (
 	// ReasonSpendLimit says a generation found its work order at its hard spend limit as it was about to start, so it parked
 	// with no process and no model call, which stands for the park until the lane's end is read.
 	ReasonSpendLimit = "spend_limit"
+	// ReasonSettingsChanged says a generation found its worktree had changed the project settings its agent CLI reads in a
+	// key that runs code or widens access, as it was about to start, so it parked with no process for a member's choice;
+	// a member who stops the lane blocks its work with this reason (ADR-0040).
+	ReasonSettingsChanged = "settings_changed"
 	// ReasonHookFailed says a profile's hook did not finish, so no session started.
 	ReasonHookFailed = "hook_failed"
 	// ReasonHookUnknown says a crash left a hook's end unknown, and a person has to look.

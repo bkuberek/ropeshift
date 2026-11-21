@@ -285,8 +285,12 @@ func generatedPaths(spec ports.SessionSpec) (settings, mcp string) {
 		filepath.Join(spec.ConfigDir, fmt.Sprintf("mcp-%d.json", spec.Generation))
 }
 
-// writeGenerated writes a generation's files where only the owner can read them.
+// writeGenerated writes a generation's files where only the owner can read them, after it restores the repository's
+// settings to the worktree where a member chose them (restoreBaseSettings).
 func writeGenerated(spec ports.SessionSpec) error {
+	if err := restoreBaseSettings(spec); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(spec.ConfigDir, 0o700); err != nil {
 		return err
 	}

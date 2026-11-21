@@ -1,0 +1,326 @@
+package claudecode
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
+)
+
+// The project settings a lane's session reads come from its worktree, which the lane can edit, and no flag points the
+// CLI's read at the commit the lane began from. The CLI reads the shared `.claude/settings.json` "from the session's
+// primary working directory", which is the lane's worktree, for the `project` source, and for the `local` source
+// `.claude/settings.local.json` at the repository's root, which in a worktree "uses the file at the main checkout's
+// root", together with a file "an earlier version left" in the starting directory ([settings]). A lane names `project`
+// alone (laneSources), so its one settings file in the worktree is `.claude/settings.json`; a session whose sources
+// include `local` reads the worktree's `.claude/settings.local.json` too. The local file at the main checkout's root is
+// the member's own, outside the worktree, which the lane never loads.
+//
+// The CLI also "watches your settings files and reloads them when they change", hooks and permissions included
+// ([settings]), so this check holds a generation before its session starts, and an edit within a session reaches the
+// running session until it ends.
+//
+// [settings]: https://code.claude.com/docs/en/settings#where-claude-code-keeps-the-local-file-in-a-git-repository
+const (
+	projectSettingsFile = ".claude/settings.json"
+	localSettingsFile   = ".claude/settings.local.json"
+)
+
+// sourceLocal is the setting source of the member's own settings for a project, which a lane never names.
+const sourceLocal = "local"
+
+// widening are the settings keys whose change runs code or widens what a session may do ([settings reference]): the
+// hooks it runs, the plugins it enables, which carry hooks and servers of their own, its permission rules, the
+// environment its commands run in, the command that makes its API key, its status line command, and the MCP servers it
+// trusts or names. A change to any other key holds nothing.
+//
+// [settings reference]: https://code.claude.com/docs/en/settings-reference
+var widening = []string{
+	"apiKeyHelper", "disabledMcpjsonServers", "enableAllProjectMcpServers", "enabledMcpjsonServers", "enabledPlugins", "env",
+	"hooks", "mcpServers", "permissions", "statusLine",
+}
+
+// secretValues are the keys whose values the summary never shows, because each value can be a credential: an
+// environment variable's value.
+var secretValues = []string{"env"}
+
+// settingsFiles are the files of a lane's worktree its session reads as project settings, by its setting sources.
+func settingsFiles(spec ports.SessionSpec) []string {
+	var files []string
+	sources := sessionSources(spec)
+	if slices.Contains(sources, sourceProject) {
+		files = append(files, projectSettingsFile)
+	}
+	if slices.Contains(sources, sourceLocal) {
+		files = append(files, localSettingsFile)
+	}
+	return files
+}
+
+// sessionSources are the setting sources a session's command names: the lane's, or the list a real-session suite's
+// flags name in their place (isolationArgs).
+func sessionSources(spec ports.SessionSpec) []string {
+	args := spec.Override.Args()
+	if at := slices.Index(args, flagSettingSources); at >= 0 && at+1 < len(args) {
+		return strings.Split(args[at+1], ",")
+	}
+	return laneSources
+}
+
+// settingsChange compares the project settings a lane's session would read from its worktree with the repository's at
+// the commit the lane began from, read from git's objects as repositoryFile reads them, and names each widening key
+// that differs. A file absent from either side holds no keys, and so does a file that does not parse, which the CLI
+// skips ([settings]). A lane with no base, an orchestrator's or an assistant's among them, has nothing to compare.
+//
+// [settings]: https://code.claude.com/docs/en/settings#fix-a-broken-settings-file
+func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
+	if spec.Repository == "" || spec.Base == "" || spec.Dir == "" {
+		return nil
+	}
+	change := &lanes.SettingsChange{}
+	digest := sha256.New()
+	for _, file := range settingsFiles(spec) {
+		lane := settingsKeys(worktreeFile(spec, file))
+		base := settingsKeys(repositoryFile(spec, file))
+		changed := false
+		for _, key := range widening {
+			if canonical(lane[key]) == canonical(base[key]) {
+				continue
+			}
+			changed = true
+			if !slices.Contains(change.Keys, key) {
+				change.Keys = append(change.Keys, key)
+			}
+			change.Summary = append(change.Summary, describeChange(file, key, base[key], lane[key])...)
+		}
+		if changed {
+			change.Files = append(change.Files, file)
+		}
+		for _, key := range widening {
+			fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", file, key, canonical(lane[key]))
+		}
+	}
+	if len(change.Keys) == 0 {
+		return nil
+	}
+	slices.Sort(change.Keys)
+	if len(change.Summary) > lanes.MaxSettingsLines {
+		change.Summary = append(change.Summary[:lanes.MaxSettingsLines-1], fmt.Sprintf("and %d more changes", len(change.Summary)-lanes.MaxSettingsLines+1))
+	}
+	change.Digest = "sha256:" + hex.EncodeToString(digest.Sum(nil))
+	return change
+}
+
+// worktreeFile reads one file of a lane's worktree as the CLI would, following its links, up to the bound a repository's
+// file holds to. A file that is absent, unreadable, or past the bound reads as none.
+func worktreeFile(spec ports.SessionSpec, name string) []byte {
+	file, err := os.Open(filepath.Join(spec.Dir, filepath.FromSlash(name)))
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, maxRepositoryFile+1))
+	if err != nil || len(raw) > maxRepositoryFile {
+		return nil
+	}
+	return raw
+}
+
+// settingsKeys are a settings file's top-level keys. A file that is absent or does not parse holds none.
+func settingsKeys(raw []byte) map[string]json.RawMessage {
+	var keys map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &keys) != nil {
+		return map[string]json.RawMessage{}
+	}
+	return keys
+}
+
+// canonical is a value as JSON with its objects' keys sorted and no space, so two spellings of one value are one. An
+// absent value is empty.
+func canonical(raw json.RawMessage) string {
+	if raw == nil {
+		return ""
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return string(raw)
+	}
+	out, err := json.Marshal(value)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
+}
+
+// describeChange says what changed of one key, a line for each entry of it that differs: the hook events, plugins,
+// permission lists, variables, and servers it names, by their names, and an entry's value only where it is a command or
+// a rule and never under a key whose values can be credentials. The control plane makes each line plain text and takes
+// out the shapes of credentials before anyone reads it (control.recordedSettings).
+func describeChange(file, key string, base, lane json.RawMessage) []string {
+	at := file + " " + key
+	switch {
+	case base == nil:
+		return append([]string{at + ": added"}, entries(at, nil, lane, key)...)
+	case lane == nil:
+		return []string{at + ": removed"}
+	}
+	if lines := entries(at, base, lane, key); len(lines) != 0 {
+		return lines
+	}
+	return []string{at + ": changed" + shownValue(lane, key)}
+}
+
+// entries are the lines for each entry of an object or a list that differs between two values of one key.
+func entries(at string, base, lane json.RawMessage, key string) []string {
+	var baseObject, laneObject map[string]json.RawMessage
+	if json.Unmarshal(lane, &laneObject) == nil && laneObject != nil {
+		_ = json.Unmarshal(base, &baseObject)
+		var out []string
+		names := slices.Sorted(maps.Keys(laneObject))
+		for name := range baseObject {
+			if _, kept := laneObject[name]; !kept {
+				names = append(names, name)
+			}
+		}
+		for _, name := range names {
+			before, after := baseObject[name], laneObject[name]
+			switch {
+			case before == nil:
+				out = append(out, at+"."+name+": added"+shownValue(after, key))
+			case after == nil:
+				out = append(out, at+"."+name+": removed")
+			case canonical(before) != canonical(after):
+				if listed := listChanges(at+"."+name, before, after, key); len(listed) != 0 {
+					out = append(out, listed...)
+				} else {
+					out = append(out, at+"."+name+": changed"+shownValue(after, key))
+				}
+			}
+		}
+		return out
+	}
+	return listChanges(at, base, lane, key)
+}
+
+// listChanges are the entries added to and removed from a list of text, such as permission rules or server names.
+func listChanges(at string, base, lane json.RawMessage, key string) []string {
+	var before, after []string
+	if json.Unmarshal(lane, &after) != nil || (base != nil && json.Unmarshal(base, &before) != nil) {
+		return nil
+	}
+	var out []string
+	for _, entry := range after {
+		if !slices.Contains(before, entry) {
+			out = append(out, at+": added "+shown(entry, key))
+		}
+	}
+	for _, entry := range before {
+		if !slices.Contains(after, entry) {
+			out = append(out, at+": removed "+shown(entry, key))
+		}
+	}
+	return out
+}
+
+// shownValue is a value as a summary line ends with it: text as itself, and anything else by its kind alone.
+func shownValue(raw json.RawMessage, key string) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return " " + shown(text, key)
+	}
+	var on bool
+	if json.Unmarshal(raw, &on) == nil {
+		return fmt.Sprintf(" to %t", on)
+	}
+	return ""
+}
+
+// shown is one entry of a summary line, held to its bound, and hidden under a key whose values can be credentials.
+func shown(text, key string) string {
+	if slices.Contains(secretValues, key) {
+		return "(value hidden)"
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > lanes.MaxSettingsText/2 {
+		text = text[:lanes.MaxSettingsText/2] + "..."
+	}
+	return fmt.Sprintf("%q", text)
+}
+
+// errSettingsNotRestorable says a worktree's settings file cannot be put back without writing past the worktree.
+var errSettingsNotRestorable = errors.New("the worktree's .claude is no directory of its own, so its settings cannot be restored")
+
+// restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
+// lane began from holds it, or removes it where that commit holds none. It writes only inside the worktree: a `.claude`
+// that is a link is refused, and a file that is a link is replaced, never written through.
+func restoreBaseSettings(spec ports.SessionSpec) error {
+	if !spec.SettingsAtBase || spec.Repository == "" || spec.Base == "" {
+		return nil
+	}
+	dir := filepath.Join(spec.Dir, ".claude")
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return err
+	case !info.IsDir():
+		return errSettingsNotRestorable
+	}
+	for _, file := range settingsFiles(spec) {
+		path := filepath.Join(spec.Dir, filepath.FromSlash(file))
+		base := repositoryFile(spec, file)
+		current := worktreeFile(spec, file)
+		if bytes.Equal(base, current) {
+			continue
+		}
+		if base == nil {
+			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		if err := replaceFile(path, base); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// replaceFile puts a regular file at path in one step: it writes a file of its own beside it, which it creates and
+// never opens through a link, and moves it over whatever path names, a link included.
+func replaceFile(path string, body []byte) error {
+	next := path + ".ropeshift"
+	if err := os.Remove(next); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	file, err := os.OpenFile(next, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(body)
+	if closed := file.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = os.Rename(next, path)
+	}
+	if err != nil {
+		_ = os.Remove(next)
+	}
+	return err
+}

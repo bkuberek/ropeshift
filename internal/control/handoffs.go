@@ -185,6 +185,9 @@ func (w *Workers) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest
 		if facts.Spend, err = spendAllowance(tx, order, request.Lane, request.Generation); err != nil {
 			return err
 		}
+		if facts.Settings, err = settingsDecisions(tx, request.Lane); err != nil {
+			return err
+		}
 		generation, err := tx.Lanes().Generation(request.Lane)
 		if errors.Is(err, ports.ErrNotFound) {
 			return nil

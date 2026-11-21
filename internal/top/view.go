@@ -12,6 +12,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -147,6 +148,24 @@ func commandsFor(item api.NeedItem) []string {
 				commands = append(commands, "ropeshift spend block "+order)
 			case api.ActSpendReplan:
 				commands = append(commands, "ropeshift spend replan "+order)
+			}
+		}
+		return commands
+	case api.NeedLaneSettings:
+		if item.LaneSettings == nil || item.LaneSettings.WorkOrder == nil {
+			return nil
+		}
+		need := item.LaneSettings
+		base := "ropeshift lane settings " + clean(need.WorkOrder.ID) + " --lane " + clean(need.Lane) + " --digest " + clean(need.Change.Digest) + " --run "
+		var commands []string
+		for _, action := range need.Actions {
+			switch action {
+			case api.ActSettingsBase:
+				commands = append(commands, base+lanes.SettingsBase)
+			case api.ActSettingsLane:
+				commands = append(commands, base+lanes.SettingsLane)
+			case api.ActSettingsStop:
+				commands = append(commands, base+lanes.SettingsStop)
 			}
 		}
 		return commands

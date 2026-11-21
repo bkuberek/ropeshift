@@ -321,6 +321,8 @@ type NeedItem struct {
 	// PersonalSetup is set for a personal_setup item, whose ID is the worker, the version, the kind, and the name, joined
 	// by slashes.
 	PersonalSetup *PersonalSetupNeed `json:"personal_setup,omitempty"`
+	// LaneSettings is set for a lane_settings item, whose ID is the lane.
+	LaneSettings *LaneSettingsNeed `json:"lane_settings,omitempty"`
 }
 
 // OneWayReviewNeed is a one-way decision an orchestrator on an unattended worker made itself, which waits for a member's
@@ -868,6 +870,9 @@ type FloorLane struct {
 	// Setup is what the lane's latest session that reported it loaded at its start, the member's own pieces among them.
 	// A lane whose sessions reported nothing, such as one in a pane, has none.
 	Setup *lanes.Setup `json:"setup,omitempty"`
+	// SettingsHold is the change of its own settings the lane is held on for a member, which the lane names as what it
+	// waits on (FR-UI-13). A lane held on none has none.
+	SettingsHold *lanes.SettingsChange `json:"settings_hold,omitempty"`
 }
 
 // ShopFloor is workers, orchestrators, lanes, and their freshness.

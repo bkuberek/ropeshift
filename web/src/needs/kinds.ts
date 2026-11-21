@@ -24,6 +24,7 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
     case "repository_creation":
       return "cards";
     case "personal_setup":
+    case "lane_settings":
       return "decisions";
     case "questions":
     case "one_way_review":
@@ -76,7 +77,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "conflict", "one-way-review", "personal-setup"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "conflict", "one-way-review", "personal-setup", "lane-settings"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -123,6 +124,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "one-way-review";
     case "personal_setup":
       return "personal-setup";
+    case "lane_settings":
+      return "lane-settings";
   }
 }
 
@@ -160,6 +163,12 @@ export const oneWayReviewKind: { icon: IconName; name: string } = { icon: "decis
 // setupKind is the overline of a piece of the member's own agent CLI setup that reached a machine's lanes.
 export const setupKind: { icon: IconName; name: string } = { icon: "sliders", name: "Your CLI setup in lanes" };
 
+// settingsKind is the overline of a lane held on its own settings, which is a security choice and a member's alone.
+export const settingsKind: { icon: IconName; name: string } = { icon: "lock", name: "Security: lane settings" };
+
+// settingsWaiting is what a lane held on its own settings reads as waiting on, and what ends the wait (FR-UI-13).
+export const settingsWaiting = "Waiting on a member: this lane changed its own hooks/permissions";
+
 // pieceWords names each kind of a member's own setup as a heading says it.
 export const pieceWords: Record<string, string> = { mcp_server: "MCP server", plugin: "plugin", agent: "agent", skill: "skill", command: "command", instruction: "instruction file" };
 
@@ -196,6 +205,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return oneWayReviewKind;
     case "personal_setup":
       return setupKind;
+    case "lane_settings":
+      return settingsKind;
   }
 }
 
@@ -265,6 +276,8 @@ export function headingOf(item: NeedItem): string {
       return questionTitle(item.one_way_review.decision.statement);
     case "personal_setup":
       return `Your ${pieceWords[item.personal_setup.piece.kind] ?? item.personal_setup.piece.kind} ${plainLine(item.personal_setup.piece.name)} reached lanes on ${item.personal_setup.worker}`;
+    case "lane_settings":
+      return `Lane ${plainLine(item.lane_settings.lane)} changed its own hooks/permissions`;
   }
 }
 
@@ -313,6 +326,8 @@ export function contextOf(item: NeedItem): string {
       return [`Decided by the orchestrator on ${deciderOf(item.one_way_review)}`, plainLine(item.one_way_review.decision.id)].join(" · ");
     case "personal_setup":
       return [`Worker ${item.personal_setup.worker}`, `version ${item.personal_setup.version}`, plural(item.personal_setup.lanes.length, "lane")].join(" · ");
+    case "lane_settings":
+      return [item.lane_settings.work_order.id, "security", item.lane_settings.change.keys.map(plainLine).join(", ")].join(" · ");
   }
 }
 

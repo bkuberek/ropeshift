@@ -32,6 +32,7 @@ import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { PlanRevisionCard } from "./PlanRevisionCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { OneWayReviewCard } from "./OneWayReviewCard";
+import { LaneSettingsCard } from "./LaneSettingsCard";
 import { PersonalSetupCard } from "./PersonalSetup";
 import { RepositoryCreationCard } from "./RepositoryCreationCard";
 import type { Answered } from "./QuestionBatch";
@@ -91,6 +92,8 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
       return <OneWayReviewCard need={item.one_way_review} after={after} frame={frame} onResolved={settled.onResolved} />;
     case "personal_setup":
       return <PersonalSetupCard need={item.personal_setup} after={after} frame={frame} />;
+    case "lane_settings":
+      return <LaneSettingsCard need={item.lane_settings} after={after} frame={frame} />;
     case "confirm":
       return <ConfirmCard need={item.card} after={after} frame={frame} {...assistant} />;
     case "conflict":

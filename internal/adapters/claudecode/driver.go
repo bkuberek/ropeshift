@@ -391,6 +391,7 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	for _, found := range agentProblems(spec) {
 		problem("%s", found)
 	}
+	report.Settings = settingsChange(spec)
 	return report, nil
 }
 

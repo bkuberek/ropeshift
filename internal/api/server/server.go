@@ -190,6 +190,7 @@ type handler struct {
 	approvals    *control.Approvals
 	autonomy     *control.Autonomy
 	setups       *control.PersonalSetups
+	laneSettings *control.LaneSettings
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
@@ -350,6 +351,7 @@ func newHandler(config Config) *handler {
 		approvals:     control.NewApprovals(config.Store),
 		autonomy:      control.NewAutonomy(config.Store),
 		setups:        control.NewPersonalSetups(config.Store),
+		laneSettings:  control.NewLaneSettings(config.Store),
 		effects:       control.NewEffects(config.Store),
 		repositories:  repositories,
 		practices:     practices,

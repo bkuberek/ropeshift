@@ -510,6 +510,14 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	items = append(items, stops...)
+	// A lane held on its own settings is one security item, which answers the resume and the long park its parked work
+	// would raise, so the choice is asked once and only of a member (ADR-0040).
+	settings, held, err := laneSettingsNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, settings...)
+	maps.Copy(stopped, held)
 	stuck, err := h.stuck(tx, f, wakes, stamp.AsOf, stopped)
 	if err != nil {
 		return nil, err
@@ -692,6 +700,11 @@ func (h *handler) readStuck(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
+	_, held, err := laneSettingsNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(stopped, held)
 	items, err := h.stuck(tx, f, wakes, stamp.AsOf, stopped)
 	return api.Stuck{Stamp: stamp, Items: items}, err
 }
@@ -1527,6 +1540,10 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 		return nil, err
 	}
 	view := api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: make([]api.FloorLane, 0, len(lanes))}
+	holds, err := control.SettingsHolds(tx)
+	if err != nil {
+		return nil, err
+	}
 	for _, lane := range lanes {
 		setup, _, err := laneSetup(tx, lane.ID)
 		if err != nil {
@@ -1534,6 +1551,7 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 		}
 		view.Lanes = append(view.Lanes, api.FloorLane{
 			LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder], Archivable: archivable(byLane[lane.ID]), WaitsOn: waiting[lane.ID], Setup: setup,
+			SettingsHold: laneSettingsHold(holds, lane.ID),
 		})
 	}
 	return view, nil

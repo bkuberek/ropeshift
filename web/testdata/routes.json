@@ -391,6 +391,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/lane-settings",
+    "command": "lane settings"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/work-orders/{id}/retry",
     "command": "work retry"
   },

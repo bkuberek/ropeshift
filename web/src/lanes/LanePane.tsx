@@ -24,6 +24,7 @@ import { LaneMessages } from "./Messages";
 import { findIn, markRuns } from "./find";
 import { copyText, FindBar, PaneTools, selectContents } from "./PaneTools";
 import { RunsWith } from "./RunsWith";
+import { SettingsHeld } from "./SettingsHeld";
 import { parseScreen, trimScreen } from "./screen";
 import { PaneSender } from "./sender";
 import { startingMs } from "./starting";
@@ -868,6 +869,11 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                 <p className="muted">Reading…</p>
               )}
             </Panel>
+            {lane?.settings_hold ? (
+              <p className="notice">
+                <SettingsHeld lane={lane.id} hold={lane.settings_hold} />
+              </p>
+            ) : null}
             {lane ? <RunsWith setup={lane.setup} /> : null}
             {lane?.artifacts?.length ? (
               <Panel title="Artifacts">

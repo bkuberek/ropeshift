@@ -199,6 +199,11 @@ const (
 	// for that machine and CLI version (ADR-0040). What a lane loads of a member's own setup is that member's choice, so
 	// no delegate, orchestrator, lane, worker, or tick holds it.
 	ActionAcceptPersonalSetup Action = "personal_setup.accept"
+	// ActionDecideLaneSettings chooses how a lane runs whose worktree changed the project settings its agent CLI reads in
+	// a key that runs code or widens access: with the repository's settings, with its own, or not at all (ADR-0040).
+	// What a lane runs outside every rule is a security choice, so no delegate, orchestrator, lane, worker, or tick
+	// holds it.
+	ActionDecideLaneSettings Action = "lane.settings_decide"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -215,7 +220,7 @@ func Actions() []Action {
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
 		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit, ActionMergeQuestion,
-		ActionAcknowledgePractices, ActionWithdrawPractices, ActionConsult, ActionAcceptPersonalSetup,
+		ActionAcknowledgePractices, ActionWithdrawPractices, ActionConsult, ActionAcceptPersonalSetup, ActionDecideLaneSettings,
 	}
 }
 

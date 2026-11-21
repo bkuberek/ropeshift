@@ -1064,6 +1064,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return reportArchived(tx, worker, id, e)
 	case ledger.UploadLaneSetup:
 		return reportSetup(tx, worker, id, e)
+	case ledger.UploadLaneSettingsHeld:
+		return reportSettingsHeld(tx, worker, id, e)
 	case ledger.UploadGenerationStarted:
 		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation - 1}
 		_, err := nextGeneration(tx, holder, startReason(e), ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)

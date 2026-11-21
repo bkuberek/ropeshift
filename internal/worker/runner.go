@@ -123,6 +123,11 @@ type laneRun struct {
 	// handle's lock guards both, and a generation's start clears them.
 	loaded *lanes.Setup
 	leaks  []lanes.PersonalItem
+	// settingsFound is what this generation's preflight found its worktree changed of its project settings, and
+	// settingsNote what the generation is told first when a member restored the repository's (holdOnSettings). The
+	// handle's lock guards both, and a generation's start clears them.
+	settingsFound *lanes.SettingsChange
+	settingsNote  string
 	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
 	maxReviewRounds int64
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
@@ -874,6 +879,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
+	if report, held := r.holdOnSettings(ctx, &spec, r.foundSettings()); held {
+		return report
+	}
+	spec.Brief = r.withSettingsNote(spec.Brief)
 	record := r.record()
 	record.TokenDigest, record.Worktree, record.Branch = lanes.TokenDigest(token), prepared.Worktree.Path, prepared.Worktree.Branch
 	// Setting a lane up can outlast its lease, and the worktree it left is what the guard reads.
@@ -937,7 +946,7 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 		return r.rt.Driver.Start(ctx, spec)
 	}
 	resumed := spec
-	resumed.Brief = r.resumePrompt()
+	resumed.Brief = r.withSettingsNote(r.resumePrompt())
 	if r.assisting() {
 		resumed.Brief = r.briefAssistant(true)
 	}
@@ -1035,7 +1044,17 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if len(report.Problems) != 0 {
 		return ports.SessionSpec{}, fmt.Errorf("preflight: %v", report.Problems)
 	}
+	r.handleLock.Lock()
+	r.settingsFound = report.Settings
+	r.handleLock.Unlock()
 	return spec, nil
+}
+
+// foundSettings is what this generation's preflight found its worktree changed of its project settings.
+func (r *laneRun) foundSettings() *lanes.SettingsChange {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.settingsFound
 }
 
 // errNoInteractive says a planning lane cannot start because the driver offers no run mode where a
@@ -1276,6 +1295,7 @@ func (r *laneRun) clearSetup() {
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
 	r.loaded, r.leaks = nil, nil
+	r.settingsFound, r.settingsNote = nil, ""
 }
 
 // uploadSetup records what this generation's session loaded, with the instruction files that leaked among the member's

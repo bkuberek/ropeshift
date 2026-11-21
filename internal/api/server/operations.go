@@ -195,6 +195,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/lane-reset":              fixed(authority.OpLaneReset),
 	"POST /v1/work-orders/{id}/lane-respawn":            fixed(authority.OpLaneRestart),
 	"POST /v1/work-orders/{id}/lane-archive":            fixed(authority.OpLaneArchive),
+	"POST /v1/work-orders/{id}/lane-settings":           fixed(authority.OpLaneSettingsDecide),
 	"POST /v1/work-orders/{id}/replan":                  fixed(authority.OpWorkOrderReplan),
 	"POST /v1/work-orders/{id}/retry":                   resolved(retryOperation, authority.OpWorkOrderRetry, authority.OpWorkOrderRetryExtra).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/accept":                  resolved(acceptOperation, authority.OpWorkOrderAccept, authority.OpWorkOrderAcceptUnverified).about(subjectWorkOrder),

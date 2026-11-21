@@ -112,6 +112,10 @@ type DoctorReport struct {
 // PreflightReport says whether a spec can start. An empty list passes.
 type PreflightReport struct {
 	Problems []string
+	// Settings is what the lane's worktree changed of the project settings the session would read, in a key that runs
+	// code or widens access, against the repository's at the lane's base. Nil says they match, or the driver has no
+	// base to read them at.
+	Settings *lanes.SettingsChange
 }
 
 // SessionSpec is one session to start. Env is the whole environment, so nothing is
@@ -152,6 +156,9 @@ type SessionSpec struct {
 	// Base is the commit the lane's worktree began from, which a driver reads the repository's own files at, such as
 	// its `.mcp.json`, and never from the worktree a lane can edit (FR-PROF-5). Empty names none.
 	Base string
+	// SettingsAtBase says a member chose to run the lane with the repository's settings: before the session starts, the
+	// driver restores the project settings files its preflight compares to what they hold at Base (ADR-0040).
+	SettingsAtBase bool
 	// Credential binds an API key to the CLI, for a lane that has one.
 	Credential SecretBinding
 	// TempDir is a short private directory for the session's sockets. Empty leaves
