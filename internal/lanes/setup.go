@@ -67,6 +67,12 @@ const (
 // [hooks]: https://code.claude.com/docs/en/hooks#instructionsloaded
 const EventInstructionsLoaded = "InstructionsLoaded"
 
+// EventConfigChange is the hook the agent CLI runs when a settings file or a skill changes during a session, before it
+// applies the change, and whose block keeps the change from the running session ([hooks]).
+//
+// [hooks]: https://code.claude.com/docs/en/hooks#configchange
+const EventConfigChange = "ConfigChange"
+
 // scopeManaged is the scope of an organization's instruction file, which no member's setting can leave out.
 const scopeManaged = "Managed"
 

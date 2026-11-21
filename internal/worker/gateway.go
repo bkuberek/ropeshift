@@ -114,6 +114,8 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 	switch {
 	case request.Who:
 		return lanes.Reply{OK: true, Owner: lane.Owner}
+	case request.Reload:
+		return w.takeReload(ctx, lane)
 	case request.Approval != nil:
 		if request.Hook != nil {
 			event := *request.Hook

@@ -170,6 +170,66 @@ func TestThePreflightNamesASettingsChange(t *testing.T) {
 	}
 }
 
+// Every session runs ropeshift's `ConfigChange` hook on its project settings, local settings, and skills, which blocks
+// the reload when the hook fails or times out, and the generated settings turn `disableAllHooks` off, which a project's
+// settings cannot turn on past them, so a lane's own edit can neither remove the hook nor silence it ([hooks]).
+//
+// [hooks]: https://code.claude.com/docs/en/hooks#configchange
+func TestEverySessionChecksAReloadOfItsOwnSettings(t *testing.T) {
+	spec := laneSpec(t)
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := generatedPaths(spec)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated struct {
+		DisableAllHooks *bool `json:"disableAllHooks"`
+		Hooks           map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Command   string `json:"command"`
+				OnFailure string `json:"onFailure"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &generated); err != nil {
+		t.Fatal(err)
+	}
+	if generated.DisableAllHooks == nil || *generated.DisableAllHooks {
+		t.Errorf("the generated settings leave disableAllHooks to the project: %v", generated.DisableAllHooks)
+	}
+	groups := generated.Hooks["ConfigChange"]
+	if len(groups) != 1 || groups[0].Matcher != "project_settings|local_settings|skills" || len(groups[0].Hooks) != 1 {
+		t.Fatalf("the ConfigChange hook is %+v", groups)
+	}
+	if hook := groups[0].Hooks[0]; hook.Command != "'"+spec.Binary+"' hook ConfigChange" || hook.OnFailure != "block" {
+		t.Errorf("the ConfigChange hook runs %+v", hook)
+	}
+}
+
+// A running session's check of a reload reads the repository's side once: a second check compares the worktree with
+// what the first read at the lane's base, so it answers in a hook's time, and a check that finds the settings match
+// holds nothing.
+func TestARunningSessionsCheckReadsTheBaseOnce(t *testing.T) {
+	driver := New(nil, Options{})
+	spec := heldSpec(t, baseSettings)
+	if change := driver.SettingsChange(t.Context(), spec); change != nil {
+		t.Fatalf("matching settings hold %+v", change)
+	}
+	if err := os.Rename(filepath.Join(spec.Dir, ".git"), filepath.Join(spec.Dir, "moved.git")); err != nil {
+		t.Fatal(err)
+	}
+	hooks := `{"PostToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "make fmt"}]}], "PermissionRequest": []}`
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(projectSettingsFile)), withKey(t, "hooks", hooks))
+	change := driver.SettingsChange(t.Context(), spec)
+	if change == nil || !slices.Equal(change.Keys, []string{"hooks"}) || !slices.Equal(change.Summary, []string{".claude/settings.json hooks.PermissionRequest: added"}) {
+		t.Errorf("the second check holds %+v", change)
+	}
+}
+
 // A lane's settings are compared with the commit its work began from, never with the tip of a branch it continues: a
 // lane that committed its own hooks edit, and whose next generation begins at that commit, is still held, and the
 // repository's settings it is restored to are the claim base's.

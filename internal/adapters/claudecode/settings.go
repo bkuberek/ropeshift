@@ -43,8 +43,23 @@ type hookCommand struct {
 }
 
 type hookGroup struct {
-	Hooks []hookCommand `json:"hooks"`
+	Matcher string        `json:"matcher,omitempty"`
+	Hooks   []hookCommand `json:"hooks"`
 }
+
+// reloadMatcher names the configuration sources a lane's worktree holds, whose change during a session the CLI runs
+// `ConfigChange` hooks for before it applies it: its project settings, its local settings, and its skills ([hooks]). The
+// CLI "watches your settings files and reloads them when they change", hooks and permissions included ([settings]), so
+// without the hook a lane's edit to them would run within the session that made it. The hook blocks the reload unless
+// the worker allows it (lanes.ReloadAllow), and `onFailure` blocks it too when the hook fails or times out, since a
+// failure "does what exit code 2 does on that event", and exit code 2 "blocks the configuration change from taking
+// effect" ([hooks]). Hook entries "merge across settings levels rather than replacing each other", so no project or
+// local file removes this one, and `disableAllHooks` in the generated settings keeps a project's from turning it off.
+// Agent and command files change no source the hook names, so an edit to them is held at the next generation's start.
+//
+// [hooks]: https://code.claude.com/docs/en/hooks#configchange
+// [settings]: https://code.claude.com/docs/en/settings#when-edits-take-effect
+const reloadMatcher = "project_settings|local_settings|skills"
 
 type permissions struct {
 	Allow []string `json:"allow"`
@@ -78,6 +93,12 @@ type settingsFile struct {
 	// ClaudeMdExcludes leaves out the member's own instructions and those above the worktree, and keeps the
 	// repository's (instructionExcludes).
 	ClaudeMdExcludes []string `json:"claudeMdExcludes,omitempty"`
+	// DisableAllHooks is false, stated, because the CLI "reads the value left after settings precedence applies", and
+	// `--settings` "takes precedence over project and local settings" ([hooks]): a lane's own settings cannot turn off
+	// the hooks that hold its rules and its reloads.
+	//
+	// [hooks]: https://code.claude.com/docs/en/hooks#disable-or-remove-hooks
+	DisableAllHooks bool `json:"disableAllHooks"`
 }
 
 // toolRule is the permission rule of one ropeshift MCP tool.
@@ -236,6 +257,10 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 		}
 		out.Hooks[event] = []hookGroup{{Hooks: []hookCommand{command}}}
 	}
+	out.Hooks[lanes.EventConfigChange] = []hookGroup{{Matcher: reloadMatcher, Hooks: []hookCommand{{
+		Type: "command", Command: lanes.ShellQuote(spec.Binary) + " hook " + lanes.EventConfigChange, Timeout: hookTimeoutSeconds,
+		OnFailure: "block",
+	}}}}
 	if spec.RunMode == ports.RunModeInteractive {
 		out.StatusLine = composedStatusLine(spec)
 	}

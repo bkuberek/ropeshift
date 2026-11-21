@@ -128,6 +128,15 @@ type laneRun struct {
 	// handle's lock guards both, and a generation's start clears them.
 	settingsFound *lanes.SettingsChange
 	settingsNote  string
+	// reloadSpec is the spec this generation's session started with, which a reload of its settings is checked with,
+	// and settingsRan the digest of the change it started with, which a member chose, or empty for the repository's
+	// (reloadAllowed). reloadKnown says this process started the session, so both are set. The handle's lock guards all
+	// three, and a generation's start clears them.
+	reloadSpec  ports.SessionSpec
+	settingsRan string
+	reloadKnown bool
+	// reloadHeld says a blocked reload already began this generation's hold, so another reload holds nothing more.
+	reloadHeld atomic.Bool
 	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
 	maxReviewRounds int64
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
@@ -882,6 +891,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if report, held := r.holdOnSettings(ctx, &spec, r.foundSettings()); held {
 		return report
 	}
+	r.startsWithSettings(spec)
 	spec.Brief = r.withSettingsNote(spec.Brief)
 	record := r.record()
 	record.TokenDigest, record.Worktree, record.Branch = lanes.TokenDigest(token), prepared.Worktree.Path, prepared.Worktree.Branch
@@ -1296,6 +1306,8 @@ func (r *laneRun) clearSetup() {
 	defer r.handleLock.Unlock()
 	r.loaded, r.leaks = nil, nil
 	r.settingsFound, r.settingsNote = nil, ""
+	r.reloadSpec, r.settingsRan, r.reloadKnown = ports.SessionSpec{}, "", false
+	r.reloadHeld.Store(false)
 }
 
 // uploadSetup records what this generation's session loaded, with the instruction files that leaked among the member's

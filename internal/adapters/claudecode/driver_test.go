@@ -951,7 +951,7 @@ func TestGeneratedSettings(t *testing.T) {
 			t.Errorf("%s: %+v", event, groups)
 		}
 		fails := groups[0].Hooks[0].OnFailure
-		if (event == "PreToolUse") != (fails == "block") {
+		if (event == "PreToolUse" || event == "ConfigChange") != (fails == "block") {
 			t.Errorf("%s fails with %q", event, fails)
 		}
 	}

@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -29,8 +31,8 @@ import (
 // the member's own, outside the worktree, which the lane never loads.
 //
 // The CLI also "watches your settings files and reloads them when they change", hooks and permissions included
-// ([settings]), so this check holds a generation before its session starts, and an edit within a session reaches the
-// running session until it ends.
+// ([settings]), so this check holds a generation before its session starts, and the session's `ConfigChange` hook asks
+// the worker for the same check before the CLI applies an edit within the session (reloadMatcher, Driver.SettingsChange).
 //
 // [settings]: https://code.claude.com/docs/en/settings#where-claude-code-keeps-the-local-file-in-a-git-repository
 const (
@@ -98,24 +100,103 @@ func atSettingsBase(spec ports.SessionSpec) ports.SessionSpec {
 // [settings]: https://code.claude.com/docs/en/settings#fix-a-broken-settings-file
 func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
 	spec = atSettingsBase(spec)
-	if spec.Repository == "" || spec.Base == "" || spec.Dir == "" {
+	if !comparable(spec) {
 		return nil
 	}
+	base, _ := readBaseSide(spec)
+	return compareSettings(spec, base)
+}
+
+// comparable says a spec names a worktree and the clone and commit its repository's side is read at.
+func comparable(spec ports.SessionSpec) bool {
+	return spec.Repository != "" && spec.Base != "" && spec.Dir != ""
+}
+
+// SettingsChange is what a lane's worktree changed now of the settings its session reads, as its preflight compares
+// them, which a running session's `ConfigChange` hook asks for before the CLI applies an edit (reloadMatcher). The hook
+// has a few milliseconds, so the repository's side, which is fixed by the commit it is read at, is read once per clone
+// and commit and kept, and each later check reads only the worktree.
+func (d *Driver) SettingsChange(_ context.Context, spec ports.SessionSpec) *lanes.SettingsChange {
+	spec = atSettingsBase(spec)
+	if !comparable(spec) {
+		return nil
+	}
+	return compareSettings(spec, d.bases.of(spec))
+}
+
+// baseSide is the repository's side of what a hold compares, at the commit a lane's work began from: each settings file
+// the session reads, as that commit holds it, and nil where it holds none.
+type baseSide struct {
+	files map[string][]byte
+}
+
+// readBaseSide reads the repository's side of a hold from git's objects, and says whether every read completed. A read
+// that failed reads as no file, as repositoryFile reads it, and leaves the side incomplete, so it is not kept.
+func readBaseSide(spec ports.SessionSpec) (baseSide, bool) {
+	side := baseSide{files: map[string][]byte{}}
+	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
+	defer cancel()
+	complete := true
+	for _, file := range settingsFiles(spec) {
+		raw, found, err := repositoryGit(spec).FileAt(ctx, spec.Base, file, maxRepositoryFile)
+		switch {
+		case err != nil:
+			complete = false
+		case found:
+			side.files[file] = raw
+		}
+	}
+	return side, complete
+}
+
+// maxBaseSides bounds the sides a driver keeps. Past it, the driver forgets them all and reads each again once.
+const maxBaseSides = 256
+
+// baseSides keeps the repository's side of each hold a driver has read completely, by the clone, the commit, and the
+// files compared. A commit's objects are fixed by its hash, which every read checks, so a kept side never goes stale.
+type baseSides struct {
+	mu   sync.Mutex
+	kept map[string]baseSide
+}
+
+// of is the repository's side of a spec's hold, read once and kept.
+func (b *baseSides) of(spec ports.SessionSpec) baseSide {
+	key := strings.Join(append([]string{spec.Repository, spec.Base}, settingsFiles(spec)...), "\x00")
+	b.mu.Lock()
+	side, found := b.kept[key]
+	b.mu.Unlock()
+	if found {
+		return side
+	}
+	side, complete := readBaseSide(spec)
+	if complete {
+		b.mu.Lock()
+		if b.kept == nil || len(b.kept) >= maxBaseSides {
+			b.kept = map[string]baseSide{}
+		}
+		b.kept[key] = side
+		b.mu.Unlock()
+	}
+	return side
+}
+
+// compareSettings names each widening key the worktree's settings files hold otherwise than the repository's side.
+func compareSettings(spec ports.SessionSpec, base baseSide) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
 	for _, file := range settingsFiles(spec) {
 		lane := settingsKeys(worktreeFile(spec, file))
-		base := settingsKeys(repositoryFile(spec, file))
+		at := settingsKeys(base.files[file])
 		changed := false
 		for _, key := range widening {
-			if canonical(lane[key]) == canonical(base[key]) {
+			if canonical(lane[key]) == canonical(at[key]) {
 				continue
 			}
 			changed = true
 			if !slices.Contains(change.Keys, key) {
 				change.Keys = append(change.Keys, key)
 			}
-			change.Summary = append(change.Summary, describeChange(file, key, base[key], lane[key])...)
+			change.Summary = append(change.Summary, describeChange(file, key, at[key], lane[key])...)
 		}
 		if changed {
 			change.Files = append(change.Files, file)

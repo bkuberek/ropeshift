@@ -450,6 +450,8 @@ const (
 	trackedSocketCall = "socket call"
 	trackedUpload     = "upload"
 	trackedConversion = "question conversion"
+	// trackedSettingsHold is the hold of a lane whose session's reload of its own settings was blocked.
+	trackedSettingsHold = "settings hold"
 )
 
 // goTracked runs work that outlasts the call that started it, and writes the journal or reaches the

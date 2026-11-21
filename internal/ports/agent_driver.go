@@ -501,6 +501,10 @@ type AgentDriver interface {
 	ReadUsage(ctx context.Context, spec SessionSpec) (string, error)
 	// Preflight checks a spec before start.
 	Preflight(ctx context.Context, spec SessionSpec) (PreflightReport, error)
+	// SettingsChange is what a running session's worktree changed now of the settings its session reads, as Preflight
+	// reports it, for the hook the agent CLI runs before it applies a settings file that changed during the session. It
+	// answers in a hook's time, and nil says nothing that runs code or widens access differs (ADR-0040).
+	SettingsChange(ctx context.Context, spec SessionSpec) *lanes.SettingsChange
 	// Start launches a session for a generation and returns its handle.
 	Start(ctx context.Context, spec SessionSpec) (SessionHandle, error)
 	// Resume continues an earlier session as a new generation.

@@ -60,6 +60,7 @@ const (
 	eventPermissionDenied   = lanes.EventToolDenied
 	eventPermissionRequest  = "PermissionRequest"
 	eventSessionStart       = "SessionStart"
+	eventConfigChange       = lanes.EventConfigChange
 )
 
 const (
@@ -143,6 +144,10 @@ func untilDecided(cfg config, event lanes.HookEvent, stdout io.Writer) {
 		if lanes.Regrounds(event.Detail) {
 			cfg.out.owe(stdout, grounding(cfg, event, lanes.Grounding{}, 0))
 		}
+	case eventConfigChange:
+		// A reload's hook owes a block and hands on no event: the worker's answer is the only thing it reads.
+		cfg.out.owe(stdout, reloadBlocked())
+		return
 	}
 	cfg.out.hold(&event)
 }
@@ -199,8 +204,42 @@ func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 	case eventPermissionRequest:
 		awaitDecision(cfg, event, input, stdout)
 		return
+	case eventConfigChange:
+		answerReload(cfg, stdout)
+		return
 	}
 	forward(cfg, event)
+}
+
+// reloadReason is what a blocked reload says. The agent CLI shows it to nobody, and writes it to its debug log.
+const reloadReason = "ropeshift keeps this session's settings: a change that runs code or widens access waits for a member's choice"
+
+// answerReload asks the worker whether the agent CLI may apply a settings file or a skill that changed during the
+// session, and blocks the change on every answer but the worker's allow, so a hook that cannot reach the worker, is
+// refused, or hears nothing in time keeps the session's settings as they are (ADR-0040). The line names nothing of the
+// change: the worker reads the worktree itself. A block is the top-level decision the CLI reads for this event, and the
+// session keeps its settings ([hooks]).
+//
+// [hooks]: https://code.claude.com/docs/en/hooks#configchange-decision-control
+func answerReload(cfg config, stdout io.Writer) {
+	if cfg.out == nil {
+		cfg.out = new(outbox)
+	}
+	if cfg.socket != "" && cfg.token != "" {
+		request := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Reload: true}
+		reply, err := api.CallLane(cfg.socket, request, cfg.within(dialDeadline), cfg.within(peekDeadline))
+		if err == nil && reply.OK && reply.Reload == lanes.ReloadAllow {
+			cfg.out.answer(stdout, nil)
+			return
+		}
+	}
+	cfg.out.answer(stdout, reloadBlocked())
+}
+
+// reloadBlocked is a `ConfigChange` answer that keeps the session's settings. It is never empty, because an empty answer
+// lets the change apply.
+func reloadBlocked() []byte {
+	return []byte(`{"decision":"block","reason":"` + reloadReason + `"}`)
 }
 
 // verdict is what a policy hook made of a call.

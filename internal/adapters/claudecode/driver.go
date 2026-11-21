@@ -119,6 +119,9 @@ type Driver struct {
 	// policies names the file each session's hooks read.
 	policies map[string]string
 	listed   map[string][]listedSession
+	// bases keeps the repository's side of each lane's settings hold, so a running session's reload is checked in a
+	// hook's time (SettingsChange).
+	bases baseSides
 }
 
 // liveSession is one session this process follows, in either run mode.
@@ -333,7 +336,7 @@ func (d *Driver) Doctor(ctx context.Context) (ports.DoctorReport, error) {
 }
 
 // Preflight checks a spec before anything starts.
-func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.PreflightReport, error) {
+func (d *Driver) Preflight(ctx context.Context, spec ports.SessionSpec) (ports.PreflightReport, error) {
 	var report ports.PreflightReport
 	problem := func(format string, args ...any) {
 		report.Problems = append(report.Problems, fmt.Sprintf(format, args...))
@@ -391,7 +394,7 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	for _, found := range agentProblems(spec) {
 		problem("%s", found)
 	}
-	report.Settings = settingsChange(spec)
+	report.Settings = d.SettingsChange(ctx, spec)
 	return report, nil
 }
 

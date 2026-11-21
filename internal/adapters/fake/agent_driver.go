@@ -523,6 +523,17 @@ func (d *AgentDriver) ChangeSettings(change *lanes.SettingsChange) {
 	d.settings = change
 }
 
+// SettingsChange says what the test set of the worktree's settings, as each preflight does.
+func (d *AgentDriver) SettingsChange(context.Context, ports.SessionSpec) *lanes.SettingsChange {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.settings == nil {
+		return nil
+	}
+	change := *d.settings
+	return &change
+}
+
 // Restored counts the starts that put the repository's settings back.
 func (d *AgentDriver) Restored() int {
 	d.mu.Lock()
