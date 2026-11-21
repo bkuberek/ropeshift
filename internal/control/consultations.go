@@ -95,7 +95,15 @@ func grantConsultation(tx ports.WriteTx, call ledger.OrchestratorCall, request l
 	if err != nil {
 		return ledger.ConsultGrant{}, err
 	}
+	now := tx.Now()
 	if started != nil {
+		// The call that began this consultation, sent again by the worker that sent it, is the same call: a transport that
+		// lost its answer asks again with the same target, and the answer is the grant the ledger recorded, while the
+		// question stays held for it. Once the consultation ended or its hold ran out, nothing starts a second session.
+		if replay := ended == nil && started.ID == call.Target && started.worker == actor.ID &&
+			question.ClaimedBy == ledger.ConsultationHolder(started.ID) && question.ClaimUntil > now; replay {
+			return started.ConsultGrant, nil
+		}
 		next := "decide it from what that consultation found, or escalate it"
 		if ended == nil {
 			next = "it holds the question until it ends"
@@ -103,7 +111,6 @@ func grantConsultation(tx ports.WriteTx, call ledger.OrchestratorCall, request l
 		return ledger.ConsultGrant{}, fmt.Errorf("%w: %s was consulted on as %s, so %s", questions.ErrTaken, question.ID,
 			ledger.ConsultationCitation(started.ID), next)
 	}
-	now := tx.Now()
 	if question.ClaimedBy != "" && question.ClaimedBy != actor.ID && question.ClaimUntil > now {
 		return ledger.ConsultGrant{}, fmt.Errorf("%w: %s holds %s", questions.ErrTaken, question.ClaimedBy, question.ID)
 	}
