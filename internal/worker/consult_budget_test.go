@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -100,6 +102,76 @@ func TestParallelConsultationsShareWhatTheProjectsLimitsLeave(t *testing.T) {
 		// What the day leaves is $1.50 now that the first consultation spent $1, and none of it is held for the first.
 		if second := r.consult(t, map[string]any{"question": "q2", "ask": consultAsk}); math.Abs(second.BudgetUSD-1.5) > 1e-9 {
 			t.Errorf("the second consultation's budget is %v", second.BudgetUSD)
+		}
+	})
+}
+
+// memberActs is what a member does to a question while its consultation may run: decide it now, or dismiss it.
+type memberActs func(t *testing.T, r *toolRig, question string)
+
+func decidesNow(t *testing.T, r *toolRig, question string) {
+	t.Helper()
+	if _, err := control.NewQuestions(r.store, questions.BatchPolicy{}).DecideNow(t.Context(), scope, question, member); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dismisses(t *testing.T, r *toolRig, question string) {
+	t.Helper()
+	if err := control.NewQuestions(r.store, questions.BatchPolicy{}).Dismiss(t.Context(), scope, question, member); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// FR-ORCH-9, FR-SPEND-6: a consultation holds its budget against the project's limits from its start until its end, or
+// until its hold runs out, whatever becomes of its question meanwhile. A member who decides or dismisses the question
+// while its session runs ends nothing the session spends, and a question that waits for a person is consulted on under
+// the same hold, so neither lets a second consultation spend what the first holds.
+func TestAConsultationHoldsItsBudgetWhateverBecomesOfItsQuestion(t *testing.T) {
+	t.Parallel()
+	for name, act := range map[string]memberActs{"decided now": decidesNow, "dismissed": dismisses} {
+		t.Run("a question "+name+" while its consultation runs, then a second consultation", func(t *testing.T) {
+			t.Parallel()
+			r := aToolRig(t)
+			r.asked(t, "q2", "Which log level?")
+			projectLimitOf(t, r.store, dailyLimit, 7.5)
+			r.grants(t, "q1", "c-first")
+			act(t, r, "q1")
+			if second := r.grants(t, "q2", "c-second"); math.Abs(second.BudgetUSD-0.5) > 1e-9 {
+				t.Errorf("the second consultation's budget is %v, and the day leaves $2.50 less the $2 the first still holds", second.BudgetUSD)
+			}
+		})
+		t.Run("a second consultation, then the first's question "+name, func(t *testing.T) {
+			t.Parallel()
+			r := aToolRig(t)
+			r.asked(t, "q2", "Which log level?")
+			r.asked(t, "q3", "Which key format?")
+			projectLimitOf(t, r.store, dailyLimit, 7.5)
+			r.grants(t, "q1", "c-first")
+			if second := r.grants(t, "q2", "c-second"); math.Abs(second.BudgetUSD-0.5) > 1e-9 {
+				t.Fatalf("the second consultation's budget is %v", second.BudgetUSD)
+			}
+			act(t, r, "q1")
+			_, err := r.plane.Orchestrate(t.Context(), ledger.VerbConsult, r.consultCall(t, "q3", "c-third"))
+			if !errors.Is(err, workorders.ErrIneligible) || !strings.Contains(err.Error(), "daily") {
+				t.Errorf("a third consultation of a day the two that run hold: %v", err)
+			}
+		})
+	}
+	t.Run("a question that waits for a person", func(t *testing.T) {
+		t.Parallel()
+		r := aToolRig(t)
+		r.asked(t, "q2", "Which log level?")
+		projectLimitOf(t, r.store, dailyLimit, 7.5)
+		decidesNow(t, r, "q1")
+		if row := r.question(t, "q1"); row.Status != questions.StatusNeedsHuman {
+			t.Fatalf("the question is %s", row.Status)
+		}
+		if first := r.grants(t, "q1", "c-first"); math.Abs(first.BudgetUSD-2) > 1e-9 {
+			t.Fatalf("the first consultation's budget is %v", first.BudgetUSD)
+		}
+		if second := r.grants(t, "q2", "c-second"); math.Abs(second.BudgetUSD-0.5) > 1e-9 {
+			t.Errorf("the second consultation's budget is %v, and the day leaves $2.50 less the $2 the first holds", second.BudgetUSD)
 		}
 	})
 }

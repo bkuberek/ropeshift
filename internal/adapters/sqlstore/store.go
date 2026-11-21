@@ -470,7 +470,15 @@ func (t *readTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
 }
 
 func eventsAbout(se *session, scope ledger.WorkspaceID, subject ledger.Subject) ([]ledger.Event, error) {
-	rows, err := se.rows(stmtEventsAbout, params{"workspace_id": string(scope), "subject_kind": subject.Kind, "subject_id": subject.ID})
+	return readEvents(se.rows(stmtEventsAbout, params{"workspace_id": string(scope), "subject_kind": subject.Kind, "subject_id": subject.ID}))
+}
+
+func eventsOfKind(se *session, scope ledger.WorkspaceID, kind string, since int64) ([]ledger.Event, error) {
+	return readEvents(se.rows(stmtEventsOfKind, params{"workspace_id": string(scope), "subject_kind": kind, "since": since}))
+}
+
+// readEvents reads the events a query returned, in its order.
+func readEvents(rows *sql.Rows, err error) ([]ledger.Event, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -584,6 +592,10 @@ func (t *writeTx) Events(after int64, limit int) ([]ledger.Event, error) {
 
 func (t *writeTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
 	return eventsAbout(t.session, t.scope, subject)
+}
+
+func (t *writeTx) EventsOfKind(kind string, since int64) ([]ledger.Event, error) {
+	return eventsOfKind(t.session, t.scope, kind, since)
 }
 
 func (t *writeTx) Event(id string) (ledger.Event, error) {

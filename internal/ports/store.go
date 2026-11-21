@@ -264,6 +264,9 @@ type WriteTx interface {
 	Event(id string) (ledger.Event, error)
 	// EventsAbout returns every event about one subject, in order.
 	EventsAbout(subject ledger.Subject) ([]ledger.Event, error)
+	// EventsOfKind returns every event about a subject of one kind recorded at or after since, by database time, in
+	// order. It finds what a rare kind of event says without a read of each record it may be about.
+	EventsOfKind(kind string, since int64) ([]ledger.Event, error)
 	// Append adds one event, which takes its own revision.
 	Append(ledger.EventDraft) (ledger.Event, error)
 	// SaveFleet replaces a workspace's fleet mode and caps.

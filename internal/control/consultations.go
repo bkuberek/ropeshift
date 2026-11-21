@@ -176,36 +176,38 @@ type consultationsRunning struct {
 	budget float64
 }
 
-// runningConsultations reads the consultations that hold a question now. A consultation holds its question from its
-// start until its end, so a question held under a consultation's name with time left stands for one that runs. A
-// question a member decided, dismissed, or escalated while its consultation ran let go of that hold, and a hold that ran
-// out is over, so neither counts.
+// runningConsultations reads the consultations that run now: each that has a start, no end, and a hold with time left.
+// What becomes of its question does not end one: a member who decides or dismisses the question, or escalates it, while
+// the session runs takes the question from the consultation, and the session still spends until it ends or its hold
+// runs out. A consultation starts inside its hold, so only the starts of the last hold's length are read.
 func runningConsultations(tx ports.WriteTx, now int64) (consultationsRunning, error) {
-	var running consultationsRunning
-	prefix := ledger.ConsultationHolder("")
-	for _, status := range []questions.Status{questions.StatusOpen, questions.StatusTriage} {
-		for after := ""; ; {
-			rows, err := tx.Questions().Questions(ports.RecordFilter{Status: string(status), After: after, Limit: questionPage})
-			if err != nil {
+	events, err := tx.EventsOfKind(ledger.SubjectConsultation, now-consultHoldMs)
+	if err != nil {
+		return consultationsRunning{}, err
+	}
+	var started []ledger.ConsultGrant
+	ended := map[string]bool{}
+	for _, event := range events {
+		switch event.Type {
+		case ledger.EventConsultationStarted:
+			var grant ledger.ConsultGrant
+			if err := json.Unmarshal(event.Data, &grant); err != nil {
 				return consultationsRunning{}, err
 			}
-			for _, row := range rows {
-				after = row.ID
-				if !strings.HasPrefix(row.ClaimedBy, prefix) || row.ClaimUntil <= now {
-					continue
-				}
-				started, ended, err := consultationOf(tx.EventsAbout, row.ID)
-				if err != nil {
-					return consultationsRunning{}, err
-				}
-				if started != nil && ended == nil && ledger.ConsultationHolder(started.ID) == row.ClaimedBy {
-					running.count++
-					running.budget += started.BudgetUSD
-				}
+			started = append(started, grant)
+		case ledger.EventConsulted:
+			var end ledger.ConsultationEnd
+			if err := json.Unmarshal(event.Data, &end); err != nil {
+				return consultationsRunning{}, err
 			}
-			if len(rows) < questionPage {
-				break
-			}
+			ended[end.ID] = true
+		}
+	}
+	var running consultationsRunning
+	for _, grant := range started {
+		if !ended[grant.ID] && grant.HoldUntil > now {
+			running.count++
+			running.budget += grant.BudgetUSD
 		}
 	}
 	return running, nil
