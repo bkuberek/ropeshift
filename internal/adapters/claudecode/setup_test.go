@@ -27,6 +27,7 @@ func TestTheInitNamesWhatTheSessionLoadedAndWhatOfItIsTheMembers(t *testing.T) {
 	writeFile(t, filepath.Join(config, "settings.json"), `{"enabledPlugins":{"formatter@market":true,"team-tools@market":true}}`)
 	writeFile(t, filepath.Join(spec.Dir, ".claude", "agents", "shared.md"), "---\nname: shared\n---\nThe repository's.\n")
 	writeFile(t, filepath.Join(spec.Dir, ".claude", "settings.json"), `{"enabledPlugins":{"team-tools@market":true}}`)
+	spec.Repository = spec.Dir
 	spec.Base = committed(t, spec.Dir, map[string]string{".mcp.json": `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}`})
 	s := &session{events: make(chan ports.DriverEvent, 4), setup: setupContextOf(spec)}
 	s.take([]byte(`{"type":"system","subtype":"init","session_id":"s-1","model":"claude-opus-5-5","claude_code_version":"2.1.330",

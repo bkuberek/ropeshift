@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -130,45 +129,26 @@ func repositoryServers(spec ports.SessionSpec) map[string]json.RawMessage {
 const (
 	repositoryReadWait = 10 * time.Second
 	maxRepositoryFile  = 1 << 20
-	symlinkMode        = "120000"
 )
 
 // repositoryFile is a file the repository holds at the commit the lane's worktree began from, read from git's objects
-// and never from the worktree, which the lane can edit (FR-PROF-5). A base that is no full commit hash, a file absent
-// at it, a path that is no regular file there, and a file over the limit read as none.
+// and never from the worktree, which the lane can edit (FR-PROF-5). Git runs in the clone the worktree came from and
+// not in the worktree, whose `.git` file the lane can point at a git directory of its own, and every object it reads
+// must hash to its name, because the lane can write to the git directory it shares with the clone (gitcli.FileAt).
+// It fetches no missing object of a partial clone. A base that is no full commit hash, a file absent at it, a path
+// that is no regular file there, a file over the limit, and an object that does not hash to its name read as none.
 func repositoryFile(spec ports.SessionSpec, name string) []byte {
-	if spec.Dir == "" || !fullHash(spec.Base) {
+	if spec.Repository == "" || spec.Base == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
-	git := gitcli.Git{Dir: spec.Dir, Env: spec.Env}
-	listing, err := git.Text(ctx, "ls-tree", "--long", spec.Base, "--", name)
-	if err != nil || listing == "" {
-		return nil
-	}
-	entry, _, _ := strings.Cut(listing, "\t")
-	fields := strings.Fields(entry)
-	if len(fields) != 4 || fields[1] != "blob" || fields[0] == symlinkMode {
-		return nil
-	}
-	if size, err := strconv.ParseInt(fields[3], 10, 64); err != nil || size > maxRepositoryFile {
-		return nil
-	}
-	raw, err := git.Output(ctx, "cat-file", "blob", fields[2])
-	if err != nil {
+	git := gitcli.Git{Dir: spec.Repository, Env: spec.Env, Extra: []string{gitcli.NoLazyFetch}}
+	raw, found, err := git.FileAt(ctx, spec.Base, name, maxRepositoryFile)
+	if err != nil || !found {
 		return nil
 	}
 	return raw
-}
-
-// fullHash says text is the lowercase hexadecimal hash git gives a commit, of SHA-1 or SHA-256 length, so no base
-// reads as an option or a name.
-func fullHash(text string) bool {
-	if len(text) != 40 && len(text) != 64 {
-		return false
-	}
-	return strings.Trim(text, "0123456789abcdef") == ""
 }
 
 // laneMCP is a generation's `--mcp-config`: ropeshift's own server, and the servers of the repository's `.mcp.json`
