@@ -220,15 +220,16 @@ func sendBackBehindMain(tx ports.WriteTx, version planning.PlanVersion, title st
 	return nil
 }
 
-// reworkBehindMain sends one waiting planning branch back for rework against the plan main holds now.
+// reworkBehindMain sends one waiting planning branch back for rework against the plan main holds now. The branch waits in
+// integrating for its approval, or in acceptance when it holds another plan whose request would otherwise accept it.
 func reworkBehindMain(tx ports.WriteTx, f integrationFacts, version planning.PlanVersion, title string) error {
 	if err := keepBranch(tx, ledger.ForgeRequest{WorkOrder: f.order.ID, Branch: f.branch.URI, Commit: f.commit()}, intakeActor); err != nil {
 		return err
 	}
-	reason := fmt.Sprintf("the plan %q changed on %s while this branch waited in integrating for its approval: %s holds version %d of it now, "+
+	reason := fmt.Sprintf("the plan %q changed on %s while this branch waited in %s for its approval: %s holds version %d of it now, "+
 		"and the plan on %s at %s is behind it, so approving it could no longer approve this branch's merge. "+
 		"Merge the current %s into this branch, bring the plan up to date with %s's, and commit the merge on this branch.",
-		title, f.base, f.base, version.Version, f.branch.URI, short(f.commit()), f.base, f.base)
+		title, f.base, f.order.State, f.base, version.Version, f.branch.URI, short(f.commit()), f.base, f.base)
 	_, err := reworkFor(tx, f.order.ID, workorders.ReworkNote{Reason: reason}, nil, intakeActor, func() {})
 	return err
 }

@@ -200,7 +200,7 @@ func planFileDigest(planned ports.PlanningReader, plan string, files map[string]
 // recordPlanVersion makes the next version of a plan when its digest moved, and raises its approval in
 // the same transaction. The older version's open approval is superseded in that transaction too, so
 // a member never sees two requests for one plan, and so is a planning branch's open request for this version that was
-// bound to other files.
+// bound to other files, with the branch going back for rework when it holds another plan.
 func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileRead, origin planOrigin) (bool, error) {
 	native, err := readNativeIDs(tx.Planning())
 	if err != nil {
@@ -246,7 +246,7 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 			return false, err
 		}
 	}
-	if err := closeBranchRequestsOfOtherFiles(tx, next); err != nil {
+	if err := closeBranchRequestsOfOtherFiles(tx, next, record.Title); err != nil {
 		return false, err
 	}
 	ref := planFileRef(entries)
@@ -290,8 +290,11 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 // holds now when it is bound to another digest than the version's. A branch that waits for acceptance, which intake has
 // not read, keeps a request for the version number it proposed, and when another source records that number with other
 // files, approving the request could only be refused as stale. A request for the same files stays, because approving it
-// approves its own branch's merge, which the request for the version cannot.
-func closeBranchRequestsOfOtherFiles(tx ports.WriteTx, version planning.PlanVersion) error {
+// approves its own branch's merge, which the request for the version cannot. A branch that holds another plan goes back
+// for rework instead, because the merge of a planning branch waits only for the requests that name it and are open:
+// with this one closed, approving the request of the other plan would accept the work and merge it with this plan in
+// it, which nobody approved.
+func closeBranchRequestsOfOtherFiles(tx ports.WriteTx, version planning.PlanVersion, title string) error {
 	rows, err := tx.Approvals().All()
 	if err != nil {
 		return err
@@ -304,8 +307,45 @@ func closeBranchRequestsOfOtherFiles(tx ports.WriteTx, version planning.PlanVers
 		if err := supersedeRequest(tx, row); err != nil {
 			return err
 		}
+		if err := sendBackWithAnotherPlan(tx, row, version, title); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// sendBackWithAnotherPlan sends the planning branch a closed request named back for rework against the plan main holds
+// now, when another request that is open or approved names the branch at the same commit, which is a request about
+// another plan the branch holds. A branch that holds no other plan, or that no longer waits at that commit, has nothing
+// the closed request was holding back, and goes on as it was.
+func sendBackWithAnotherPlan(tx ports.WriteTx, closed authority.Approval, version planning.PlanVersion, title string) error {
+	rows, err := tx.Approvals().OfWorkOrder(closed.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(rows, func(row authority.Approval) bool {
+		return row.ID != closed.ID && row.Kind == authority.KindPlan && row.Live() && requestCommit(row) == requestCommit(closed)
+	}) {
+		return nil
+	}
+	order, err := tx.WorkOrders().Get(closed.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if order.Kind != workorders.KindPlan || (order.State != workorders.Acceptance && order.State != workorders.Integrating) {
+		return nil
+	}
+	f, err := readIntegration(readersOf(tx), order)
+	if err != nil {
+		return err
+	}
+	if f.commit() == "" || f.commit() != requestCommit(closed) {
+		return nil
+	}
+	return reworkBehindMain(tx, f, version, title)
 }
 
 // supersedeRequest closes an open plan request because another request replaced it.

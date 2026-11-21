@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -21,7 +22,8 @@ import (
 // newest, which is the one a member approves. A request approved with no merge approval on record approved nothing, and
 // leaves the branch with no item in Needs you. A commit intake has not taken in yet is read on the next tick, so it is
 // held to this from then on. The first write after which it fails fails the check, naming the transaction, whatever the
-// check itself went on to say. It reads too that no open plan request for a version the ledger holds carries a digest
+// check itself went on to say. It reads too that the worker is asked to merge no planning commit while a plan its requests
+// name has neither an open request nor an approved one, because the merge waits only for the requests that are open. It reads too that no open plan request for a version the ledger holds carries a digest
 // other than the version's: such a request can only be refused as stale, so a member would be offered an approval that
 // cannot be given.
 func holdingPlanRequests(checks []Check) []Check {
@@ -81,6 +83,9 @@ func (s planRequestStore) Write(ctx context.Context, scope ledger.WorkspaceID, o
 			s.watch.note(Violatedf("after the transaction %q: %v", op, broken))
 		}
 		if broken := staleOpenPlanRequests(ctx, s.Store, scope); broken != nil {
+			s.watch.note(Violatedf("after the transaction %q: %v", op, broken))
+		}
+		if broken := unapprovedPlansMerging(ctx, s.Store, scope); broken != nil {
 			s.watch.note(Violatedf("after the transaction %q: %v", op, broken))
 		}
 	}
@@ -182,6 +187,63 @@ func staleOpenPlanRequests(ctx context.Context, store ports.Store, scope ledger.
 	}
 	if len(stale) != 0 {
 		return errors.New(strings.Join(stale, "\n"))
+	}
+	return nil
+}
+
+// unapprovedPlansMerging names each planning work order whose merge the worker is asked to run at a commit while one of
+// the plans the requests that name the work order and that commit are about has none of them open or approved: the merge
+// would take in a plan nobody approved, because it waits only for the requests that are open.
+func unapprovedPlansMerging(ctx context.Context, store ports.Store, scope ledger.WorkspaceID) error {
+	var unapproved []string
+	err := store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		orders, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		requests, err := tx.Approvals().All()
+		if err != nil {
+			return err
+		}
+		for _, order := range orders {
+			if order.Kind != workorders.KindPlan || order.State != workorders.Integrating {
+				continue
+			}
+			artifacts, err := tx.Evidence().Artifacts(order.ID)
+			if err != nil {
+				return err
+			}
+			commit := branchCommitAt(artifacts, order.Fence)
+			asked, err := tx.Forge().RequestsOf(order.ID)
+			if err != nil {
+				return err
+			}
+			if commit == "" || !slices.ContainsFunc(asked, func(f ledger.ForgeRequest) bool {
+				return f.Kind == ledger.ForgeMerge && f.State == ledger.ForgeRequested && f.Commit == commit
+			}) {
+				continue
+			}
+			held := map[string]bool{}
+			for _, request := range requests {
+				if request.Kind == authority.KindPlan && request.WorkOrder == order.ID && requestedAt(request) == commit {
+					ref := planDetailOf(request).Ref
+					held[ref] = held[ref] || request.Live()
+				}
+			}
+			for ref, live := range held {
+				if !live {
+					unapproved = append(unapproved, fmt.Sprintf("the worker is asked to merge work order %s at %s while its plan %q has no request that is open or approved", order.ID, commit, ref))
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(unapproved) != 0 {
+		slices.Sort(unapproved)
+		return errors.New(strings.Join(unapproved, "\n"))
 	}
 	return nil
 }
