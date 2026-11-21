@@ -62,7 +62,11 @@ func roleCommitParked(c *child) error {
 }
 
 func roleWakeTick(c *child) error {
+	c.traceDue("tick")
 	fired, err := c.ops.WakeTick(c.ctx, c.scope, c.member())
+	if len(fired) != 0 {
+		c.trace("tick fired %v", fired)
+	}
 	for _, id := range fired {
 		if err := c.completed("wake", "", id, 0, 0); err != nil {
 			return err
@@ -657,13 +661,56 @@ func (c *child) roundExpr(row workorders.WorkOrder) (string, error) {
 	return fmt.Sprintf(`{"all_of":[%s,%s]}`, timer, askedExpr(question)), nil
 }
 
-// roleWakeTicker ticks until the work is over. On the test clock it reads time ahead of the
-// database, through the seam that evaluates a wake early, which only a ticker process sets, so a
-// park commit in a lane's process still reads the database's time.
-func roleWakeTicker(c *child) error {
+// readsAhead puts a process on the test clock: it evaluates wakes at the database's time plus the
+// lead, through the seam that evaluates a wake early. Every process that decides a wake but a
+// lane's own park commit takes it, because an answer decides a wake too, and an answerer on the
+// database's time reads a timer an hour ahead as not yet due, so no event would ever finish an
+// `all_of` that a tick found half true.
+func (c *child) readsAhead() {
 	if c.spec.TimerLeadMs != 0 {
 		control.Sabotaged(control.Sabotage{EarlyMs: c.spec.TimerLeadMs})
 	}
+}
+
+// traceFile is where the processes of a run on the test clock write what they read and decided.
+func traceFile(dir string) string { return filepath.Join(dir, "lifecycle-trace.log") }
+
+// trace appends one line to the run's trace, which a failing run prints. Each line is one write in
+// append mode, so processes do not tear each other's lines. A run off the test clock traces nothing.
+func (c *child) trace(format string, args ...any) {
+	if c.spec.TimerLeadMs == 0 {
+		return
+	}
+	f, err := os.OpenFile(traceFile(filepath.Dir(c.spec.LogPath)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	line := fmt.Sprintf("%s %s/%d.%d ", time.Now().Format("15:04:05.000"), c.spec.Role, c.spec.Slot, c.spec.Spawn)
+	_, _ = fmt.Fprintf(f, line+format+"\n", args...)
+}
+
+// traceDue records the database's time, the time this process evaluates at, and the wakes due then.
+func (c *child) traceDue(what string) {
+	if c.spec.TimerLeadMs == 0 {
+		return
+	}
+	var now int64
+	var due []string
+	err := c.store.Read(c.ctx, c.scope, func(tx ports.ReadTx) error {
+		var err error
+		if now, err = tx.Now(); err != nil {
+			return err
+		}
+		due, err = tx.Wakes().Due(now + c.spec.TimerLeadMs)
+		return err
+	})
+	c.trace("%s db=%d evaluatedAt=%d lead=%d due=%v err=%v", what, now, now+c.spec.TimerLeadMs, c.spec.TimerLeadMs, due, err)
+}
+
+// roleWakeTicker ticks until the work is over.
+func roleWakeTicker(c *child) error {
+	c.readsAhead()
 	for !c.overNow() {
 		if err := roleWakeTick(c); err != nil {
 			return err
@@ -676,6 +723,7 @@ func roleWakeTicker(c *child) error {
 // roleWakeAnswerer answers what is open until the work is over. A client's ID makes a repeat
 // the same answer.
 func roleWakeAnswerer(c *child) error {
+	c.readsAhead()
 	for !c.overNow() {
 		var open []questions.Question
 		err := c.store.Read(c.ctx, c.scope, func(tx ports.ReadTx) error {
@@ -691,6 +739,7 @@ func roleWakeAnswerer(c *child) error {
 			if _, err := c.ops.Answer(c.ctx, c.scope, question.ID, answer, c.member()); err != nil {
 				return err
 			}
+			c.trace("answered %s", question.ID)
 		}
 		time.Sleep(6 * time.Millisecond)
 	}
@@ -939,6 +988,34 @@ func checkLostWake(w *world) error {
 	return err
 }
 
+// dumpTrace logs what a run on the test clock read and decided, and the wakes still open with the
+// time the tick next reads each, which is zero for one only an event can change.
+func (r *lifecycleRun) dumpTrace(t *testing.T) {
+	t.Helper()
+	if data, err := os.ReadFile(traceFile(r.world.target.Dir)); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		t.Logf("%d trace lines, the last %d:\n%s", len(lines), min(len(lines), 400), strings.Join(lines[max(0, len(lines)-400):], "\n"))
+	}
+	err := r.world.store.Read(r.world.rig.Ctx, r.world.rig.Scope, func(tx ports.ReadTx) error {
+		open, err := tx.Wakes().Open()
+		if err != nil {
+			return err
+		}
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		t.Logf("database time %d, test clock reads %d", now, now+testClockLeadMs)
+		for _, wake := range open {
+			t.Logf("open wake %s on %s: next_eval_at=%d expr=%s", wake.ID, wake.Lane, wake.NextEvalAt, wake.Expr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Logf("open wakes: %v", err)
+	}
+}
+
 // TestLostWakeRunDrainsOnAHealthyTick is the other half of the lost-wake variant: the same run on
 // the same test clock with no sabotage wakes every lane, so the variant is caught for the tick it
 // breaks and not for the clock.
@@ -949,6 +1026,7 @@ func TestLostWakeRunDrainsOnAHealthyTick(t *testing.T) {
 	}
 	parks, err := run.execute()
 	if err != nil {
+		run.dumpTrace(t)
 		t.Fatalf("a healthy tick on the test clock lost a wake: %v", err)
 	}
 	if parks == 0 {
