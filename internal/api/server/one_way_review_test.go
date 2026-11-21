@@ -23,6 +23,55 @@ func reviews(t *testing.T, d *apitest.Daemon) map[string]api.NeedItem {
 	return out
 }
 
+// TestAMemberWithdrawsTheOneWayAcknowledgementOverTheAPI holds the withdrawal route: once a member withdraws the
+// acknowledgement, the unattended worker's orchestrator records no one-way decision, and the worker reads as waiting for
+// a member until a member accepts it again.
+func TestAMemberWithdrawsTheOneWayAcknowledgementOverTheAPI(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	d, w, _ := aWorld(t)
+	if err := d.Client.AcknowledgeRisk(ctx, apitest.WorldWorker, api.AcknowledgeRisk{Digest: authority.RiskDigest()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Client.SetAutonomy(ctx, apitest.WorldWorker, api.SetAutonomy{Level: authority.LevelUnattended}); err != nil {
+		t.Fatal(err)
+	}
+	accept := func() {
+		t.Helper()
+		if err := d.Client.AcknowledgeOneWay(ctx, apitest.WorldWorker, api.AcknowledgeOneWay{Digest: authority.OneWayDigest()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	accepted := func() bool {
+		t.Helper()
+		view, err := d.Client.Autonomy(ctx, apitest.WorldWorker)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view.OneWay.Accepted != nil
+	}
+	accept()
+	if err := d.Client.WithdrawOneWay(ctx, apitest.WorldWorker); err != nil {
+		t.Fatal(err)
+	}
+	if accepted() {
+		t.Error("after a withdrawal the worker reads as accepted")
+	}
+	w.Running("wo-withdrawn", "Bill by the seat.")
+	decision := questions.Decision{
+		ID: "after-withdrawal", Status: questions.DecisionDecided, Statement: "Bill by the seat.", Rationale: "The plan fixes it.", Citations: []string{"PAY-12"},
+		Scope: "wo:wo-withdrawn", Reversibility: questions.OneWay, Categories: []string{questions.CategoryArchitecture},
+	}
+	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: apitest.WorldWorker}
+	if _, err := w.Questions.RecordDecision(ctx, apitest.Scope, decision, orchestrator); !errors.Is(err, questions.ErrOneWay) {
+		t.Errorf("an orchestrator's one-way decision after a withdrawal: %v, want %v", err, questions.ErrOneWay)
+	}
+	accept()
+	if !accepted() {
+		t.Error("a member's acceptance after a withdrawal does not stand")
+	}
+}
+
 // TestNeedsYouShowsAnOrchestratorsOneWayDecisionForReview holds the review a one-way decision of an unattended
 // orchestrator waits for (FR-QD-8): once a member set the worker to unattended and accepted its one-way acknowledgement,
 // the orchestrator records a one-way decision, and Needs you shows it with Keep and Overturn, and neither a member's

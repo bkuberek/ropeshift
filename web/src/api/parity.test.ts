@@ -63,6 +63,7 @@ import {
   setFleetMode,
   setLevel,
   startContractReview,
+  withdrawOneWay,
   writeTemplates,
 } from "./admin";
 import {
@@ -173,6 +174,7 @@ const callers: Record<string, Caller> = {
   "PUT /v1/workers/{id}/autonomy": step("setLevel", () => setLevel("worker-1", "attended")),
   "POST /v1/workers/{id}/autonomy/acknowledgement": step("acknowledgeRisk", () => acknowledgeRisk("worker-1", "digest")),
   "POST /v1/workers/{id}/autonomy/one-way-acknowledgement": step("acknowledgeOneWay", () => acknowledgeOneWay("worker-1", "digest")),
+  "DELETE /v1/workers/{id}/autonomy/one-way-acknowledgement": step("withdrawOneWay", () => withdrawOneWay("worker-1")),
   "POST /v1/workers/{id}/windows": step("openWindow", () => openWindow("worker-1", "window-1", 3_600_000)),
   "DELETE /v1/workers/{id}/windows": step("closeWindow", () => closeWindow("worker-1")),
   "GET /v1/workers/{id}/caps": step("readCaps", () => readCaps("worker-1")),

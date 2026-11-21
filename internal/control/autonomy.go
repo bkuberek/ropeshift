@@ -128,20 +128,58 @@ func readParty(ctx context.Context, store ports.Store, scope ledger.WorkspaceID,
 	return by, err
 }
 
-// oneWayAcceptance reads a worker's acceptance of its one-way acknowledgement from the installation's log, which holds
-// it as an event and nowhere else, or nil.
+// oneWayAcceptance reads the acceptance of a worker's one-way acknowledgement that stands, or nil, from the
+// installation's log, which holds its acceptances and withdrawals as events and nowhere else.
 func oneWayAcceptance(tx ports.SharedReadTx, worker string) (*authority.OneWayAcknowledgement, error) {
+	var history authority.OneWayHistory
 	for after := int64(0); ; {
 		page, err := tx.Events(after, eventPage)
 		if err != nil {
 			return nil, err
 		}
-		accepted, err := authority.OneWayAccepted(page, worker)
-		if err != nil || accepted != nil || len(page) < eventPage {
-			return accepted, err
+		for _, event := range page {
+			if _, err := history.Take(event, worker); err != nil {
+				return nil, err
+			}
+		}
+		if len(page) < eventPage {
+			return history.Accepted, nil
 		}
 		after = page[len(page)-1].Rev
 	}
+}
+
+// oneWayWritten reads a worker's one-way history in a write, by the ID of each position in turn, so an act that
+// follows appends at the next position.
+func oneWayWritten(tx ports.SharedTx, worker string) (authority.OneWayHistory, error) {
+	var history authority.OneWayHistory
+	for {
+		event, err := tx.Event(authority.OneWayEventID(worker, history.Next))
+		if errors.Is(err, ports.ErrNotFound) {
+			return history, nil
+		}
+		if err != nil {
+			return history, err
+		}
+		took, err := history.Take(event, worker)
+		if err != nil {
+			return history, err
+		}
+		if !took {
+			return history, fmt.Errorf("the one-way history of worker %s holds an event %s no member recorded", worker, event.ID)
+		}
+	}
+}
+
+// appendOneWay records a member's act at the next position of a worker's one-way history.
+func appendOneWay(tx ports.SharedTx, kind, worker string, history authority.OneWayHistory, record any, actor ledger.Actor) error {
+	event, err := authority.AutonomyEvent(kind, worker, record, actor)
+	if err != nil {
+		return err
+	}
+	event.ID = authority.OneWayEventID(worker, history.Next)
+	_, err = tx.Append(event)
+	return err
 }
 
 // runsUnattended says an actor is the orchestrator of a worker that stands at unattended, which a member set so that it
@@ -312,7 +350,7 @@ func (a *Autonomy) AcknowledgeRisk(ctx context.Context, scope ledger.WorkspaceID
 // AcknowledgeOneWay records that a member accepted a worker's one-way acknowledgement, the statement its digest names,
 // which lets the worker's orchestrator at unattended decide a one-way question the decision policy leaves it (FR-QD-8).
 // Every worker needs it, one on an API key too, and it stands apart from the stated risk. The event is its only record,
-// and its ID names the worker and the statement, so a second acceptance of the same statement records nothing.
+// at the next position of the worker's one-way history, so an acceptance that stands is not recorded again.
 func (a *Autonomy) AcknowledgeOneWay(ctx context.Context, scope ledger.WorkspaceID, worker, digest string, actor ledger.Actor) error {
 	if !authority.Allowed(actor, authority.ActionAcknowledgeRisk) {
 		return workorders.ErrForbidden
@@ -324,22 +362,34 @@ func (a *Autonomy) AcknowledgeOneWay(ctx context.Context, scope ledger.Workspace
 		if _, err := tx.Workers().Find(worker); err != nil {
 			return err
 		}
-		id := authority.OneWayEventID(worker, digest)
-		switch _, err := tx.Event(id); {
-		case err == nil:
-			return nil
-		case !errors.Is(err, ports.ErrNotFound):
+		history, err := oneWayWritten(tx, worker)
+		if err != nil || history.Accepted != nil {
 			return err
 		}
-		event, err := authority.AutonomyEvent(authority.EventOneWayAcknowledged, worker, authority.OneWayAcknowledgement{
+		return appendOneWay(tx, authority.EventOneWayAcknowledged, worker, history, authority.OneWayAcknowledgement{
 			WorkerID: worker, By: actor.ID, Digest: digest, At: tx.Now(),
 		}, actor)
-		if err != nil {
+	})
+}
+
+// WithdrawOneWay records that a member withdrew a worker's one-way acknowledgement, so every one-way question on it
+// reaches a member again, at unattended too, until a member accepts it again. Only a member can. A withdrawal of an
+// acknowledgement no acceptance stands for records nothing.
+func (a *Autonomy) WithdrawOneWay(ctx context.Context, scope ledger.WorkspaceID, worker string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionAcknowledgeRisk) {
+		return workorders.ErrForbidden
+	}
+	return a.store.Installation(scope).Write(ctx, "autonomy.withdraw_one_way", func(tx ports.SharedTx) error {
+		if _, err := tx.Workers().Find(worker); err != nil {
 			return err
 		}
-		event.ID = id
-		_, err = tx.Append(event)
-		return err
+		history, err := oneWayWritten(tx, worker)
+		if err != nil || history.Accepted == nil {
+			return err
+		}
+		return appendOneWay(tx, authority.EventOneWayWithdrawn, worker, history, authority.OneWayWithdrawal{
+			WorkerID: worker, By: actor.ID, At: tx.Now(),
+		}, actor)
 	})
 }
 

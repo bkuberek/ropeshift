@@ -407,7 +407,7 @@ A member edits an agent's fields and confirms the change with Review change, dis
 Settings gathers every setting a member changes in the web UI, in four groups:
 
 - **Installation**: the admission and lane caps of each machine, which the worker's recommendation sits beside, the autonomy defaults, when an idle assistant stops, the orchestrator's spend, a backup of the installation as a download, and About, which gives the daemon's [version](#version).
-- **Workers**: each worker's autonomy level and its run windows, acknowledging the stated risk of a subscription worker, and accepting the one-way acknowledgement every worker needs before its orchestrator at `unattended` decides a one-way question, with its statement and who accepted it.
+- **Workers**: each worker's autonomy level and its run windows, acknowledging the stated risk of a subscription worker, and accepting the one-way acknowledgement every worker needs before its orchestrator at `unattended` decides a one-way question, with its statement and who accepted it, and withdrawing it, which takes every one-way question on that worker back to a member.
 - **Project**: the fleet mode, Running, Paused, or Draining, with the project's caps, then the review, integration, decision, lane, recovery, delegation, and delegate policies, notifications, the estimate policy, and Spend. These live at the project's address, so Settings opened from a project lists them under the project's name, and Settings at the installation's address leaves the group out.
 - **You**: this browser's theme and whether single-key shortcuts are on, and changing your passphrase.
 

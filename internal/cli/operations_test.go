@@ -199,7 +199,8 @@ var operations = map[string]string{
 	"GET /v1/lanes/{id}/stream":                          "lane attach",
 	"GET /v1/orchestrators/{worker}/stream":              "orchestrator attach",
 
-	"POST /v1/workers/{id}/autonomy/one-way-acknowledgement": "worker acknowledge-one-way",
+	"POST /v1/workers/{id}/autonomy/one-way-acknowledgement":   "worker acknowledge-one-way",
+	"DELETE /v1/workers/{id}/autonomy/one-way-acknowledgement": "worker withdraw-one-way",
 }
 
 // namedRoutes are the routes the source spells through a constant.

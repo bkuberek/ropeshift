@@ -218,6 +218,7 @@ func registry() []section {
 			command("worker risk", "", "print the stated risk and its digest", (*invocation).workerRisk),
 			command("worker acknowledge-risk", "<id> --digest D", "stand behind the stated risk, for one worker", (*invocation).workerAcknowledge),
 			command("worker acknowledge-one-way", "<id> --digest D", "let one worker's unattended orchestrator decide one-way questions", (*invocation).workerAcknowledgeOneWay),
+			command("worker withdraw-one-way", "<id>", "take one worker's one-way questions back to a member", (*invocation).workerWithdrawOneWay),
 			command("worker window-open", "<id> [--for D] [--id I]", "let an attended worker claim for a while", (*invocation).workerWindowOpen),
 			command("worker window-close", "<id>", "end a worker's run window, which stops no lane", (*invocation).workerWindowClose),
 			command("orchestrator show", "<worker>", "show a worker's orchestrator", (*invocation).orchestratorShow),

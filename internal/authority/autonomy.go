@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -46,6 +47,9 @@ const (
 	// EventOneWayAcknowledged records that a member accepted a worker's one-way acknowledgement. The event is the only
 	// record of it: no table holds it, and a reader finds it in the installation's log.
 	EventOneWayAcknowledged = "autonomy.one_way_acknowledged"
+	// EventOneWayWithdrawn records that a member withdrew a worker's one-way acknowledgement, so every one-way question
+	// on it reaches a member again until a member accepts it again.
+	EventOneWayWithdrawn = "autonomy.one_way_withdrawn"
 	// SubjectAutonomy names the subject of those events: a worker.
 	SubjectAutonomy = "worker_autonomy"
 )
@@ -283,29 +287,51 @@ type OneWayStanding struct {
 	Accepted  *OneWayAcknowledgement `json:"accepted,omitempty"`
 }
 
-// OneWayEventID names the event of one worker's acceptance of one statement, so a second acceptance finds the first
-// and the acknowledgement is accepted once.
-func OneWayEventID(worker, digest string) string {
-	return EventOneWayAcknowledged + "/" + worker + "/" + digest
+// OneWayWithdrawal is a member's withdrawal of a worker's one-way acknowledgement: who withdrew it, and when.
+type OneWayWithdrawal struct {
+	WorkerID string `json:"worker_id"`
+	By       string `json:"by"`
+	At       int64  `json:"at"`
 }
 
-// OneWayAccepted finds a worker's acceptance of the current statement among events, or nil. Only a member's event
-// counts, because no other principal can write one, and an acceptance of an earlier statement asks again, because
-// nobody has read the new one.
-func OneWayAccepted(events []ledger.Event, worker string) (*OneWayAcknowledgement, error) {
-	for _, event := range events {
-		if event.Type != EventOneWayAcknowledged || event.Subject.Kind != SubjectAutonomy || event.Subject.ID != worker || event.Actor.Kind != ledger.ActorMember {
-			continue
-		}
+// OneWayEventID names the event at one position of a worker's one-way history: its acceptances and withdrawals, in the
+// order members recorded them. A position holds one event, so each act records one, and an act a member repeats finds
+// the history already where it asks and records nothing.
+func OneWayEventID(worker string, position int) string {
+	return "autonomy.one_way/" + worker + "/" + strconv.Itoa(position)
+}
+
+// OneWayHistory is where a worker's one-way acknowledgement stands after the events of its history: the acceptance
+// that stands, or nil, and the position the next event takes.
+type OneWayHistory struct {
+	Accepted *OneWayAcknowledgement
+	Next     int
+}
+
+// Take applies an event to the history when it is the one at the history's next position, and reports whether it
+// was. Only a member's event counts, because no other principal can write one. A withdrawal ends the acceptance, and
+// an acceptance of an earlier statement stands for none, because nobody has read the new one.
+func (h *OneWayHistory) Take(event ledger.Event, worker string) (bool, error) {
+	if event.ID != OneWayEventID(worker, h.Next) || event.Subject.Kind != SubjectAutonomy || event.Subject.ID != worker || event.Actor.Kind != ledger.ActorMember {
+		return false, nil
+	}
+	switch event.Type {
+	case EventOneWayAcknowledged:
 		var row OneWayAcknowledgement
 		if err := json.Unmarshal(event.Data, &row); err != nil {
-			return nil, err
+			return false, err
 		}
+		h.Accepted = nil
 		if row.WorkerID == worker && row.Digest == OneWayDigest() {
-			return &row, nil
+			h.Accepted = &row
 		}
+	case EventOneWayWithdrawn:
+		h.Accepted = nil
+	default:
+		return false, nil
 	}
-	return nil, nil
+	h.Next++
+	return true, nil
 }
 
 // RiskStatement is what a member acknowledges before a subscription worker runs unattended. It states

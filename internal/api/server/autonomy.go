@@ -36,6 +36,7 @@ func (h *handler) autonomyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/workers/{id}/autonomy", h.member(h.setAutonomy))
 	mux.HandleFunc("POST /v1/workers/{id}/autonomy/acknowledgement", h.member(h.acknowledgeRisk))
 	mux.HandleFunc("POST /v1/workers/{id}/autonomy/one-way-acknowledgement", h.member(h.acknowledgeOneWay))
+	mux.HandleFunc("DELETE /v1/workers/{id}/autonomy/one-way-acknowledgement", h.member(h.withdrawOneWay))
 	mux.HandleFunc("POST /v1/workers/{id}/windows", h.member(h.openWindow))
 	mux.HandleFunc("DELETE /v1/workers/{id}/windows", h.member(h.closeWindow))
 }
@@ -100,6 +101,14 @@ func (h *handler) openWindow(w http.ResponseWriter, r *http.Request, actor ledge
 		return
 	}
 	reply(w, http.StatusCreated, row)
+}
+
+func (h *handler) withdrawOneWay(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if err := h.autonomy.WithdrawOneWay(r.Context(), h.Scope, r.PathValue("id"), actor); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) closeWindow(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
