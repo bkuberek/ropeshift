@@ -104,14 +104,15 @@ type ConsultGrant struct {
 }
 
 // ConsultationRun is what a worker keeps of a consultation it began, from before its session starts until the event that
-// carries its end is journaled: the ledger's grant, the project it was granted in, and the lane of the orchestrator that
-// asked. A worker that starts again reads it to find the session a worker that went away left, and to end the
-// consultation.
+// carries its end is journaled: the ledger's grant, the project it was granted in, the lane of the orchestrator that
+// asked, and what its session had cost when the worker last read it. A worker that starts again reads it to find the
+// session a worker that went away left, and to end the consultation with what that session spent.
 type ConsultationRun struct {
 	Grant        ConsultGrant `json:"grant"`
 	Project      string       `json:"project,omitempty"`
 	Orchestrator string       `json:"orchestrator"`
 	StartedAt    int64        `json:"started_at"`
+	CostUSD      float64      `json:"cost_usd,omitempty"`
 }
 
 // ConsultStarted is what `consult` answers: the consultation it started, the agent and class it runs, and its budget.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -35,12 +36,15 @@ func (w *Worker) recoverConsultations(ctx context.Context) {
 	}
 }
 
-// recoverConsultation ends one consultation a worker left. A driver that cannot say whether its session is there, or a
+// recoverConsultation ends one consultation a worker left, with what its session cost: what the journal kept of it, and
+// what the session reports past that while it is stopped. A driver that cannot say whether its session is there, or a
 // session it cannot take over, leaves the start in the journal for the next start, because the session may be running
-// yet. A session that is gone ends the consultation with no cost to count, because nothing remains to read it from.
+// yet. A session that is gone ends the consultation with what the journal kept, because nothing remains to read more from.
 func (w *Worker) recoverConsultation(ctx context.Context, start ledger.ConsultationRun) {
 	rt := w.config.Lanes
-	run := &consultation{grant: start.Grant, project: start.Project, orchestrator: start.Orchestrator, lane: consultLanePrefix + start.Grant.ID}
+	run := &consultation{
+		grant: start.Grant, project: start.Project, orchestrator: start.Orchestrator, lane: consultLanePrefix + start.Grant.ID, spent: start.CostUSD,
+	}
 	dir, private, config := rt.consultDirs(run.grant.ID)
 	spec := ports.SessionSpec{
 		Lane: run.lane, Generation: firstGeneration, Dir: private, ConfigDir: config, TempDir: rt.tempDir(run.lane), Binary: rt.Binary, Override: rt.Override,
@@ -50,7 +54,9 @@ func (w *Worker) recoverConsultation(ctx context.Context, start ledger.Consultat
 		w.config.Report(fmt.Errorf("consultation %s: looking for the session its worker left: %w", run.grant.ID, err))
 		return
 	}
-	end := ledger.ConsultationEnd{Outcome: ledger.ConsultationUnreported, Detail: "Its worker restarted and found no session of it, and it reported nothing."}
+	end := ledger.ConsultationEnd{
+		CostUSD: run.spent, Outcome: ledger.ConsultationUnreported, Detail: "Its worker restarted and found no session of it, and it reported nothing.",
+	}
 	if located.Found {
 		followed, err := w.stopLeftSession(ctx, run, spec, located.Handle)
 		switch {
@@ -66,10 +72,12 @@ func (w *Worker) recoverConsultation(ctx context.Context, start ledger.Consultat
 	w.recordConsultationEnd(ctx, run, end)
 }
 
-// stopLeftSession takes over the session a worker left, stops it, and reads it to its end, for what it cost.
+// stopLeftSession takes over the session a worker left, with its meter where the journal kept it, stops it, and reads it
+// to its end, for what it cost.
 func (w *Worker) stopLeftSession(ctx context.Context, run *consultation, spec ports.SessionSpec, handle ports.SessionHandle) (ledger.ConsultationEnd, error) {
 	rt := w.config.Lanes
-	if err := rt.Driver.Adopt(ctx, handle, ports.AdoptFrom{Spec: spec}); err != nil {
+	meter := lanes.CostMeter{SessionTotalUSD: run.spent, CostUSD: run.spent}
+	if err := rt.Driver.Adopt(ctx, handle, ports.AdoptFrom{Spec: spec, Cost: meter}); err != nil {
 		return ledger.ConsultationEnd{}, err
 	}
 	events, err := rt.Driver.Events(ctx, handle)

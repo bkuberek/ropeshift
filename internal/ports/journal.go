@@ -223,6 +223,10 @@ type Journal interface {
 	BeginConsultation(ctx context.Context, run ledger.ConsultationRun) error
 	// Consultations lists the consultations this worker began and has journaled no end of, in the order they began.
 	Consultations(ctx context.Context) ([]ledger.ConsultationRun, error)
+	// SaveConsultationCost keeps what a consultation's session has cost so far, as the higher of that and what the journal
+	// held, so a worker that starts again counts what the session spent before. A consultation the journal does not hold
+	// changes nothing.
+	SaveConsultationCost(ctx context.Context, id string, costUSD float64) error
 	// EndConsultation stores the event that carries a consultation's end and forgets its start, in one write, so a crash
 	// leaves the start or the end on its way to the ledger, never neither. It stores nothing and reports false for a
 	// consultation the journal does not hold, which ended already.

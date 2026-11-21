@@ -57,12 +57,14 @@ const consultDenial = "A consultation reads the records and its read-only checko
 	lanes.ToolConsultReport + "."
 
 // consultation is one consultation this worker runs for its orchestrator: what the ledger granted it, the project and
-// the orchestrator's lane it reads the records as, its session's name, and what its agent reported.
+// the orchestrator's lane it reads the records as, its session's name, what the journal kept of its cost when this
+// process took it over, and what its agent reported.
 type consultation struct {
 	grant        ledger.ConsultGrant
 	project      string
 	orchestrator string
 	lane         string
+	spent        float64
 
 	mu     sync.Mutex
 	report *ledger.ConsultationReport
@@ -350,11 +352,14 @@ func (w *Worker) forgetConsultation(dir string, paths ...string) {
 
 // followConsultation reads a consultation's session to its end. Its one turn is the consultation, so the session stops at
 // rest once that turn ends. A session that reaches its budget, or outlasts its deadline, is stopped where it stands,
-// and what it cost is counted either way. A session a worker that went away left is stopped at once, which why says.
+// and what it cost is counted either way. A session a worker that went away left is stopped at once, which why says, and
+// its cost starts from what the journal kept. Each cost the session reports past what the journal holds is journaled,
+// so a worker that starts again counts what the session spent before it.
 func (w *Worker) followConsultation(ctx context.Context, run *consultation, handle ports.SessionHandle, events <-chan ports.DriverEvent,
 	why consultStop) ledger.ConsultationEnd {
 	rt := w.config.Lanes
-	var end ledger.ConsultationEnd
+	end := ledger.ConsultationEnd{CostUSD: run.spent}
+	kept := run.spent
 	var once sync.Once
 	// A stop that sent its last signal and read no end of the session leaves it running, and spending, with nobody to
 	// read it, so it is asked again.
@@ -416,11 +421,23 @@ func (w *Worker) followConsultation(ctx context.Context, run *consultation, hand
 				}
 				stop(ports.StopAtRest)
 			}
+			if end.CostUSD > kept {
+				kept = end.CostUSD
+				w.keepConsultationCost(ctx, run, kept)
+			}
 			if budget > 0 && end.CostUSD >= budget && !why.atCap {
 				why.atCap = true
 				stop(ports.StopInterrupt)
 			}
 		}
+	}
+}
+
+// keepConsultationCost journals what a consultation's session has cost so far. A write that fails leaves the cost in this
+// process, which its end still counts, and only a restart before that end loses it.
+func (w *Worker) keepConsultationCost(ctx context.Context, run *consultation, costUSD float64) {
+	if err := w.journal.SaveConsultationCost(context.WithoutCancel(ctx), run.grant.ID, costUSD); err != nil {
+		w.config.Report(fmt.Errorf("consultation %s: keeping its cost in the journal: %w", run.grant.ID, err))
 	}
 }
 

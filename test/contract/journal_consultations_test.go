@@ -60,3 +60,35 @@ func TestJournalKeepsAConsultationFromItsStartUntilItsEnd(t *testing.T) {
 		t.Errorf("a repeat stored an event: %v", types)
 	}
 }
+
+// TestJournalKeepsWhatAConsultationsSessionHasCost holds the highest cost a worker read of a consultation's session with
+// its start, so a worker that starts again ends the consultation with what the session spent before, and a lower total
+// read later, or a total of a consultation the journal does not hold, changes nothing.
+func TestJournalKeepsWhatAConsultationsSessionHasCost(t *testing.T) {
+	t.Parallel()
+	j := openTestJournal(t)
+	ctx := t.Context()
+	run := journaledConsultation("c-first", "q1")
+	if err := j.BeginConsultation(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	for _, cost := range []float64{0.25, 0.7, 0.5} {
+		if err := j.SaveConsultationCost(ctx, "c-first", cost); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := j.SaveConsultationCost(ctx, "c-ghost", 1); err != nil {
+		t.Fatalf("the cost of a consultation the journal never held: %v", err)
+	}
+	run.CostUSD = 0.7
+	got, err := j.Consultations(ctx)
+	if err != nil || !reflect.DeepEqual(got, []ledger.ConsultationRun{run}) {
+		t.Errorf("after three totals, the highest 0.7: %+v, %v", got, err)
+	}
+	if err := j.BeginConsultation(ctx, journaledConsultation("c-first", "q1")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := j.Consultations(ctx); err != nil || len(got) != 1 || got[0].CostUSD != 0.7 {
+		t.Errorf("a start sent again replaced what the session had cost: %+v, %v", got, err)
+	}
+}

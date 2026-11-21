@@ -40,6 +40,13 @@ func (j *Journal) Consultations(ctx context.Context) ([]ledger.ConsultationRun, 
 	return out, rows.Err()
 }
 
+// SaveConsultationCost keeps the higher of what a consultation's session has cost so far and what the journal held.
+func (j *Journal) SaveConsultationCost(ctx context.Context, id string, costUSD float64) error {
+	_, err := j.db.ExecContext(ctx, `UPDATE consultations SET run = json_set(run, '$.cost_usd', ?2)
+ WHERE id = ?1 AND COALESCE(json_extract(run, '$.cost_usd'), 0) < ?2`, id, costUSD)
+	return err
+}
+
 // EndConsultation forgets a consultation's start and stores the event that carries its end, in one transaction. A
 // consultation the journal does not hold ended already, so nothing is stored.
 func (j *Journal) EndConsultation(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, bool, error) {
