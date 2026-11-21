@@ -140,6 +140,11 @@
     "command": "worker acknowledge-one-way"
   },
   {
+    "method": "DELETE",
+    "pattern": "/v1/workers/{id}/autonomy/one-way-acknowledgement",
+    "command": "worker withdraw-one-way"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/workers/{id}/windows",
     "command": "worker window-open"

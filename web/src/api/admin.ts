@@ -562,6 +562,9 @@ export const acknowledgeRisk = (worker: string, digest: string) => call<Autonomy
 // acknowledgeOneWay accepts a worker's one-way acknowledgement, the statement its digest names, as
 // `ropeshift worker acknowledge-one-way` does.
 export const acknowledgeOneWay = (worker: string, digest: string) => call<void>("POST", adminPaths.acknowledgeOneWay(worker), { digest });
+// withdrawOneWay withdraws a worker's one-way acknowledgement, as `ropeshift worker withdraw-one-way` does, so every
+// one-way question on it reaches a member again until a member accepts it again.
+export const withdrawOneWay = (worker: string) => call<void>("DELETE", adminPaths.acknowledgeOneWay(worker), {});
 // A window's ID makes a second press of the same open find the first.
 export const openWindow = (worker: string, id: string, lengthMs: number) => call<RunWindow>("POST", adminPaths.windows(worker), { id, length_ms: lengthMs });
 export const closeWindow = (worker: string) => call<void>("DELETE", adminPaths.windows(worker), {});

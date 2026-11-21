@@ -69,6 +69,11 @@ func (c *Client) AcknowledgeOneWay(ctx context.Context, worker string, in Acknow
 	return c.Do(ctx, http.MethodPost, workerPath(worker, "autonomy", "one-way-acknowledgement"), in, nil)
 }
 
+// WithdrawOneWay records a member's withdrawal of a worker's one-way acknowledgement.
+func (c *Client) WithdrawOneWay(ctx context.Context, worker string) error {
+	return c.Do(ctx, http.MethodDelete, workerPath(worker, "autonomy", "one-way-acknowledgement"), nil, nil)
+}
+
 // OpenWindow opens a run window for one worker.
 func (c *Client) OpenWindow(ctx context.Context, worker string, in OpenWindow) (authority.RunWindow, error) {
 	var out authority.RunWindow

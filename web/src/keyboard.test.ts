@@ -87,9 +87,9 @@ async function dialog(keys: Keys, page: Page, title: string, query?: string): Pr
 
 // autonomy answers what a worker's autonomy page reads: a worker at attended, whose stated risk is not acknowledged, with
 // a run window open or none.
-const autonomy = (window?: unknown) =>
+const autonomy = (window?: unknown, accepted?: unknown) =>
   reply(
-    [/\/v1\/workers\/worker-1\/autonomy$/, { as_of: 1790000000000, worker_id: "worker-1", sign_in: "subscription", level: "attended", chosen_level: "attended", risk_acknowledged: false, may_claim: true, window, one_way: { statement: "The orchestrator will make one-way decisions outside security, compliance and data for you.", digest: "sha256:def" } }],
+    [/\/v1\/workers\/worker-1\/autonomy$/, { as_of: 1790000000000, worker_id: "worker-1", sign_in: "subscription", level: "attended", chosen_level: "attended", risk_acknowledged: false, may_claim: true, window, one_way: { statement: "The orchestrator will make one-way decisions outside security, compliance and data for you.", digest: "sha256:def", accepted } }],
     [/\/v1\/autonomy\/risk$/, { statement: "A worker at this level runs the agent's commands without asking.", digest: "sha256:abc" }],
   );
 
@@ -675,6 +675,14 @@ const paths: Record<string, KeyPath> = {
     run: async (k, page) => {
       await k.palette("Settings: Autonomy and run windows");
       await k.activate(page.getByRole("button", { name: "Accept the one-way acknowledgement" }));
+    },
+  },
+  "DELETE /v1/workers/{id}/autonomy/one-way-acknowledgement": {
+    sent: { method: "DELETE", path: /^\/v1\/workers\/worker-1\/autonomy\/one-way-acknowledgement$/ },
+    answers: autonomy(undefined, { worker_id: "worker-1", by: "member-1", digest: "sha256:def", at: 1790000000000 }),
+    run: async (k, page) => {
+      await k.palette("Settings: Autonomy and run windows");
+      await k.activate(page.getByRole("button", { name: "Withdraw the one-way acknowledgement" }));
     },
   },
   "POST /v1/projects/{project}/policies": {

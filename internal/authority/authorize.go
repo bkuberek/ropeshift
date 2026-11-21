@@ -97,8 +97,8 @@ const (
 	ActionPassAutonomy Action = "autonomy.pass"
 	// ActionSetAutonomy chooses a worker's level, ActionOpenWindow opens or closes a run window, and
 	// ActionAcknowledgeRisk stands behind a statement a member reads for a worker: the stated risk, or the one-way
-	// acknowledgement. These are what keep a person near automated use, so no agent has them, and no row below may
-	// ever grant one.
+	// acknowledgement, which it also withdraws. These are what keep a person near automated use, so no agent has them,
+	// and no row below may ever grant one.
 	ActionSetAutonomy     Action = "autonomy.set"
 	ActionOpenWindow      Action = "autonomy.window"
 	ActionAcknowledgeRisk Action = "autonomy.acknowledge"

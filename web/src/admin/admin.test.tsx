@@ -605,6 +605,10 @@ describe("Settings", () => {
           state.oneWay = true;
           return { status: 204 };
         }
+        if (call.method === "DELETE" && call.path === `${autonomy}/one-way-acknowledgement`) {
+          state.oneWay = false;
+          return { status: 204 };
+        }
         if (call.path === "/v1/autonomy/risk") {
           return { status: 200, body: { statement: "An unattended worker acts on its own.", digest: "digest-1" } };
         }
@@ -643,6 +647,16 @@ describe("Settings", () => {
       expect(await screen.findByText(/Accepted for this worker by member-1/)).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Accept the one-way acknowledgement" })).toBeNull();
       expect(sentTo(sent, "POST", `${autonomy}/one-way-acknowledgement`)[0]?.body).toEqual({ digest: "digest-2" });
+    });
+
+    it("withdraws an accepted one-way acknowledgement, and offers to accept it again", async () => {
+      const sent = serveAutonomy({ acknowledged: true, window: false, oneWay: true });
+      openPage("/settings?section=autonomy");
+      await userEvent.click(await screen.findByRole("button", { name: "Withdraw the one-way acknowledgement" }));
+      expect(await screen.findByText("You withdrew the one-way acknowledgement for atlas.")).toBeTruthy();
+      expect(await screen.findByRole("button", { name: "Accept the one-way acknowledgement" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Withdraw the one-way acknowledgement" })).toBeNull();
+      expect(sentTo(sent, "DELETE", `${autonomy}/one-way-acknowledgement`)).toHaveLength(1);
     });
 
     it("updates the panel and says so after a run window is closed", async () => {

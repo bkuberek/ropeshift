@@ -201,6 +201,110 @@ func TestAMemberAcceptsTheOneWayAcknowledgementOnce(t *testing.T) {
 	}
 }
 
+// oneWayEvents counts the acceptances and withdrawals of worker-1's one-way acknowledgement in the installation's log.
+func oneWayEvents(t *testing.T, r *planeRig) (accepted, withdrawn int) {
+	t.Helper()
+	err := r.state.Installation.Read(t.Context(), func(tx ports.SharedReadTx) error {
+		events, err := tx.Events(0, 1000)
+		for _, event := range events {
+			switch {
+			case event.Subject.ID != "worker-1":
+			case event.Type == authority.EventOneWayAcknowledged:
+				accepted++
+			case event.Type == authority.EventOneWayWithdrawn:
+				withdrawn++
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return accepted, withdrawn
+}
+
+// TestEachOneWayActRecordsOneEvent holds the history of a worker's one-way acknowledgement to one event per act: a
+// repeated acceptance and a repeated withdrawal record nothing, and accepting again after a withdrawal records a new
+// acceptance, so the view reads what the last act said.
+func TestEachOneWayActRecordsOneEvent(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	autonomy := control.NewAutonomy(r.stores["pa"])
+	withdraw := func() {
+		t.Helper()
+		if err := autonomy.WithdrawOneWay(ctx, "pa", "worker-1", projectMember); err != nil {
+			t.Fatal(err)
+		}
+	}
+	steps := []struct {
+		name                string
+		act                 func()
+		accepted, withdrawn int
+		standing            bool
+	}{
+		{"a withdrawal of nothing", withdraw, 0, 0, false},
+		{"an acceptance", func() { acceptOneWay(t, r) }, 1, 0, true},
+		{"a repeated acceptance", func() { acceptOneWay(t, r) }, 1, 0, true},
+		{"a withdrawal", withdraw, 1, 1, false},
+		{"a repeated withdrawal", withdraw, 1, 1, false},
+		{"an acceptance after a withdrawal", func() { acceptOneWay(t, r) }, 2, 1, true},
+		{"a repeated acceptance after a withdrawal", func() { acceptOneWay(t, r) }, 2, 1, true},
+	}
+	for _, step := range steps {
+		step.act()
+		accepted, withdrawn := oneWayEvents(t, r)
+		if accepted != step.accepted || withdrawn != step.withdrawn {
+			t.Errorf("after %s the log holds %d acceptances and %d withdrawals, want %d and %d", step.name, accepted, withdrawn, step.accepted, step.withdrawn)
+		}
+		view, err := autonomy.View(ctx, "pa", "worker-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (view.OneWay.Accepted != nil) != step.standing {
+			t.Errorf("after %s the view reads %+v, want accepted %v", step.name, view.OneWay, step.standing)
+		}
+	}
+}
+
+// TestOnlyAMemberWithdrawsTheOneWayAcknowledgement refuses the worker's orchestrator and a member's delegate, so no
+// agent changes what a member accepted.
+func TestOnlyAMemberWithdrawsTheOneWayAcknowledgement(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	acceptOneWay(t, r)
+	autonomy := control.NewAutonomy(r.stores["pa"])
+	for _, actor := range []ledger.Actor{
+		{Kind: ledger.ActorOrchestrator, ID: "worker-1"},
+		authority.DelegateActor(projectMember.ID, authority.DelegateIDPrefix+"x"),
+	} {
+		if err := autonomy.WithdrawOneWay(t.Context(), "pa", "worker-1", actor); !errors.Is(err, workorders.ErrForbidden) {
+			t.Errorf("a withdrawal by %s: %v, want %v", actor.Kind, err, workorders.ErrForbidden)
+		}
+	}
+	if _, withdrawn := oneWayEvents(t, r); withdrawn != 0 {
+		t.Errorf("refused withdrawals recorded %d events", withdrawn)
+	}
+}
+
+// TestAWithdrawalTakesOneWayChoicesBackToAMember holds an unattended orchestrator, once a member withdrew its worker's
+// one-way acknowledgement, to the gate it had before a member accepted it: a one-way choice reaches a member again.
+func TestAWithdrawalTakesOneWayChoicesBackToAMember(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	acceptOneWay(t, r)
+	if err := control.NewAutonomy(r.stores["pa"]).WithdrawOneWay(t.Context(), "pa", "worker-1", projectMember); err != nil {
+		t.Fatal(err)
+	}
+	call, read := ladderAtRungThree(t, r, questions.CategoryArchitecture)
+	if !strings.Contains(read.Yours, "one-way acknowledgement") {
+		t.Errorf("question_next says %q, which does not say the one-way acknowledgement waits for a member", read.Yours)
+	}
+	if _, err := decideOneWay(r, call); !errors.Is(err, questions.ErrOneWay) {
+		t.Errorf("deciding a one-way choice after a withdrawal: %v, want %v", err, questions.ErrOneWay)
+	}
+	if err := escalateOneWay(r, call); err != nil {
+		t.Errorf("escalating a one-way choice after a withdrawal: %v", err)
+	}
+}
+
 // publishParkOnOneWay publishes a lane policy that parks a lane on a one-way decision and tells it of any other.
 func publishParkOnOneWay(t *testing.T, r *planeRig) {
 	t.Helper()

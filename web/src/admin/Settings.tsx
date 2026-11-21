@@ -20,6 +20,7 @@ import {
   setFleetCaps,
   setFleetMode,
   setLevel,
+  withdrawOneWay,
 } from "../api/admin";
 import type { Autonomy, Fleet, Level, OneWayStanding, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerCaps, WorkerList } from "../api/admin";
 import { ApiError } from "../api/client";
@@ -538,9 +539,17 @@ function OneWayAcknowledgement({ worker, name, standing, act }: { worker: string
         <strong>One-way acknowledgement:</strong> {standing.statement}
       </p>
       {accepted ? (
-        <p className="small muted">
-          Accepted for this worker by {accepted.by}, <Ago at={accepted.at} />. Needs you shows each one-way decision its orchestrator makes, for you to keep or overturn.
-        </p>
+        <>
+          <p className="small muted">
+            Accepted for this worker by {accepted.by}, <Ago at={accepted.at} />. Needs you shows each one-way decision its orchestrator makes, for you to keep or overturn.
+            Withdrawing it sends every one-way question on {name} to a member again, and a member can accept it again later.
+          </p>
+          <div className="row-tight">
+            <Button small onClick={() => void act(() => withdrawOneWay(worker), `You withdrew the one-way acknowledgement for ${name}.`)}>
+              Withdraw the one-way acknowledgement
+            </Button>
+          </div>
+        </>
       ) : (
         <>
           <p className="help">

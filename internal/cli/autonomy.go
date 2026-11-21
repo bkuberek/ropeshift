@@ -115,6 +115,22 @@ func (c *invocation) workerAcknowledgeOneWay(args []string) int {
 	return c.finish(err, api.AcknowledgeOneWay{Digest: *digest}, func() string { return "one-way acknowledgement accepted for " + positional[0] + "\n" })
 }
 
+// workerWithdrawOneWay withdraws a worker's one-way acknowledgement, so every one-way question on it reaches a member
+// again until a member accepts it again (FR-QD-8).
+func (c *invocation) workerWithdrawOneWay(args []string) int {
+	positional, ok := c.parse(c.flags(), args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("this takes one worker")
+	}
+	client := c.client()
+	defer client.Close()
+	err := client.WithdrawOneWay(c.ctx, positional[0])
+	return c.finish(err, map[string]string{"worker_id": positional[0]}, func() string { return "one-way acknowledgement withdrawn for " + positional[0] + "\n" })
+}
+
 func (c *invocation) workerWindowOpen(args []string) int {
 	set := c.flags()
 	var length time.Duration
