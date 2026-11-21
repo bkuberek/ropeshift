@@ -189,6 +189,9 @@ type ReadTx interface {
 	Events(after int64, limit int) ([]ledger.Event, error)
 	// EventsAbout returns every event about one subject, in order.
 	EventsAbout(subject ledger.Subject) ([]ledger.Event, error)
+	// EventsOfKind returns every event about a subject of one kind recorded at or after since, by database time, in
+	// order, as a write's does.
+	EventsOfKind(kind string, since int64) ([]ledger.Event, error)
 	// Now reads database time.
 	Now() (int64, error)
 	// WorkOrders reads the work order projection.

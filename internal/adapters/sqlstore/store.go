@@ -469,6 +469,10 @@ func (t *readTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
 	return eventsAbout(t.session, t.scope, subject)
 }
 
+func (t *readTx) EventsOfKind(kind string, since int64) ([]ledger.Event, error) {
+	return eventsOfKind(t.session, t.scope, kind, since)
+}
+
 func eventsAbout(se *session, scope ledger.WorkspaceID, subject ledger.Subject) ([]ledger.Event, error) {
 	return readEvents(se.rows(stmtEventsAbout, params{"workspace_id": string(scope), "subject_kind": subject.Kind, "subject_id": subject.ID}))
 }
