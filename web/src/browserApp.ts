@@ -272,13 +272,29 @@ function planOf(name: string): string | undefined {
   return undefined;
 }
 
+// conflictCards is a lane whose branch changed files a person changed too, as a Go test wrote it from a real ledger.
+function conflictCards(): NeedItem[] {
+  return (JSON.parse(goldens["conflict-needs-you"] ?? "{}") as { items?: NeedItem[] }).items ?? [];
+}
+
 // needsYouItems is what the checks' Needs you holds: the ledger's own items, the confirmation cards a delegate
 // prepared, two merge requests, a card of each kind the ledger's items do not reach, the CI that asks a person, and a
-// work order a spend limit parked, and the repositories a plan approval did not create.
+// work order a spend limit parked, the repositories a plan approval did not create, and a conflict between a lane and a
+// person's edits.
 export function needsYouItems(): NeedItem[] {
   const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: NeedItem[] };
   const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: NeedItem[] };
-  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards(), ...ciCards(), ...spendCards(), ...creationCards()] as NeedItem[];
+  return [
+    ...needs.items,
+    ...cards.items,
+    mergeRequest("approve", "wo-running"),
+    mergeRequest("held", "wo-held"),
+    ...otherCards(),
+    ...ciCards(),
+    ...spendCards(),
+    ...creationCards(),
+    ...conflictCards(),
+  ] as NeedItem[];
 }
 
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });

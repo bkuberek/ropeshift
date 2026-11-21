@@ -2,6 +2,8 @@ package gitcli_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
@@ -146,6 +149,53 @@ func TestTheCopiedCommandsKeepEachWordUnderShAndZsh(t *testing.T) {
 	}
 }
 
+// A commit the ledger records as the forge's merge of a work order, such as a squash, carries no trailer of
+// ropeshift's, and is left out of the base's side when it is named as landed work.
+func TestACommitThatLandedWorkIsNoPersonsPush(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	clone := origin.Clone("registered")
+	clone.Git("checkout", "--quiet", "-b", "lane/lane-1")
+	clone.Commit("a.md", "a, by the lane\n")
+	clone.Commit("b.md", "b, by the lane\n")
+	clone.Git("checkout", "--quiet", "main")
+	squashed := origin.Commit("a.md", "a, squashed on the forge\n")
+	origin.Commit("b.md", "b, pushed by a person\n")
+	clone.Git("fetch", "--quiet", "origin")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", []string{squashed}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Pushed, []string{"b.md"}) {
+		t.Errorf("the base's side %v, want only the person's b.md", got.Pushed)
+	}
+}
+
+// Only a ref or a fork point git says is missing reads as ErrNotFound: a context that ended is an error of its own, so
+// a reading never takes a failure for a branch that is gone.
+func TestOnlyAMissingRefReadsAsNotFound(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	clone := origin.Clone("registered")
+	clone.Git("branch", "lane/lane-1")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := worktrees.Diverged(ended, clone.Dir, "lane/lane-1", "main", nil, 100); err == nil || errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a context that ended reads %v", err)
+	}
+	if _, err := worktrees.Holds(ended, clone.Dir, "lane/lane-1", "main"); err == nil || errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a context that ended reads %v", err)
+	}
+	if _, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/gone", "main", nil, 100); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a missing branch reads %v", err)
+	}
+	if _, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "trunk", nil, 100); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a missing base reads %v", err)
+	}
+}
+
 // A HEAD git fails to read, as a git that stops part way does, is a failed read, never a clone with no commit, whose
 // steps would start a branch with no parent from nothing.
 func TestAHeadGitFailsToReadFailsTheRead(t *testing.T) {
@@ -167,5 +217,43 @@ func TestAHeadGitFailsToReadFailsTheRead(t *testing.T) {
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	if got, err := (gitcli.Worktrees{Env: repo.Env()}).Edits(t.Context(), repo.Dir, 10); err == nil {
 		t.Errorf("a HEAD git failed to read reads %+v", got)
+	}
+}
+
+// What the person's files hold is read as git would store them, without writing an object, and whether a lane's branch
+// holds the branch they were committed on is read from the history.
+func TestTheContentsOfFilesAndWhatABranchHoldsAreRead(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("a.md", "a\n")
+	repo.Git("branch", "lane/lane-1")
+	if err := os.WriteFile(filepath.Join(repo.Dir, "a.md"), []byte("a, edited\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	worktrees := gitcli.Worktrees{Env: repo.Env()}
+	objects := repo.Git("count-objects")
+	got, err := worktrees.Contents(t.Context(), repo.Dir, []string{"a.md", "gone.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := repo.Git("hash-object", "a.md"); got["a.md"] != want || got["gone.md"] != "" || len(got) != 2 {
+		t.Errorf("contents %v, want a.md at %s", got, want)
+	}
+	if repo.Git("count-objects") != objects {
+		t.Error("reading the contents wrote an object")
+	}
+	repo.Git("branch", "edits/wo-1-abc", "main")
+	if held, err := worktrees.Holds(t.Context(), repo.Dir, "lane/lane-1", "edits/wo-1-abc"); err != nil || !held {
+		t.Errorf("the lane's branch holds the edits branch: %v, %v", held, err)
+	}
+	repo.Commit("b.md", "b\n")
+	repo.Git("branch", "-f", "edits/wo-1-abc", "main")
+	if held, err := worktrees.Holds(t.Context(), repo.Dir, "lane/lane-1", "edits/wo-1-abc"); err != nil || held {
+		t.Errorf("the lane's branch holds a later commit: %v, %v", held, err)
+	}
+	if held, err := worktrees.Holds(t.Context(), repo.Dir, "lane/lane-1", "edits/none"); err != nil || held {
+		t.Errorf("an edits branch nobody made: %v, %v", held, err)
+	}
+	if _, err := worktrees.Holds(t.Context(), repo.Dir, "lane/gone", "edits/wo-1-abc"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a lane's branch that is gone: %v", err)
 	}
 }

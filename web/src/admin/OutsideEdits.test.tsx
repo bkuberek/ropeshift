@@ -47,6 +47,8 @@ describe("the files ropeshift cannot read", () => {
     const step = list.clones[0]!.steps[0]!;
     const block = await within(files).findByRole("group", { name: `${step.title} in app` });
     expect(within(block).getByText(step.commands[3]!.trim(), { exact: false })).toBeTruthy();
+    const commands = within(block).getByRole("region", { name: `Commands for ${step.title}` });
+    expect(commands.tabIndex).toBe(0);
     await userEvent.click(within(block).getByRole("button", { name: `Copy the commands: ${step.title}` }));
     expect(copy).toHaveBeenCalledWith(step.commands.join("\n"));
   });

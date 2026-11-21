@@ -28,6 +28,7 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
     case "plan_revision":
     case "contract_review":
     case "effect":
+    case "conflict":
       return "decisions";
     case "approval":
       return "approvals";
@@ -72,7 +73,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend", "repository-creation", "conflict"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -113,6 +114,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "spend";
     case "repository_creation":
       return "repository-creation";
+    case "conflict":
+      return "conflict";
   }
 }
 
@@ -143,6 +146,9 @@ export function approvalHeading(approval: Approval): string {
 // creationKind is the overline of a repository a plan approval did not create.
 export const creationKind: { icon: IconName; name: string } = { icon: "repo", name: "Repository creation" };
 
+// conflictKind is the overline of a lane whose branch changed files a person changed too.
+export const conflictKind: { icon: IconName; name: string } = { icon: "branch", name: "Conflict" };
+
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   switch (item.kind) {
@@ -170,6 +176,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return spendKind;
     case "repository_creation":
       return creationKind;
+    case "conflict":
+      return conflictKind;
   }
 }
 
@@ -232,6 +240,8 @@ export function headingOf(item: NeedItem): string {
       return item.spend.work_order.title || item.spend.work_order.id;
     case "repository_creation":
       return `${plainLine(item.repository_creation.name)} ${item.repository_creation.state === "running" ? "is being created" : "was not created"}`;
+    case "conflict":
+      return `${plainLine(item.conflict.title || item.conflict.work_order)} changed files a person changed too`;
   }
 }
 
@@ -274,6 +284,8 @@ export function contextOf(item: NeedItem): string {
       return [item.spend.work_order.id, `${money(item.spend.spend.charged.charged_usd)} of ${money(item.spend.spend.hard_limit)}`].join(" · ");
     case "repository_creation":
       return [`Plan ${plainLine(item.repository_creation.plan)}`, `version ${item.repository_creation.plan_version}`].join(" · ");
+    case "conflict":
+      return [item.conflict.work_order, `lane ${item.conflict.lane}`, plainLine(item.conflict.name), plural(item.conflict.paths.length, "file")].join(" · ");
   }
 }
 

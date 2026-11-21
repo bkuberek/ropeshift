@@ -166,6 +166,8 @@ func commandsFor(item api.NeedItem) []string {
 			}
 		}
 		return commands
+	case api.NeedConflict:
+		return []string{"ropeshift repository edits"}
 	case api.NeedCI:
 		if item.CI == nil {
 			return nil
@@ -262,6 +264,13 @@ func what(item api.NeedItem) string {
 			line += "  remedy: " + clean(need.Remedy)
 		}
 		return line
+	case item.Conflict != nil:
+		need := item.Conflict
+		paths := make([]string, 0, len(need.Paths))
+		for _, path := range need.Paths {
+			paths = append(paths, clean(path.Path)+" ("+clean(path.Person)+")")
+		}
+		return fmt.Sprintf("lane %s of %s in %s changed what a person changed too: %s", clean(need.Lane), clean(need.Title), clean(need.Name), strings.Join(paths, ", "))
 	case item.Work == nil:
 		return ""
 	}

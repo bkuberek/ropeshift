@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -17,19 +19,48 @@ import (
 const CloneEditsLimit = 500
 
 // OutsideEdits reads what each registered repository's clone on this machine holds that intake and lanes cannot read,
-// with the steps that make it readable (FR-UI-14). It reads the clones through the ports it is given and changes
-// nothing.
+// with the steps that make it readable, and finds each lane whose branch changed a path a person changed too (FR-UI-14).
+// It reads the clones through the ports it is given and changes nothing. What it last found of each project's
+// conflicts stays in memory for Needs you, which reads no clone.
 type OutsideEdits struct {
 	starts *Starts
 	edits  ports.CloneEdits
 	// prefix is what the name of a lane's branch begins with, before the lane's ID.
 	prefix string
+	// reuse is how long a reading answers Recent, and now the clock it is timed by.
+	reuse time.Duration
+	now   func() time.Time
+	// begun numbers the readings in the order they began, so an older one never replaces what a newer one found.
+	begun atomic.Int64
+
+	mu     sync.Mutex
+	found  map[ledger.WorkspaceID]map[string]Conflict
+	latest map[ledger.WorkspaceID]int64
+	recent map[ledger.WorkspaceID]recentReading
+}
+
+// recentReading is a project's newest reading, with when it began.
+type recentReading struct {
+	project string
+	began   time.Time
+	number  int64
+	reading OutsideReading
 }
 
 // NewOutsideEdits reads the clone of each repository where starts places its lanes, through edits. A lane's branch is
 // the one its work order keeps, or else prefix and the lane's ID.
 func NewOutsideEdits(starts *Starts, edits ports.CloneEdits, prefix string) *OutsideEdits {
-	return &OutsideEdits{starts: starts, edits: edits, prefix: prefix}
+	return &OutsideEdits{
+		starts: starts, edits: edits, prefix: prefix, now: time.Now,
+		found: map[ledger.WorkspaceID]map[string]Conflict{}, latest: map[ledger.WorkspaceID]int64{}, recent: map[ledger.WorkspaceID]recentReading{},
+	}
+}
+
+// Reusing lets Recent answer with a reading that began less than window ago, so a page that asks often runs git no
+// more often than a tick does.
+func (o *OutsideEdits) Reusing(window time.Duration) *OutsideEdits {
+	o.reuse = window
+	return o
 }
 
 // CloneReading is one repository's clone as a reading found it.
@@ -45,16 +76,47 @@ type CloneReading struct {
 	Problem string
 }
 
-// OutsideReading is every registered repository's clone, read at one time.
+// Conflict is a lane whose branch changed paths that a person changed too, in their clone or in pushes to the base,
+// for a member to settle. Ropeshift resolves none of it and overwrites neither side.
+type Conflict struct {
+	WorkOrder  workorders.WorkOrder
+	Lane       string
+	Branch     string
+	Repository ledger.Repository
+	Clone      string
+	// Base is the ref the base was read at, such as origin/main.
+	Base  string
+	Paths []ledger.ConflictPath
+	// Cut says git listed more paths of a side than a reading keeps, so Paths may not be every one.
+	Cut bool
+	// Options are the ways to settle it, each with its exact commands, and Clears says what ends it (FR-UI-13).
+	Options []ledger.EditStep
+	Clears  string
+	// Since is when a reading of this process first found the conflict.
+	Since int64
+}
+
+// OutsideReading is every registered repository's clone, and every conflict, read at one time.
 type OutsideReading struct {
-	At     int64
-	Clones []CloneReading
+	At        int64
+	Clones    []CloneReading
+	Conflicts []Conflict
 }
 
 // openStates are the states in which a work order's lane holds a branch whose work is not merged yet.
 var openStates = []workorders.State{
 	workorders.Claimed, workorders.Running, workorders.Parked, workorders.Lapsed, workorders.Acceptance, workorders.Integrating, workorders.Blocked,
 }
+
+// ConflictStillOpen says a work order a reading found a conflict of is still in a state whose lane's branch holds
+// unmerged work, so its conflict still waits for a member.
+func ConflictStillOpen(order workorders.WorkOrder) bool {
+	return slices.Contains(openStates, order.State)
+}
+
+// endedStates are the states in which a work order's lane has ended and its work waits, so it goes back for another
+// attempt rather than taking a message.
+var endedStates = []workorders.State{workorders.Acceptance, workorders.Integrating}
 
 // sessionStates are the states in which a work order's lane has a session that takes a message.
 var sessionStates = []workorders.State{workorders.Claimed, workorders.Running, workorders.Parked}
@@ -73,6 +135,9 @@ type ledgerFacts struct {
 	repositories []ledger.Repository
 	planning     string
 	lanes        []openLane
+	// landed are the commits the ledger records as the forge's merge of a work order, and each merged pull request's
+	// head, which carry no trailer of ropeshift's and are no person's push.
+	landed []string
 }
 
 func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
@@ -96,8 +161,22 @@ func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
 	case !errors.Is(err, ports.ErrNotFound):
 		return facts, err
 	}
-	facts.lanes, err = openLanes(tx, prefix)
-	return facts, err
+	if facts.lanes, err = openLanes(tx, prefix); err != nil {
+		return facts, err
+	}
+	pulls, err := tx.Forge().PullRequests()
+	if err != nil {
+		return facts, err
+	}
+	for _, pull := range pulls {
+		if pull.MergeCommit != "" {
+			facts.landed = append(facts.landed, pull.MergeCommit)
+			if pull.HeadCommit != "" {
+				facts.landed = append(facts.landed, pull.HeadCommit)
+			}
+		}
+	}
+	return facts, nil
 }
 
 // openLanes lists each work order in an open state that has a lane, with the lane's branch and the commit it began at.
@@ -137,9 +216,25 @@ func openLanes(tx ports.ReadTx, prefix string) ([]openLane, error) {
 // stampOf names the branches a reading's steps make by the time it was read, in UTC.
 func stampOf(at int64) string { return time.UnixMilli(at).UTC().Format("20060102-150405") }
 
+// Recent answers a reading of a project that began within the window Reusing set, and reads the clones again when none
+// did.
+func (o *OutsideEdits) Recent(ctx context.Context, store ports.Store, scope ledger.WorkspaceID, project string) (OutsideReading, error) {
+	if o.reuse > 0 {
+		o.mu.Lock()
+		held, ok := o.recent[scope]
+		o.mu.Unlock()
+		if ok && held.project == project && o.now().Sub(held.began) < o.reuse {
+			return held.reading, nil
+		}
+	}
+	return o.Read(ctx, store, scope, project)
+}
+
 // Read reads the clone of each of a project's repositories, and says of each clone it could not read why. project is
-// the project's name, which the commands of the command line give.
+// the project's name, which the commands of the command line give. A reading whose context ended keeps nothing it
+// found, and one that began before another kept its conflicts replaces none of them.
 func (o *OutsideEdits) Read(ctx context.Context, store ports.Store, scope ledger.WorkspaceID, project string) (OutsideReading, error) {
+	number, began := o.begun.Add(1), o.now()
 	var facts ledgerFacts
 	if err := store.Read(ctx, scope, func(tx ports.ReadTx) (err error) {
 		facts, err = readFacts(tx, o.prefix)
@@ -147,37 +242,183 @@ func (o *OutsideEdits) Read(ctx context.Context, store ports.Store, scope ledger
 	}); err != nil {
 		return OutsideReading{}, err
 	}
-	out := OutsideReading{At: facts.at, Clones: []CloneReading{}}
+	out := OutsideReading{At: facts.at, Clones: []CloneReading{}, Conflicts: []Conflict{}}
+	unread := map[string]bool{}
 	for _, record := range facts.repositories {
-		reading, err := o.readClone(ctx, scope, project, record, facts)
+		reading, failed, err := o.readClone(ctx, scope, project, record, facts)
 		if err != nil {
 			return OutsideReading{}, err
 		}
 		out.Clones = append(out.Clones, reading)
+		if failed {
+			for _, lane := range facts.lanes {
+				if lane.order.RepositoryID == record.ID {
+					unread[lane.order.ID] = true
+				}
+			}
+			continue
+		}
+		if reading.Problem != "" {
+			continue
+		}
+		conflicts, err := o.conflictsIn(ctx, project, reading, facts, unread)
+		if err != nil {
+			return OutsideReading{}, err
+		}
+		out.Conflicts = append(out.Conflicts, conflicts...)
+	}
+	if err := ctx.Err(); err != nil {
+		return OutsideReading{}, err
+	}
+	out.Conflicts = o.remember(scope, number, out.Conflicts, unread, facts.at)
+	o.mu.Lock()
+	if held, ok := o.recent[scope]; !ok || held.number < number {
+		o.recent[scope] = recentReading{project: project, began: began, number: number, reading: out}
+	}
+	o.mu.Unlock()
+	return out, nil
+}
+
+// conflictsIn finds each open lane of a repository whose branch in the clone changed a path the person changed too.
+// In a repository whose merge method rewrites commits, the forge and a local rebase land work in commits with no
+// trailer, so the base's side is not read as a person's and only the clone's side counts. The clone's side is settled
+// once the lane's branch holds the branch the person's files are committed on, which EditsBranch names. A lane whose
+// branch the clone really does not hold, as one on another machine's worker, has none. A lane git could not read is
+// marked unread, so the conflict an earlier reading found stays. Only a reading the control plane cannot make at all
+// fails.
+func (o *OutsideEdits) conflictsIn(ctx context.Context, project string, clone CloneReading, facts ledgerFacts, unread map[string]bool) ([]Conflict, error) {
+	var out []Conflict
+	base := cmp.Or(clone.Repository.BaseBranch, clone.Repository.DefaultBranch)
+	for _, lane := range facts.lanes {
+		if lane.order.RepositoryID != clone.Repository.ID || base == "" {
+			continue
+		}
+		conflict, found, err := o.conflictOf(ctx, project, clone, lane, base, facts)
+		switch {
+		case errors.Is(err, ports.ErrRepositoryReadsUnavailable):
+			return nil, err
+		case errors.Is(err, ports.ErrNotFound):
+		case err != nil:
+			unread[lane.order.ID] = true
+		case found:
+			out = append(out, conflict)
+		}
 	}
 	return out, nil
 }
 
+// conflictOf reads one lane's conflict with the person's edits, and says whether it has one.
+func (o *OutsideEdits) conflictOf(ctx context.Context, project string, clone CloneReading, lane openLane, base string, facts ledgerFacts) (Conflict, bool, error) {
+	divergence, err := o.edits.Diverged(ctx, clone.Path, lane.branch, base, facts.landed, CloneEditsLimit)
+	if err != nil {
+		return Conflict{}, false, err
+	}
+	pushed := divergence.Pushed
+	if clone.Repository.MergeMethod.Rewrites() {
+		pushed = nil
+	}
+	paths := ledger.ConflictPaths(divergence.Lane, clone.Edits.Edits, pushed)
+	var local []string
+	for _, path := range paths {
+		if path.Person != ledger.PersonPushed {
+			local = append(local, path.Path)
+		}
+	}
+	branch := ""
+	if len(local) > 0 {
+		contents, err := o.edits.Contents(ctx, clone.Path, local)
+		if err != nil {
+			return Conflict{}, false, err
+		}
+		branch = ledger.EditsBranch(lane.order.ID, contents)
+		held, err := o.edits.Holds(ctx, clone.Path, lane.branch, branch)
+		if err != nil {
+			return Conflict{}, false, err
+		}
+		if held {
+			paths = slices.DeleteFunc(paths, func(path ledger.ConflictPath) bool { return path.Person != ledger.PersonPushed })
+		}
+	}
+	if len(paths) == 0 {
+		return Conflict{}, false, nil
+	}
+	place := ledger.ConflictPlace{
+		Project: project, Clone: clone.Path, WorkOrder: lane.order.ID, Lane: lane.lane, Base: divergence.Base,
+		Branch: branch, Ended: slices.Contains(endedStates, lane.order.State),
+	}
+	return Conflict{
+		WorkOrder: lane.order, Lane: lane.lane, Branch: lane.branch, Repository: clone.Repository, Clone: clone.Path, Base: divergence.Base,
+		Paths: paths, Cut: divergence.Cut || clone.Edits.Cut, Options: ledger.ConflictOptions(paths, place), Clears: ledger.ConflictClears(paths, place),
+	}, true, nil
+}
+
+// remember keeps a reading's conflicts as the project's, each with the time a reading first found it. A conflict found
+// before whose work order the reading could not read stays as it was, and one the reading read and no longer found goes.
+// A reading that began before the one whose conflicts the project holds replaces none of them.
+func (o *OutsideEdits) remember(scope ledger.WorkspaceID, number int64, conflicts []Conflict, unread map[string]bool, at int64) []Conflict {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	held := o.found[scope]
+	if number < o.latest[scope] {
+		for i := range conflicts {
+			conflicts[i].Since = cmp.Or(held[conflicts[i].WorkOrder.ID].Since, at)
+		}
+		return conflicts
+	}
+	o.latest[scope] = number
+	next := make(map[string]Conflict, len(conflicts))
+	for i := range conflicts {
+		conflicts[i].Since = at
+		if was, ok := held[conflicts[i].WorkOrder.ID]; ok {
+			conflicts[i].Since = was.Since
+		}
+		next[conflicts[i].WorkOrder.ID] = conflicts[i]
+	}
+	for id, was := range held {
+		if _, found := next[id]; !found && unread[id] {
+			next[id] = was
+			conflicts = append(conflicts, was)
+		}
+	}
+	o.found[scope] = next
+	return conflicts
+}
+
+// Conflicts are the conflicts the last reading of a project found, oldest first.
+func (o *OutsideEdits) Conflicts(scope ledger.WorkspaceID) []Conflict {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := make([]Conflict, 0, len(o.found[scope]))
+	for _, conflict := range o.found[scope] {
+		out = append(out, conflict)
+	}
+	slices.SortFunc(out, func(a, b Conflict) int {
+		return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))
+	})
+	return out
+}
+
 // readClone reads one repository's clone. A clone this machine keeps none of, or git cannot read, is a problem of that
-// clone. A read the control plane cannot make at all, as on a group server, fails the whole reading.
-func (o *OutsideEdits) readClone(ctx context.Context, scope ledger.WorkspaceID, project string, record ledger.Repository, facts ledgerFacts) (CloneReading, error) {
+// clone, and failed says the read failed, so what was found of the clone before is kept, rather than that the clone is
+// not there. A read the control plane cannot make at all, as on a group server, fails the whole reading.
+func (o *OutsideEdits) readClone(ctx context.Context, scope ledger.WorkspaceID, project string, record ledger.Repository, facts ledgerFacts) (CloneReading, bool, error) {
 	reading := CloneReading{Repository: record, Planning: record.ID == facts.planning, Edits: ledger.CloneEdits{Edits: []ledger.CloneEdit{}}, Steps: []ledger.EditStep{}}
 	path, err := o.starts.Checkout(ctx, scope, record.ID)
 	switch {
 	case errors.Is(err, ports.ErrRepositoryReadsUnavailable):
-		return reading, err
+		return reading, false, err
 	case err != nil:
 		reading.Problem = fmt.Sprintf("This machine keeps no clone of it: %v", err)
-		return reading, nil
+		return reading, !errors.Is(err, ports.ErrNotFound), nil
 	}
 	reading.Path = path
 	edits, err := o.edits.Edits(ctx, path, CloneEditsLimit)
 	switch {
 	case errors.Is(err, ports.ErrRepositoryReadsUnavailable):
-		return reading, err
+		return reading, false, err
 	case err != nil:
 		reading.Problem = fmt.Sprintf("Git could not read the clone: %v", err)
-		return reading, nil
+		return reading, !errors.Is(err, ports.ErrNotFound), nil
 	}
 	reading.Edits = edits
 	place := ledger.EditPlace{Project: project, Clone: path, Stamp: stampOf(facts.at)}
@@ -189,5 +430,5 @@ func (o *OutsideEdits) readClone(ctx context.Context, scope ledger.WorkspaceID, 
 		}
 	}
 	reading.Steps = ledger.EditSteps(edits, place)
-	return reading, nil
+	return reading, false, nil
 }

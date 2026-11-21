@@ -32,12 +32,12 @@ function nextStep(edit: EditView, clone: CloneEditsView): string {
 }
 
 // StepCommands is one step: what it does, and its exact commands in mono with Copy, which copies what the page shows.
-function StepCommands({ step, clone }: { step: EditStep; clone: string }) {
+export function StepCommands({ step, label }: { step: Pick<EditStep, "title" | "detail" | "commands">; label: string }) {
   const copy = useCopy();
   const title = plainText(step.title);
   const text = plainText(step.commands.join("\n"));
   return (
-    <div role="group" aria-label={`${title} in ${clone}`} className="stack">
+    <div role="group" aria-label={label} className="stack">
       <div className="row">
         <strong>{title}</strong>
         <span className="spacer" />
@@ -46,7 +46,9 @@ function StepCommands({ step, clone }: { step: EditStep; clone: string }) {
         </Button>
       </div>
       <p className="small">{plainText(step.detail)}</p>
-      <pre className="op">{text}</pre>
+      <pre className="op" role="region" aria-label={`Commands for ${title}`} tabIndex={0}>
+        {text}
+      </pre>
     </div>
   );
 }
@@ -106,7 +108,7 @@ function CloneFiles({ clone, limit }: { clone: CloneEditsView; limit: number }) 
       ) : null}
       {clone.cut ? <p className="small">These are the first {limit} files git listed. It listed more, and the steps take only these.</p> : null}
       {clone.steps.map((step) => (
-        <StepCommands key={`${step.kind}:${step.branch}`} step={step} clone={name} />
+        <StepCommands key={`${step.kind}:${step.branch}`} step={step} label={`${plainText(step.title)} in ${name}`} />
       ))}
     </div>
   );

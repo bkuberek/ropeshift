@@ -21,6 +21,12 @@ import (
 // outsideWorld serves a daemon whose worker keeps a clone of each repository at /srv/<repository>, read through edits.
 func outsideWorld(t *testing.T, edits *fake.CloneEdits, kept ...string) (*apitest.Daemon, *apitest.World) {
 	t.Helper()
+	return outsideWorldWith(t, apitest.Options{}, edits, kept...)
+}
+
+// outsideWorldWith is outsideWorld with options, such as a clock, and any reader of clones.
+func outsideWorldWith(t *testing.T, options apitest.Options, edits ports.CloneEdits, kept ...string) (*apitest.Daemon, *apitest.World) {
+	t.Helper()
 	checkout := func(_ context.Context, _ ledger.WorkspaceID, repository string) (string, error) {
 		if slices.Contains(kept, repository) {
 			return "/srv/" + repository, nil
@@ -32,7 +38,8 @@ func outsideWorld(t *testing.T, edits *fake.CloneEdits, kept ...string) (*apites
 		git.Grow("/srv/"+repository, "main")
 	}
 	starts := &control.Starts{Bases: git, Checkout: checkout}
-	d := apitest.StartWith(t, apitest.Options{Starts: starts, LaneBranchPrefix: "lane/", OutsideEdits: control.NewOutsideEdits(starts, edits, "lane/")})
+	options.Starts, options.LaneBranchPrefix, options.OutsideEdits = starts, "lane/", control.NewOutsideEdits(starts, edits, "lane/")
+	d := apitest.StartWith(t, options)
 	return d, apitest.NewWorld(t, d)
 }
 

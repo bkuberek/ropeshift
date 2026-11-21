@@ -45,6 +45,8 @@ export const views = [
   "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fexisting",
   "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Fhalted",
   "/needs-you?kind=cards&item=repository_creation%3Agenerated-1%2Frunning",
+  // A lane whose branch changed files a person changed too, in their clone and in a push.
+  "/needs-you?kind=decisions&item=conflict%3Awo-1",
   "/projects/default",
   "/projects/quiet",
   "/projects/fresh",

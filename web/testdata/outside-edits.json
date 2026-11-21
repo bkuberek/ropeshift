@@ -113,5 +113,6 @@
       "steps": [],
       "problem": "This machine keeps no clone of it: not found: this worker keeps no checkout of repository-3"
     }
-  ]
+  ],
+  "conflicts": []
 }

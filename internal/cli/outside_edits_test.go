@@ -63,3 +63,32 @@ func TestRepositoryEditsSaysWhatItCouldNotRead(t *testing.T) {
 		t.Errorf("a daemon that reads no clone: exit %d, %s", code, stderr)
 	}
 }
+
+// `repository edits` prints each conflict between a lane and a person's edits with both sides and the commands of each
+// way to settle it, as Needs you lists it.
+func TestRepositoryEditsPrintsEachConflictAndTheWaysToSettleIt(t *testing.T) {
+	edits := fake.NewCloneEdits()
+	edits.Set("/srv/repository-1", ledger.CloneEdits{Branch: "main", Head: "abc", Remote: "origin", Edits: []ledger.CloneEdit{{Path: "plans/plan.md", State: ledger.EditUncommitted}}})
+	edits.Diverge("/srv/repository-1", "lane/lane-wo-1", ledger.Divergence{Fork: "fork", Base: "origin/main", Lane: []string{"plans/plan.md"}})
+	git := fake.NewWorktrees()
+	git.Grow("/srv/repository-1", "main")
+	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/srv/repository-1", nil }}
+	s := newSessionWith(t, apitest.Options{Starts: starts, LaneBranchPrefix: "lane/", OutsideEdits: control.NewOutsideEdits(starts, edits, "lane/")})
+	w := apitest.NewWorld(t, s.daemon)
+	w.Repository("repository-1", ledger.PersonMerges)
+	w.Running("wo-1", "Retry within a budget")
+	text := s.must("repository", "edits")
+	for _, want := range []string{
+		"conflict\two-1\tRetry within a budget\tlane lane-wo-1 on lane/lane-wo-1 in app, against origin/main",
+		"\tuncommitted\tplans/plan.md",
+		"\tThis clears when the lane's branch holds edits/wo-1-",
+		"settle\tkeep_both\tKeep both changes",
+		"settle\tkeep_person\tKeep the person's side",
+		"settle\tstop\tStop the lane's work",
+		"\tropeshift work cancel wo-1 --project default --reason",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("edits lack %q:\n%s", want, text)
+		}
+	}
+}

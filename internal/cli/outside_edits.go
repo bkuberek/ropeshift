@@ -20,7 +20,7 @@ func (c *invocation) repositoryEdits(args []string) int {
 }
 
 // outsideEditsText is one block for each clone: a line that names it, a line for each path, and each step with its
-// commands, one command line to a line.
+// commands, one command line to a line; then one block for each conflict, with both sides and each way to settle it.
 func outsideEditsText(list api.OutsideEdits) string {
 	var out strings.Builder
 	for _, clone := range list.Clones {
@@ -46,6 +46,20 @@ func outsideEditsText(list api.OutsideEdits) string {
 		for _, step := range clone.Steps {
 			fmt.Fprintf(&out, "step\t%s\t%s\n\t%s\n", step.Kind, plainLine(step.Title), plainLine(step.Detail))
 			for _, command := range step.Commands {
+				fmt.Fprintf(&out, "\t%s\n", command)
+			}
+		}
+	}
+	for _, conflict := range list.Conflicts {
+		fmt.Fprintf(&out, "conflict\t%s\t%s\tlane %s on %s in %s, against %s\n", plainLine(conflict.WorkOrder), plainLine(conflict.Title),
+			plainLine(conflict.Lane), plainLine(conflict.Branch), plainLine(conflict.Name), plainLine(conflict.Base))
+		for _, path := range conflict.Paths {
+			fmt.Fprintf(&out, "\t%s\t%s\n", path.Person, plainPath(path.Path))
+		}
+		fmt.Fprintf(&out, "\t%s\n", plainLine(conflict.Clears))
+		for _, option := range conflict.Options {
+			fmt.Fprintf(&out, "settle\t%s\t%s\n\t%s\n", option.Kind, plainLine(option.Title), plainLine(option.Detail))
+			for _, command := range option.Commands {
 				fmt.Fprintf(&out, "\t%s\n", command)
 			}
 		}

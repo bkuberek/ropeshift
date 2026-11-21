@@ -200,3 +200,67 @@ func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// TestALanesBranchAndItsBaseEachSayWhatTheyChanged reads a lane's branch against the remote's copy of its base: the
+// lane's own commits on one side, and on the other each commit a person pushed, leaving out a commit a merge of
+// ropeshift made and the commits a merge brought in.
+func TestALanesBranchAndItsBaseEachSayWhatTheyChanged(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	origin.Commit("b.md", "b\n")
+	fork := origin.Commit("c.md", "c\n")
+	clone := origin.Clone("registered")
+	clone.Git("checkout", "--quiet", "-b", "lane/lane-1")
+	clone.Commit("a.md", "a, by the lane\n")
+	clone.Commit("lane.md", "the lane's own\n")
+	clone.Git("checkout", "--quiet", "main")
+
+	origin.Commit("c.md", "c, pushed by a person\n")
+	if err := os.WriteFile(filepath.Join(origin.Dir, "b.md"), []byte("b, merged by ropeshift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	origin.Git("commit", "--quiet", "-am", "Merge the work\n\nRopeshift-Work-Order: wo-9\nRopeshift-Reviewed-Commit: abc")
+	origin.Git("checkout", "--quiet", "-b", "side")
+	origin.Commit("d.md", "d, on a side branch\n")
+	origin.Git("checkout", "--quiet", "main")
+	origin.Merge("side")
+	clone.Git("fetch", "--quiet", "origin")
+
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", nil, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Fork != fork || got.Base != "origin/main" || got.Cut {
+		t.Errorf("divergence %+v, want fork %s", got, fork)
+	}
+	if !slices.Equal(got.Lane, []string{"a.md", "lane.md"}) || !slices.Equal(got.Pushed, []string{"c.md"}) {
+		t.Errorf("the lane changed %v and the base %v", got.Lane, got.Pushed)
+	}
+	if limited, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", nil, 1); err != nil || len(limited.Lane) != 1 || !limited.Cut {
+		t.Errorf("a read of one path: %+v, %v", limited, err)
+	}
+	for _, branch := range []string{"lane/none", "--output=x"} {
+		if _, err := worktrees.Diverged(t.Context(), clone.Dir, branch, "main", nil, 100); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("a branch %q: %v", branch, err)
+		}
+	}
+}
+
+// With no remote, the base is the clone's own branch, where a person's commits land.
+func TestWithNoRemoteTheBaseIsTheLocalBranch(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("a.md", "a\n")
+	repo.Git("branch", "lane/lane-1")
+	repo.Commit("a.md", "a, by a person\n")
+	repo.Git("checkout", "--quiet", "lane/lane-1")
+	repo.Commit("a.md", "a, by the lane\n")
+	repo.Git("checkout", "--quiet", "main")
+	got, err := gitcli.Worktrees{Env: repo.Env()}.Diverged(t.Context(), repo.Dir, "lane/lane-1", "main", nil, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Base != "main" || !slices.Equal(got.Lane, []string{"a.md"}) || !slices.Equal(got.Pushed, []string{"a.md"}) {
+		t.Errorf("divergence %+v", got)
+	}
+}

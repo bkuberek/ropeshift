@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // outsideEdits reads what each registered repository's clone on the daemon's worker's machine holds that intake and
@@ -21,7 +23,7 @@ func (h *handler) outsideEdits(w http.ResponseWriter, r *http.Request) {
 	if held, ok := projectOf(r.Context()); ok {
 		project = held.Name
 	}
-	reading, err := h.OutsideEdits.Read(r.Context(), h.Store, h.Scope, project)
+	reading, err := h.OutsideEdits.Recent(r.Context(), h.Store, h.Scope, project)
 	if err != nil {
 		fail(w, err)
 		return
@@ -56,5 +58,45 @@ func outsideEditsView(reading control.OutsideReading) api.OutsideEdits {
 		}
 		out.Clones = append(out.Clones, view)
 	}
+	out.Conflicts = make([]api.ConflictNeed, 0, len(reading.Conflicts))
+	for _, conflict := range reading.Conflicts {
+		out.Conflicts = append(out.Conflicts, conflictNeedOf(conflict, conflict.WorkOrder))
+	}
 	return out
+}
+
+// conflictNeedOf is what a client reads of a conflict, with the work order as the ledger holds it now.
+func conflictNeedOf(conflict control.Conflict, order workorders.WorkOrder) api.ConflictNeed {
+	name := cmp.Or(conflict.Repository.Name, conflict.Repository.ID)
+	need := api.ConflictNeed{
+		WorkOrder: order.ID, Title: ledger.PlainText(order.Title), State: order.State, Lane: conflict.Lane, Branch: ledger.PlainText(conflict.Branch),
+		Base: ledger.PlainText(conflict.Base), Repository: conflict.Repository.ID, Name: ledger.PlainText(name), Clone: ledger.PlainText(conflict.Clone),
+		Paths: make([]api.ConflictPathView, 0, len(conflict.Paths)), Cut: conflict.Cut, Options: nonNil(conflict.Options), Clears: ledger.PlainText(conflict.Clears),
+	}
+	for _, path := range conflict.Paths {
+		need.Paths = append(need.Paths, api.ConflictPathView{Path: ledger.PlainText(path.Path), Person: path.Person, Hidden: !ledger.Commandable(path.Path)})
+	}
+	return need
+}
+
+// conflictNeeds are the conflicts the last reading of the project's clones found, of work that is still open as the
+// ledger holds it now, each as one item of Needs you.
+func (h *handler) conflictNeeds(f floor) []api.NeedItem {
+	if h.OutsideEdits == nil {
+		return nil
+	}
+	orders := make(map[string]workorders.WorkOrder, len(f.orders))
+	for _, order := range f.orders {
+		orders[order.ID] = order
+	}
+	var items []api.NeedItem
+	for _, conflict := range h.OutsideEdits.Conflicts(h.Scope) {
+		order, held := orders[conflict.WorkOrder.ID]
+		if !held || !control.ConflictStillOpen(order) {
+			continue
+		}
+		need := conflictNeedOf(conflict, order)
+		items = append(items, api.NeedItem{Kind: api.NeedConflict, ID: order.ID, Since: conflict.Since, Conflict: &need})
+	}
+	return items
 }

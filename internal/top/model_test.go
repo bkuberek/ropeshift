@@ -282,6 +282,25 @@ func TestARepositoryCreationSaysWhereItStoppedAndNamesItsCommands(t *testing.T) 
 	}
 }
 
+// A conflict between a lane and a person's edits names the work, the repository, the files both sides changed, and the
+// command that lists the ways to settle it, with what a repository said cleaned of control characters.
+func TestAConflictNamesBothSidesAndTheCommandThatListsTheWaysToSettleIt(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedConflict, ID: "wo-1", Conflict: &api.ConflictNeed{
+		WorkOrder: "wo-1", Title: "Retry\x1b[31m", Lane: "lane-1", Name: "api", Base: "origin/main",
+		Paths: []api.ConflictPathView{{Path: "plans/plan.md", Person: "uncommitted"}, {Path: "docs/guide.md", Person: "pushed"}},
+	}}}
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{"lane lane-1 of Retry?[31m in api changed what a person changed too: plans/plan.md (uncommitted),", "docs/guide.md (pushed)", "    ropeshift repository edits"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	if strings.ContainsRune(frame, '\x1b') {
+		t.Errorf("a control character reached the frame: %q", frame)
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"
