@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -59,5 +60,25 @@ func TestTailKeepsTheEndOfTheOutput(t *testing.T) {
 	}
 	if long := tail(strings.Repeat("x", 3*tailBytes)); len(long) != tailBytes {
 		t.Errorf("tail of one long line has %d bytes, want %d", len(long), tailBytes)
+	}
+}
+
+// A step on a terminal has it as its controlling terminal, which is all ropeshift init and login need to
+// read a passphrase, and holds no descriptor for it, so no process the step starts holds the terminal open
+// once the step ends. A terminal server that outlives the step would otherwise keep the terminal's slave
+// side open for as long as it runs.
+func TestAStepOnATerminalHasItAsItsControllingTerminalAndHoldsNoDescriptorForIt(t *testing.T) {
+	script := "if ( : >&3 ) 2>/dev/null; then echo descriptor open; else echo descriptor closed; fi\n" +
+		"if ( : >/dev/tty ) 2>/dev/null; then echo terminal; else echo no terminal; fi\n"
+	args := []string{"/bin/sh", "-c", script}
+	step := (&run{env: os.Environ()}).onTerminal("terminal", 30*time.Second, args)
+	if step.Exit != 0 || step.TimedOut {
+		t.Fatalf("the step failed: %+v", step)
+	}
+	if want := "descriptor closed\nterminal\n"; step.Stdout != want {
+		t.Errorf("the step saw %q, want %q", step.Stdout, want)
+	}
+	if !slices.Equal(step.Args, args) {
+		t.Errorf("the step records %q, want the command it was asked to run, %q", step.Args, args)
 	}
 }
