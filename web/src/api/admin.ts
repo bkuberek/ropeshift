@@ -426,7 +426,7 @@ export const adminPaths = {
   repositories: () => project("/repositories"),
   repository: (id: string) => project(`/repositories/${encodeURIComponent(id)}`),
   removeRepository: (id: string) => project(`/repositories/${encodeURIComponent(id)}/remove`),
-  outsideEdits: () => project("/outside-edits"),
+  outsideEdits: (fresh = false) => project("/outside-edits") + query({ fresh: fresh ? 1 : 0 }),
   adoptionPlan: (scope: Scope) => scoped(scope, "/adoption/plan"),
   fleet: () => project("/fleet"),
   fleetMode: () => project("/fleet/mode"),
@@ -492,7 +492,8 @@ export const readRepositories = () => call<RepositoryList>("GET", adminPaths.rep
 export const changeRepository = (id: string, change: RepositoryChange) => call<RepositoryView>("PATCH", adminPaths.repository(id), change);
 export const addRepositories = (paths: string[], depth: number, dryRun: boolean) => call<RepositoryAddReport>("POST", adminPaths.repositories(), { paths, depth, dry_run: dryRun });
 export const removeRepository = (id: string) => call<RepositoryView>("POST", adminPaths.removeRepository(id), {});
-export const readOutsideEdits = () => call<OutsideEdits>("GET", adminPaths.outsideEdits());
+// readOutsideEdits reads the clones as the daemon last read them, or with fresh, reads them again now.
+export const readOutsideEdits = (fresh = false) => call<OutsideEdits>("GET", adminPaths.outsideEdits(fresh));
 
 // Fleet and policies
 

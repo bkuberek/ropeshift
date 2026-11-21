@@ -6,9 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
@@ -196,4 +199,109 @@ func TestAReadingIsReusedWithinItsWindow(t *testing.T) {
 	if fresh, err := d.Client.OutsideEdits(t.Context()); err != nil || len(fresh.Clones[0].Edits) != 0 {
 		t.Errorf("the page reuses an older reading than the newest: %+v, %v", fresh, err)
 	}
+}
+
+// A member who reads again is answered with a reading made after the request, not the one the window holds, and the
+// reading it makes is the one the next page reads.
+func TestAFreshReadIgnoresTheReuseWindow(t *testing.T) {
+	t.Parallel()
+	d, _, edits := conflictWorld(t)
+	d.Config.OutsideEdits.Reusing(time.Hour)
+	first, err := d.Client.OutsideEdits(t.Context())
+	if err != nil || len(first.Clones[0].Edits) == 0 {
+		t.Fatalf("the first reading holds %+v: %v", first, err)
+	}
+	edits.Set("/srv/repository-1", ledger.CloneEdits{Branch: "main", Head: "abc", Remote: "origin"})
+	if reused, err := d.Client.OutsideEdits(t.Context()); err != nil || len(reused.Clones[0].Edits) != len(first.Clones[0].Edits) {
+		t.Fatalf("a read within the window read the clones again: %+v, %v", reused, err)
+	}
+	fresh, err := d.Client.FreshOutsideEdits(t.Context())
+	if err != nil || len(fresh.Clones[0].Edits) != 0 || fresh.AsOf <= first.AsOf {
+		t.Fatalf("a fresh read listed %d paths as of %d, want none as of a time after %d: %v", len(fresh.Clones[0].Edits), fresh.AsOf, first.AsOf, err)
+	}
+	if next, err := d.Client.OutsideEdits(t.Context()); err != nil || next.AsOf != fresh.AsOf {
+		t.Errorf("the page after a fresh read answered %+v, want it", next)
+	}
+}
+
+// heldClones is a machine whose clones answer only when a test lets them, and that counts the reads of a clone running at once.
+type heldClones struct {
+	ports.CloneEdits
+	release chan struct{}
+	now     atomic.Int64
+	most    atomic.Int64
+	reads   atomic.Int64
+}
+
+func (g *heldClones) Edits(ctx context.Context, clone string, limit int) (ledger.CloneEdits, error) {
+	g.reads.Add(1)
+	running := g.now.Add(1)
+	defer g.now.Add(-1)
+	for {
+		if most := g.most.Load(); running <= most || g.most.CompareAndSwap(most, running) {
+			break
+		}
+	}
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return ledger.CloneEdits{}, ctx.Err()
+	}
+	return g.CloneEdits.Edits(ctx, clone, limit)
+}
+
+// A fresh read is bounded: one that waits on a clone ends once the bound the daemon holds is up, and a member never has
+// more than one running for the project at a time, however many read again at once.
+func TestAFreshReadIsBounded(t *testing.T) {
+	t.Parallel()
+	t.Run("in time", func(t *testing.T) {
+		t.Parallel()
+		var machine *heldClones
+		d, _, _ := conflictWorldReading(t, apitest.Options{}, func(edits *fake.CloneEdits) ports.CloneEdits {
+			machine = &heldClones{CloneEdits: edits, release: make(chan struct{})}
+			return machine
+		})
+		d.Config.OutsideEdits.Bounding(100 * time.Millisecond)
+		// The member's own request ends at ten seconds, which only a read with no bound of its own reaches.
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		_, err := d.Client.FreshOutsideEdits(ctx)
+		if err == nil || ctx.Err() != nil {
+			t.Fatalf("a fresh read of a clone that never answers, bounded at 100ms, ended with %v after the request's own %v", err, ctx.Err())
+		}
+	})
+	t.Run("one at a time", func(t *testing.T) {
+		t.Parallel()
+		var machine *heldClones
+		d, _, _ := conflictWorldReading(t, apitest.Options{}, func(edits *fake.CloneEdits) ports.CloneEdits {
+			machine = &heldClones{CloneEdits: edits, release: make(chan struct{})}
+			return machine
+		})
+		const asking = 6
+		var wg sync.WaitGroup
+		failures := make(chan error, asking)
+		for range asking {
+			wg.Go(func() {
+				if _, err := d.Client.FreshOutsideEdits(t.Context()); err != nil {
+					failures <- err
+				}
+			})
+		}
+		for machine.reads.Load() == 0 {
+			time.Sleep(time.Millisecond)
+		}
+		time.Sleep(50 * time.Millisecond)
+		close(machine.release)
+		wg.Wait()
+		close(failures)
+		for err := range failures {
+			t.Errorf("a fresh read failed: %v", err)
+		}
+		if machine.most.Load() != 1 {
+			t.Errorf("%d readings of the clone ran at once, want one", machine.most.Load())
+		}
+		if reads := machine.reads.Load(); reads > asking {
+			t.Errorf("%d fresh reads of %d asks ran", reads, asking)
+		}
+	})
 }
