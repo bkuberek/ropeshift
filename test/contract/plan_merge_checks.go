@@ -42,6 +42,7 @@ var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM20", "a planning branch that waits in integrating for its plan approval when main changes the plan goes back to rework on the same branch, with why in its brief, and its next commit asks for main's version naming it", checkMainChangesThePlanOfAWaitingBranch},
 	{"PM21", "of two planning branches that propose one new version of a plan the ledger holds, approving the second's request once the first's commit recorded that version accepts the second's work and approves its merge", checkSecondBranchOfAHeldPlanIsAcceptedByItsApproval},
 	{"PM22", "a plan held for its goal that main finished is asked about again naming no work order when an accepted planning branch that did not change it is read first, so approving it approves no branch's merge", checkHeldPlanTheBranchLeftAloneNamesNoBranch},
+	{"PM23", "a request of a planning branch that still waits for acceptance for a version main then records with other files is closed when main records it, so no request waits for a version the ledger holds with a digest it was not bound to, and the branch is asked about again once a member accepts it", checkMainRecordsTheVersionAWaitingBranchProposed},
 })
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -1509,6 +1510,84 @@ func checkHeldPlanTheBranchLeftAloneNamesNoBranch(r *Rig) error {
 	}
 	if records, err := p.integrations(); err != nil || len(records) != 0 {
 		return Violatedf("approving the plan the branch left alone approved its merge: %+v, %v", records, err)
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkMainRecordsTheVersionAWaitingBranchProposed(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	// The ledger holds the plan as main has it, and the planning branch, which waits for acceptance and which intake has
+	// not read, proposes version 2 of it.
+	main := acceptedSource(mainPlanFiles())
+	if _, err := r.intake(p.store, main); err != nil {
+		return err
+	}
+	proposed, err := p.asked()
+	if err != nil {
+		return err
+	}
+	if proposed.WorkOrder != p.grant.WorkOrder || proposed.Plan == "" || proposed.PlanVersion != 2 {
+		return Violatedf("the branch's request is %+v, want one for version 2 of the plan naming work order %s", proposed, p.grant.WorkOrder)
+	}
+	// Main changes the plan before the branch is accepted, so version 2 is recorded from main's files, whose digest is not
+	// the one the branch's request is bound to. Approving that request could only be refused as stale.
+	for name, text := range laneFiles("Main moved on.") {
+		main.Write(name, []byte(text))
+	}
+	if _, err := r.intake(p.store, main); err != nil {
+		return err
+	}
+	onMain, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if onMain.ID == proposed.ID || onMain.WorkOrder != "" || onMain.Plan != proposed.Plan || onMain.PlanVersion != proposed.PlanVersion ||
+		onMain.SubjectDigest == proposed.SubjectDigest {
+		return Violatedf("the request waiting after main recorded version %d is %+v, want main's, naming no work order and bound to another digest than %s",
+			proposed.PlanVersion, onMain, proposed.SubjectDigest)
+	}
+	all, err := r.planApprovals(p.store)
+	if err != nil {
+		return err
+	}
+	for _, row := range all {
+		if row.ID == proposed.ID && row.State != authority.ApprovalSuperseded {
+			return Violatedf("the branch's request is %s after main recorded the version it proposed with other files, want superseded", row.State)
+		}
+	}
+	if err := p.approvesNothing(proposed, authority.ErrApprovalClosed); err != nil {
+		return err
+	}
+	// Approving main's version approves no branch's merge. The member then accepts the branch by hand, and intake reads
+	// its commit, which holds a plan that is not main's, so it asks for the approval of a version naming the branch.
+	if _, err := r.approve(p.store, onMain, true, theMember); err != nil {
+		return err
+	}
+	if records, err := p.integrations(); err != nil || len(records) != 0 {
+		return Violatedf("approving the plan main changed approved a branch's merge: %+v, %v", records, err)
+	}
+	if err := p.accept(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	again, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if again.WorkOrder != p.grant.WorkOrder || again.Plan != proposed.Plan || again.PlanVersion != proposed.PlanVersion+1 || requestedAt(again) != p.head {
+		return Violatedf("the request for the accepted branch is %+v, want version %d of plan %s naming work order %s at %s",
+			again, proposed.PlanVersion+1, proposed.Plan, p.grant.WorkOrder, p.head)
+	}
+	if _, err := r.approve(p.store, again, true, theMember); err != nil {
+		return err
+	}
+	if err := p.mergeApprovedAt(p.grant.WorkOrder, p.head, again.Plan, again.PlanVersion); err != nil {
+		return err
 	}
 	return r.CheckProjection(p.store)
 }

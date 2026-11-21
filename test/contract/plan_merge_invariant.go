@@ -21,7 +21,9 @@ import (
 // newest, which is the one a member approves. A request approved with no merge approval on record approved nothing, and
 // leaves the branch with no item in Needs you. A commit intake has not taken in yet is read on the next tick, so it is
 // held to this from then on. The first write after which it fails fails the check, naming the transaction, whatever the
-// check itself went on to say.
+// check itself went on to say. It reads too that no open plan request for a version the ledger holds carries a digest
+// other than the version's: such a request can only be refused as stale, so a member would be offered an approval that
+// cannot be given.
 func holdingPlanRequests(checks []Check) []Check {
 	out := make([]Check, 0, len(checks))
 	for _, check := range checks {
@@ -76,6 +78,9 @@ func (s planRequestStore) Write(ctx context.Context, scope ledger.WorkspaceID, o
 	err := s.Store.Write(ctx, scope, op, fn)
 	if err == nil {
 		if broken := unaskedPlanBranches(ctx, s.Store, scope); broken != nil {
+			s.watch.note(Violatedf("after the transaction %q: %v", op, broken))
+		}
+		if broken := staleOpenPlanRequests(ctx, s.Store, scope); broken != nil {
 			s.watch.note(Violatedf("after the transaction %q: %v", op, broken))
 		}
 	}
@@ -140,6 +145,43 @@ func unaskedPlanBranches(ctx context.Context, store ports.Store, scope ledger.Wo
 	}
 	if len(stuck) != 0 {
 		return errors.New(strings.Join(stuck, "\n"))
+	}
+	return nil
+}
+
+// staleOpenPlanRequests names each open plan request for a version the ledger holds that is bound to another digest than
+// the version's, which approving would refuse as stale. A request for a version the ledger does not hold is bound to a
+// branch nothing has read, and is held to nothing here.
+func staleOpenPlanRequests(ctx context.Context, store ports.Store, scope ledger.WorkspaceID) error {
+	var stale []string
+	err := store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		requests, err := tx.Approvals().All()
+		if err != nil {
+			return err
+		}
+		for _, request := range requests {
+			if request.Kind != authority.KindPlan || !request.Open() || request.Plan == "" {
+				continue
+			}
+			version, err := tx.Planning().PlanVersion(request.Plan, request.PlanVersion)
+			if errors.Is(err, ports.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if version.Digest != request.SubjectDigest {
+				stale = append(stale, fmt.Sprintf("request %s for %q version %d naming work order %q is open and bound to %s where the version holds %s",
+					request.ID, request.Plan, request.PlanVersion, request.WorkOrder, request.SubjectDigest, version.Digest))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(stale) != 0 {
+		return errors.New(strings.Join(stale, "\n"))
 	}
 	return nil
 }

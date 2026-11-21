@@ -199,7 +199,8 @@ func planFileDigest(planned ports.PlanningReader, plan string, files map[string]
 
 // recordPlanVersion makes the next version of a plan when its digest moved, and raises its approval in
 // the same transaction. The older version's open approval is superseded in that transaction too, so
-// a member never sees two requests for one plan.
+// a member never sees two requests for one plan, and so is a planning branch's open request for this version that was
+// bound to other files.
 func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileRead, origin planOrigin) (bool, error) {
 	native, err := readNativeIDs(tx.Planning())
 	if err != nil {
@@ -245,6 +246,9 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 			return false, err
 		}
 	}
+	if err := closeBranchRequestsOfOtherFiles(tx, next); err != nil {
+		return false, err
+	}
 	ref := planFileRef(entries)
 	approved, found, err := approvedBeforeRecorded(tx, next, ref, origin.commit)
 	if err != nil {
@@ -280,6 +284,37 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,
 		decisions: len(next.Decisions), source: source, workOrder: next.WorkOrder, unfinished: planning.Unfinished(finish),
 	})
+}
+
+// closeBranchRequestsOfOtherFiles closes each open request that names a planning work order for the version the ledger
+// holds now when it is bound to another digest than the version's. A branch that waits for acceptance, which intake has
+// not read, keeps a request for the version number it proposed, and when another source records that number with other
+// files, approving the request could only be refused as stale. A request for the same files stays, because approving it
+// approves its own branch's merge, which the request for the version cannot.
+func closeBranchRequestsOfOtherFiles(tx ports.WriteTx, version planning.PlanVersion) error {
+	rows, err := tx.Approvals().All()
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Kind != authority.KindPlan || !row.Open() || row.Plan != version.PlanID || row.PlanVersion != version.Version ||
+			row.WorkOrder == "" || row.SubjectDigest == version.Digest {
+			continue
+		}
+		if err := supersedeRequest(tx, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// supersedeRequest closes an open plan request because another request replaced it.
+func supersedeRequest(tx ports.WriteTx, row authority.Approval) error {
+	next, err := row.Supersede()
+	if err != nil {
+		return err
+	}
+	return noteApproval(tx, next, row.State, intakeActor)
 }
 
 // planFileRef is the ID the plan's own file gives it, from the entries of a version.
@@ -396,11 +431,7 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 		if (!samePlan || otherBranch) && !sameBranch {
 			continue
 		}
-		next, err := row.Supersede()
-		if err != nil {
-			return err
-		}
-		if err := noteApproval(tx, next, row.State, intakeActor); err != nil {
+		if err := supersedeRequest(tx, row); err != nil {
 			return err
 		}
 	}
