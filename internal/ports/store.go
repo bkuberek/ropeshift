@@ -192,6 +192,10 @@ type ReadTx interface {
 	// EventsOfKind returns every event about a subject of one kind recorded at or after since, by database time, in
 	// order, as a write's does.
 	EventsOfKind(kind string, since int64) ([]ledger.Event, error)
+	// EventsOfTypeAbout returns the events of one type about the subjects of one kind that some IDs name, in order,
+	// and reads no other. An ID no such event is about names none, and an ID named twice names its events once. It is
+	// how a read of one event for each of several records takes one read and not one for each record.
+	EventsOfTypeAbout(eventType, subjectKind string, ids []string) ([]ledger.Event, error)
 	// Now reads database time.
 	Now() (int64, error)
 	// WorkOrders reads the work order projection.

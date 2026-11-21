@@ -96,6 +96,15 @@ VALUES
  WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND recorded_at >= :since
  ORDER BY rev`)
 
+	// stmtEventsOfTypeAbout reads the events of one type about the subjects of one kind that one slice of IDs names
+	// (idSlots), through the index of a subject.
+	stmtEventsOfTypeAbout = define("event.of_type_about",
+		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
+       data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id
+  FROM events
+ WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND subject_id IN `+idList+` AND type = :type
+ ORDER BY rev`)
+
 	stmtListEvents = define("event.list",
 		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
        data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id

@@ -13,24 +13,32 @@ import (
 // oneWayReviewNeeds lists, as decisions that wait for a member's review, every one-way decision in force that an
 // orchestrator recorded, which it does only on an unattended worker whose one-way acknowledgement a member accepted
 // (FR-QD-8). The event that recorded a decision names who recorded it, so a decision whose worker the ledger no longer
-// holds still reads as an orchestrator's, and the event's time is how long the review has waited. A member's Keep or
-// Overturn ends the decision, which ends its review.
+// holds still reads as an orchestrator's, and the event's time is how long the review has waited. The events that
+// recorded the decisions are read together, once, however many decisions wait. A member's Keep or Overturn ends the
+// decision, which ends its review.
 func oneWayReviewNeeds(tx ports.ReadTx) ([]api.NeedItem, error) {
 	decided, err := allDecisions(tx, ports.RecordFilter{Status: string(questions.DecisionDecided)})
 	if err != nil {
 		return nil, err
 	}
-	var names map[string]string
-	items := []api.NeedItem{}
+	oneWay := make([]questions.Decision, 0, len(decided))
 	for _, decision := range decided {
-		if decision.Reversibility != questions.OneWay || decision.DecidedBy == "" {
-			continue
+		if decision.Reversibility == questions.OneWay && decision.DecidedBy != "" {
+			oneWay = append(oneWay, decision)
 		}
-		since, ok, err := recordedByOrchestrator(tx, decision)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
+	}
+	items := []api.NeedItem{}
+	if len(oneWay) == 0 {
+		return items, nil
+	}
+	recorded, err := recordingEvents(tx, oneWay)
+	if err != nil {
+		return nil, err
+	}
+	var names map[string]string
+	for _, decision := range oneWay {
+		event, ok := recorded[decision.ID]
+		if !ok || authority.PartyOf(event.Actor) != authority.PartyOrchestrator || event.Actor.ID != decision.DecidedBy {
 			continue
 		}
 		if names == nil {
@@ -42,23 +50,29 @@ func oneWayReviewNeeds(tx ports.ReadTx) ([]api.NeedItem, error) {
 		if need.Question, err = questionText(tx, decision.QuestionID); err != nil {
 			return nil, err
 		}
-		items = append(items, api.NeedItem{Kind: api.NeedOneWayReview, ID: decision.ID, Since: since, OneWayReview: need})
+		items = append(items, api.NeedItem{Kind: api.NeedOneWayReview, ID: decision.ID, Since: event.RecordedAt, OneWayReview: need})
 	}
 	return items, nil
 }
 
-// recordedByOrchestrator reads the event that recorded a decision: whether an orchestrator recorded it, and when.
-func recordedByOrchestrator(tx ports.ReadTx, decision questions.Decision) (int64, bool, error) {
-	events, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: decision.ID})
-	if err != nil {
-		return 0, false, err
+// recordingEvents reads the event that recorded each of some decisions, by decision, in one read. A decision no event
+// recorded has none.
+func recordingEvents(tx ports.ReadTx, decisions []questions.Decision) (map[string]ledger.Event, error) {
+	ids := make([]string, len(decisions))
+	for i, decision := range decisions {
+		ids[i] = decision.ID
 	}
+	events, err := tx.EventsOfTypeAbout(questions.EventDecisionRecorded, questions.SubjectDecision, ids)
+	if err != nil {
+		return nil, err
+	}
+	recorded := make(map[string]ledger.Event, len(events))
 	for _, event := range events {
-		if event.Type == questions.EventDecisionRecorded {
-			return event.RecordedAt, authority.PartyOf(event.Actor) == authority.PartyOrchestrator && event.Actor.ID == decision.DecidedBy, nil
+		if _, first := recorded[event.Subject.ID]; !first {
+			recorded[event.Subject.ID] = event
 		}
 	}
-	return 0, false, nil
+	return recorded, nil
 }
 
 // workerNames names each worker the ledger holds by its ID, because an orchestrator decides as its worker.
