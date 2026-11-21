@@ -82,6 +82,19 @@ func (w committingWorktrees) Commits(ctx context.Context, at, _ string) ([]ports
 	return held, err
 }
 
+// BranchChanges lists nothing: the restructure these tests drive reads no push, and a branch of the repository is not a
+// worktree's branch file.
+func (committingWorktrees) BranchChanges(context.Context, string, string, string) ([]ports.Commit, error) {
+	return nil, nil
+}
+
+// Tracks says the index holds nothing: these worktrees keep commits in a branch file and no index. A worktree that was
+// never made is not found.
+func (w committingWorktrees) Tracks(ctx context.Context, at, _ string) (bool, error) {
+	_, err := w.Inspect(ctx, at)
+	return false, err
+}
+
 // readBranch reads the commits a branch file holds, oldest first. A branch with none has no file.
 func readBranch(file string) ([]ports.Commit, error) {
 	raw, err := os.ReadFile(file)
