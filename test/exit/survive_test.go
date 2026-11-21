@@ -23,6 +23,33 @@ import (
 
 func exists(pid int) bool { return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) }
 
+// laneCalls counts the double's calls for one lane: the sessions it started, and its listings of the
+// sessions in the lane's worktree. The worker runs its orchestrator beside the lane once a member exists
+// (FR-ORCH-1), and a new worker adopts that run too, so a call for any other lane is not counted.
+func laneCalls(t *testing.T, in *install, lane string) (starts, listings int) {
+	t.Helper()
+	for _, seen := range doubles.SeenBy(t, doubles.BinDir(in.path)) {
+		listing := len(seen.Args) != 0 && seen.Args[0] == "agents"
+		switch {
+		case listing && filepath.Base(flagValue(seen.Args, "--cwd")) == lane:
+			listings++
+		case !listing && filepath.Base(filepath.Dir(flagValue(seen.Args, "--settings"))) == lane:
+			starts++
+		}
+	}
+	return starts, listings
+}
+
+// flagValue is the value that follows a flag in a command line, or empty when the line has no such flag.
+func flagValue(args []string, flag string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 // TestLaneSurvivesAWorkerKill is FR-LANE-17 on real processes: the daemon dies by
 // SIGKILL mid-turn, the session finishes that turn with nobody watching, a new daemon
 // adopts it, and the lane reports through the new worker's socket. RS2 walks this with
@@ -83,15 +110,7 @@ func TestLaneSurvivesAWorkerKill(t *testing.T) {
 	in.waitFor("the shim's end", func() bool { return !exists(state.ShimPID) && !exists(state.ChildPID) })
 	second.kill()
 
-	starts, listings := 0, 0
-	for _, seen := range doubles.SeenBy(t, doubles.BinDir(in.path)) {
-		switch {
-		case len(seen.Args) != 0 && seen.Args[0] == "agents":
-			listings++
-		default:
-			starts++
-		}
-	}
+	starts, listings := laneCalls(t, in, "lane-1")
 	if starts != 1 {
 		t.Errorf("%d sessions started for one lane", starts)
 	}
@@ -227,15 +246,7 @@ func TestPaneLaneSurvivesAWorkerKill(t *testing.T) {
 	in.waitFor("the pane's end", func() bool { return !exists(pane.PID) })
 	second.kill()
 
-	starts, listings := 0, 0
-	for _, seen := range doubles.SeenBy(t, doubles.BinDir(in.path)) {
-		switch {
-		case len(seen.Args) != 0 && seen.Args[0] == "agents":
-			listings++
-		default:
-			starts++
-		}
-	}
+	starts, listings := laneCalls(t, in, "lane-1")
 	if starts != 1 {
 		t.Errorf("%d sessions started for one lane", starts)
 	}
