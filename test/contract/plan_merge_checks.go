@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -44,6 +45,9 @@ var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM22", "a plan held for its goal that main finished is asked about again naming no work order when an accepted planning branch that did not change it is read first, so approving it approves no branch's merge", checkHeldPlanTheBranchLeftAloneNamesNoBranch},
 	{"PM23", "a request of a planning branch that still waits for acceptance for a version main then records with other files is closed when main records it, so no request waits for a version the ledger holds with a digest it was not bound to, and the branch is asked about again once a member accepts it", checkMainRecordsTheVersionAWaitingBranchProposed},
 	{"PM24", "a planning branch that holds two plans and waits for acceptance goes back for rework when main records the version of one with other files, so approving the request of the other accepts nothing and merges nothing of the plan that was never approved", checkMainRecordsAVersionOfOneOfTwoPlansOfAWaitingBranch},
+	{"PM25", "a planning branch that holds two plans goes back for rework with the member's reason in its brief when a member denies the request of one, after main recorded the version of the other with the branch's files, so approving the other's request accepts nothing and merges nothing", checkDeniedPlanOfABranchWhoseOtherPlanMainHolds},
+	{"PM26", "a planning branch that holds two plans nothing has read goes back for rework with the member's reason in its brief when a member denies the request of one, so approving the other's request accepts nothing and intake's read merges nothing, whichever plan it reads first", checkDeniedPlanOfAnUnreadBranch},
+	{"PM27", "a planning branch whose request for one of its two plans a newer version on main superseded while it waited for acceptance waits in integrating, saying which plan waits and why, until a request for that plan at its commit is approved, and only then merges", checkSupersededPlanOfABranchHoldsItsMerge},
 })
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -1601,43 +1605,52 @@ func auditPlanFilesWith(spec string) map[string]string {
 	return files
 }
 
-func checkMainRecordsAVersionOfOneOfTwoPlansOfAWaitingBranch(r *Rig) error {
-	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
-	if err != nil {
-		return err
-	}
-	// The ledger holds both plans as main has them, and the planning branch, which waits for acceptance and which intake has
-	// not read, holds both plans with other files, so it asks for the approval of version 2 of each.
+// twoPlansOnTheBranch has the ledger hold both plans as main has them, and the planning branch, which waits for acceptance
+// and which intake has not read, hold both plans with other files, so it asks for the approval of version 2 of each. It
+// returns main's files and the branch's request for the retry plan and for the audit plan.
+func (p *planMergeRig) twoPlansOnTheBranch() (*fake.WorkSource, authority.Approval, authority.Approval, error) {
 	main := acceptedSource(mainPlanFiles())
 	for name, text := range auditPlanFilesWith("The audit on main.") {
 		main.Write(name, []byte(text))
 	}
-	if _, err := r.intake(p.store, main); err != nil {
-		return err
+	if _, err := p.r.intake(p.store, main); err != nil {
+		return nil, authority.Approval{}, authority.Approval{}, err
 	}
 	for name, text := range auditPlanFilesWith("The audit on the branch.") {
 		p.files[name] = text
 	}
 	if _, err := p.tick(); err != nil {
-		return err
+		return nil, authority.Approval{}, authority.Approval{}, err
 	}
 	open, err := p.openPlanRequests()
 	if err != nil {
-		return err
+		return nil, authority.Approval{}, authority.Approval{}, err
 	}
 	if len(open) != 2 || open[0].Plan == open[1].Plan {
-		return Violatedf("the branch asks %+v, want a request for each of its two plans", open)
+		return nil, authority.Approval{}, authority.Approval{}, Violatedf("the branch asks %+v, want a request for each of its two plans", open)
 	}
 	byTitle := map[string]authority.Approval{}
 	for _, row := range open {
 		if row.WorkOrder != p.grant.WorkOrder || row.PlanVersion != 2 || requestedAt(row) != p.head {
-			return Violatedf("the request %+v is not for version 2 of a plan of work order %s at %s", row, p.grant.WorkOrder, p.head)
+			return nil, authority.Approval{}, authority.Approval{}, Violatedf("the request %+v is not for version 2 of a plan of work order %s at %s", row, p.grant.WorkOrder, p.head)
 		}
 		byTitle[planDetailOf(row).Title] = row
 	}
 	retry, audit := byTitle["Retry budget"], byTitle["Audit trail"]
 	if retry.ID == "" || audit.ID == "" {
-		return Violatedf("the branch's requests are %+v, want one for each of the plans Retry budget and Audit trail", open)
+		return nil, authority.Approval{}, authority.Approval{}, Violatedf("the branch's requests are %+v, want one for each of the plans Retry budget and Audit trail", open)
+	}
+	return main, retry, audit, nil
+}
+
+func checkMainRecordsAVersionOfOneOfTwoPlansOfAWaitingBranch(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	main, retry, audit, err := p.twoPlansOnTheBranch()
+	if err != nil {
+		return err
 	}
 	// Main changes the retry plan before the branch is accepted, so version 2 of it is recorded from main's files, which are
 	// not the ones the branch's request is bound to. Approving the audit request now must not accept the branch and merge
@@ -1726,4 +1739,192 @@ func (p *planMergeRig) askedByWorkOrder(commit string) (authority.Approval, erro
 		return authority.Approval{}, Violatedf("the requests waiting are %+v, want one that names work order %s at %s", open, p.grant.WorkOrder, commit)
 	}
 	return named[0], nil
+}
+
+// planDenial is the reason the member gives for denying the retry plan of a planning branch.
+const planDenial = "The retry budget should be per key."
+
+// deniedSendsTheBranchBack has the member deny the request of one plan of the planning branch, and says the denial stands,
+// the branch went back for rework on the same branch with the member's reason and the plan in its brief, and approving the
+// request of its other plan accepts nothing and merges nothing.
+func (p *planMergeRig) deniedSendsTheBranchBack(denied, other authority.Approval) error {
+	answer, err := p.decide(denied, denied.SubjectDigest, false, planDenial, theMember)
+	if err != nil || answer.State != authority.ApprovalDenied {
+		return Violatedf("denying request %s answered %+v: %v", denied.ID, answer, err)
+	}
+	if err := p.stands(workorders.Ready); err != nil {
+		return err
+	}
+	order, err := p.order()
+	if err != nil || order.Branch != branchName {
+		return Violatedf("the planning work continues %q: %v", order.Branch, err)
+	}
+	note, err := p.reworkNote()
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{planDenial, planDetailOf(denied).Title, "declined"} {
+		if !strings.Contains(note.Reason, want) {
+			return Violatedf("the rework's brief leaves out %q: %q", want, note.Reason)
+		}
+	}
+	all, err := p.r.planApprovals(p.store)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(all, func(row authority.Approval) bool { return row.ID == denied.ID && row.State == authority.ApprovalDenied }) {
+		return Violatedf("the denied request is not denied among %+v", all)
+	}
+	return p.approvesNothing(other, authority.ErrApprovalClosed)
+}
+
+func checkDeniedPlanOfABranchWhoseOtherPlanMainHolds(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	main, retry, audit, err := p.twoPlansOnTheBranch()
+	if err != nil {
+		return err
+	}
+	// Main records version 2 of the audit plan with the branch's files, so the branch's audit request is for a version the
+	// ledger holds at the digest it was bound to: approving it would accept the branch and approve its merge in one
+	// transaction, whatever became of the retry plan.
+	for name, text := range auditPlanFilesWith("The audit on the branch.") {
+		main.Write(name, []byte(text))
+	}
+	if _, err := r.intake(p.store, main); err != nil {
+		return err
+	}
+	open, err := p.openPlanRequests()
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{retry.ID, audit.ID} {
+		if !slices.ContainsFunc(open, func(row authority.Approval) bool { return row.ID == want }) {
+			return Violatedf("the requests waiting after main recorded the audit plan with the branch's files are %+v, want %s among them", open, want)
+		}
+	}
+	// The member denies the retry plan, so the branch goes back for rework with the reason, and the audit plan's request
+	// cannot accept it and merge it with a retry plan the member denied.
+	if err := p.deniedSendsTheBranchBack(retry, audit); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkDeniedPlanOfAnUnreadBranch(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	_, retry, audit, err := p.twoPlansOnTheBranch()
+	if err != nil {
+		return err
+	}
+	// Both requests are for versions the ledger does not hold. Approving the audit plan would accept the branch, and intake
+	// reads the plans of an accepted commit in the order of their IDs, so the audit plan's approval could ask for the merge
+	// before the retry plan is asked about again. The member denies the retry plan, and the branch goes back for rework.
+	if err := p.deniedSendsTheBranchBack(retry, audit); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Ready); err != nil {
+		return err
+	}
+	if err := p.noMerge(); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkSupersededPlanOfABranchHoldsItsMerge(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	main, retry, audit, err := p.twoPlansOnTheBranch()
+	if err != nil {
+		return err
+	}
+	// Main records version 2 of the retry plan with the branch's files, which leaves the branch's request for it waiting, and
+	// then version 3 with files of its own, which supersedes that request while the branch still waits for acceptance.
+	for name, text := range laneFiles("The first draft.") {
+		main.Write(name, []byte(text))
+	}
+	if _, err := r.intake(p.store, main); err != nil {
+		return err
+	}
+	open, err := p.openPlanRequests()
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(open, func(row authority.Approval) bool { return row.ID == retry.ID }) {
+		return Violatedf("the requests waiting after main recorded the retry plan with the branch's files are %+v, want %s among them", open, retry.ID)
+	}
+	for name, text := range laneFiles("Main moved on.") {
+		main.Write(name, []byte(text))
+	}
+	if _, err := r.intake(p.store, main); err != nil {
+		return err
+	}
+	all, err := p.r.planApprovals(p.store)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(all, func(row authority.Approval) bool {
+		return row.ID == retry.ID && row.State == authority.ApprovalSuperseded
+	}) {
+		return Violatedf("the branch's retry request is not superseded among %+v", all)
+	}
+	// Approving the audit plan accepts the branch. Its merge waits for the retry plan, which no request open or approved
+	// stands for at the branch's commit, and says so.
+	if _, err := r.approve(p.store, audit, true, theMember); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Integrating); err != nil {
+		return err
+	}
+	view, err := p.standing()
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{`plan "Retry budget"`, "superseded", "no request for it is open or approved"} {
+		if !strings.Contains(view.Why, want) {
+			return Violatedf("the merge waits because %q, which leaves out %q", view.Why, want)
+		}
+	}
+	// Intake reads the commit, in the order of the plans' IDs, and the audit plan's approval asks for no merge, whichever
+	// plan it reads first.
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Integrating); err != nil {
+		return err
+	}
+	if err := p.noMerge(); err != nil {
+		return err
+	}
+	// Reading the commit asks for the retry plan's approval naming the branch at its commit, and approving that request is
+	// what lets the merge go on.
+	asked, err := p.askedByWorkOrder(p.head)
+	if err != nil {
+		return err
+	}
+	if asked.Plan != retry.Plan {
+		return Violatedf("the request waiting for the branch is %+v, want one for the retry plan %s", asked, retry.Plan)
+	}
+	if _, err := r.approve(p.store, asked, true, theMember); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Commit != p.head {
+		return Violatedf("the worker is asked to merge %+v, want %s: %v", merge, p.head, err)
+	}
+	if err := p.landed(merge, mergedBehindMain); err != nil {
+		return err
+	}
+	return r.CheckProjection(p.store)
 }
