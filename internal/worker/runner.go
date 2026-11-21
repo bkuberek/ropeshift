@@ -1224,16 +1224,15 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	}
 }
 
-// recordSetup keeps on the lane what its session loaded at its start, for the generation the session runs. A lane's
-// own work order holds it, so an assistant's or an orchestrator's session, which runs none, records nothing here.
+// recordSetup keeps on the lane what its session loaded at its start. The upload names the generation the session
+// runs, which the control plane records whatever the payload says. A lane's own work order holds it, so an assistant's
+// or an orchestrator's session, which runs none, records nothing here.
 func (r *laneRun) recordSetup(ctx context.Context, setup *lanes.Setup) {
 	if setup == nil || r.assisting() || r.orchestrating() {
 		return
 	}
 	lane := r.record()
-	loaded := *setup
-	loaded.Generation = lane.Generation
-	payload, err := json.Marshal(loaded)
+	payload, err := json.Marshal(setup)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return

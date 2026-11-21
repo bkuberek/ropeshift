@@ -145,6 +145,9 @@ func TestAcceptingALeakRecordsItForTheMachineAndVersion(t *testing.T) {
 	if err := d.Client.AcceptPersonalSetup(t.Context(), apitest.WorldWorker, accept); err != nil {
 		t.Errorf("accepting again: %v", err)
 	}
+	if page, err := d.Client.Audit(t.Context(), api.AuditQuery{Kind: ledger.EventPersonalSetupAccepted, Limit: 10}); err != nil || len(page.Events) != 1 {
+		t.Errorf("accepting a piece twice recorded %+v (%v), want one acceptance", page.Events, err)
+	}
 	needs := setupNeeds(t, d)
 	if len(needs) != 1 || needs[0].PersonalSetup.Piece.Name != "github" {
 		t.Errorf("after the agent was accepted, Needs you holds %+v", needs)

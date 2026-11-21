@@ -336,11 +336,19 @@ func forgeLooseBlob(t *testing.T, objects, blob, body string) {
 
 // A repository whose `.mcp.json` does not parse gives a lane ropeshift's server alone, and the lane still starts.
 func TestAnUnreadableMCPFileGivesALaneOnlyRopeshiftsServer(t *testing.T) {
-	spec := laneSpec(t)
-	spec.Repository = spec.Dir
-	spec.Base = committed(t, spec.Dir, map[string]string{".mcp.json": `{"mcpServers":`})
-	if servers := generatedServers(t, spec); len(servers) != 1 || servers[ServerName] == nil {
-		t.Errorf("the lane's servers are %v", slices.Sorted(maps.Keys(servers)))
+	for name, body := range map[string]string{
+		"a file cut short": `{"mcpServers":`,
+		// The second value is no object, which a decode reports after it has kept the first value's servers.
+		"a file whose servers are named twice, the second time as no object": `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}},"mcpServers":"none"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := laneSpec(t)
+			spec.Repository = spec.Dir
+			spec.Base = committed(t, spec.Dir, map[string]string{".mcp.json": body})
+			if servers := generatedServers(t, spec); len(servers) != 1 || servers[ServerName] == nil {
+				t.Errorf("the lane's servers are %v", slices.Sorted(maps.Keys(servers)))
+			}
+		})
 	}
 }
 
