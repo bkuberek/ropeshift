@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -76,6 +77,12 @@ const (
 	outputGrace = 5 * time.Second
 )
 
+// terminalGrace is how long the terminal of a step that ended stays open before the run names what holds it. The
+// terminal closes when the last process that holds its slave side closes it, so a process the step left behind, such
+// as a terminal server that kept the descriptor the step was given, holds it for as long as that process runs. It is
+// a variable only so a test can shorten it.
+var terminalGrace = 10 * time.Second
+
 // How much of a step's output, each stream on its own, a failure shows.
 const (
 	tailLines = 40
@@ -93,6 +100,11 @@ type Step struct {
 	Millis   int64    `json:"ms"`
 	// TimedOut says the step ran past its limit and was killed.
 	TimedOut bool `json:"timed_out,omitempty"`
+	// TerminalOpen says the step's terminal was still open terminalGrace after the step ended.
+	TerminalOpen bool `json:"terminal_open,omitempty"`
+	// Holders names each process that held the step's terminal open when the step ran past its limit or its
+	// terminal stayed open after it ended, with its ID, its command line, and the descriptors it holds.
+	Holders []string `json:"holders,omitempty"`
 }
 
 // Result is what the run saw.
@@ -414,12 +426,18 @@ func (r *run) endWhatRemains() {
 
 // onTerminal runs a command whose controlling terminal is a new one, for at most limit, and types each
 // answer once its prompt shows, as a person does. Its stdout stays a pipe, as in `$(ropeshift login)`.
+//
+// The terminal closes when the last process that holds its slave side closes it, so a process the step left
+// behind keeps the typing goroutine reading for as long as it runs. The wait for that goroutine is bounded by
+// terminalGrace. A step that ran past its limit, or whose terminal stayed open, names every process that holds
+// the terminal, so a run that hangs on it says what holds it.
 func (r *run) onTerminal(name string, limit time.Duration, args []string, answers ...string) Step {
 	typed, held, err := ptypair.Open()
 	if err != nil {
 		return Step{Name: name, Args: args, Exit: -1, Stderr: err.Error()}
 	}
-	var screen bytes.Buffer
+	slave := held.Name()
+	var screen screenBuffer
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -434,18 +452,45 @@ func (r *run) onTerminal(name string, limit time.Duration, args []string, answer
 	})
 	_ = held.Close()
 	_ = typed.Close()
-	<-done
+	select {
+	case <-done:
+	case <-time.After(terminalGrace):
+		step.TerminalOpen = true
+	}
+	if step.TimedOut || step.TerminalOpen {
+		step.Holders = terminalHolders(slave)
+		fmt.Fprintf(os.Stderr, "firstrun: the step %q ended with its terminal %s held by:\n%s\n", name, slave, strings.Join(step.Holders, "\n"))
+	}
 	step.Terminal = screen.String()
 	return step
 }
 
+// screenBuffer is what a terminal showed. The goroutine that types at the terminal writes it until the terminal
+// closes, which a process a step left behind can hold off, so a step that ended reads it under a lock.
+type screenBuffer struct {
+	mu   sync.Mutex
+	text bytes.Buffer
+}
+
+func (s *screenBuffer) write(p []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.text.Write(p)
+}
+
+func (s *screenBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.text.String()
+}
+
 // answer types each answer after its prompt, a line that ends in ": ", has shown.
-func answer(typed *os.File, screen *bytes.Buffer, answers []string) {
+func answer(typed *os.File, screen *screenBuffer, answers []string) {
 	buffer := make([]byte, 256)
 	asked := 0
 	for {
 		n, err := typed.Read(buffer)
-		screen.Write(buffer[:n])
+		screen.write(buffer[:n])
 		if err != nil {
 			return
 		}
@@ -512,10 +557,14 @@ func runStep(ctx context.Context, name string, args []string, prepare func(*exec
 // must records a step and fails the run on a non-zero exit, or on a step that ran past its limit.
 func (r *run) must(step Step) (Step, error) {
 	r.result.Steps = append(r.result.Steps, step)
+	fmt.Fprintf(os.Stderr, "firstrun: step %q ended with exit %d after %d ms\n", step.Name, step.Exit, step.Millis)
 	switch {
 	case step.TimedOut:
 		return step, fmt.Errorf("the step %q did not end within its limit and was killed after %d ms: %s\n%s",
 			step.Name, step.Millis, strings.Join(step.Args, " "), outputTail(step))
+	case step.TerminalOpen:
+		return step, fmt.Errorf("the step %q ended after %d ms, and its terminal was still open %v later: %s\n%s",
+			step.Name, step.Millis, terminalGrace, strings.Join(step.Args, " "), outputTail(step))
 	case step.Exit != 0:
 		return step, fmt.Errorf("%s exited %d: %s", strings.Join(step.Args, " "), step.Exit, strings.TrimSpace(step.Stderr))
 	}
@@ -529,6 +578,9 @@ func outputTail(step Step) string {
 		if text := tail(stream.text); text != "" {
 			fmt.Fprintf(&out, "its %s, at most its last %d lines:\n%s\n", stream.name, tailLines, text)
 		}
+	}
+	if len(step.Holders) != 0 {
+		fmt.Fprintf(&out, "what held its terminal open:\n%s\n", strings.Join(step.Holders, "\n"))
 	}
 	if out.Len() == 0 {
 		return "it wrote nothing"

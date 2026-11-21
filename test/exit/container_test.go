@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"ropeshift.com/ropeshift/test/doubles"
@@ -39,27 +40,33 @@ const traceCalls = "%process,connect,bind,sendto,sendmsg,sendmmsg"
 
 // firstRunResult is what test/exit/firstrun writes, read with the fields these tests judge.
 type firstRunResult struct {
-	Interfaces []string `json:"interfaces"`
-	Devices    []string `json:"devices"`
-	Docker     bool     `json:"docker"`
-	PriorState bool     `json:"prior_state"`
-	Steps      []struct {
-		Name     string   `json:"name"`
-		Args     []string `json:"args"`
-		Exit     int      `json:"exit"`
-		Stdout   string   `json:"stdout"`
-		Stderr   string   `json:"stderr"`
-		Terminal string   `json:"terminal"`
-		Millis   int64    `json:"ms"`
-	} `json:"steps"`
-	WorkOrder   string   `json:"work_order"`
-	States      []string `json:"states"`
-	Final       string   `json:"final"`
-	WebStatus   int      `json:"web_status"`
-	OffLoopback []string `json:"off_loopback"`
-	Left        []string `json:"left"`
-	CanaryRan   bool     `json:"canary_ran"`
-	Failure     string   `json:"failure"`
+	Interfaces  []string       `json:"interfaces"`
+	Devices     []string       `json:"devices"`
+	Docker      bool           `json:"docker"`
+	PriorState  bool           `json:"prior_state"`
+	Steps       []firstRunStep `json:"steps"`
+	WorkOrder   string         `json:"work_order"`
+	States      []string       `json:"states"`
+	Final       string         `json:"final"`
+	WebStatus   int            `json:"web_status"`
+	OffLoopback []string       `json:"off_loopback"`
+	Left        []string       `json:"left"`
+	CanaryRan   bool           `json:"canary_ran"`
+	Failure     string         `json:"failure"`
+}
+
+// firstRunStep is one command test/exit/firstrun ran, with the fields these tests judge and log.
+type firstRunStep struct {
+	Name         string   `json:"name"`
+	Args         []string `json:"args"`
+	Exit         int      `json:"exit"`
+	Stdout       string   `json:"stdout"`
+	Stderr       string   `json:"stderr"`
+	Terminal     string   `json:"terminal"`
+	Millis       int64    `json:"ms"`
+	TimedOut     bool     `json:"timed_out"`
+	TerminalOpen bool     `json:"terminal_open"`
+	Holders      []string `json:"holders"`
 }
 
 // TestNoOutboundConnections runs a new user's first work order on a build of this tree, in a container
@@ -124,9 +131,6 @@ func TestExitE1FirstWorkOrder(t *testing.T) {
 // assertFirstWorkOrder holds what every first run must show, whatever built the binary.
 func assertFirstWorkOrder(t *testing.T, result firstRunResult, version string) {
 	t.Helper()
-	for _, step := range result.Steps {
-		t.Logf("%-12s exit %d in %4d ms: %s", step.Name, step.Exit, step.Millis, strings.Join(step.Args, " "))
-	}
 	t.Logf("states %v, web UI %d, ended after the run: %v", result.States, result.WebStatus, result.Left)
 	if result.Failure != "" {
 		t.Fatalf("the first run failed: %s", result.Failure)
@@ -353,7 +357,8 @@ for p in /proc/[0-9]*; do
 	[ "$pid" = 1 ] || [ "$pid" = "$$" ] && continue
 	cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)
 	case "$cmd" in "" | "$self" | "tr "*) continue ;; esac
-	echo "LEFT $pid $cmd"
+	fds=$(for f in "$p"/fd/*; do printf '%s->%s ' "${f##*/}" "$(readlink "$f")"; done 2>/dev/null)
+	echo "LEFT $pid $cmd (descriptors: $fds)"
 done
 chmod -R a+rwX /out
 exit "$code"
@@ -391,9 +396,11 @@ func runFirstWorkOrder(t *testing.T, run firstRun) (firstRunResult, string) {
 		}
 	})
 	start := exec.Command("docker", "start", "--attach", id)
-	var output bytes.Buffer
-	start.Stdout, start.Stderr = &output, &output
+	// The container's output is logged as it arrives, so a run that hangs shows what firstrun said before it did.
+	output := &streamedLog{t: t, prefix: "container: "}
+	start.Stdout, start.Stderr = output, output
 	runErr := start.Run()
+	output.flush()
 	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
 		if strings.HasPrefix(line, "LEFT ") || strings.HasPrefix(line, "LINGERING") {
 			t.Errorf("the container: %s", line)
@@ -408,10 +415,73 @@ func runFirstWorkOrder(t *testing.T, run firstRun) (firstRunResult, string) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("container output:\n%s", strings.TrimSpace(output.String()))
+	logSteps(t, result)
 	if result.Failure != "" || runErr != nil {
 		daemonLog, _ := os.ReadFile(filepath.Join(out, "daemon.log"))
 		t.Logf("container %v, result:\n%s\ndaemon:\n%s", runErr, raw, daemonLog)
 	}
 	return result, out
+}
+
+// streamedLog is the output of a container, logged line by line as it arrives and kept whole.
+type streamedLog struct {
+	t      *testing.T
+	prefix string
+	mu     sync.Mutex
+	all    bytes.Buffer
+	line   bytes.Buffer
+}
+
+func (l *streamedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.all.Write(p)
+	for _, b := range p {
+		if b != '\n' {
+			l.line.WriteByte(b)
+			continue
+		}
+		l.t.Log(l.prefix + l.line.String())
+		l.line.Reset()
+	}
+	return len(p), nil
+}
+
+// flush logs what the container wrote after its last newline.
+func (l *streamedLog) flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.line.Len() != 0 {
+		l.t.Log(l.prefix + l.line.String())
+		l.line.Reset()
+	}
+}
+
+func (l *streamedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.all.String()
+}
+
+// logSteps logs every step the run took with how long it took, and ropeshift init's duration on a line of its own,
+// so the output of every run, passed or not, shows how long init took. A step that ran past its limit, or whose
+// terminal stayed open after it ended, is logged with every process that held the terminal, with its ID, its
+// command line, and its descriptors.
+func logSteps(t *testing.T, result firstRunResult) {
+	t.Helper()
+	for _, step := range result.Steps {
+		t.Logf("%-12s exit %d in %4d ms: %s", step.Name, step.Exit, step.Millis, strings.Join(step.Args, " "))
+		switch {
+		case step.TimedOut:
+			t.Logf("%s ran past its limit and was killed", step.Name)
+		case step.TerminalOpen:
+			t.Logf("%s ended, and its terminal stayed open", step.Name)
+		}
+		for _, holder := range step.Holders {
+			t.Logf("%s: terminal held by %s", step.Name, holder)
+		}
+		if step.Name == "init" {
+			t.Logf("ropeshift init took %d ms", step.Millis)
+		}
+	}
 }
