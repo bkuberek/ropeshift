@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -173,6 +174,10 @@ func (r *response) rest(hostname, method, endpoint, query string, headers multi)
 		fail(2, "fakegh: api endpoint %q", endpoint)
 	}
 	repo := hostname + "/" + parts[1] + "/" + parts[2]
+	if parts[3] == "git" && len(parts) >= 7 && parts[4] == "ref" && parts[5] == "heads" {
+		r.branchRef(strings.Join(parts[6:], "/"), request)
+		return
+	}
 	if parts[3] == "actions" {
 		r.actions(repo, method, parts, query)
 		return
@@ -221,6 +226,23 @@ func (r *response) rest(hostname, method, endpoint, query string, headers multi)
 	default:
 		fail(2, "fakegh: api endpoint %q", endpoint)
 	}
+}
+
+// branchRef answers `repos/{owner}/{repo}/git/ref/heads/{branch}` with the commit the remote's branch is at, or a 404.
+func (r *response) branchRef(escaped string, request map[string]string) {
+	branch, err := url.PathUnescape(escaped)
+	if err != nil {
+		fail(2, "fakegh: %q is not a branch", escaped)
+	}
+	bare, err := remotePath(r.state)
+	if err != nil {
+		r.send(404, map[string]string{}, map[string]string{"message": "Not Found"})
+	}
+	out, err := exec.Command("git", "-C", bare, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Output()
+	if err != nil {
+		r.send(404, map[string]string{}, map[string]string{"message": "Not Found"})
+	}
+	r.validated(request, map[string]any{"ref": "refs/heads/" + branch, "object": map[string]string{"sha": strings.TrimSpace(string(out)), "type": "commit"}})
 }
 
 // onCommit finds the open pull request of a repository whose head is the commit, as the commits endpoints see it.
