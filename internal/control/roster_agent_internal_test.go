@@ -49,6 +49,18 @@ func TestAnUnfitAgentIsANamedReadyProblem(t *testing.T) {
 	}
 }
 
+// FR-AGENT-9: no lane runs as the consultant, which only an orchestrator's consultation runs, so work of any kind that
+// names it fails the definition of ready with a problem that names the agent.
+func TestTheConsultantIsANamedReadyProblemForAnyLane(t *testing.T) {
+	for _, kind := range []workorders.Kind{workorders.KindPlan, workorders.KindContractReview, workorders.KindChange, workorders.KindReview} {
+		order := workorders.WorkOrder{ID: "wo-1", Kind: kind, Agent: roster.ConsultantAgent}
+		problem, err := agentProblem(builtinRoster{}, order)
+		if err != nil || !strings.Contains(problem, `"consultant"`) {
+			t.Errorf("a %s work order as the consultant: problem %q, error %v", kind, problem, err)
+		}
+	}
+}
+
 // A roster change that strips the shell from an agent an open change work order runs as is refused, naming
 // the work order, and one that only a review names is not.
 func TestARosterChangeCannotLeaveOpenChangeWorkShellLess(t *testing.T) {

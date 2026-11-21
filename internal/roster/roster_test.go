@@ -276,6 +276,36 @@ func mustApply(t *testing.T, layer Layer, below Resolved, change Change) Layer {
 	return out
 }
 
+// TestNoLaneRunsAsTheConsultant is FR-AGENT-9: only an orchestrator's consultation runs the consultant, so a lane's
+// agent is never it. A work order of any kind that names it is refused by name, and so is a default mapping that names it,
+// both where a claim pins the agent and where a use is checked, though the consultation itself still runs it.
+func TestNoLaneRunsAsTheConsultant(t *testing.T) {
+	resolved := Resolve(Layer{}, Layer{})
+	for _, kind := range []string{"plan", "contract_review", "change", "rework", "review"} {
+		_, err := resolved.LaneAgent(LaneWork{Kind: kind, Named: ConsultantAgent})
+		if !errors.Is(err, ErrUnfitAgent) || !strings.Contains(err.Error(), `"consultant"`) {
+			t.Errorf("a %s work order naming the consultant: %v", kind, err)
+		}
+		if err := resolved.Unusable(Use{Agent: ConsultantAgent, By: "work order w-1", Kind: kind}); !errors.Is(err, ErrUnfitAgent) {
+			t.Errorf("a %s use naming the consultant: %v", kind, err)
+		}
+	}
+	mapped := resolved
+	mapped.Defaults = BuiltinDefaults()
+	mapped.Defaults.ContractReview, mapped.Defaults.Review = ConsultantAgent, ConsultantAgent
+	for _, kind := range []string{"contract_review", "review"} {
+		if _, err := mapped.LaneAgent(LaneWork{Kind: kind}); !errors.Is(err, ErrUnfitAgent) || !strings.Contains(err.Error(), `"consultant"`) {
+			t.Errorf("the default mapping for %s naming the consultant: %v", kind, err)
+		}
+	}
+	if missing := mapped.Missing(mapped.DefaultUses()); len(missing) != 2 || missing[0].Agent != ConsultantAgent || missing[1].Agent != ConsultantAgent {
+		t.Errorf("a default mapping that names the consultant: missing %+v", missing)
+	}
+	if got, err := resolved.ConsultAgent("", ClassStandard); err != nil || got.Name != ConsultantAgent {
+		t.Errorf("a consultation runs %q, %v", got.Name, err)
+	}
+}
+
 // TestAConsultationRunsTheConsultantOrTheOneNamed is FR-ORCH-9: with no agent named and the built-in roster, a
 // consultation runs the consultant, a read-only frontier agent that asks per use, which a consultation within
 // consultation_limit counts as approved (FR-AGENT-11). A named agent must be known, enabled, and read-only, and either

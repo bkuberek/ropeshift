@@ -36,13 +36,23 @@ func (r Resolved) LaneAgent(work LaneWork) (ResolvedAgent, error) {
 	if name == "" {
 		name = r.defaultFor(work)
 	}
-	return r.usable(name, work.Kind)
+	return r.usableByLane(name, work.Kind)
 }
 
 // DefaultAgent is the agent the default mapping alone gives a work order, before any rework, which is
 // what the definition of ready reads.
 func (r Resolved) DefaultAgent(kind, size, named string) (ResolvedAgent, error) {
 	return r.LaneAgent(LaneWork{Kind: kind, Size: size, Named: named})
+}
+
+// usableByLane is usable for a lane, and a lane never runs as the consultant: only an orchestrator's consultation runs it
+// (FR-AGENT-9, FR-ORCH-9). The refusal comes first and names the agent, so a work order or a default mapping that names it
+// reads why, whichever kind of work it is for.
+func (r Resolved) usableByLane(name, kind string) (ResolvedAgent, error) {
+	if name == ConsultantAgent {
+		return ResolvedAgent{}, fmt.Errorf("%w: agent %q runs only an orchestrator's consultation, and no lane runs as it", ErrUnfitAgent, name)
+	}
+	return r.usable(name, kind)
 }
 
 // usable is the agent a lane of some kind of work may run as. The agent a lane runs as narrows the lane's
@@ -157,10 +167,10 @@ type Use struct {
 // DefaultUses lists what the default mapping names.
 func (r Resolved) DefaultUses() []Use { return r.Defaults.names() }
 
-// Unusable is why this roster cannot give a use its agent: the agent is unknown, disabled, or unfit for the
+// Unusable is why this roster cannot give a use its agent: the agent is unknown, disabled, the consultant, or unfit for the
 // kind of work that names it. It is nil when the roster can.
 func (r Resolved) Unusable(use Use) error {
-	_, err := r.usable(use.Agent, use.Kind)
+	_, err := r.usableByLane(use.Agent, use.Kind)
 	return err
 }
 

@@ -80,7 +80,8 @@ var (
 	ErrDisabledAgent = errors.New("disabled agent")
 	// ErrUnfitAgent marks an agent that cannot be a lane's own agent for the work that names it: plan,
 	// change, and rework lanes must write and commit, so their agent must deny neither the shell nor
-	// file edits, which would narrow the lane's rules.
+	// file edits, which would narrow the lane's rules. No lane's agent is the consultant, which only an
+	// orchestrator's consultation runs.
 	ErrUnfitAgent = errors.New("unfit agent")
 	// ErrExists marks an added agent whose name the roster already holds.
 	ErrExists = errors.New("agent exists")
