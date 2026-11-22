@@ -115,7 +115,7 @@ func (r *laneRun) noteUsage(ctx context.Context, heard lanes.UsageReading) {
 	}
 	switch heard.Status {
 	case lanes.UsageRejected:
-		r.noteStreamFailure(ctx, lanes.FailureUsageLimit)
+		r.reachedLimit(ctx)
 	case lanes.UsageAllowed:
 		r.limitPassed(ctx)
 	}
@@ -155,74 +155,12 @@ func (w *Worker) noteUnheard(ctx context.Context, event lanes.HookEvent) error {
 	if err != nil {
 		return err
 	}
-	desired, err := w.desired(ctx)
-	if err != nil {
-		return err
-	}
 	if err := w.loadSignIn(ctx); err != nil {
 		return err
 	}
-	lease := ledger.DesiredLease{Project: record.Project, Lane: record.ID}
-	at := slices.IndexFunc(desired.Leases, func(held ledger.DesiredLease) bool { return held.Lane == record.ID })
-	if at >= 0 {
-		lease = desired.Leases[at]
-	}
-	run := w.resumedRun(lease, record)
-	if event.Detail != lanes.FailureUsageLimit {
-		run.noteFailure(ctx, event.Detail)
-		return nil
-	}
-	// The failure is as old as its hook, and whether it still holds is read against the lane's own backoff.
-	if at >= 0 {
-		run.loadProfile(ctx)
-	}
-	run.reachedLimitAt(ctx, event.AtMs)
+	run := w.resumedRun(ledger.DesiredLease{Project: record.Project, Lane: record.ID}, record)
+	run.noteFailure(ctx, event.Detail)
 	return nil
-}
-
-// unreadLimit is a usage limit that failed a turn whose end an adoption has still to read.
-type unreadLimit struct {
-	atMs int64
-	// last says no turn began or ended after it, so it is that end's reason, whatever the stream gives.
-	last bool
-}
-
-// unreadLimitOf finds that limit in what the hooks of this process left. A prompt after the adoption ends it
-// (notePrompt), and so does the failed end it was of.
-func (r *laneRun) unreadLimitOf(hooks []lanes.HookRecord) unreadLimit {
-	process := r.processGeneration()
-	var failedMs, sinceMs int64
-	for _, hook := range hooks {
-		switch {
-		case hook.Generation < process:
-		case hook.Event == hookStopFailure && hook.Detail == lanes.FailureUsageLimit:
-			failedMs = max(failedMs, hook.LastMs)
-		case hook.Event == hookStopFailure, hook.Event == lanes.EventStop, hook.Event == lanes.EventUserPromptSubmit:
-			sinceMs = max(sinceMs, hook.LastMs)
-		}
-	}
-	if failedMs <= r.cursor {
-		return unreadLimit{}
-	}
-	return unreadLimit{atMs: failedMs, last: failedMs >= sinceMs}
-}
-
-// noteStreamFailure is noteFailure where the stream is read. What an adoption reads again of a turn that failed
-// on a limit is as old as that turn's StopFailure.
-func (r *laneRun) noteStreamFailure(ctx context.Context, category string) bool {
-	limit := r.state.adoptedLimit()
-	ofIt := category == lanes.FailureUsageLimit || (limit.last && category != lanes.FailureSignIn)
-	if limit.atMs == 0 || !ofIt {
-		return r.noteFailure(ctx, category)
-	}
-	r.reachedLimitAt(ctx, limit.atMs)
-	return true
-}
-
-// limitWentBy says the session's last turn ended on a limit that passed while no worker listened.
-func (r *laneRun) limitWentBy() bool {
-	limit, state := r.state.adoptedLimit(), r.w.signIn()
-	return limit.atMs != 0 && limit.last && !state.Limited && !state.SignedOut
 }
 
 // noteRetry reads one retry. A session retries a 429 by itself, so only one that keeps at it counts
@@ -231,29 +169,17 @@ func (r *laneRun) noteRetry(ctx context.Context, event ports.DriverEvent) {
 	if event.Detail == lanes.FailureUsageLimit && event.Attempt < lanes.RetriesBeforeLimit {
 		return
 	}
-	r.noteStreamFailure(ctx, event.Detail)
+	r.noteFailure(ctx, event.Detail)
 }
 
 // reachedLimit starts the wait for this sign-in, or moves it on, then parks what it can. With no
 // reset to go by, this lane is the one that tries again. A probe that finds the limit still there
 // waits longer.
 func (r *laneRun) reachedLimit(ctx context.Context) {
-	r.reachedLimitAt(ctx, r.w.clock.Now().UnixMilli())
-}
-
-// reachedLimitAt is reachedLimit for a limit found at foundMs. A wait that ended since is a limit that passed,
-// and starts nothing.
-func (r *laneRun) reachedLimitAt(ctx context.Context, foundMs int64) {
 	lane, generation, now := r.lease.Lane, r.currentGeneration(), r.w.clock.Now().UnixMilli()
 	base := r.state.usageBackoff()
 	err := r.w.moveSignIn(ctx, func(state *lanes.SignInState) ([]ledger.UploadEvent, bool) {
-		next := *state
-		// Reach sets one of the two, the reset it was told of or the probe's time.
-		if !next.Reach(lane, generation, min(foundMs, now), base) || max(next.ResetAtMs, next.ProbeAtMs) <= now {
-			return nil, false
-		}
-		*state = next
-		return nil, true
+		return nil, state.Reach(lane, generation, now, base)
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", lane, err))

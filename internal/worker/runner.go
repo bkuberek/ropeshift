@@ -683,7 +683,6 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		unread = []string{ports.UnnamedCall}
 	}
 	r.replayHooks(ctx, hooks)
-	r.state.keepUnreadLimit(r.unreadLimitOf(hooks))
 	approvals := append(r.resumeApprovals(ctx), unread...)
 	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
 	// to its limit from here.
@@ -1231,9 +1230,6 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)
 			r.afterTurn(ctx, event.Turn, clears)
-			if event.Turn.Status != ports.TurnCompleted {
-				r.state.keepUnreadLimit(unreadLimit{})
-			}
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			r.noteRefusedResume(ctx)
@@ -1438,20 +1434,15 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 	if r.currentFlight() != nil {
 		return
 	}
-	text, unsent := lanes.Nudge, noOutcome()
 	if turn.Status != ports.TurnCompleted {
-		if !r.noteStreamFailure(ctx, turn.Reason) {
-			report := failed(turn.Reason)
-			r.decided = &report
-			r.signal(ctx, lanes.OnLaneEnding)
-			r.stop(ctx, ports.StopAtRest)
+		if r.noteFailure(ctx, turn.Reason) {
 			return
 		}
-		if !r.limitWentBy() {
-			return
-		}
-		// Nothing parks on a limit that passed, so the lane goes on as one at rest does, told why it stopped.
-		text, unsent = lanes.AfterLimit, failed(lanes.FailureUsageLimit)
+		report := failed(turn.Reason)
+		r.decided = &report
+		r.signal(ctx, lanes.OnLaneEnding)
+		r.stop(ctx, ports.StopAtRest)
+		return
 	}
 	if clears || r.owesBrief.Load() {
 		return
@@ -1486,7 +1477,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 	if leftWork {
 		return
 	}
-	r.nudgeOrEnd(ctx, text, unsent, true)
+	r.nudgeOrEnd(ctx, lanes.Nudge, noOutcome(), true)
 }
 
 func noOutcome() workorders.Report {
