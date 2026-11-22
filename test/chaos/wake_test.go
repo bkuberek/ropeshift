@@ -916,7 +916,8 @@ func (r *lifecycleRun) execute() (int, error) {
 
 // check reads the ledger and the log. Every park was answered by exactly one wake, because a
 // lane that finished had to get out of each one, and no process recorded firing what another
-// fired.
+// fired. A lane may finish without parking, so the run as a whole must have parked, and no one
+// lane has to.
 func (r *lifecycleRun) check() (int, error) {
 	if err := r.world.verify(); err != nil {
 		return 0, err
@@ -931,10 +932,13 @@ func (r *lifecycleRun) check() (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if parked != woke || parked == 0 {
+		if parked != woke {
 			return 0, contract.Violatedf("%s parked %d times and woke %d", id, parked, woke)
 		}
 		parks += parked
+	}
+	if parks == 0 {
+		return 0, contract.Violatedf("no lane parked, so the run woke nothing")
 	}
 	records, err := ReadEffectLog(r.world.logPath)
 	if err != nil {
