@@ -281,3 +281,54 @@ func TestAnEndOlderThanItsPromptLeavesANewerCompaction(t *testing.T) {
 	next.free()
 	r.awaitOrderState(t, workorders.Acceptance)
 }
+
+// A hook's time has the millisecond as its grain, so the prompt that background work's report fires can share one
+// with the Stop before it. The prompt heard after that Stop is the newer: it starts the next turn, which the Stop's end
+// does not end, and a Stop heard after a prompt of its millisecond ends that prompt's turn.
+func TestAHookOfTheSameMillisecondIsNewerThanTheOneHeardBeforeIt(t *testing.T) {
+	t.Parallel()
+	t.Run("a prompt after its Stop", func(t *testing.T) {
+		t.Parallel()
+		r := laneRigWith(t, "")
+		stopped, returned := newGate(), newGate()
+		r.gates(stopped, returned)
+		r.driver.Play(script(
+			[]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01), returned.step(), completed(0.02)},
+			[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.03)},
+		))
+		r.atGate(stopped)
+		at := time.Now().UnixMilli()
+		r.stopAt(t, at, 2)
+		r.promptAt(t, at)
+		stopped.free()
+		r.turnDecided(t, 0.01)
+		if sent := r.sentText(); len(sent) != 0 {
+			t.Errorf("sent %q to a lane whose background work started its next turn", sent)
+		}
+		returned.free()
+		r.awaitOrderState(t, workorders.Acceptance)
+		if sent := r.sentText(); len(sent) != 1 || sent[0] != lanes.Nudge {
+			t.Errorf("sent %q, want the one nudge", sent)
+		}
+	})
+	t.Run("a Stop after its prompt", func(t *testing.T) {
+		t.Parallel()
+		r := laneRigWith(t, "")
+		stopped := newGate()
+		r.gates(stopped)
+		r.driver.Play(script(
+			[]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01)},
+			[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.02)},
+		))
+		r.atGate(stopped)
+		at := time.Now().UnixMilli()
+		r.promptAt(t, at)
+		r.stopAt(t, at, 0)
+		stopped.free()
+		r.turnDecided(t, 0.01)
+		if sent := r.awaitSentOn(t, r.driver, 1); sent[0].Text != lanes.Nudge {
+			t.Fatalf("sent %+v, want the nudge for the turn that Stop ended", sent)
+		}
+		r.awaitOrderState(t, workorders.Acceptance)
+	})
+}

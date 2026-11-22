@@ -87,10 +87,13 @@ type laneState struct {
 	backgroundSince time.Time
 	// stoppedMs, failedMs, and promptedMs are when the newest Stop, StopFailure, and prompt fired, by their hooks'
 	// clock, because a spooled hook arrives late or twice. They are the turn clock: a lane works while its newest
-	// prompt is newer than its newest turn's end, whoever started that turn.
+	// prompt is newer than its newest turn's end, whoever started that turn. A hook's time has the millisecond as its
+	// grain, so a prompt and an end can share one, and then the one heard last is the newer: promptLast says the
+	// newest prompt was heard after an end of its millisecond.
 	stoppedMs  int64
 	failedMs   int64
 	promptedMs int64
+	promptLast bool
 	// stops and failures count the Stops and StopFailures of this generation's session, and placedStops and
 	// placedFailures the turns' ends a stream reported that took one of them as their time (placeEnd).
 	stops, failures             int
@@ -343,7 +346,7 @@ func (s *laneState) journalContext(progress *lanes.Progress) {
 func (s *laneState) resumeRest(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.keptBackground > 0 && s.keptStopMs == s.endedMs() && s.promptedMs <= s.keptStopMs {
+	if s.keptBackground > 0 && s.keptStopMs == s.endedMs() && !s.promptNewer() {
 		s.background, s.backgroundSince = s.keptBackground, now
 	}
 }
@@ -629,6 +632,7 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 		s.stops++
 	}
 	s.stoppedMs = max(s.stoppedMs, atMs)
+	s.endHeard(atMs)
 	if atMs > 0 && atMs < s.promptedMs {
 		tasks = 0
 	}
@@ -637,12 +641,15 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 
 // notePrompt ends the wait on background work, and says the prompt starts a turn: one newer than the newest
 // turn's end and than every prompt before it, which a person typed or the session's own background work sent. A
-// prompt older than the newest Stop began the turn that stopped, and ends no wait.
+// prompt of the newest end's millisecond was heard after that end, so it is the newer. A prompt older than the newest
+// Stop began the turn that stopped, and ends no wait.
 func (s *laneState) notePrompt(atMs int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	starts := atMs > s.promptedMs && atMs > s.endedMs()
-	s.promptedMs = max(s.promptedMs, atMs)
+	starts := atMs > s.promptedMs && atMs >= s.endedMs()
+	if atMs > s.promptedMs {
+		s.promptedMs, s.promptLast = atMs, atMs == s.endedMs()
+	}
 	if starts {
 		s.refusedSince = time.Time{}
 	}
@@ -661,7 +668,22 @@ func (s *laneState) noteStopFailure(atMs int64) {
 	if atMs > s.failedMs {
 		s.failures++
 		s.failedMs = atMs
+		s.endHeard(atMs)
 	}
+}
+
+// endHeard keeps the order of an end heard in the newest prompt's millisecond: it came after that prompt, so it is
+// the newer. The caller holds the lock.
+func (s *laneState) endHeard(atMs int64) {
+	if atMs >= s.promptedMs {
+		s.promptLast = false
+	}
+}
+
+// promptNewer says the newest prompt is newer than the newest turn's end. The caller holds the lock.
+func (s *laneState) promptNewer() bool {
+	ended := s.endedMs()
+	return s.promptedMs > ended || (s.promptedMs == ended && s.promptedMs > 0 && s.promptLast)
 }
 
 // placeEnd says when the end of a turn a driver reported fired, by its hook's clock, and zero when nothing says. A
@@ -685,12 +707,13 @@ func (s *laneState) placeEnd(turn *ports.TurnResult) int64 {
 	return 0
 }
 
-// olderThanInput says a turn's end that fired at atMs is older than the session's newest prompt, or than input the
-// worker handed once that end was heard: a turn runs that the end does not end.
+// olderThanInput says a turn's end that fired at atMs is older than the session's newest prompt, a prompt of its
+// millisecond heard after it included, or than input the worker handed once that end was heard: a turn runs that the
+// end does not end.
 func (s *laneState) olderThanInput(atMs int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return atMs > 0 && (atMs < s.promptedMs || atMs <= s.handedMs)
+	return atMs > 0 && (atMs < s.promptedMs || (atMs == s.promptedMs && s.promptLast) || atMs <= s.handedMs)
 }
 
 // endedMs is when the newest turn's end fired, whether it stopped or failed. The caller holds the lock.
@@ -700,7 +723,7 @@ func (s *laneState) endedMs() int64 { return max(s.stoppedMs, s.failedMs) }
 func (s *laneState) turnUnended() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.promptedMs > s.endedMs()
+	return s.promptNewer()
 }
 
 // noteRefusal begins the wait on a refused nudge, and endRefusal ends it.
