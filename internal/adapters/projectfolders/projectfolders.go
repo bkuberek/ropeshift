@@ -266,7 +266,16 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 	if branch == "" {
 		branch = f.DefaultBranch(ctx, path)
 	}
+	// The hooks the configuration names are disabled before the init, and again once the new repository exists, because
+	// its own configuration, such as one an includeIf reads for its directory, was not there before.
+	git, err := git.Hookless(ctx)
+	if err != nil {
+		return "", describe(err)
+	}
 	if _, err := git.Output(ctx, "init", "--quiet", "--template=", "--initial-branch="+branch); err != nil {
+		return "", describe(err)
+	}
+	if git, err = git.Hookless(ctx); err != nil {
 		return "", describe(err)
 	}
 	// Git refuses a path it ignores, so the commit adds the paths git would add, as `git add -A` did: those it tracks, which

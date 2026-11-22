@@ -57,7 +57,10 @@ func (w Worktrees) CommitFiles(ctx context.Context, worktree string, files []por
 	if len(staged) == 0 {
 		return ports.Commit{}, nil
 	}
-	git := commitAs(w.git(worktree))
+	git, err := commitAs(w.git(worktree)).Hookless(ctx)
+	if err != nil {
+		return ports.Commit{}, err
+	}
 	if _, err := git.Output(ctx, append([]string{"add", "--"}, staged...)...); err != nil {
 		return ports.Commit{}, err
 	}

@@ -79,7 +79,10 @@ func (w Worktrees) ImportHistory(ctx context.Context, worktree string, in ports.
 	if err := checkImport(in); err != nil {
 		return ports.Commit{}, err
 	}
-	git := commitAs(w.git(worktree))
+	git, err := commitAs(w.git(worktree)).Hookless(ctx)
+	if err != nil {
+		return ports.Commit{}, err
+	}
 	git.Extra = slices.Concat(git.Extra, pathsLiterally)
 	if err := git.Fetch(ctx, "--quiet", "--no-tags", "--", in.Source, in.Commit); err != nil {
 		return ports.Commit{}, fmt.Errorf("reading the history of %s: %w", in.Source, err)
