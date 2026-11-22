@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -20,6 +21,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -57,7 +59,7 @@ func cleanTitle(title string) string {
 
 // mergeFields are what a merge reads of a pull request before it merges and after, to say what the merge
 // came to: mergeStateStatus is DIRTY for a conflict and BEHIND for a branch an up-to-date base refuses.
-const mergeFields = "state,headRefOid,mergeable,mergeStateStatus,mergeCommit,mergedAt"
+const mergeFields = "state,headRefOid,baseRefName,mergeable,mergeStateStatus,mergeCommit,mergedAt"
 
 // requiredFields are what a read asks `gh pr checks --required --json` for: the checks the base branch's
 // protection requires (https://cli.github.com/manual/gh_pr_checks).
@@ -109,12 +111,19 @@ func (f Forge) binary() (string, error) {
 }
 
 func (f Forge) environment() []string {
-	base := f.Env
-	if base == nil {
-		base = os.Environ()
+	source := f.Env
+	if source == nil {
+		source = os.Environ()
+	}
+	// The daemon's own secrets stay out. GH_TOKEN stays, because it is how `gh` signs in.
+	base := make([]string, 0, len(source)+3)
+	for _, entry := range source {
+		if name, _, _ := strings.Cut(entry, "="); !lanes.DaemonSecret(name) {
+			base = append(base, entry)
+		}
 	}
 	// A worker has no terminal to prompt on, and a notice of a new version is no answer to parse.
-	return append(base[:len(base):len(base)], "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
+	return append(base, "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
 }
 
 // run runs one command in a checkout and returns its stdout. A command the forge refused for a rate limit is a
@@ -400,10 +409,12 @@ var methodFlags = map[ledger.MergeMethod]string{ledger.MergeCommit: "--merge", l
 
 // Merge reads the pull request's merge state, and runs `gh pr merge <number> --match-head-commit <head>`
 // with the method's flag only when it is open at that head and merges cleanly, then reads it again to say
-// what the merge came to (https://cli.github.com/manual/gh_pr_merge). It never passes --admin, --auto, or
-// --delete-branch. A pull request merged at that head is a merge an earlier attempt made, and merges nothing
-// again. What gh refuses is a refusal with what it said; a gh that cannot run, or a read that fails, is an
-// error, which a later attempt asks again.
+// what the merge came to (https://cli.github.com/manual/gh_pr_merge). It passes no message, so the forge writes the
+// commit's own. A rebase writes commits no trailer can mark, so it reads the base's tip before it runs and reports it
+// with the tip after, which the result names as BaseBefore and BaseAfter. It never passes --admin, --auto, or
+// --delete-branch. A pull request merged at that head is a merge an earlier attempt made, and merges nothing again.
+// What gh refuses is a refusal with what it said; a gh that cannot run, or a read that fails, is an error, which a
+// later attempt asks again.
 func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error) {
 	flag, ok := methodFlags[method]
 	if !ok {
@@ -416,6 +427,12 @@ func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string,
 	if result, settled := before.settled(head); settled {
 		return result, nil
 	}
+	var baseTip string
+	if method == ledger.MergeRebase && before.BaseRefName != "" {
+		if baseTip, err = f.baseTip(ctx, ref, before.BaseRefName); err != nil {
+			return ledger.MergeResult{}, err
+		}
+	}
 	_, merged := f.run(ctx, ref.Repo.Dir, "pr", "merge", strconv.FormatInt(ref.Number, 10), "--repo", ref.Repo.Binding.String(), "--match-head-commit", head, flag)
 	var refused *ghError
 	if merged != nil && !errors.As(merged, &refused) {
@@ -426,6 +443,9 @@ func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string,
 		return ledger.MergeResult{}, err
 	}
 	if result, settled := after.settled(head); settled {
+		if result.Outcome == ledger.MergeMerged && ledger.CommitHash(baseTip) && ledger.CommitHash(result.MergeCommit) {
+			result.BaseBefore, result.BaseAfter = baseTip, result.MergeCommit
+		}
 		return result, nil
 	}
 	if refused == nil {
@@ -434,10 +454,34 @@ func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string,
 	return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: cmp.Or(refused.stderr, refused.Error())}, nil
 }
 
+// baseTip reads the tip of a pull request's base branch from the forge's API
+// (https://docs.github.com/en/rest/git/refs#get-a-reference).
+func (f Forge) baseTip(ctx context.Context, ref ports.PullRequestRef, base string) (string, error) {
+	b := ref.Repo.Binding
+	segments := strings.Split(base, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	response, err := f.api(ctx, ref.Repo.Dir, b.Host, fmt.Sprintf("repos/%s/%s/git/ref/heads/%s", b.Owner, b.Repo, strings.Join(segments, "/")))
+	if err != nil {
+		return "", err
+	}
+	var read struct {
+		Object struct {
+			Sha string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal(response.Body, &read); err != nil {
+		return "", fmt.Errorf("reading the tip of %s: %w", base, err)
+	}
+	return read.Object.Sha, nil
+}
+
 // mergeStateOf is a pull request as `gh pr view --json` writes the fields a merge reads.
 type mergeStateOf struct {
 	State            string `json:"state"`
 	HeadRefOid       string `json:"headRefOid"`
+	BaseRefName      string `json:"baseRefName"`
 	Mergeable        string `json:"mergeable"`
 	MergeStateStatus string `json:"mergeStateStatus"`
 	MergedAt         string `json:"mergedAt"`

@@ -3,6 +3,7 @@ package control
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -18,6 +19,9 @@ import (
 // CloneEditsLimit is how many paths of one clone a reading lists.
 const CloneEditsLimit = 500
 
+// FreshLimit is how long a reading a member asks for may take, unless Bounding says another.
+const FreshLimit = 2 * time.Minute
+
 // OutsideEdits reads what each registered repository's clone on this machine holds that intake and lanes cannot read,
 // with the steps that make it readable, and finds each lane whose branch changed a path a person changed too (FR-UI-14).
 // It reads the clones through the ports it is given and changes nothing. What it last found of each project's
@@ -30,6 +34,8 @@ type OutsideEdits struct {
 	// reuse is how long a reading answers Recent, and now the clock it is timed by.
 	reuse time.Duration
 	now   func() time.Time
+	// limit bounds a reading a member asks for with Fresh.
+	limit time.Duration
 	// begun numbers the readings in the order they began, so an older one never replaces what a newer one found.
 	begun atomic.Int64
 
@@ -37,6 +43,20 @@ type OutsideEdits struct {
 	found  map[ledger.WorkspaceID]map[string]Conflict
 	latest map[ledger.WorkspaceID]int64
 	recent map[ledger.WorkspaceID]recentReading
+	// running and waiting are each project's reading a member asked for that is under way, and the one that waits for it.
+	running map[ledger.WorkspaceID]*freshTurn
+	waiting map[ledger.WorkspaceID]*freshTurn
+}
+
+// freshTurn is one reading a member asked for, shared by every call that arrived before it began.
+type freshTurn struct {
+	ctx     context.Context
+	store   ports.Store
+	scope   ledger.WorkspaceID
+	project string
+	done    chan struct{}
+	reading OutsideReading
+	err     error
 }
 
 // recentReading is a project's newest reading, with when it began.
@@ -51,8 +71,9 @@ type recentReading struct {
 // the one its work order keeps, or else prefix and the lane's ID.
 func NewOutsideEdits(starts *Starts, edits ports.CloneEdits, prefix string) *OutsideEdits {
 	return &OutsideEdits{
-		starts: starts, edits: edits, prefix: prefix, now: time.Now,
+		starts: starts, edits: edits, prefix: prefix, now: time.Now, limit: FreshLimit,
 		found: map[ledger.WorkspaceID]map[string]Conflict{}, latest: map[ledger.WorkspaceID]int64{}, recent: map[ledger.WorkspaceID]recentReading{},
+		running: map[ledger.WorkspaceID]*freshTurn{}, waiting: map[ledger.WorkspaceID]*freshTurn{},
 	}
 }
 
@@ -60,6 +81,12 @@ func NewOutsideEdits(starts *Starts, edits ports.CloneEdits, prefix string) *Out
 // more often than a tick does.
 func (o *OutsideEdits) Reusing(window time.Duration) *OutsideEdits {
 	o.reuse = window
+	return o
+}
+
+// Bounding sets how long a reading a member asks for with Fresh may take.
+func (o *OutsideEdits) Bounding(limit time.Duration) *OutsideEdits {
+	o.limit = limit
 	return o
 }
 
@@ -135,9 +162,10 @@ type ledgerFacts struct {
 	repositories []ledger.Repository
 	planning     string
 	lanes        []openLane
-	// landed are the commits the ledger records as the forge's merge of a work order, and each merged pull request's
-	// head, which carry no trailer of ropeshift's and are no person's push.
-	landed []string
+	// landed are the commits the ledger records as the forge's merge of a work order, each merged pull request's head, and
+	// the ranges a merge recorded as the commits it wrote, which carry no trailer of ropeshift's and are no person's push,
+	// and the merge commit of each merged pull request that recorded no range.
+	landed ledger.Landed
 }
 
 func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
@@ -168,15 +196,55 @@ func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
 	if err != nil {
 		return facts, err
 	}
+	laned := map[string]bool{}
+	for _, lane := range facts.lanes {
+		laned[lane.order.RepositoryID] = true
+	}
 	for _, pull := range pulls {
-		if pull.MergeCommit != "" {
-			facts.landed = append(facts.landed, pull.MergeCommit)
-			if pull.HeadCommit != "" {
-				facts.landed = append(facts.landed, pull.HeadCommit)
-			}
+		if pull.MergeCommit == "" {
+			continue
+		}
+		facts.landed.Commits = append(facts.landed.Commits, pull.MergeCommit)
+		if pull.HeadCommit != "" {
+			facts.landed.Commits = append(facts.landed.Commits, pull.HeadCommit)
+		}
+		// A range matters only to a repository with a lane open, whose branch a reading compares with the base.
+		if !laned[pull.Repository] {
+			continue
+		}
+		spans, err := landedRanges(tx, pull.WorkOrder)
+		if err != nil {
+			return facts, err
+		}
+		facts.landed.Ranges = append(facts.landed.Ranges, spans...)
+		// A merge made on the forge by a person, or one whose range was not kept, has none.
+		if !slices.ContainsFunc(spans, func(span ledger.LandedRange) bool { return span.After == pull.MergeCommit }) {
+			facts.landed.Unranged = append(facts.landed.Unranged, pull.MergeCommit)
 		}
 	}
 	return facts, nil
+}
+
+// landedRanges reads the ranges of a base's first-parent line that the merges of a work order recorded as written.
+func landedRanges(tx ports.ReadTx, workOrder string) ([]ledger.LandedRange, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectIntegration, ID: workOrder})
+	if err != nil {
+		return nil, err
+	}
+	var out []ledger.LandedRange
+	for _, event := range events {
+		if event.Type != ledger.EventIntegrationMerged {
+			continue
+		}
+		var merged mergedWork
+		if json.Unmarshal(event.Data, &merged) != nil || merged.Landed == nil {
+			continue
+		}
+		if ledger.CommitHash(merged.Landed.Before) && ledger.CommitHash(merged.Landed.After) {
+			out = append(out, *merged.Landed)
+		}
+	}
+	return out, nil
 }
 
 // openLanes lists each work order in an open state that has a lane, with the lane's branch and the commit it began at.
@@ -230,6 +298,55 @@ func (o *OutsideEdits) Recent(ctx context.Context, store ports.Store, scope ledg
 	return o.Read(ctx, store, scope, project)
 }
 
+// Fresh reads the clones again, however recent the reading Reusing lets Recent answer, for a member who asked to read
+// again. A project has at most one such reading under way and one waiting for it: the calls that arrive while one runs
+// share the next, which begins after they arrived, so none answers with a reading older than itself and a flood of calls
+// runs git twice. A reading ends at the bound Bounding sets, and a call whose context ends stops waiting and leaves the
+// reading to the calls that still do.
+func (o *OutsideEdits) Fresh(ctx context.Context, store ports.Store, scope ledger.WorkspaceID, project string) (OutsideReading, error) {
+	o.mu.Lock()
+	turn := o.waiting[scope]
+	if turn == nil {
+		turn = &freshTurn{ctx: context.WithoutCancel(ctx), store: store, scope: scope, project: project, done: make(chan struct{})}
+		if o.running[scope] == nil {
+			o.running[scope] = turn
+			go o.take(turn)
+		} else {
+			o.waiting[scope] = turn
+		}
+	}
+	o.mu.Unlock()
+	select {
+	case <-turn.done:
+		return turn.reading, turn.err
+	case <-ctx.Done():
+		return OutsideReading{}, ctx.Err()
+	}
+}
+
+// take runs a turn's reading within the bound, answers the calls that wait on it, and begins the turn that waited.
+func (o *OutsideEdits) take(turn *freshTurn) {
+	bounded, cancel := context.WithTimeout(turn.ctx, o.limit)
+	turn.reading, turn.err = o.Read(bounded, turn.store, turn.scope, turn.project)
+	cancel()
+	if errors.Is(turn.err, context.DeadlineExceeded) {
+		turn.err = fmt.Errorf("reading the clones took longer than %s: %w", o.limit, turn.err)
+	}
+	o.mu.Lock()
+	next := o.waiting[turn.scope]
+	delete(o.waiting, turn.scope)
+	if next != nil {
+		o.running[turn.scope] = next
+	} else {
+		delete(o.running, turn.scope)
+	}
+	o.mu.Unlock()
+	close(turn.done)
+	if next != nil {
+		go o.take(next)
+	}
+}
+
 // Read reads the clone of each of a project's repositories, and says of each clone it could not read why. project is
 // the project's name, which the commands of the command line give. A reading whose context ended keeps nothing it
 // found, and one that began before another kept its conflicts replaces none of them.
@@ -280,12 +397,15 @@ func (o *OutsideEdits) Read(ctx context.Context, store ports.Store, scope ledger
 }
 
 // conflictsIn finds each open lane of a repository whose branch in the clone changed a path the person changed too.
-// In a repository whose merge method rewrites commits, the forge and a local rebase land work in commits with no
-// trailer, so the base's side is not read as a person's and only the clone's side counts. The clone's side is settled
-// once the lane's branch holds the branch the person's files are committed on, which EditsBranch names. A lane whose
-// branch the clone really does not hold, as one on another machine's worker, has none. A lane git could not read is
-// marked unread, so the conflict an earlier reading found stays. Only a reading the control plane cannot make at all
-// fails.
+// The base's side leaves out the commits that carry a trailer of ropeshift's, those the ledger names as landed, and
+// those in a range it records as landed, so the work that ropeshift or the forge merged is no person's. A rebase on the
+// forge that a person merged records no range, and the commits it wrote carry no trailer, so in a repository whose merge
+// method is rebase the base's side is not shown while the merge commit of such a pull request lies between the lane's
+// branch and the base.
+// The clone's side is settled once the lane's branch holds the branch the person's files are committed on, which
+// EditsBranch names. A lane whose branch the clone really does not hold, as one on another machine's worker, has none.
+// A lane git could not read is marked unread, so the conflict an earlier reading found stays. Only a reading the control
+// plane cannot make at all fails.
 func (o *OutsideEdits) conflictsIn(ctx context.Context, project string, clone CloneReading, facts ledgerFacts, unread map[string]bool) ([]Conflict, error) {
 	var out []Conflict
 	base := cmp.Or(clone.Repository.BaseBranch, clone.Repository.DefaultBranch)
@@ -314,7 +434,7 @@ func (o *OutsideEdits) conflictOf(ctx context.Context, project string, clone Clo
 		return Conflict{}, false, err
 	}
 	pushed := divergence.Pushed
-	if clone.Repository.MergeMethod.Rewrites() {
+	if clone.Repository.MergeMethod == ledger.MergeRebase && divergence.Unranged {
 		pushed = nil
 	}
 	paths := ledger.ConflictPaths(divergence.Lane, clone.Edits.Edits, pushed)

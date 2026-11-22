@@ -666,11 +666,12 @@ func TestAResumeKeepsTheCallItOwes(t *testing.T) {
 	}
 }
 
-// peek is the look a hook takes before a tool runs. It has milliseconds to answer, and a worker that
-// cannot read the ledger in time says unavailable, so a loaded machine gets the same look again, as the
+// peek is the look a hook takes before a tool runs. The read of the ledger has no deadline here, so a loaded
+// machine does not miss it; other refusals are still answered unavailable, and the look is taken again, as the
 // hook's caller would not: this test is about what an answer that lands does.
 func (r *laneRig) peek(t *testing.T, input, call string) lanes.Reply {
 	t.Helper()
+	r.link.UnhurriedApprovals.Store(true)
 	line, err := json.Marshal(lanes.Request{
 		Version: lanes.SocketProtocol, Token: r.token(t),
 		Approval: &lanes.ApprovalRequest{Tool: "Bash", Input: json.RawMessage(input), Call: call, Peek: true},
@@ -802,9 +803,11 @@ func TestARequestStandsWithTheControlPlaneAway(t *testing.T) {
 
 // aDeferredTurn is a session whose gated call a hook deferred, which ends its turn with a request
 // standing for the call. A peek has milliseconds of real time, and a hook that misses them defers
-// nothing and leaves the call to PermissionRequest, so what defers a call is a peek that landed.
+// nothing and leaves the call to PermissionRequest, so what defers a call is a peek that landed: the read of
+// the ledger has no deadline here.
 func (r *laneRig) aDeferredTurn(t *testing.T) []fake.DriverStep {
 	t.Helper()
+	r.link.UnhurriedApprovals.Store(true)
 	peek := fake.DriverStep{Do: func(ports.SessionSpec) {
 		line, err := json.Marshal(lanes.Request{
 			Version: lanes.SocketProtocol, Token: r.token(t),

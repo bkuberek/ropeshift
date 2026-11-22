@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -46,6 +47,28 @@ ON CONFLICT (id) DO UPDATE SET state = excluded.state`, string(raw)); err != nil
 		}
 	}
 	return tx.Commit()
+}
+
+// ProbeAttempt reads the last probe this worker began, which is none until it first saves.
+func (j *Journal) ProbeAttempt(ctx context.Context) (lanes.ProbeAttempt, error) {
+	var attempt lanes.ProbeAttempt
+	var began int64
+	err := j.db.QueryRowContext(ctx, `SELECT version, began_ms FROM probe_attempt WHERE id = 1`).Scan(&attempt.Version, &began)
+	if errors.Is(err, sql.ErrNoRows) {
+		return lanes.ProbeAttempt{}, nil
+	}
+	if err != nil {
+		return lanes.ProbeAttempt{}, err
+	}
+	attempt.BeganAt = time.UnixMilli(began)
+	return attempt, nil
+}
+
+// SaveProbeAttempt keeps the attempt in place of the one before it.
+func (j *Journal) SaveProbeAttempt(ctx context.Context, attempt lanes.ProbeAttempt) error {
+	_, err := j.db.ExecContext(ctx, `INSERT INTO probe_attempt (id, version, began_ms) VALUES (1, ?1, ?2)
+ON CONFLICT (id) DO UPDATE SET version = excluded.version, began_ms = excluded.began_ms`, attempt.Version, attempt.BeganAt.UnixMilli())
+	return err
 }
 
 // LanePeaks reads the peaks of the last lanes this worker ran, which is none until it first saves.

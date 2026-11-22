@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
+	domain "ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -20,12 +21,17 @@ type dryResult struct {
 	Repositories []ledger.RepositoryReport `json:"repositories"`
 }
 
-// dryOptions stand in for a machine where any git or gh read, and any write of a project, fails the test.
+// dryOptions stand in for a machine where any git or gh read, and any write of a project, fails the test: a dry run
+// that asks for no remote reads nothing.
 func dryOptions(t *testing.T) cli.Options {
 	t.Helper()
 	return cli.Options{
+		Git: func(context.Context) domain.GitReport {
+			t.Error("a dry run that asks for no remote read git")
+			return domain.GitReport{}
+		},
 		CloneTop: func(context.Context, string) (string, error) {
-			t.Error("a dry run read the clone that holds the folder")
+			t.Error("a dry run that asks for no remote read the clone that holds the folder")
 			return "", nil
 		},
 		NewProject: func(context.Context, ledger.TemplateWriteRequest, bool) (ledger.TemplateWriteReport, error) {
@@ -37,6 +43,16 @@ func dryOptions(t *testing.T) cli.Options {
 			return ledger.ForgeAccountReport{}, nil
 		},
 	}
+}
+
+// dryRemoteOptions are dryOptions for a dry run that asks for a remote, which asks git which clone holds the folder:
+// no clone does.
+func dryRemoteOptions(t *testing.T) cli.Options {
+	t.Helper()
+	opts := dryOptions(t)
+	opts.Git = func(context.Context) domain.GitReport { return domain.CheckGit(domain.MinimumGit, nil) }
+	opts.CloneTop = func(context.Context, string) (string, error) { return "", nil }
+	return opts
 }
 
 func dryJSON(t *testing.T, opts cli.Options, args ...string) dryResult {
@@ -117,7 +133,7 @@ func TestNewDryRunTextSaysNothingWasWritten(t *testing.T) {
 // A remote, a created repository, and a new code repository are planned and not run: no gh, no git, no write.
 func TestNewDryRunPlansTheCommitsAndRemotesWithoutRunningThem(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), "orchid")
-	dry := dryJSON(t, dryOptions(t), "new", "workspace", folder, "--create-remote", "github:acme", "--new-repository", "api", "--public")
+	dry := dryJSON(t, dryRemoteOptions(t), "new", "workspace", folder, "--create-remote", "github:acme", "--new-repository", "api", "--public")
 	requireAbsent(t, folder)
 	if !slices.Contains(dry.Written, "repos/api/AGENTS.md") {
 		t.Errorf("written %v lacks the new repository's files", dry.Written)
@@ -162,7 +178,7 @@ func TestNewDryRunRefusesWhatARealRunRefuses(t *testing.T) {
 // asks for the owner itself.
 func TestNewDryRunAsksItsQuestionsAndPrintsThePlan(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), "orchid")
-	opts := dryOptions(t)
+	opts := dryRemoteOptions(t)
 	opts.Terminal = strings.NewReader("one\ny\n3\nacme\n\n")
 	code, stdout, stderr := runNew(opts, "new", folder, "--dry-run")
 	if code != cli.ExitOK || stderr != "" {
@@ -179,7 +195,7 @@ func TestNewDryRunAsksItsQuestionsAndPrintsThePlan(t *testing.T) {
 // The visibility a person types is read as a real run reads it, whatever its case, and the plan names the lowercase word.
 func TestNewDryRunReadsTheVisibilityAsARunDoes(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), "orchid")
-	opts := dryOptions(t)
+	opts := dryRemoteOptions(t)
 	opts.Terminal = strings.NewReader("one\ny\n3\nacme\nPublic\n")
 	code, stdout, stderr := runNew(opts, "new", folder, "--dry-run")
 	if code != cli.ExitOK || stderr != "" {
@@ -188,4 +204,59 @@ func TestNewDryRunReadsTheVisibilityAsARunDoes(t *testing.T) {
 	if !strings.Contains(stdout, "  create\tplanned\tpublic") {
 		t.Errorf("the plan does not name the repository public:\n%s", stdout)
 	}
+}
+
+// A folder that a clone's top already is makes no repository of its own, so a remote is refused: a dry run refuses it
+// with the reason and the message of the real run, and writes nothing.
+func TestNewDryRunRefusesARemoteForAFolderThatHoldsARepository(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "orchid")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(opts cli.Options, extra ...string) (int, string, string) {
+		args := append([]string{"new", "workspace", folder, "--create-remote", "github:acme"}, extra...)
+		return runNew(opts, args...)
+	}
+	refusing := func(t *testing.T) cli.Options {
+		opts := dryRemoteOptions(t)
+		opts.CloneTop = func(_ context.Context, dir string) (string, error) { return dir, nil }
+		opts.NewProject = func(_ context.Context, request ledger.TemplateWriteRequest, needsRepository bool) (ledger.TemplateWriteReport, error) {
+			report := request.RefuseNoOwnRepository(needsRepository)
+			if report == nil {
+				t.Error("the real run was not refused")
+				return ledger.TemplateWriteReport{}, nil
+			}
+			return *report, nil
+		}
+		return opts
+	}
+	realCode, _, realErr := run(refusing(t))
+	dryCode, dryOut, dryErr := run(refusing(t), "--dry-run")
+	if realCode != cli.ExitError || !strings.Contains(realErr, ledger.TemplateRefusedNoOwnRepository) {
+		t.Fatalf("the real run: exit %d, stderr %q", realCode, realErr)
+	}
+	if dryCode != realCode || dryErr != realErr || dryOut != "" {
+		t.Errorf("the dry run: exit %d, stdout %q, stderr %q; the real run: exit %d, stderr %q", dryCode, dryOut, dryErr, realCode, realErr)
+	}
+	entries, err := os.ReadDir(folder)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("the folder holds %v after the runs (%v)", entries, err)
+	}
+}
+
+// With a git older than the minimum, a dry run that asks for a remote refuses as a run does, in the doctor's words and
+// before it reads git.
+func TestNewDryRunRefusesAGitBelowTheMinimumBeforeItReadsGit(t *testing.T) {
+	old := domain.CheckGit(domain.GitVersion{Major: 2, Minor: 25, Patch: 1}, nil)
+	folder := filepath.Join(t.TempDir(), "orchid")
+	opts := dryOptions(t)
+	opts.Git = func(context.Context) domain.GitReport { return old }
+	for _, extra := range [][]string{{}, {"--dry-run"}} {
+		args := append([]string{"new", "workspace", folder, "--create-remote", "github:acme"}, extra...)
+		code, stdout, stderr := runNew(opts, args...)
+		if want := "ropeshift new workspace: " + old.Problem + "\n"; code != cli.ExitError || stdout != "" || stderr != want {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q, want %d and %q", extra, code, stdout, stderr, cli.ExitError, want)
+		}
+	}
+	requireAbsent(t, folder)
 }

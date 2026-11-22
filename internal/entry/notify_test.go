@@ -248,6 +248,40 @@ func TestAFailureReportsNoAddressAndNoKey(t *testing.T) {
 	}
 }
 
+// A policy that names a key variable asks for signed deliveries, so one that cannot be signed is not sent
+// unsigned: the delivery fails, says which variable is missing, and opens no connection.
+func TestAWebhookWhoseKeyVariableIsUnsetOrEmptyFailsNamingTheVariable(t *testing.T) {
+	const variable = "ROPESHIFT_HOOK_NOTIFY"
+	for name, test := range map[string]struct {
+		lookup func(string) (string, bool)
+		dials  int64
+	}{
+		"unset": {func(string) (string, bool) { return "", false }, 0},
+		"empty": {func(n string) (string, bool) { return "", n == variable }, 0},
+		"set":   {func(n string) (string, bool) { return "a-signing-key", n == variable }, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := somethingWaits(t)
+			deps := watching(t, nil)
+			deps.Lookup = test.lookup
+			body := "[notify_policy]\nversion = 2\nwebhook_url = \"https://hooks.example.com/ropeshift\"\nwebhook_secret_env = \"" + variable + "\"\n"
+			if _, err := d.Client.PublishPolicy(t.Context(), body); err != nil {
+				t.Fatal(err)
+			}
+			err := noticeTick(d.Config, registryOf(d.Config.Store, d.Config.Scope), deps.notifyDeps, time.Minute).Run(t.Context())
+			if err == nil {
+				t.Fatal("no failure")
+			}
+			if got := deps.dials.Load(); got != test.dials {
+				t.Errorf("%d connections opened, want %d", got, test.dials)
+			}
+			if named := strings.Contains(err.Error(), variable); named != (test.dials == 0) {
+				t.Errorf("the failure %q names the variable: %v", err, named)
+			}
+		})
+	}
+}
+
 func TestWaitingIsWhatNeedsYouHolds(t *testing.T) {
 	d, _ := hostileWaiting(t)
 	notices, err := server.Waiting(d.Config, ledger.DefaultProjectName)(t.Context())

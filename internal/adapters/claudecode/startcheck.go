@@ -274,3 +274,8 @@ func pause(ctx context.Context, d time.Duration) {
 	case <-time.After(d):
 	}
 }
+
+// startCheckScreen reads the pane's screen for the probe's evidence; the start check is where a screen is read.
+func startCheckScreen(ctx context.Context, terminal ports.Terminal, name string) (string, error) {
+	return terminal.Capture(ctx, name)
+}

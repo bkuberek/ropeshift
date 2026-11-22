@@ -21,7 +21,7 @@ type CloneEdits struct {
 	unreadable map[string]error
 	contents   map[string]string
 	held       map[string]bool
-	landed     [][]string
+	landed     []ledger.Landed
 }
 
 // NewCloneEdits returns a machine whose clones hold no edit.
@@ -85,18 +85,18 @@ func (c *CloneEdits) Undiverge(clone, branch string) {
 	delete(c.diverged, path.Clean(clone)+"\x00"+branch)
 }
 
-// Landed lists the landed commits each read of a lane's branch was given, in order.
-func (c *CloneEdits) Landed() [][]string {
+// Landed lists the landed work each read of a lane's branch was given, in order.
+func (c *CloneEdits) Landed() []ledger.Landed {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.landed)
 }
 
 // Diverged answers what was placed for the branch. A branch nothing was placed for is ErrNotFound.
-func (c *CloneEdits) Diverged(_ context.Context, clone, branch, _ string, landed []string, _ int) (ledger.Divergence, error) {
+func (c *CloneEdits) Diverged(_ context.Context, clone, branch, _ string, landed ledger.Landed, _ int) (ledger.Divergence, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.landed = append(c.landed, slices.Clone(landed))
+	c.landed = append(c.landed, ledger.Landed{Commits: slices.Clone(landed.Commits), Ranges: slices.Clone(landed.Ranges), Unranged: slices.Clone(landed.Unranged)})
 	if err := c.unreadable[path.Clean(clone)+"\x00"+branch]; err != nil {
 		return ledger.Divergence{}, fmt.Errorf("reading %s in %s: %w", branch, clone, err)
 	}

@@ -116,7 +116,8 @@ type Forge interface {
 	// Merge merges a pull request with a merge method only while its head is the given commit, and never
 	// past branch protection. It reads the pull request first, so a pull request an earlier attempt merged
 	// at that head answers merged and merges nothing twice. A refusal is a result, with the outcome that says
-	// why; an error is a forge that could not answer, which a later attempt asks again.
+	// why; an error is a forge that could not answer, which a later attempt asks again. A rebase's result names the
+	// base's tip before the merge and after it.
 	Merge(ctx context.Context, ref PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error)
 	// Comment posts a comment on a pull request once per key: a comment that already carries the key is
 	// not posted again, so a repeat after a crash posts nothing twice.

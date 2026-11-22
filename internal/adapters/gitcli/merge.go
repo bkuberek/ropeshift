@@ -34,8 +34,8 @@ func NoHooksNoSigning() [][2]string {
 
 // The trailers a commit a merge makes carries, which is how a repeat finds it.
 const (
-	trailerWorkOrder = "Ropeshift-Work-Order: "
-	trailerReviewed  = "Ropeshift-Reviewed-Commit: "
+	trailerWorkOrder = ledger.TrailerWorkOrder + ": "
+	trailerReviewed  = ledger.TrailerReviewed + ": "
 )
 
 // ran is one git command's result, with what it wrote to stderr and how it exited.
@@ -48,10 +48,18 @@ type ran struct {
 // run runs one command and keeps a non-zero exit as a result, because a merge reads how git refused. Only a
 // git that could not run is an error.
 func (g Git) run(ctx context.Context, args ...string) (ran, error) {
+	return g.runFed(ctx, nil, args...)
+}
+
+// runFed is run with input on the command's standard input.
+func (g Git) runFed(ctx context.Context, input []byte, args ...string) (ran, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	hookless := g
 	hookless.Config = append(slices.Clone(g.Config), noHooks...)
 	cmd.Dir, cmd.Env = g.Dir, hookless.environment()
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -233,7 +241,8 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 	} else if name.code != 0 || name.out == "" {
 		in.Extra = snapshotIdentity
 	}
-	message := fmt.Sprintf("%s\n\n%s%s\n%s%s\n", merge.Title, trailerWorkOrder, merge.WorkOrder, trailerReviewed, merge.Commit)
+	trailers := ledger.MergeTrailers(merge.WorkOrder, merge.Commit)
+	message := merge.Title + "\n\n" + trailers
 	var stopped ran
 	switch merge.Method {
 	case ledger.MergeCommit:
@@ -243,7 +252,7 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 			_, err = in.must(ctx, "commit", "--allow-empty", "-m", message)
 		}
 	case ledger.MergeRebase:
-		stopped, err = replay(ctx, in, tip, merge, message)
+		stopped, err = replay(ctx, in, tip, merge, trailers)
 	default:
 		return "", nil, fmt.Errorf("git merges with no method %q", merge.Method)
 	}
@@ -264,9 +273,10 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 	return made, nil, err
 }
 
-// replay puts the branch's commits since it left the base onto the base's tip, one by one, and adds the
-// trailers to the last, so the base's history is one line and a repeat still finds the merge.
-func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, message string) (ran, error) {
+// replay puts the branch's commits since it left the base onto the base's tip, one by one, and adds the trailers
+// to each, so the base's history is one line, none of its commits reads as a person's, and a repeat still finds the
+// merge.
+func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, trailers string) (ran, error) {
 	fork, err := in.must(ctx, "merge-base", merge.Commit, tip)
 	if err != nil {
 		return ran{}, err
@@ -280,14 +290,31 @@ func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, me
 		if err != nil || picked.code != 0 {
 			return picked, err
 		}
+		message, err := commitMessage(ctx, in, "HEAD")
+		if err != nil {
+			return ran{}, err
+		}
+		// The message goes in on the standard input and is kept as it is, so no argument is too long for it and no
+		// clean-up of git's takes the spaces or the blank lines a person wrote out of it.
+		amended, err := in.runFed(ctx, []byte(ledger.WithTrailers(message, trailers)), "commit", "--amend", "--allow-empty", "--cleanup=verbatim", "-F", "-")
+		if err != nil {
+			return ran{}, err
+		}
+		if amended.code != 0 {
+			return ran{}, fmt.Errorf("git commit --amend: exit %d: %s", amended.code, amended.stderr)
+		}
 	}
-	last, err := in.must(ctx, "log", "-1", "--format=%B")
+	return ran{}, nil
+}
+
+// commitMessage reads a commit's message byte for byte: what follows the headers of the commit object.
+func commitMessage(ctx context.Context, git Git, commit string) (string, error) {
+	raw, err := git.Output(ctx, "cat-file", "commit", commit)
 	if err != nil {
-		return ran{}, err
+		return "", err
 	}
-	trailers := strings.TrimPrefix(message, merge.Title+"\n\n")
-	_, err = in.must(ctx, "commit", "--amend", "--allow-empty", "-m", strings.TrimRight(last, "\n")+"\n\n"+trailers)
-	return ran{}, err
+	_, message, _ := strings.Cut(string(raw), "\n\n")
+	return message, nil
 }
 
 // publish lands the merge on the base: a push to the remote that never forces and runs no hook, where a

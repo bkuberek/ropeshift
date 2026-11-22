@@ -92,3 +92,98 @@ func TestNewChoosesTheGitCommandsFromTheCloneThatHoldsTheFolder(t *testing.T) {
 		})
 	}
 }
+
+// A clone's own configuration names programs git runs when it reads the clone, and `new` reads a clone it does not
+// trust, in a dry run as in a run. A planted core.fsmonitor never runs, however `new` reads the folder's clone.
+func TestNewRunsNoProgramTheCloneNamesWhenItReadsTheClone(t *testing.T) {
+	repo := gittest.New(t)
+	gitOf(t, repo)
+	repo.Commit("README.md", "a clone\n")
+	ran := filepath.Join(t.TempDir(), "ran")
+	monitor := filepath.Join(t.TempDir(), "monitor.sh")
+	if err := os.WriteFile(monitor, []byte("#!/bin/sh\necho ran >> '"+ran+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo.Git("config", "core.fsmonitor", monitor)
+	repo.Git("status", "--short")
+	if _, err := os.Stat(ran); err != nil {
+		t.Fatalf("the planted program does not run when git reads the clone: %v", err)
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(repo.Dir, "plan")
+	for name, args := range map[string][]string{
+		"a dry run": {"new", "workspace", folder, "--create-remote", "github:acme", "--dry-run", "--json"},
+		"a run":     {"new", "workspace", folder, "--json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.Remove(ran); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			isolate(t)
+			for _, name := range []string{authority.EnvMemberToken, authority.EnvDelegateToken, api.EnvProject} {
+				t.Setenv(name, "")
+			}
+			runMain(append([]string{commandCLI}, args...)...)
+			if _, err := os.Stat(ran); err == nil {
+				t.Error("a program the clone names ran when new read the clone")
+			}
+		})
+	}
+}
+
+// A partial clone fetches an object it lacks from its promisor remote, and the remote's configuration names the
+// program that serves it. `new` reads a clone it does not trust, so a read that lacks an object fetches nothing and
+// runs no such program: here the clone's .gitignore is skip-worktree and its blob is missing.
+func TestNewFetchesNothingFromThePromisorRemoteOfAPartialClone(t *testing.T) {
+	repo := gittest.New(t)
+	gitOf(t, repo)
+	repo.Commit("README.md", "a clone\n")
+	blob := repo.Commit(".gitignore", "/repos/\n")
+	blob = repo.Git("rev-parse", blob+":.gitignore")
+	ran := filepath.Join(t.TempDir(), "ran")
+	uploadpack := filepath.Join(t.TempDir(), "uploadpack.sh")
+	if err := os.WriteFile(uploadpack, []byte("#!/bin/sh\necho ran >> '"+ran+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo.Git("config", "core.repositoryformatversion", "1")
+	repo.Git("config", "extensions.partialClone", "origin")
+	repo.Git("config", "remote.origin.url", filepath.Join(t.TempDir(), "promisor"))
+	repo.Git("config", "remote.origin.promisor", "true")
+	repo.Git("config", "remote.origin.uploadpack", uploadpack)
+	repo.Git("update-index", "--skip-worktree", ".gitignore")
+	if err := os.Remove(filepath.Join(repo.Dir, ".gitignore")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repo.Dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Try("check-ignore", "-q", "--", "plan"); err != nil {
+		if _, statErr := os.Stat(ran); statErr != nil {
+			t.Fatalf("the planted program does not run when git lacks the object: %v, %v", err, statErr)
+		}
+	}
+	if err := os.Remove(ran); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(repo.Dir, "plan")
+	for name, args := range map[string][]string{
+		"a dry run": {"new", "workspace", folder, "--create-remote", "github:acme", "--dry-run", "--json"},
+		"a run":     {"new", "workspace", folder, "--json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.Remove(ran); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			isolate(t)
+			for _, name := range []string{authority.EnvMemberToken, authority.EnvDelegateToken, api.EnvProject} {
+				t.Setenv(name, "")
+			}
+			runMain(append([]string{commandCLI}, args...)...)
+			if _, err := os.Stat(ran); err == nil {
+				t.Error("a program the promisor remote names ran when new read the clone")
+			}
+		})
+	}
+}

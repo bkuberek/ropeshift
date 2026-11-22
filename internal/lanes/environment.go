@@ -46,6 +46,10 @@ var (
 	// ErrSessionVariable means a reference names a variable that marks or
 	// authenticates an agent session, which no lane may inherit.
 	ErrSessionVariable = errors.New("a session variable cannot pass to a lane")
+	// ErrDaemonVariable means a reference names a variable that starts with TagPrefix, where the daemon
+	// keeps its own settings and keys, or another variable the daemon holds a secret in, such as the
+	// telemetry exporter's headers (DaemonSecret). No profile may read either into a lane.
+	ErrDaemonVariable = errors.New("a ropeshift variable cannot pass to a lane")
 	// ErrForgeCredential means a reference names a variable through which the forge's CLI reads a
 	// token or its configuration, which no lane may have (ADR-0020).
 	ErrForgeCredential = errors.New("a forge credential cannot pass to a lane")
@@ -162,6 +166,9 @@ func passThrough(ref string, lookup func(string) (string, bool)) (string, string
 	}
 	if sessionVariable(name) {
 		return "", "", fmt.Errorf("%w: %s", ErrSessionVariable, name)
+	}
+	if strings.HasPrefix(name, TagPrefix) || DaemonSecret(name) {
+		return "", "", fmt.Errorf("%w: %s", ErrDaemonVariable, name)
 	}
 	if forgeVariable(name) {
 		return "", "", fmt.Errorf("%w: %s", ErrForgeCredential, name)

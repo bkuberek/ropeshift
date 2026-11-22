@@ -186,6 +186,22 @@ func judged(q lanes.Qualification, interactive bool) lanes.Qualification {
 	return q
 }
 
+// ProbeChecks lists the checks a probe runs for a worker on this sign-in: every surface of the matrix, less the login
+// on an API key, which cannot read a subscription's login, and the screens when the driver has no terminal. A result
+// holds for its version only if it passed every one of them.
+func (d *Driver) ProbeChecks(signIn string) []lanes.Surface {
+	out := make([]lanes.Surface, 0, len(Surfaces))
+	for _, surface := range Surfaces {
+		switch {
+		case surface == SurfacePrintKeepsLogin && signIn == ports.SignInAPIKey:
+		case surface == SurfaceStartScreens && d.terminal == nil:
+		default:
+			out = append(out, surface)
+		}
+	}
+	return out
+}
+
 func isNoted(surface lanes.Surface) bool {
 	for _, s := range noted {
 		if s == surface {

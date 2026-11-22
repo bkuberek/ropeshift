@@ -19,7 +19,7 @@ const plannedStep = "planned"
 
 // newDryRunDetail is what the help of every `new` command says of --dry-run.
 const newDryRunDetail = " With --dry-run it prints what it would write, leave, commit, create, and push, and writes " +
-	"nothing: it creates no folder, runs no git and no gh, and adds no remote."
+	"nothing: it creates no folder, runs no gh and no git command that changes a repository, and adds no remote."
 
 // dryRunFlag adds --dry-run to a `new` command's flags.
 func dryRunFlag(set *flag.FlagSet) *bool {
@@ -27,9 +27,10 @@ func dryRunFlag(set *flag.FlagSet) *bool {
 }
 
 // dryRunNew prints what a run for the folder would do, with the same text and the same --json document as a run,
-// marked as a dry run. It writes nothing, runs no git and no gh, and reads no clone, so the git commands it lists
-// are those for a folder that no clone holds. A request is the first commit and remotes the command line or the
-// answers ask for, and is nil for a plain write.
+// marked as a dry run. It writes nothing and runs no gh. A request is the first commit and remotes the command line
+// or the answers ask for, and is nil for a plain write. When the request asks for a remote, the dry run asks git
+// which clone holds the folder, as a run does, with no hook and no file system monitor, and refuses as the run does
+// when git is too old or the folder makes no repository of its own.
 func (c *invocation) dryRunNew(shape projectfiles.Shape, folder, project string, data projectfiles.Data, request *ledger.TemplateWriteRequest) int {
 	files, err := projectfiles.Files(shape, data, renderTemplate)
 	if errors.Is(err, projectfiles.ErrInvalid) {
@@ -37,6 +38,18 @@ func (c *invocation) dryRunNew(shape projectfiles.Shape, folder, project string,
 	}
 	if err != nil {
 		return c.finish(err, nil, nil)
+	}
+	if request != nil && request.AsksRemote() {
+		if code := c.requireGit(); code != ExitOK {
+			return code
+		}
+		needs, err := c.needsRepositoryAt(request.Path)
+		if err != nil {
+			return c.finish(plainErr(err), nil, nil)
+		}
+		if refusal := request.RefuseNoOwnRepository(needs); refusal != nil {
+			return c.refusedNew(*refusal)
+		}
 	}
 	result := newResult{Path: folder, Project: data.Project, Written: []string{}, Left: []string{}, DryRun: true}
 	for _, file := range files {

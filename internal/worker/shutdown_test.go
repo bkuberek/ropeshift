@@ -15,7 +15,6 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/lanes"
-	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -41,7 +40,8 @@ func journalFile(t *testing.T) (*sqlite.Journal, string) {
 }
 
 // runStoppable runs a worker on a journal file, under a context the test ends the way a daemon's stop does.
-// The profile picks the lane's run mode, and setup readies the driver and says what the session does.
+// The profile picks the lane's run mode, and setup readies the driver and says what the session does. Run is the
+// only publisher of the lane's status, so a caller never publishes by hand: it reads with awaitWorking.
 func runStoppable(t *testing.T, profile string, setup func(*laneRig) []fake.DriverStep) (*laneRig, *sqlite.Journal, string, func()) {
 	t.Helper()
 	base := newRig(t)
@@ -118,9 +118,7 @@ func TestAStoppingWorkerLetsGoOfTheLaneItKeeps(t *testing.T) {
 				r.driver.OnStop(func() { stops.Add(1) })
 				return []fake.DriverStep{{Bound: true}, {Hold: true}}
 			})
-			r.eventually("a turn in progress", func(view ledger.LaneView) bool {
-				return view.ActualState == string(lanes.Working)
-			})
+			r.awaitWorking(t, 20*time.Second)
 			if got := r.driver.Specs()[0].RunMode; got != tt.mode {
 				t.Fatalf("the session runs %q, and the test means %q", got, tt.mode)
 			}

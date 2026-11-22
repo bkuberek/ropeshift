@@ -166,7 +166,7 @@ A lane reads the built-in layer, then your profile over it, then the repository'
 | `[resources]` thresholds | Yours | How often the worker measures, and where a measure warns ([what the worker measures](onboarding.md#what-the-worker-measures)) |
 | `[lifecycle]` timers | Either | When a lane is stalled, how long it waits for an answer before it parks, and how often it restarts |
 | `[telemetry]` | Yours | Whether telemetry keeps content, and how long it keeps it ([telemetry](telemetry.md#profile-settings)) |
-| `[hooks] on_lane_created` | Either, usually the repository's | A command that runs once in each new worktree, such as installing dependencies |
+| `[hooks] on_lane_created` | Either, usually the repository's | A command that runs once in each new worktree, such as installing dependencies. Creating the worktree runs no repository hook, so a hook the repository holds, such as `post-checkout`, does not run at creation |
 
 A key the profile does not know refuses the whole profile, and no lane starts until it is fixed, so a misspelled setting never keeps its default in silence. A lane reads the files when it starts. The policies have a command too: `ropeshift policy publish --file F` publishes a version from a file, as Review change does ([the command line](cli.md)).
 

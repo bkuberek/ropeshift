@@ -116,6 +116,10 @@ type AgentDriver struct {
 	noResume bool
 	// noPeerChannel stands for a version whose socket surfaces passed no check.
 	noPeerChannel bool
+	// probeChecks are the surfaces a probe runs, and SurfacePeerChannel alone when none was set. subscriptionChecks are
+	// the ones it runs besides, unless the sign-in is an API key.
+	probeChecks        []lanes.Surface
+	subscriptionChecks []lanes.Surface
 	// ignoresPeers stands for a session that took a write and will never reach it: frozen,
 	// refusing, or behind a long tool.
 	ignoresPeers atomic.Bool
@@ -421,8 +425,8 @@ func (d *AgentDriver) surfacesOfLocked(version string) (degraded bool, injection
 }
 
 // Probe returns what a probe of the installed version observes: its peer channel as the script sets
-// it, and degraded as SetVersion says. A held probe waits for its release, and FailProbe makes it
-// fail.
+// it, which fails when SetVersion says degraded. A held probe waits for its release, and FailProbe
+// makes it fail.
 func (d *AgentDriver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualification, error) {
 	d.mu.Lock()
 	d.probes = append(d.probes, spec)
@@ -440,14 +444,53 @@ func (d *AgentDriver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qu
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	result := lanes.CheckPassed
-	if d.noPeerChannel {
-		result = lanes.CheckFailed
+	checks := map[lanes.Surface]lanes.CheckResult{}
+	for _, surface := range d.checksForLocked(spec.SignIn) {
+		checks[surface] = lanes.CheckPassed
+	}
+	if d.noPeerChannel || d.degraded {
+		checks[SurfacePeerChannel] = lanes.CheckFailed
 	}
 	return lanes.Qualification{
 		Driver: FakeDriverName, Version: d.version, Source: lanes.QualifiedByProbe, SignIn: spec.SignIn,
-		Checks: map[lanes.Surface]lanes.CheckResult{SurfacePeerChannel: result}, Degraded: d.degraded || d.noPeerChannel,
+		Checks: checks, Degraded: d.degraded || d.noPeerChannel,
 	}, nil
+}
+
+// ProbeChecks lists the surfaces a probe of the fake checks for this sign-in.
+func (d *AgentDriver) ProbeChecks(signIn string) []lanes.Surface {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.checksForLocked(signIn)
+}
+
+func (d *AgentDriver) checksForLocked(signIn string) []lanes.Surface {
+	checks := d.checksLocked()
+	if signIn != ports.SignInAPIKey {
+		checks = append(checks, d.subscriptionChecks...)
+	}
+	return checks
+}
+
+func (d *AgentDriver) checksLocked() []lanes.Surface {
+	if len(d.probeChecks) == 0 {
+		return []lanes.Surface{SurfacePeerChannel}
+	}
+	return append([]lanes.Surface{}, d.probeChecks...)
+}
+
+// SetSubscriptionChecks sets the surfaces a probe checks besides, unless the sign-in is an API key, as the login is.
+func (d *AgentDriver) SetSubscriptionChecks(surfaces ...lanes.Surface) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.subscriptionChecks = surfaces
+}
+
+// SetProbeChecks sets the surfaces a probe checks, which are SurfacePeerChannel alone until a test sets them.
+func (d *AgentDriver) SetProbeChecks(surfaces ...lanes.Surface) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.probeChecks = surfaces
 }
 
 // Qualify keeps a probe's result, which Capabilities then follows.

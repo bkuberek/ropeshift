@@ -272,6 +272,10 @@ type ProbeSpec struct {
 	Dir string
 	// TempDir is a short private directory for the probe's sockets.
 	TempDir string
+	// EvidenceDir is where the probe keeps what it saw of each check that did not pass, so a person can look at it
+	// afterwards. The driver replaces its own part of it with each probe's, and it never lies within Dir, which the
+	// probe clears. It is empty when nothing is kept.
+	EvidenceDir string
 	// Env is the environment from the allowlist, as a lane gets it.
 	Env []string
 	// Model is the model the probe's sessions ask for.
@@ -517,6 +521,10 @@ type AgentDriver interface {
 	// Probe runs the qualification probe on the installed version, and returns what each check
 	// observed. A check that could not run reads unobserved, never passed.
 	Probe(ctx context.Context, spec ProbeSpec) (lanes.Qualification, error)
+	// ProbeChecks lists the checks a probe runs now for a worker on this kind of sign-in: every surface the driver
+	// checks, less the ones this sign-in or this machine cannot observe. A result holds for its version only if it
+	// passed every one of them.
+	ProbeChecks(signIn string) []lanes.Surface
 	// Qualify hands the driver a probe's result. From then on an undocumented surface is used only
 	// on the version that result names, and only where its check passed.
 	Qualify(q lanes.Qualification)

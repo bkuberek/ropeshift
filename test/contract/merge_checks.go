@@ -32,6 +32,7 @@ var MergeChecks = []Check{
 	{"MG12", "at person_merges accepted work through a pull request waits in integrating for the person's merge, which ropeshift never makes", checkPersonMergesWaitsInIntegrating},
 	{"MG13", "a merge refused as stale at a head that is no commit ID leaves the work in integrating at the reviewed commit", checkStaleMergeAtNoCommitIDIsIgnored},
 	{"MG14", "a merge commit a worker reports that is no commit ID is recorded as none: the work still ends, and no record or event holds it", checkMergeCommitMustBeACommitID},
+	{"MG15", "the base's tip before and after a rebase that landed is recorded with the merge as its landed range when it ends at the merge commit, and any other report of a range records none", checkMergeRangeIsRecordedWithTheMerge},
 }
 
 // newMergeRig is a forge rig whose repository merges at a level, with a method.
@@ -781,6 +782,98 @@ func checkMergeCommitMustBeACommitID(r *Rig) error {
 		return err
 	}
 	return g.mergedWithNoCommit("a merge the person made")
+}
+
+func checkMergeRangeIsRecordedWithTheMerge(r *Rig) error {
+	// A rebase the forge made writes commits with no trailer, so the merge reports the base's tip before it and after it.
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, ledger.MergeRebase)
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	merge, err := f.oneMerge()
+	if err != nil {
+		return err
+	}
+	before, after := r.Commit(), r.Commit()
+	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: after, MergedAt: "2026-11-11T12:00:00Z", BaseBefore: before, BaseAfter: after}); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
+		return err
+	}
+	count, event, err := r.eventsAbout(f.store, f.grant.WorkOrder, ledger.EventIntegrationMerged)
+	if want := `"landed":{"before":"` + before + `","after":"` + after + `"}`; err != nil || count != 1 || !strings.Contains(string(event.Data), want) {
+		return Violatedf("%d merges on record, the last %s, want it to hold %s: %v", count, event.Data, want, err)
+	}
+	// An end that is no commit ID is a range of no commits: the work still ends, and nothing holds the end.
+	g, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, ledger.MergeRebase)
+	if err != nil {
+		return err
+	}
+	if _, err := g.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	again, err := g.oneMerge()
+	if err != nil {
+		return err
+	}
+	if err := g.mergeCame(again, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.Commit(), MergedAt: "2026-11-11T12:00:00Z", BaseBefore: hostileHead, BaseAfter: r.Commit()}); err != nil {
+		return err
+	}
+	if err := r.stateIs(g.store, g.grant.WorkOrder, workorders.Done); err != nil {
+		return err
+	}
+	if count, event, err := r.eventsAbout(g.store, g.grant.WorkOrder, ledger.EventIntegrationMerged); err != nil || count != 1 || strings.Contains(string(event.Data), `"landed"`) {
+		return Violatedf("%d merges on record, the last %s, want no range: %v", count, event.Data, err)
+	}
+	if err := g.wantNoHostileHead("after a merge that reported a range"); err != nil {
+		return err
+	}
+	// A range is kept only for a rebase, and only when it ends at the merge commit the merge made: a worker's word for any
+	// other is no range, and neither the merge nor the report keeps it.
+	for _, tt := range []struct {
+		name   string
+		method ledger.MergeMethod
+		ends   bool
+	}{
+		{"a squash", ledger.MergeSquash, true},
+		{"a merge commit", "", true},
+		{"a rebase whose range ends at another commit than its merge commit", ledger.MergeRebase, false},
+	} {
+		h, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, tt.method)
+		if err != nil {
+			return err
+		}
+		if _, err := h.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+			return err
+		}
+		asked, err := h.oneMerge()
+		if err != nil {
+			return err
+		}
+		made := r.Commit()
+		ends := made
+		if !tt.ends {
+			ends = r.Commit()
+		}
+		reported := ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: made, MergedAt: "2026-11-11T12:00:00Z", BaseBefore: r.Commit(), BaseAfter: ends}
+		if err := h.mergeCame(asked, reported); err != nil {
+			return err
+		}
+		if err := r.stateIs(h.store, h.grant.WorkOrder, workorders.Done); err != nil {
+			return err
+		}
+		if count, event, err := r.eventsAbout(h.store, h.grant.WorkOrder, ledger.EventIntegrationMerged); err != nil || count != 1 || strings.Contains(string(event.Data), `"landed"`) {
+			return Violatedf("%s: %d merges on record, the last %s, want no range: %v", tt.name, count, event.Data, err)
+		}
+		if _, event, err := r.eventsAbout(h.store, h.grant.WorkOrder, ledger.EventIntegrationReported); err != nil || strings.Contains(string(event.Data), reported.BaseBefore) {
+			return Violatedf("%s: the report on record holds the range: %s: %v", tt.name, event.Data, err)
+		}
+	}
+	return r.CheckProjection(g.store)
 }
 
 // mergedWithNoCommit says the work ended, merged, with no merge commit on its record, and that no record, request, or event
