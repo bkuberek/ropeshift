@@ -485,6 +485,18 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 // observeHook turns one hook event into what it says about the lane. A tool call that has
 // started and not finished is a wait, not a stall.
 func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
+	r.observe(ctx, event, false)
+}
+
+// observeReplayedHook reads a hook a journal kept while no worker listened. It happened before this worker
+// started, so it says nothing of the sign-in or the model's reach now: a failure that was a usage limit then
+// would otherwise start a new limit at every restart.
+func (r *laneRun) observeReplayedHook(ctx context.Context, event lanes.HookEvent) {
+	r.observe(ctx, event, true)
+}
+
+// observe is what both read: a replayed hook changes no state a worker keeps for the lanes together.
+func (r *laneRun) observe(ctx context.Context, event lanes.HookEvent, replayed bool) {
 	s := r.state
 	if s.beforeClear(event) {
 		return
@@ -522,6 +534,9 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		s.notePrompt(event.AtMs)
 	case hookStopFailure:
 		s.noteStopFailure()
+		if replayed {
+			return
+		}
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)
 	}

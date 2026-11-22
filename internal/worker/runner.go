@@ -345,11 +345,11 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 		case hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied, lanes.EventCallDenied:
 			calls = append(calls, record)
 		default:
-			r.observeHook(ctx, record.HookEvent)
+			r.observeReplayedHook(ctx, record.HookEvent)
 		}
 	}
 	for _, record := range calls {
-		r.observeHook(ctx, record.HookEvent)
+		r.observeReplayedHook(ctx, record.HookEvent)
 	}
 	switch {
 	case began > ended:
