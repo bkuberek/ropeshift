@@ -2,6 +2,7 @@ package ghcli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -241,12 +242,14 @@ func TestAMergeNamesTheReviewedHead(t *testing.T) {
 			if err != nil || again.Outcome != ledger.MergeMerged || again.MergeCommit != result.MergeCommit {
 				t.Fatalf("a repeat %+v: %v", again, err)
 			}
-			want := [][]string{
-				{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
-				{"pr", "merge", "1", "--repo", repoArg, "--match-head-commit", head, flag},
-				{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
-				{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
+			merge := []string{"pr", "merge", "1", "--repo", repoArg, "--match-head-commit", head, flag}
+			want := [][]string{{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields}}
+			if method == ledger.MergeRebase {
+				want = append(want, []string{"api", "--include", "--hostname", "github.com", "repos/acme/widgets/git/ref/heads/main"})
 			}
+			want = append(want, merge,
+				[]string{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields},
+				[]string{"pr", "view", "1", "--repo", repoArg, "--json", mergeFields})
 			if got := argsOf(doubles.FakeGHCalls(t, gh))[before:]; !slices.EqualFunc(got, want, slices.Equal) {
 				t.Fatalf("gh ran\n%q\nwant\n%q", got, want)
 			}
@@ -260,6 +263,76 @@ func TestAMergeNamesTheReviewedHead(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// gitOut runs git in a directory and returns what it printed, without the newline that ends it.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimRight(string(out), "\n")
+}
+
+// A rebase writes the pull request's commits on the base with no trailer, so the merge reads the base's tip before it
+// runs and reports it with the tip after, which is the merge commit the forge names. A merge that is no rebase reads
+// no tip and reports none, and a repeat that finds the merge made reports none either.
+func TestARebaseMergeReportsTheBaseTipBeforeAndAfter(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	ref, head, before := opened(t, forge, repo, gh)
+	bare := gitOut(t, repo.Dir, "remote", "get-url", "origin")
+	tip := gitOut(t, bare, "rev-parse", "refs/heads/main")
+	result, err := forge.Merge(t.Context(), ref, head, ledger.MergeRebase)
+	if err != nil || result.Outcome != ledger.MergeMerged || result.BaseBefore != tip || result.BaseAfter != result.MergeCommit {
+		t.Fatalf("merge %+v: %v, want the base's tip %s before it", result, err, tip)
+	}
+	if span, ok := result.Landed(); !ok || span.Before != tip || span.After != result.MergeCommit {
+		t.Errorf("the range is %+v, %v", span, ok)
+	}
+	again, err := forge.Merge(t.Context(), ref, head, ledger.MergeRebase)
+	if err != nil || again.Outcome != ledger.MergeMerged || again.MergeCommit != result.MergeCommit || again.BaseBefore != "" || again.BaseAfter != "" {
+		t.Errorf("a repeat came to %+v: %v", again, err)
+	}
+	if got := argsOf(doubles.FakeGHCalls(t, gh))[before:]; len(got) != 5 || got[1][0] != "api" || slices.Contains(got[2], "--body") || got[4][1] != "view" {
+		t.Errorf("gh ran %q", got)
+	}
+	for _, method := range []ledger.MergeMethod{ledger.MergeCommit, ledger.MergeSquash} {
+		forge, repo, gh, _ := fixture(t)
+		ref, head, before := opened(t, forge, repo, gh)
+		result, err := forge.Merge(t.Context(), ref, head, method)
+		if err != nil || result.Outcome != ledger.MergeMerged || result.BaseBefore != "" || result.BaseAfter != "" {
+			t.Errorf("a %s merge came to %+v: %v", method, result, err)
+		}
+		if calls := callsWith(t, gh, "api"); len(calls) != 0 {
+			t.Errorf("a %s merge read the API: %q (after %d calls)", method, calls, before)
+		}
+	}
+}
+
+// A squash passes no body, no subject, and no template, so the forge writes its own message for the commit, which keeps
+// each commit message of the pull request, any BREAKING CHANGE, and any sign-off line, and carries nothing of ropeshift's.
+func TestASquashMergePassesNoMessageOfItsOwn(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	ref, head, _ := opened(t, forge, repo, gh)
+	result, err := forge.Merge(t.Context(), ref, head, ledger.MergeSquash)
+	if err != nil || result.Outcome != ledger.MergeMerged {
+		t.Fatalf("merge %+v: %v", result, err)
+	}
+	calls := callsWith(t, gh, "pr", "merge")
+	if len(calls) != 1 {
+		t.Fatalf("gh merged %d times: %q", len(calls), calls)
+	}
+	for _, arg := range calls[0] {
+		switch arg {
+		case "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A":
+			t.Errorf("the squash passed %s: %q", arg, calls[0])
+		}
+	}
+	bare := gitOut(t, repo.Dir, "remote", "get-url", "origin")
+	if message := gitOut(t, bare, "log", "-1", "--format=%B", result.MergeCommit); strings.Contains(message, "Ropeshift-") {
+		t.Errorf("the squash commit carries trailers of ropeshift's: %q", message)
 	}
 }
 

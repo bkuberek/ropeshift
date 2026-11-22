@@ -189,28 +189,58 @@ func TestAReadingThatCannotReadTheCloneKeepsTheConflict(t *testing.T) {
 	}
 }
 
-// A repository whose merge method rewrites commits lands a work order's change in commits that carry no trailer, on
-// the forge or by a local rebase, so its base's side reads as nobody's: only the clone's side of a conflict is shown.
-func TestARepositoryThatRewritesCommitsShowsNoPushedSide(t *testing.T) {
+// A repository whose merge method rewrites commits shows the base's side of a conflict as one that merges with merge
+// commits does: the work a merge of ropeshift or the forge landed is left out of it by its trailer or its recorded
+// range, so what remains is a person's push.
+func TestARepositoryThatRewritesCommitsShowsThePushedSide(t *testing.T) {
 	t.Parallel()
-	d, _, edits := conflictWorld(t)
-	squash := ledger.MergeSquash
-	if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", control.RepositoryChange{MergeMethod: &squash}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
+	for _, method := range []ledger.MergeMethod{ledger.MergeSquash, ledger.MergeRebase} {
+		t.Run(string(method), func(t *testing.T) {
+			t.Parallel()
+			d, _, _ := conflictWorld(t)
+			if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", control.RepositoryChange{MergeMethod: &method}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			items := conflictItems(t, d)
+			want := []api.ConflictPathView{{Path: "docs/guide.md", Person: ledger.PersonPushed}, {Path: "plans/plan.md", Person: string(ledger.EditUncommitted)}}
+			if len(items) != 1 || !slices.Equal(items[0].Conflict.Paths, want) {
+				t.Fatalf("Needs you holds %d conflicts, the first with the paths %+v, want %+v", len(items), items[0].Conflict.Paths, want)
+			}
+		})
+	}
+}
+
+// A range the ledger records in the event of a merge it made is given to the read of a lane's branch as landed work, for
+// a repository where a lane is open.
+func TestARangeTheLedgerRecordsIsGivenAsLandedWork(t *testing.T) {
+	t.Parallel()
+	d, w, edits := conflictWorld(t)
+	w.Created("wo-landed", "Rebased on the forge")
+	before, after := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	if err := d.Store.Write(t.Context(), apitest.Scope, "test.pull_request", func(tx ports.WriteTx) error {
+		if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
+			WorkOrder: "wo-landed", Repository: "repository-1", Worker: apitest.WorldWorker,
+			PullRequest: ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, Base: "main", Branch: "lane/x", HeadCommit: "head-of-7", MergeCommit: after, MergedAt: "2026-11-20T10:00:00Z"},
+		}); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventIntegrationMerged, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}, Subject: ledger.Subject{Kind: ledger.SubjectIntegration, ID: "wo-landed"},
+			Data: []byte(`{"landed":{"before":"` + before + `","after":"` + after + `"}}`),
+		})
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	items := conflictItems(t, d)
-	if len(items) != 1 || !slices.Equal(items[0].Conflict.Paths, []api.ConflictPathView{{Path: "plans/plan.md", Person: string(ledger.EditUncommitted)}}) {
-		t.Fatalf("Needs you holds %+v", items)
-	}
-	edits.Set("/srv/repository-1", ledger.CloneEdits{Branch: "main", Head: "abc", Remote: "origin"})
-	if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if got := conflictItems(t, d); len(got) != 0 {
-		t.Errorf("a squash-landed change reads as a person's push: %+v", got)
+	landed := edits.Landed()
+	if len(landed) == 0 || !slices.Equal(landed[len(landed)-1].Ranges, []ledger.LandedRange{{Before: before, After: after}}) || len(landed[len(landed)-1].Unranged) != 0 {
+		t.Errorf("the read of the lane's branch was given %+v as landed work", landed)
 	}
 }
 
@@ -238,8 +268,45 @@ func TestACommitTheForgeLandedIsGivenAsLandedWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	landed := edits.Landed()
-	if len(landed) == 0 || !slices.Contains(landed[len(landed)-1], "squash-of-7") || !slices.Contains(landed[len(landed)-1], "head-of-7") {
+	if len(landed) == 0 || !slices.Contains(landed[len(landed)-1].Commits, "squash-of-7") || !slices.Contains(landed[len(landed)-1].Commits, "head-of-7") {
 		t.Errorf("the read of the lane's branch was given %v as landed work", landed)
+	}
+	if last := landed[len(landed)-1]; !slices.Equal(last.Unranged, []string{"squash-of-7"}) || len(last.Ranges) != 0 {
+		t.Errorf("a merge that recorded no range was given as %+v", last)
+	}
+}
+
+// A merged pull request with no usable range hides the base's side of a conflict in a repository that rebases, where its
+// commits carry no trailer and no commit of its own names them. Any other method names the commits of a merge, so the base's
+// side stays.
+func TestAMergeWithNoRangeHidesThePushedSideOnlyBesideARebase(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		method ledger.MergeMethod
+		shown  bool
+	}{{ledger.MergeRebase, false}, {ledger.MergeSquash, true}, {ledger.MergeCommit, true}} {
+		t.Run(string(tt.method), func(t *testing.T) {
+			t.Parallel()
+			d, _, edits := conflictWorld(t)
+			method := tt.method
+			if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", control.RepositoryChange{MergeMethod: &method}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
+				t.Fatal(err)
+			}
+			edits.Diverge("/srv/repository-1", "lane/lane-wo-1", ledger.Divergence{
+				Fork: "fork", Base: "origin/main", Lane: []string{"docs/guide.md", "plans/lane.md", "plans/plan.md"}, Pushed: []string{"docs/guide.md", "docs/other.md"}, Unranged: true,
+			})
+			if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			items := conflictItems(t, d)
+			if len(items) != 1 {
+				t.Fatalf("Needs you holds %+v", items)
+			}
+			pushed := slices.ContainsFunc(items[0].Conflict.Paths, func(path api.ConflictPathView) bool { return path.Person == ledger.PersonPushed })
+			if pushed != tt.shown {
+				t.Errorf("with a merge with no range, a %s repository shows the base's side: %v, want %v (%+v)", tt.method, pushed, tt.shown, items[0].Conflict.Paths)
+			}
+		})
 	}
 }
 

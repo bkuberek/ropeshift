@@ -60,11 +60,15 @@ func (w Worktrees) Edits(ctx context.Context, clone string, limit int) (ledger.C
 		return ledger.CloneEdits{}, fmt.Errorf("%w: no clone at %s", ports.ErrNotFound, clone)
 	}
 	git := w.cloneGit(clone)
-	if _, err := git.Text(ctx, "rev-parse", "--git-dir"); err != nil {
-		if ctx.Err() != nil {
-			return ledger.CloneEdits{}, ctx.Err()
-		}
-		return ledger.CloneEdits{}, fmt.Errorf("%w: %s holds no clone: %v", ports.ErrNotFound, clone, err)
+	switch result, err := git.run(ctx, "rev-parse", "--git-dir"); {
+	case err != nil:
+		return ledger.CloneEdits{}, err
+	case ctx.Err() != nil:
+		return ledger.CloneEdits{}, ctx.Err()
+	case result.code != 0 && strings.Contains(result.stderr, "not a git repository"):
+		return ledger.CloneEdits{}, fmt.Errorf("%w: %s holds no clone: %s", ports.ErrNotFound, clone, result.stderr)
+	case result.code != 0:
+		return ledger.CloneEdits{}, fmt.Errorf("git rev-parse --git-dir in %s: exit %d: %s", clone, result.code, result.stderr)
 	}
 	out := ledger.CloneEdits{Edits: []ledger.CloneEdit{}}
 	// A detached head has no symbolic name, which is an answer and not a failure.
@@ -184,10 +188,13 @@ func laneRef(ctx context.Context, git Git, ref, shown string) (string, error) {
 // Diverged reads what a lane's branch and its base each changed since they last shared a commit. The base is the
 // remote's copy of baseBranch as the last fetch left it, or the clone's own branch in a clone with no remote, and it is
 // never fetched. The base's side counts only the commits on its first-parent line that are no merge, that carry no
-// trailer of a merge of ropeshift, and that landed names as no commit of landed work, so neither the work ropeshift or
-// the forge merged nor what a merge brought in reads as a person's. Each listing is read NUL-separated and stops once
-// limit paths of its side are kept. Only a ref or a fork point git says is missing is ErrNotFound.
-func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch string, landed []string, limit int) (ledger.Divergence, error) {
+// trailer of a merge of ropeshift, and that landed names as neither a commit of landed work nor one of a range of it, so
+// neither the work ropeshift or the forge merged nor what a merge brought in reads as a person's. A range is read only
+// when its first end is an ancestor of its last. The divergence says Unranged when a commit landed names as the merge
+// commit of a pull request with no range, or whose range is not read, is one of the base's commits since the fork. Each
+// listing is read NUL-separated and stops once limit paths of its side are kept. Only a ref or a fork point git says is
+// missing is ErrNotFound.
+func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch string, landed ledger.Landed, limit int) (ledger.Divergence, error) {
 	for _, name := range []string{branch, baseBranch} {
 		if err := ledger.CheckStoredBranch(name); err != nil {
 			return ledger.Divergence{}, fmt.Errorf("%w: %v", ports.ErrNotFound, err)
@@ -250,7 +257,41 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 	if len(commits) > editsCommits {
 		commits, out.Cut = commits[:editsCommits], true
 	}
-	commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(landed, commit) })
+	ends := slices.Clone(commits)
+	unranged := slices.Clone(landed.Unranged)
+	for _, span := range landed.Ranges {
+		// A range counts only when it ends at a commit this side lists.
+		if !ledger.CommitHash(span.Before) || !ledger.CommitHash(span.After) || !slices.Contains(ends, span.After) {
+			continue
+		}
+		// A rebase's range begins at an ancestor of where it ends. One that does not, or whose first end the clone does not
+		// hold, is no range, and the merge it came from is one with no range.
+		ancestor, err := git.run(ctx, "merge-base", "--is-ancestor", span.Before, span.After)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			return ledger.Divergence{}, err
+		}
+		if ancestor.code != 0 || span.Before == span.After {
+			unranged = append(unranged, span.After)
+			continue
+		}
+		inside, err := git.run(ctx, "--no-optional-locks", "rev-list", "--first-parent", "--max-count="+strconv.Itoa(editsCommits), "--end-of-options", span.After, "^"+span.Before)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			return ledger.Divergence{}, err
+		}
+		if inside.code != 0 {
+			continue
+		}
+		members := strings.Fields(inside.out)
+		commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(members, commit) })
+	}
+	commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(landed.Commits, commit) })
+	out.Unranged = slices.ContainsFunc(unranged, func(commit string) bool { return slices.Contains(ends, commit) })
 	if len(commits) > 0 {
 		names, err := git.Feed(ctx, []byte(strings.Join(commits, "\n")+"\n"), "--no-optional-locks", "log", "--no-walk=unsorted", "--stdin", "--no-renames", "--format=", "--name-only", "-z")
 		if err != nil {
@@ -265,30 +306,116 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 	return out, nil
 }
 
-// Contents reads the blob each path's file in the clone would be stored as, with no filter run and no object written,
-// and empty for a path whose file is gone.
+// unstorable is what Contents reads for a path git cannot store as a file, a link, or a submodule: a pipe, a socket, a device,
+// or a directory the index records no submodule at.
+const unstorable = "unstorable"
+
+// Contents reads what each path in the clone would be stored as, with no filter run and no object written, and empty for
+// a path whose file is gone. A file is its blob. A symlink is the blob of its link text, as git stores it, and what it
+// points at is never opened. A submodule is the commit the index records for it. A pipe, a socket, a device, or any other
+// directory is never opened. A path beneath a directory that is a link, which leads out of the clone, reads as gone, and
+// so does a path that does not lie within the clone. A file whose name holds a line break or begins with a quote is
+// hashed on its own, because git reads a list of names a line each.
 func (w Worktrees) Contents(ctx context.Context, clone string, paths []string) (map[string]string, error) {
 	out := make(map[string]string, len(paths))
-	var present []string
+	git := w.cloneGit(clone)
+	var listed, directories []string
 	for _, path := range paths {
 		out[path] = ""
-		if _, err := os.Lstat(filepath.Join(clone, filepath.FromSlash(path))); err == nil {
-			present = append(present, path)
+		if !withinClone(clone, path) {
+			continue
+		}
+		full := filepath.Join(clone, filepath.FromSlash(path))
+		info, err := os.Lstat(full)
+		switch {
+		case err != nil:
+		case info.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(full)
+			if err != nil {
+				return nil, err
+			}
+			blob, err := git.Feed(ctx, []byte(target), "hash-object", "--no-filters", "--stdin")
+			if err != nil {
+				return nil, err
+			}
+			out[path] = strings.TrimSpace(string(blob))
+		case info.IsDir():
+			directories = append(directories, path)
+		case !info.Mode().IsRegular():
+			out[path] = unstorable
+		case strings.ContainsAny(path, "\r\n") || strings.HasPrefix(path, `"`):
+			blob, err := git.Text(ctx, "hash-object", "--no-filters", "--", path)
+			if err != nil {
+				return nil, err
+			}
+			out[path] = blob
+		default:
+			listed = append(listed, path)
 		}
 	}
-	if len(present) == 0 {
-		return out, nil
+	if len(listed) > 0 {
+		hashed, err := git.Feed(ctx, []byte(strings.Join(listed, "\n")+"\n"), "hash-object", "--no-filters", "--stdin-paths")
+		if err != nil {
+			return nil, err
+		}
+		blobs := strings.Fields(string(hashed))
+		if len(blobs) != len(listed) {
+			return nil, fmt.Errorf("git hash-object printed %d blobs for %d files", len(blobs), len(listed))
+		}
+		for i, path := range listed {
+			out[path] = blobs[i]
+		}
 	}
-	hashed, err := w.cloneGit(clone).Feed(ctx, []byte(strings.Join(present, "\n")+"\n"), "hash-object", "--no-filters", "--stdin-paths")
+	if len(directories) > 0 {
+		recorded, err := w.recordedSubmodules(ctx, git, directories)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range directories {
+			out[path] = cmp.Or(recorded[strings.TrimSuffix(path, "/")], unstorable)
+		}
+	}
+	return out, nil
+}
+
+// withinClone says a path lies within the clone by its own components: it is a local path, and no directory above it
+// below the clone's top is a link or anything but a directory. The last component is the path's own, which a read of it
+// looks at without following. A parent that is missing leaves the path gone.
+func withinClone(clone, path string) bool {
+	slashed := strings.TrimSuffix(path, "/")
+	if !filepath.IsLocal(filepath.FromSlash(slashed)) {
+		return false
+	}
+	parts := strings.Split(slashed, "/")
+	dir := clone
+	for _, part := range parts[:len(parts)-1] {
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
+// recordedSubmodules reads the commit the index records for each of the paths that is a submodule.
+func (w Worktrees) recordedSubmodules(ctx context.Context, git Git, paths []string) (map[string]string, error) {
+	args := []string{"--literal-pathspecs", "--no-optional-locks", "ls-files", "--stage", "-z", "--"}
+	for _, path := range paths {
+		args = append(args, strings.TrimSuffix(path, "/"))
+	}
+	listed, err := git.Output(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
-	blobs := strings.Fields(string(hashed))
-	if len(blobs) != len(present) {
-		return nil, fmt.Errorf("git hash-object printed %d blobs for %d files", len(blobs), len(present))
-	}
-	for i, path := range present {
-		out[path] = blobs[i]
+	out := map[string]string{}
+	for entry := range strings.SplitSeq(string(listed), "\x00") {
+		// Each entry is the mode, the object, and the stage, a tab, and the path.
+		meta, path, found := strings.Cut(entry, "\t")
+		fields := strings.Fields(meta)
+		if found && len(fields) == 3 && fields[0] == "160000" {
+			out[path] = fields[1]
+		}
 	}
 	return out, nil
 }

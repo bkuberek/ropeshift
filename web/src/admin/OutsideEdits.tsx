@@ -1,4 +1,4 @@
-import { useReducer } from "react";
+import { useReducer, useRef } from "react";
 
 import { readOutsideEdits } from "../api/admin";
 import type { CloneEditsView, EditState, EditStep, EditView, OutsideEdits } from "../api/admin";
@@ -118,8 +118,23 @@ function CloneFiles({ clone, limit }: { clone: CloneEditsView; limit: number }) 
 // and lanes cannot read, by path, with the step that makes each readable (FR-UI-14). On Plans it lists only the planning
 // repository's clone.
 export function OutsideEditsPanel({ live, project, planningOnly = false }: { live: Live; project: string; planningOnly?: boolean }) {
-  const [version, again] = useReducer((count: number) => count + 1, 0);
-  const read = useView<OutsideEdits>(() => readOutsideEdits(), `outside-edits:${project}#${version}`, live, readGapMs);
+  const [version, bump] = useReducer((count: number) => count + 1, 0);
+  // Pressing Read again asks for a fresh reading once; every read the page makes on its own may be a reused one.
+  const asked = useRef(false);
+  const again = () => {
+    asked.current = true;
+    bump();
+  };
+  const read = useView<OutsideEdits>(
+    () => {
+      const fresh = asked.current;
+      asked.current = false;
+      return readOutsideEdits(fresh);
+    },
+    `outside-edits:${project}#${version}`,
+    live,
+    readGapMs,
+  );
   const clones = (read.view?.clones ?? []).filter((clone) => !planningOnly || clone.planning);
   return (
     <Panel

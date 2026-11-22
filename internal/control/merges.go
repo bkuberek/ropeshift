@@ -575,6 +575,9 @@ type mergedWork struct {
 	URL         string                   `json:"url,omitempty"`
 	Method      ledger.MergeMethod       `json:"method,omitempty"`
 	ForgeMerged string                   `json:"forge_merged_at,omitempty"`
+	// Landed is the range of the base's first-parent line the merge wrote, which a rebase on the forge reports because
+	// its commits carry no trailer.
+	Landed *ledger.LandedRange `json:"landed,omitempty"`
 }
 
 // finishMerge records the merge of the approved commit and moves the work to `done`, as every accepted work
@@ -660,6 +663,10 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 	case ledger.MergeMerged, ledger.MergeConflict, ledger.MergeBehind, ledger.MergeStaleHead, ledger.MergeRefused:
 	default:
 		return fmt.Errorf("%w: a merge came to %q", workorders.ErrInvalid, result.Outcome)
+	}
+	// A range is kept only for a rebase, when both its ends are commit IDs and it ends at the merge commit the merge made.
+	if span, ok := result.Landed(); !ok || request.Method != ledger.MergeRebase || span.After != result.MergeCommit {
+		result.BaseBefore, result.BaseAfter = "", ""
 	}
 	if _, err := tx.Forge().FinishMerge(request.ID, request.Attempt, tx.Now(), result.Outcome, result.Detail); err != nil {
 		return err
@@ -772,6 +779,9 @@ func mergeLanded(tx ports.WriteTx, f integrationFacts, request ledger.ForgeReque
 	}
 	record.MergedCommit, record.MergedAt = result.MergeCommit, tx.Now()
 	merged := mergedWork{Method: request.Method, ForgeMerged: result.MergedAt}
+	if span, ok := result.Landed(); ok {
+		merged.Landed = &span
+	}
 	if f.pr != nil {
 		merged.URL = f.pr.URL
 	}
