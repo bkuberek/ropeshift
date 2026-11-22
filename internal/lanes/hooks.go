@@ -62,6 +62,10 @@ type HookEvent struct {
 	Malformed  bool  `json:"malformed,omitempty"`
 }
 
+// NotificationNeedsInput is the Detail of the Notification that says a session waits for an answer, which a key
+// typed into its pane would give.
+const NotificationNeedsInput = "agent_needs_input"
+
 // EventStatusLine names a status line's report among hook events. The CLI has no hook of
 // this name: the driver's status line command reports on the same socket.
 const EventStatusLine = "StatusLine"

@@ -25,6 +25,7 @@ const (
 	hookPostToolUse  = "PostToolUse"
 	hookStopFailure  = "StopFailure"
 	hookSessionStart = "SessionStart"
+	hookNotification = "Notification"
 
 	hookPermissionRequest = "PermissionRequest"
 )
@@ -103,6 +104,9 @@ type laneState struct {
 	// keptBackground and keptStopMs are the rest on background work the journal kept (lanes.Progress.Background).
 	keptBackground int
 	keptStopMs     int64
+	// refusedSince is when the session refused the nudge a turn's end owed, because it may wait on an answer, and zero
+	// while no such wait runs (restOnRefusal).
+	refusedSince time.Time
 	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
 	moves  uint64
 	saving atomic.Bool
@@ -639,6 +643,9 @@ func (s *laneState) notePrompt(atMs int64) bool {
 	defer s.mu.Unlock()
 	starts := atMs > s.promptedMs && atMs > s.endedMs()
 	s.promptedMs = max(s.promptedMs, atMs)
+	if starts {
+		s.refusedSince = time.Time{}
+	}
 	if atMs > 0 && atMs < s.stoppedMs {
 		return starts
 	}
@@ -694,6 +701,42 @@ func (s *laneState) turnUnended() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.promptedMs > s.endedMs()
+}
+
+// noteRefusal begins the wait on a refused nudge, and endRefusal ends it.
+func (s *laneState) noteRefusal(since time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refusedSince = since
+}
+
+func (s *laneState) endRefusal() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refusedSince = time.Time{}
+}
+
+// refusal reads the wait on a refused nudge, and whether there is one.
+func (s *laneState) refusal() (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refusedSince, !s.refusedSince.IsZero()
+}
+
+// refusalQuiet says the wait on the nudge refused at since has run for bound with nothing to hold it: the lane rests
+// with no call at work and no request open, and its progress, which a call's end moves, has not moved for that long.
+func (s *laneState) refusalQuiet(since, now time.Time, bound time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resting := s.tracker.State() == lanes.Idle || s.tracker.Left() == lanes.Idle
+	if !s.refusedSince.Equal(since) || !resting || len(s.tools) != 0 || s.approvals != 0 {
+		return false
+	}
+	last := since
+	if s.progress.After(last) {
+		last = s.progress
+	}
+	return now.Sub(last) >= bound
 }
 
 // noteTurnWait begins a wait for the end of a turn the worker did not hand, and endTurnWait ends it.

@@ -63,7 +63,7 @@ const (
 )
 
 // notificationNeedsInput is the Notification that says a session waits for an answer.
-const notificationNeedsInput = "agent_needs_input"
+const notificationNeedsInput = lanes.NotificationNeedsInput
 
 // compactRequested is the trigger of a compaction someone asked for, which runs at rest as a turn of
 // its own. A stream ends that turn with a result, and in a pane no Stop follows it, so its last hook
