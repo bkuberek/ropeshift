@@ -8,6 +8,7 @@ import type { Entry } from "../app/ranking";
 import { openPage } from "../opening";
 import { ViewTime } from "../parts/parts";
 import { golden, refusal, serveApi, serveViews } from "../testing";
+import { ToastProvider } from "../ui/overlays";
 import { countdownWords, OrchestratorStart, UsageLimit, when } from "./OrchestratorStart";
 
 // What keeps an orchestrator from starting shows next to its Start control, from the same read model on Workers and in
@@ -127,6 +128,56 @@ describe("the start control", () => {
     unmount();
     render(<OrchestratorStart line={lineWith({ reason: "offline" })} after={async () => {}} />);
     expect(screen.getByText("The worker is offline, so its orchestrator starts once it connects.")).toBeTruthy();
+  });
+});
+
+describe("a start of an orchestrator asked to run", () => {
+  const askedToRun = (state: string | undefined, hold?: OrchestratorHold): WorkerLine => {
+    const line = lineWith(hold);
+    line.orchestrator = { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 2, resets: 0, actual_state: state };
+    return line;
+  };
+  const answers = (run: number, resets = 0) =>
+    serveApi((call) => (call.method === "PUT" ? { status: 200, body: { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run, resets } } : undefined));
+  const shown = (line: WorkerLine) =>
+    render(
+      <ToastProvider>
+        <OrchestratorStart line={line} after={async () => {}} />
+      </ToastProvider>,
+    );
+
+  it("says a start of an ended run started the next", async () => {
+    const sent = answers(3);
+    shown(askedToRun("ended"));
+    await userEvent.click(screen.getByRole("button", { name: "Start orchestrator on solo" }));
+    expect(await screen.findByText("Asked solo to run its orchestrator.")).toBeTruthy();
+    expect(sent.find((call) => call.method === "PUT")?.body).toEqual({ desired_state: "running" });
+  });
+
+  it("reports no success when the start changed nothing", async () => {
+    answers(2);
+    shown(askedToRun(undefined));
+    await userEvent.click(screen.getByRole("button", { name: "Start orchestrator on solo" }));
+    expect(await screen.findByText("The orchestrator on solo was already asked to run, so Start changed nothing.")).toBeTruthy();
+    expect(screen.queryByText("Asked solo to run its orchestrator.")).toBeNull();
+  });
+
+  it("says a reset of a tripped breaker changed something", async () => {
+    answers(2, 1);
+    shown(askedToRun("tripped", { reason: "tripped" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reset the orchestrator on solo" }));
+    expect(await screen.findByText("Asked solo to run its orchestrator.")).toBeTruthy();
+  });
+
+  // Nothing schedules a start of an orchestrator asked to run, so at a limit an ended run starts now, and its next
+  // run waits the limit out.
+  it("starts an ended run at a usage limit, and schedules nothing", async () => {
+    const sent = answers(3);
+    shown(askedToRun("ended", limitedAt(Date.now() + hour)));
+    expect(screen.queryByText("Its orchestrator is asked to run, so it starts once the limit resets.")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Start orchestrator on solo" }));
+    expect(await screen.findByText("Asked solo to run its orchestrator.")).toBeTruthy();
+    expect(sent.some((call) => call.path.endsWith("/schedule"))).toBe(false);
   });
 });
 

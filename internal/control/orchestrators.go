@@ -100,7 +100,9 @@ func waitOf(row ledger.Orchestrator, standing authority.AutonomyStanding) Orches
 
 // SetOrchestrator records what a member asks of a worker's orchestrator. A start of one that is
 // running asks for nothing new, unless its breaker tripped, which only a person may reset, or its
-// session stalled, which a new run replaces: a worker stops the run nobody asks for any more.
+// session stalled, which a new run replaces: a worker stops the run nobody asks for any more. A new
+// run also follows one that ended while a member wanted it, which no worker runs again. The run that
+// follows says nothing yet, so starts that race make one.
 func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
 	return setOrchestrator(ctx, w.store.Installation(w.scope), worker, desired, actor)
 }
@@ -142,7 +144,7 @@ func setOrchestratorIn(tx ports.SharedTx, worker, desired string, actor ledger.A
 	switch {
 	case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Tripped():
 		row.Resets++
-	case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Stalled():
+	case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && (current.Stalled() || current.Ended()):
 		row = nextRun(current)
 	case desired == current.Desired:
 		return row, nil
