@@ -26,6 +26,13 @@ const (
 	hookSessionStart = "SessionStart"
 )
 
+// turnStop is one Stop: when it fired, whether it left background work, and whether a prompt followed it.
+type turnStop struct {
+	atMs     int64
+	leftWork bool
+	prompted bool
+}
+
 // reachSeen is the last thing seen about one target.
 type reachSeen struct {
 	reach lanes.Reachability
@@ -81,9 +88,9 @@ type laneState struct {
 	// that starts that turn ends the count.
 	background      int
 	backgroundSince time.Time
-	// stopLeftWork says the newest Stop left background work and no turn's end has been decided since. A prompt
-	// leaves it: that work can start the next turn before the worker has decided the end of the one that stopped.
-	stopLeftWork bool
+	// stops holds the Stops whose turns' ends are still to be read, oldest first, because several turns can stop
+	// before the worker reads the first one's end.
+	stops []turnStop
 	// stoppedMs and promptedMs are when the newest Stop and prompt fired, by their hooks' clock, because a spooled
 	// hook arrives late or twice.
 	stoppedMs  int64
@@ -237,7 +244,7 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]string{}, now, now, 0, baseline
-	s.unconfirmed, s.retried, s.baselined, s.stopLeftWork = false, false, false, false
+	s.unconfirmed, s.retried, s.baselined, s.stops = false, false, false, nil
 	s.compact = compaction{}
 }
 
@@ -510,7 +517,7 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 	case lanes.EventUserPromptSubmit:
 		s.notePrompt(event.AtMs)
 	case hookStopFailure:
-		s.noteStopFailure()
+		s.noteStopFailure(event.AtMs)
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)
 	}
@@ -524,7 +531,11 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 	if atMs > 0 && atMs <= s.stoppedMs {
 		return
 	}
-	s.stoppedMs, s.stopLeftWork = max(s.stoppedMs, atMs), tasks > 0
+	s.stoppedMs = max(s.stoppedMs, atMs)
+	// A Stop with no time is one a journal replayed, whose count it did not keep.
+	if atMs > 0 {
+		s.stops = append(s.stops, turnStop{atMs: atMs, leftWork: tasks > 0, prompted: atMs < s.promptedMs})
+	}
 	if atMs > 0 && atMs < s.promptedMs {
 		tasks = 0
 	}
@@ -537,25 +548,59 @@ func (s *laneState) notePrompt(atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.promptedMs = max(s.promptedMs, atMs)
+	for i, stop := range slices.Backward(s.stops) {
+		if stop.atMs <= atMs {
+			s.stops[i].prompted = true
+			break
+		}
+	}
 	if atMs > 0 && atMs < s.stoppedMs {
 		return
 	}
 	s.background, s.backgroundSince = 0, time.Time{}
 }
 
-// noteStopFailure says a failed turn left nothing to wait on.
-func (s *laneState) noteStopFailure() {
+// noteReplayedStop keeps when the last Stop a journal replayed fired, so a spool that repeats it says nothing.
+func (s *laneState) noteReplayedStop(lastMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.background, s.backgroundSince, s.stopLeftWork = 0, time.Time{}, false
+	s.stoppedMs = max(s.stoppedMs, lastMs)
 }
 
-// takeStopLeftWork says the turn whose end is being decided left background work, and is true for one end.
-func (s *laneState) takeStopLeftWork() bool {
+// noteStopFailure says a failed turn left nothing to wait on. One older than the newest Stop ends no wait, and
+// none says anything of what the turns before it left.
+func (s *laneState) noteStopFailure(atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	left := s.stopLeftWork
-	s.stopLeftWork = false
+	if atMs > 0 && atMs < s.stoppedMs {
+		return
+	}
+	s.background, s.backgroundSince = 0, time.Time{}
+}
+
+// takeStop says the turn whose end was just read left background work, and drops the Stops that end accounts for.
+//
+// endMs is when the hook that ended the turn fired, and only a Stop of that time answers for the end, so a Stop
+// that ended no turn answers for none. With no such time the ends come in the Stops' order, and one accounts for
+// each Stop up to the first a prompt followed, because a turn goes on after a Stop a hook blocked. Known limitation:
+// that order cannot tell a prompt inside a turn from the next turn's, nor place a result that has no Stop once the
+// next turn's Stop was heard.
+func (s *laneState) takeStop(endMs int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	timed := endMs > 0
+	taken, left := 0, false
+	for _, stop := range s.stops {
+		if timed && stop.atMs > endMs {
+			break
+		}
+		taken++
+		left = stop.leftWork && (!timed || stop.atMs == endMs)
+		if !timed && stop.prompted {
+			break
+		}
+	}
+	s.stops = s.stops[taken:]
 	return left
 }
 

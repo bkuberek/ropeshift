@@ -342,6 +342,9 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 			ended = record.LastMs
 		case hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied, lanes.EventCallDenied:
 			calls = append(calls, record)
+		case lanes.EventStop:
+			r.observeHook(ctx, record.HookEvent)
+			r.state.noteReplayedStop(record.LastMs)
 		default:
 			r.observeHook(ctx, record.HookEvent)
 		}
@@ -1180,6 +1183,9 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.w.drainBeforeActing(ctx)
 		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
+		// A turn's Stop is heard before its end is read. A later turn's can be heard from then on, so what this
+		// one left is read here and not when its end is decided.
+		leftWork := event.Kind == ports.EventTurnEnded && r.endLeftWork(event.Seq)
 		r.foldEvent(ctx, event)
 		r.observeEvent(ctx, event)
 		switch event.Kind {
@@ -1198,7 +1204,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.measureTurn(event.Turn)
 			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)
-			r.afterTurn(ctx, event.Turn, clears)
+			r.afterTurn(ctx, event.Turn, clears, leftWork)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			r.noteRefusedResume(ctx)
@@ -1370,14 +1376,22 @@ func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
 	return first
 }
 
+// endLeftWork says the turn whose end sits at seq in the session's stream left background work. A pane's end sits
+// at the time of the hook that ended it, and a headless session's at a position in its stream, which names no hook.
+func (r *laneRun) endLeftWork(seq int64) bool {
+	var endMs int64
+	if r.startedRunMode() == ports.RunModeInteractive {
+		endMs = seq
+	}
+	return r.state.takeStop(endMs)
+}
+
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
 // it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended, nor one
 // that left the lane's own background work running, whether or not that work has started the next turn already.
 // A planning lane is a conversation, so a turn it ends with no report waits for its person instead
 // (ADR-0018).
-func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
-	// Taken before any branch returns, so it answers for this turn's end and no other.
-	leftWork := r.state.takeStopLeftWork()
+func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears, leftWork bool) {
 	if r.orchestrating() {
 		r.orchestratorRests(ctx, turn)
 		return
