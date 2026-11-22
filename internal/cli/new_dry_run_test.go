@@ -26,6 +26,10 @@ type dryResult struct {
 func dryOptions(t *testing.T) cli.Options {
 	t.Helper()
 	return cli.Options{
+		Git: func(context.Context) domain.GitReport {
+			t.Error("a dry run that asks for no remote read git")
+			return domain.GitReport{}
+		},
 		CloneTop: func(context.Context, string) (string, error) {
 			t.Error("a dry run that asks for no remote read the clone that holds the folder")
 			return "", nil
@@ -46,6 +50,7 @@ func dryOptions(t *testing.T) cli.Options {
 func dryRemoteOptions(t *testing.T) cli.Options {
 	t.Helper()
 	opts := dryOptions(t)
+	opts.Git = func(context.Context) domain.GitReport { return domain.CheckGit(domain.MinimumGit, nil) }
 	opts.CloneTop = func(context.Context, string) (string, error) { return "", nil }
 	return opts
 }

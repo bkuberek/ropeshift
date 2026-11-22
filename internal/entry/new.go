@@ -8,10 +8,14 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 )
 
-// cloneGit runs git in a clone `ropeshift new` does not trust: with no hook and no file system monitor, so a program
-// the clone's configuration names never runs when `new` reads the clone.
+// cloneGit runs git in a clone `ropeshift new` does not trust: with no hook, no file system monitor, no lazy fetch of
+// a missing object, and no transport protocol, so a program the clone's configuration names never runs when `new`
+// reads the clone.
 func cloneGit() gitcli.Git {
-	return gitcli.Git{Config: append(gitcli.NoHooks(), [2]string{"core.fsmonitor", "false"})}
+	return gitcli.Git{
+		Config: append(gitcli.NoHooks(), [2]string{"core.fsmonitor", "false"}),
+		Extra:  []string{gitcli.NoLazyFetch, "GIT_ALLOW_PROTOCOL="},
+	}
 }
 
 // cloneTop is the top of the git work tree that holds dir, as `git -C <dir> rev-parse --show-toplevel` names
