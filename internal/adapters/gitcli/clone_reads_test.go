@@ -278,6 +278,81 @@ func TestARangeWhoseFirstEndIsNoAncestorOfItsLastLeavesNothingOut(t *testing.T) 
 	}
 }
 
+// A forge rebase's last commit may carry a line that looks like the trailer of a merge of ropeshift, such as one quoted from
+// the pull request's description. The pushes of the base's side leave that commit out, but where a range ends is not a
+// push, so the range and the merge with no range still end there.
+func TestATrailerLikeLastCommitStillEndsALandedRebase(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	clone := origin.Clone("registered")
+	clone.Git("checkout", "--quiet", "-b", "lane/lane-1")
+	clone.Commit("a.md", "a, by the lane\n")
+	clone.Git("checkout", "--quiet", "main")
+	before := origin.Commit("c.md", "c, pushed by a person\n")
+	origin.Commit("a.md", "a, rebased on the forge\n")
+	origin.Commit("b.md", "b, rebased on the forge\n")
+	origin.Commit("d.md", "d, rebased on the forge\n")
+	origin.Git("commit", "--quiet", "--amend", "-m", "d, rebased on the forge\n\nRopeshift-Work-Order: quoted from the description")
+	after := origin.Git("rev-parse", "HEAD")
+	origin.Commit("e.md", "e, pushed by a person\n")
+	clone.Git("fetch", "--quiet", "origin")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{Ranges: []ledger.LandedRange{{Before: before, After: after}}}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Pushed, []string{"c.md", "e.md"}) || got.Unranged {
+		t.Errorf("the base's side with the range is %v, unranged %v, want the person's c.md and e.md and a range", got.Pushed, got.Unranged)
+	}
+	got, err = worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{Unranged: []string{after}}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Unranged {
+		t.Errorf("a merge with no range that ends at the commit says nothing of it: unranged %v", got.Unranged)
+	}
+	if got, err = worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{}, 100); err != nil || got.Unranged || !slices.Equal(got.Pushed, []string{"a.md", "b.md", "c.md", "e.md"}) {
+		t.Errorf("with nothing landed the base's side is %v, unranged %v: %v", got.Pushed, got.Unranged, err)
+	}
+}
+
+// A range whose first end is not an ancestor of its last reads as a merge with no range, and so does one whose first end
+// the clone does not hold, but a merge-base that fails any other way is a failed read, never a merge with no range, which
+// would hide what people pushed.
+func TestAFailedMergeBaseFailsTheRead(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("a.md", "a\n")
+	clone := origin.Clone("registered")
+	clone.Git("checkout", "--quiet", "-b", "lane/lane-1")
+	clone.Commit("a.md", "a, by the lane\n")
+	clone.Git("checkout", "--quiet", "main")
+	before := origin.Commit("c.md", "c, pushed by a person\n")
+	origin.Commit("a.md", "a, rebased on the forge\n")
+	after := origin.Commit("b.md", "b, rebased on the forge\n")
+	clone.Git("fetch", "--quiet", "origin")
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not on PATH")
+	}
+	bin := t.TempDir()
+	shim := "#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in --is-ancestor) echo 'fatal: the object store is unreadable' >&2; exit 128;; esac; done\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The command a read runs is found on this process's PATH.
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	_, err = worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{Ranges: []ledger.LandedRange{{Before: before, After: after}}}, 100)
+	if err == nil || !strings.Contains(err.Error(), "exit 128") || !strings.Contains(err.Error(), "the object store is unreadable") {
+		t.Errorf("a merge-base that failed read %v, want an error naming the exit and what git said", err)
+	}
+	unknown := strings.Repeat("f", 40)
+	got, err := worktrees.Diverged(t.Context(), clone.Dir, "lane/lane-1", "main", ledger.Landed{Ranges: []ledger.LandedRange{{Before: unknown, After: after}}}, 100)
+	if err != nil || !got.Unranged || !slices.Equal(got.Pushed, []string{"a.md", "b.md", "c.md"}) {
+		t.Errorf("a range whose first end the clone lacks read %v, unranged %v: %v, want every path and a merge with no range", got.Pushed, got.Unranged, err)
+	}
+}
+
 // A merge commit the ledger names as one of a pull request with no range is said to lie on the base's side when it lies
 // between the lane's branch and the base, and not when it lies before the commit they last shared, or lies nowhere in the
 // clone, and no commit of it is left out of a person's pushes.
