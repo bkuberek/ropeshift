@@ -88,7 +88,7 @@ func TestBuildEnvironment(t *testing.T) {
 }
 
 func TestBuildEnvironmentRefuses(t *testing.T) {
-	parent := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t", "CLAUDECODE": "1"}
+	parent := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t", "CLAUDECODE": "1", "ROPESHIFT_SIGNING_KEY": "k", "ROPESHIFT_HOOK_NOTIFY": "k"}
 	tests := []struct {
 		name string
 		spec EnvironmentSpec
@@ -96,6 +96,9 @@ func TestBuildEnvironmentRefuses(t *testing.T) {
 	}{
 		{"an OAuth token", EnvironmentSpec{SecretRefs: []string{"env:CLAUDE_CODE_OAUTH_TOKEN"}}, ErrSessionVariable},
 		{"a child session marker", EnvironmentSpec{SecretRefs: []string{"env:CLAUDECODE"}}, ErrSessionVariable},
+		{"a variable of the daemon's own", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_SIGNING_KEY"}}, ErrDaemonVariable},
+		{"a webhook key", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_HOOK_NOTIFY"}}, ErrDaemonVariable},
+		{"a daemon variable that is not set", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_UNSET"}}, ErrDaemonVariable},
 		{"a variable that is not set", EnvironmentSpec{SecretRefs: []string{"env:ANTHROPIC_API_KEY"}}, ErrMissingVariable},
 		{"a reference with no name", EnvironmentSpec{SecretRefs: []string{"env:"}}, ErrBadReference},
 		{"a reference with no form", EnvironmentSpec{SecretRefs: []string{"ANTHROPIC_API_KEY"}}, ErrBadReference},

@@ -134,6 +134,25 @@ func TestAWebhookSignsAndCarriesNoSecret(t *testing.T) {
 	}
 }
 
+// A webhook told to sign with a variable whose key is missing sends nothing, and says which variable, never a value.
+func TestAWebhookWithNoKeyForItsVariableSendsNothing(t *testing.T) {
+	t.Parallel()
+	far := &hookServer{}
+	server := httptest.NewServer(far)
+	defer server.Close()
+	channel := notify.NewWebhook(notify.WebhookConfig{URL: server.URL + hookPath, KeyEnv: "ROPESHIFT_HOOK_NOTIFY"})
+	err := channel.Notify(t.Context(), NotifierNotice())
+	if err == nil || !strings.Contains(err.Error(), "ROPESHIFT_HOOK_NOTIFY") {
+		t.Fatalf("err %v, want one that names the variable", err)
+	}
+	if got := far.notices(); len(got) != 0 {
+		t.Errorf("%d notices went out unsigned", len(got))
+	}
+	if strings.Contains(err.Error(), server.URL) {
+		t.Errorf("%q holds the address", err)
+	}
+}
+
 func TestAWebhookFollowsNoRedirect(t *testing.T) {
 	t.Parallel()
 	landed := false

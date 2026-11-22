@@ -58,7 +58,9 @@ func channelsFor(deps notifyDeps) func(authority.NotifyPolicy) []ports.Notifier 
 			if policy.WebhookSecretEnv != "" {
 				key, _ = deps.Lookup(policy.WebhookSecretEnv)
 			}
-			channels = append(channels, notify.NewWebhook(notify.WebhookConfig{URL: policy.WebhookURL, Key: key, Dial: deps.Dial}))
+			channels = append(channels, notify.NewWebhook(notify.WebhookConfig{
+				URL: policy.WebhookURL, Key: key, KeyEnv: policy.WebhookSecretEnv, Dial: deps.Dial,
+			}))
 		}
 		return channels
 	}
