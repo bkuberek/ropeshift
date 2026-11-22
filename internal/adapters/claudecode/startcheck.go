@@ -56,6 +56,9 @@ const (
 type screen struct {
 	kind  screenKind
 	focus focusLine
+	// edge says the trust dialog's accept option is the last of its options with the focus above it, or the first
+	// with the focus below it, so Home or End reaches it from anywhere and cannot move past it.
+	edge bool
 }
 
 // readScreen sorts one capture. It holds to exact words, because every other dialog that
@@ -63,8 +66,8 @@ type screen struct {
 // anything that is not the one known dialog or the one known prompt is unknown.
 func readScreen(text string) screen {
 	lines := strings.Split(text, "\n")
-	if focus, ok := trustFocus(lines); ok {
-		return screen{kind: screenTrust, focus: focus}
+	if focus, edge, ok := trustFocus(lines); ok {
+		return screen{kind: screenTrust, focus: focus, edge: edge}
 	}
 	for i := 1; i+1 < len(lines); i++ {
 		if isPrompt(lines[i]) && isRule(lines[i-1]) && isRule(lines[i+1]) {
@@ -75,8 +78,9 @@ func readScreen(text string) screen {
 }
 
 // trustFocus finds the dialog by its heading and its accept option, and the focus by its
-// glyph. A dialog with no glyph on any line is still painting.
-func trustFocus(lines []string) (focusLine, bool) {
+// glyph. A dialog with no glyph on any line is still painting. An option is at the edge
+// when a blank line follows the last one, or comes before the first.
+func trustFocus(lines []string) (where focusLine, edge, ok bool) {
 	heading, accept, focus := false, -1, -1
 	for i, line := range lines {
 		text := strings.TrimSpace(line)
@@ -93,15 +97,16 @@ func trustFocus(lines []string) (focusLine, bool) {
 		}
 	}
 	if !heading || accept < 0 || focus < 0 {
-		return "", false
+		return "", false, false
 	}
+	blank := func(i int) bool { return i < 0 || i >= len(lines) || strings.TrimSpace(lines[i]) == "" }
 	switch {
 	case focus == accept:
-		return focusOnAccept, true
+		return focusOnAccept, false, true
 	case focus < accept:
-		return focusAbove, true
+		return focusAbove, blank(accept + 1), true
 	}
-	return focusBelow, true
+	return focusBelow, blank(accept - 1), true
 }
 
 // isPrompt reads an input line, in a box or between rules. A numbered line is an option
@@ -142,14 +147,16 @@ const (
 	checkResume checkMode = "resume"
 )
 
-// startCheck is one checked sequence. Poll is the wait between reads, and Settle the least
-// wait after a key before the next read. Settle does not decide that a key took effect: the
-// screen changing does, within the check's timeout.
+// startCheck is one checked sequence. Poll is the wait between reads. Settle is the least time a
+// frame stands unchanged before a key goes to it, and the least wait after a key before the next
+// read. Resend is how long the frame a navigation key answered stands before that navigation goes
+// again. Neither decides that a key took effect: the screen changing does, within the check's timeout.
 type startCheck struct {
 	mode    checkMode
 	timeout time.Duration
 	poll    time.Duration
 	settle  time.Duration
+	resend  time.Duration
 }
 
 func (c startCheck) failure() error {
@@ -164,20 +171,28 @@ func (c startCheck) failure() error {
 // that it moved, so no Enter reaches a dialog on `No, exit`. Nothing goes to a screen it
 // does not recognize, and a read that failed is not a screen.
 //
-// A key's effect is a different frame, never a later time. A pane that repaints slowly still
-// shows the frame a key answered, and reading that frame as a dialog still waiting would
-// answer it twice, the second time on whatever dialog the CLI shows next. So a capture equal
-// to the frame the last key answered is unknown, and nothing goes to it, until a different
-// frame appears. Nothing but the check's timeout bounds that wait, and a key the pane never
-// took ends the check unknown, for a person to take over.
+// A dialog that has just painted is not yet listening: Claude Code 2.1.329 moves the focus on a
+// key and puts it back on `No, exit` some 150 ms after the first paint, and refuses an Enter until
+// then. So a key goes only to a frame that stood unchanged for settle, and an Enter only to a focus
+// that stood on the accept option.
+//
+// A key's effect is a different frame, never a later time, so the same frame after a key says
+// either that the key was dropped or that the pane repaints slowly, and the check cannot tell which.
+// What it sends again is therefore safe in both cases. Only navigation goes again, only to the
+// trust dialog with its focus off the accept option, and only as Home or End: an arrow wraps, so a
+// second one that lands beside the first would put the focus back on `No, exit` under a later
+// Enter, and Home or End leaves it on the accept option however many land.
 //
 // Enter goes once. The check reads the ready prompt after it and nothing else, so an Enter that
-// was lost ends the check unknown as well, and no second one can answer a later dialog with its
-// default.
+// was lost ends the check unknown, for a person to take over, and no second one can answer a
+// later dialog with its default.
 func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, check startCheck) error {
 	deadline := time.Now().Add(check.timeout)
-	// answered is the frame the last key answered, empty once a different frame was read.
-	answered, confirmed := "", false
+	// shown is the frame the pane shows and since when. answered is the frame the last key answered, empty once
+	// a different frame was read.
+	var shown, answered string
+	var since, keyed time.Time
+	moved, confirmed := false, false
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -187,29 +202,39 @@ func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, ch
 			if errors.Is(err, ports.ErrNotFound) {
 				return fmt.Errorf("%w: the pane closed: %v", check.failure(), err)
 			}
+			// Nothing says what showed meanwhile, so what stood starts again.
+			shown = ""
 			pause(ctx, check.poll)
 			continue
 		}
-		if answered != "" && text == answered {
-			pause(ctx, check.poll)
-			continue
+		now := time.Now()
+		if text != shown {
+			shown, since = text, now
 		}
-		answered = ""
+		if text != answered {
+			answered = ""
+		}
 		seen := readScreen(text)
-		switch {
-		case seen.kind == screenReady:
+		if seen.kind == screenReady {
 			return nil
-		case seen.kind == screenTrust && !confirmed:
-			key := answerKey(sabotagedFocus(seen.focus))
-			if err := terminal.Keys(ctx, name, key); err != nil {
-				return err
-			}
-			answered, confirmed = text, key == keyEnter
-			pause(ctx, check.settle)
-		default:
-			// A screen the check does not know, or the dialog after its Enter: only time passes.
-			pause(ctx, check.poll)
 		}
+		stands := now.Sub(since) >= check.settle
+		waits := answered != "" && now.Sub(keyed) < check.resend
+		if seen.kind == screenTrust && !confirmed && stands && !waits {
+			seen.focus = sabotagedFocus(seen.focus)
+			if key := answerKey(seen, moved); key != "" {
+				if err := terminal.Keys(ctx, name, key); err != nil {
+					return err
+				}
+				answered, keyed = text, time.Now()
+				moved, confirmed = true, key == keyEnter
+				pause(ctx, check.settle)
+				continue
+			}
+		}
+		// A screen the check does not know, a frame that has not stood, a key's effect still due, or the dialog
+		// after its Enter: only time passes.
+		pause(ctx, check.poll)
 	}
 	return check.failure()
 }
@@ -225,15 +250,22 @@ func keepScreen(ctx context.Context, terminal ports.Terminal, name string, spec 
 	return os.WriteFile(filepath.Join(spec.ConfigDir, fmt.Sprintf("screen-%d.txt", spec.Generation)), []byte(text), 0o600)
 }
 
-// answerKey is the one key a dialog takes from where its focus stands.
-func answerKey(focus focusLine) string {
-	switch focus {
-	case focusOnAccept:
-		return "Enter"
-	case focusBelow:
+// answerKey is the one key a dialog takes from where its focus stands. The first navigation is an arrow.
+// A later one is Home or End, and none where that key has no sure target, so no second arrow follows the first.
+func answerKey(seen screen, moved bool) string {
+	switch {
+	case seen.focus == focusOnAccept:
+		return keyEnter
+	case !moved && seen.focus == focusBelow:
 		return "Up"
+	case !moved:
+		return "Down"
+	case !seen.edge:
+		return ""
+	case seen.focus == focusBelow:
+		return "Home"
 	}
-	return "Down"
+	return "End"
 }
 
 func pause(ctx context.Context, d time.Duration) {

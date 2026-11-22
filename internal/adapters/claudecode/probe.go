@@ -344,7 +344,7 @@ func (p *prober) screens(ctx context.Context) {
 	}
 	checking, stop := context.WithCancel(ctx)
 	died := p.watchPane(checking, stop, name)
-	err = runStartCheck(checking, terminal, name, startCheck{mode: checkFresh, timeout: probeScreenWait, poll: checkPoll, settle: checkSettle})
+	err = runStartCheck(checking, terminal, name, startCheck{mode: checkFresh, timeout: probeScreenWait, poll: checkPoll, settle: checkSettle, resend: checkResend})
 	stop()
 	dead := <-died
 	switch {

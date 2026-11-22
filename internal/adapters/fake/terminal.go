@@ -22,6 +22,9 @@ type PaneScript struct {
 	// Stale counts the reads, after each key that moves the screen, that still return the screen the
 	// key moved away from, as a pane that repaints slowly does. The screen itself has already moved.
 	Stale int
+	// Undone counts the reads for which the first key that moves the screen holds. The screen then goes back to
+	// where it was and takes no other key before it does, as a dialog does that settles after it painted.
+	Undone int
 	// History is the pane's scrollback, oldest line first, and HistoryLimit how many lines it keeps. Zero
 	// keeps 2000, as tmux does by default.
 	History      []string
@@ -52,6 +55,9 @@ type fakePane struct {
 	// behind is the screen reads still return, for as many reads as lag says.
 	behind string
 	lag    int
+	// back is the screen the pane goes back to once held reads have passed.
+	back string
+	held int
 	// clients are the attached clients, each ended by closing its channel.
 	clients []chan struct{}
 }
@@ -195,6 +201,12 @@ func (t *Terminal) Capture(_ context.Context, name string) (string, error) {
 		pane.lag--
 		return pane.behind, nil
 	}
+	if pane.held > 0 {
+		pane.held--
+		if pane.held == 0 {
+			pane.script.Screen = pane.back
+		}
+	}
 	return pane.script.Screen, nil
 }
 
@@ -269,9 +281,14 @@ func (t *Terminal) Keys(_ context.Context, name string, keys ...string) error {
 			pane.script.Refused--
 			continue
 		}
+		if pane.held > 0 {
+			continue
+		}
 		if next, ok := pane.script.Moves[pane.script.Screen][key]; ok {
 			if next != pane.script.Screen {
 				pane.behind, pane.lag = pane.script.Screen, pane.script.Stale
+				pane.back, pane.held = pane.script.Screen, pane.script.Undone
+				pane.script.Undone = 0
 			}
 			pane.script.Screen = next
 		}
