@@ -280,7 +280,7 @@ A threshold of `0` turns its warning off. These settings are the machine's, so a
 
 ### A repository's profile layer
 
-A repository's layer is `.ropeshift/profile.toml` at its root. It applies once it is committed to the base branch. A lane reads the file at the commit its work began from: the base its claim resolved, and for a lane that continues an in-flight branch, where that branch left the base, never the branch's tip. A review lane reads it at the commit the reviewed lane began from, never the commit under review, and a review of a lane that recorded no base, which has no such commit, reads it at the commit under review for what a layer can only narrow, its gates among them, and runs none of its hooks. No lane reads it from the clone's working tree:
+A repository's layer is `.ropeshift/profile.toml` at its root. It applies once it is committed to the base branch. A lane reads the file at the commit its work began from: the base its claim resolved, and for a lane that continues an in-flight branch, where that branch left the base, never the branch's tip. A review lane reads it at the commit the reviewed lane began from, never the commit under review, and a review of a lane that recorded no base, which has no such commit, reads it at the commit under review for its `agent.gates` alone, which can only narrow what the review may do, and takes no other key of it. No lane reads it from the clone's working tree:
 
 - An edit that no commit holds applies to no lane.
 - A layer committed to a lane's branch applies to no lane until it is merged: not to that lane, its review, or a lane that continues its branch. So a hook a lane commits, such as `[hooks] on_lane_created`, never runs on the worker before a member merges it.

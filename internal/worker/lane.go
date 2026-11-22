@@ -43,7 +43,7 @@ type LaneRequest struct {
 	ProfileBase string
 	// ProfileUnbased says the lane has no commit its work began from to read the repository's profile layer at, as a
 	// review of a lane that recorded no base has none. Its profile reads the layer at Base, the commit under review, for
-	// what narrows the lane, its gates among them, and runs none of the layer's hooks.
+	// its agent.gates alone, which can only narrow the lane, and takes no other key of the layer, hooks included.
 	ProfileUnbased bool
 	// Tags are ropeshift's own variables for this lane.
 	Tags map[string]string
@@ -162,18 +162,25 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 // load resolves the lane's profile, reading its repository's layer at the commit the lane's work began from
 // (ProfileBase), never at a commit a lane wrote. A lane with no work of its own has a directory and no repository, so
 // it has no layer. A lane with no commit its work began from (ProfileUnbased) reads the layer at the commit its worktree
-// begins at, which a lane wrote, so it keeps what a layer can only narrow, its gates among them, and none of its hooks.
-// A lane that another machine ran, and a review of a head another clone pushed, can name a commit this machine has yet
-// to fetch, so a commit it does not hold is fetched for as the lane's worktree would and read once more.
+// begins at, which a lane wrote, and takes only its agent.gates, which can only narrow what the lane may do: every
+// other key the layer sets, a hook, the instructions file, a credential's reference, and the worktree root among them,
+// is left as the layers below the repository's give it. A lane that another machine ran, and a review of a head another
+// clone pushed, can name a commit this machine has yet to fetch, so a commit it does not hold is fetched for as the
+// lane's worktree would and read once more.
 func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
 	profile, err := p.loadLayer(ctx, request, overrides)
-	if request.ProfileUnbased {
-		profile.Hooks = nil
+	if err != nil || !request.ProfileUnbased {
+		return profile, err
 	}
-	return profile, err
+	unlayered, err := p.Profiles.Load(ctx, "", "", overrides)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	unlayered.Agent.Gates = profile.Agent.Gates
+	return unlayered, nil
 }
 
-// loadLayer is load before the hooks of a lane with no commit its work began from are dropped.
+// loadLayer is load before a lane with no commit its work began from is cut down to the gates of the layer it read.
 func (p Provisioner) loadLayer(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
 	repository, base := request.Repository, cmp.Or(request.ProfileBase, request.Base)
 	if request.ProfileUnbased {
