@@ -109,6 +109,34 @@ func TestAPublishedPolicyNamesOnlyAVariableThatMayHoldAWebhookKey(t *testing.T) 
 	}
 }
 
+// A webhook address a policy refuses says what to change, and never holds the address it refused: an address that fails
+// is where a key was put, and the refusal reaches a terminal, a log, and the web UI.
+func TestAWebhookRefusalSaysWhatToChange(t *testing.T) {
+	t.Parallel()
+	const scheme = "webhook_url starts with https://, or with http:// for a loopback address"
+	const parts = "webhook_url holds a host and a path only, because an address ends up in logs: remove any user (@), query (?), fragment (#), or space. A webhook that takes its key in the query is not supported"
+	for name, tt := range map[string]struct{ url, want string }{
+		"a query":          {"https://hooks.example.com/r?key=s3cret-key", parts},
+		"a user":           {"https://deploy:s3cret-key@hooks.example.com/r", parts},
+		"a fragment":       {"https://hooks.example.com/r#s3cret-key", parts},
+		"a space":          {"https://hooks.example.com/r s3cret-key", parts},
+		"another scheme":   {"ftp://hooks.example.com/r/s3cret-key", scheme},
+		"no scheme":        {"hooks.example.com/r/s3cret-key", scheme},
+		"a loopback query": {"http://127.0.0.1:8080/r?key=s3cret-key", parts},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := notifyPolicyOf(t, "[notify_policy]\nversion = 2\nwebhook_url = \""+tt.url+"\"\n").Check()
+			if !errors.Is(err, authority.ErrBadNotifyPolicy) || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("%s was answered %v, want a refusal that says %q", tt.url, err, tt.want)
+			}
+			if err != nil && strings.Contains(err.Error(), "s3cret-key") {
+				t.Errorf("the refusal holds the secret: %v", err)
+			}
+		})
+	}
+}
+
 // A choice that names no spend kind, no channel this build has, a channel the policy leaves off, or the email the mailer
 // would carry is refused with what it got wrong, because a choice that did nothing would read as turned on.
 func TestAPolicyRefusesAChoiceItCannotKeep(t *testing.T) {
