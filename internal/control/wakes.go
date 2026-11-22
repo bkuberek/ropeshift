@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/crashpoint"
@@ -721,6 +722,13 @@ func (w *Wakes) ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOr
 				}
 				if err := onlyAChoiceEndsASettingsHold(tx, wake.Lane); err != nil {
 					return err
+				}
+				expr, err := parking.Parse(wake.Expr, wake.Lane)
+				if err != nil {
+					return err
+				}
+				if !expr.Names(parking.HumanResume) {
+					return fmt.Errorf("%w: a resume does not wake work order %s, which wakes %s", workorders.ErrIllegalMove, workOrder, "when"+strings.TrimPrefix(expr.Words(), "When"))
 				}
 				fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: wake.Lane}, actor, noStamp)
 				return err

@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -1200,6 +1201,13 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 		}
 		if claim.Lane == "" {
 			return fmt.Errorf("%w: work order %s runs no lane", workorders.ErrIllegalMove, workOrder)
+		}
+		row, err := tx.Lanes().Row(claim.Lane)
+		if err != nil {
+			return err
+		}
+		if state := lanes.ActualState(row.Status.ActualState); state != lanes.Tripped {
+			return fmt.Errorf("%w: the lane of work order %s is %s, and only a tripped lane is reset", workorders.ErrIllegalMove, workOrder, state)
 		}
 		return resetLane(tx, workOrder, claim.Lane, actor)
 	})

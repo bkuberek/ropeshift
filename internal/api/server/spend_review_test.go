@@ -35,6 +35,12 @@ func parkedAtItsLimit(t *testing.T, d *talkDaemon, id string) {
 // parkTheLane claims a ready work order, starts its lane, and parks it as parkedAtItsLimit describes.
 func parkTheLane(t *testing.T, d *talkDaemon, id string) {
 	t.Helper()
+	parkTheLaneOn(t, d, id, lanes.SpendLimitWake(id))
+}
+
+// parkTheLaneOn parks the lane of a ready work order on a wake expression.
+func parkTheLaneOn(t *testing.T, d *talkDaemon, id, expr string) {
+	t.Helper()
 	ctx := t.Context()
 	worker := ledger.Actor{Kind: ledger.ActorWorker, ID: d.auth.WorkerID}
 	grant, err := control.NewLeases(d.Store).Claim(ctx, apitest.Scope, workorders.ClaimRequest{
@@ -61,7 +67,7 @@ func parkTheLane(t *testing.T, d *talkDaemon, id string) {
 	holder := workorders.Holder{Lease: grant.Lease, Lane: lane, Generation: generation}
 	wakes := control.NewWakes(d.Store)
 	wake := "wake-" + id
-	if err := wakes.BeginParking(ctx, apitest.Scope, holder, parking.Draft{ID: wake, Expr: lanes.SpendLimitWake(id)}, worker); err != nil {
+	if err := wakes.BeginParking(ctx, apitest.Scope, holder, parking.Draft{ID: wake, Expr: expr}, worker); err != nil {
 		t.Fatal(err)
 	}
 	if fired, err := wakes.CommitParked(ctx, apitest.Scope, holder, ledger.ParkedCommit{Wake: wake, Checkpoint: ledger.Checkpoint{Pushed: true}}, worker); err != nil || fired != "" {
