@@ -255,7 +255,7 @@ A member reaches the terminal pane of a lane that runs in one, as the web UI's p
 | `GET /v1/projects/{project}/panes/{id}` | | A stream of server-sent events: `screen`, with `lane_id`, `generation`, and `screen`, the visible screen with the escape sequences that set its colours and emphasis, each time it changes; and `lane`, with `lane_id`, `generation`, and `state`, while the lane has no screen to show, such as while it is parked |
 | `POST /v1/projects/{project}/panes/{id}/input` | `{"text": "...", "enter": true}` or `{"key": "..."}` | 204 once the pane took the input |
 
-`text` is typed literally, with Enter after it when `enter` is true. It holds at most 4096 bytes and no control character, which would act as a key.
+`text` is typed literally, with Enter after it when `enter` is true. It holds at most 4096 bytes and no control character, which would act as a key. Text that reaches a pane from a lane, such as a message, is cleaned the same way before it is typed: a carriage return and line feed pair becomes a line feed, and every other control character is dropped, the escape, the carriage return on its own, DEL, and the C1 controls among them, so only a line feed and a tab remain. Printable characters in any script are sent as they are, and a trailing semicolon is kept.
 
 `key` is a key sequence:
 

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -307,17 +308,36 @@ const pasteThreshold = 4096
 // cleanupLimit bounds the removal of a buffer a failed paste may have left behind.
 const cleanupLimit = 2 * time.Second
 
-// Type sends literal text. A short text is typed as keys. A long one goes through a tmux paste buffer, which
+// Type sends literal text. Text a session wrote can hold an escape or another control byte, which a program
+// in the pane would read as keys, so only line feeds and tabs are sent: a CRLF becomes a line feed, and every
+// other control character, a lone carriage return among them, is dropped. A short text is typed as keys, and
+// a trailing semicolon is sent escaped, as Keys sends one. A long one goes through a tmux paste buffer, which
 // is fed on standard input and so has no length limit, and is written to the pane in one piece, so nothing
 // interleaves with it. The paste is bracketed when the program in the pane asked for that, and a newline in
 // the text then stays part of the text instead of submitting it. Line feeds stay line feeds (paste-buffer
 // -r); tmux would otherwise turn each into a carriage return.
 func (t *Terminal) Type(ctx context.Context, name, text string) error {
+	text = printable(text)
 	if len(text) <= pasteThreshold {
+		if head, ok := strings.CutSuffix(text, ";"); ok {
+			text = head + `\;`
+		}
 		_, err := t.run(ctx, "send-keys", "-t", target(name), "-l", "--", text)
 		return err
 	}
 	return t.paste(ctx, name, text)
+}
+
+// printable turns each CRLF into a line feed and drops every control character but the line feed and the
+// tab: the C0 and C1 controls, DEL, and a carriage return that no line feed follows.
+func printable(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, text)
 }
 
 // paste loads the text into a buffer of its own and pastes it, deleting the buffer. A buffer a failed

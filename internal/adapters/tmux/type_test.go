@@ -51,8 +51,90 @@ func TestTypeKeepsLineFeedsInAPaneWithBracketedPasteOff(t *testing.T) {
 	}
 }
 
+// A text a session wrote reaches the pane as text. An escape or another control byte in it would press keys in
+// the program instead, so only line feeds and tabs survive, and a carriage return is not one: a CRLF is a line
+// feed, and a lone CR goes. Printable Unicode stays. A short text and a long one are cleaned alike.
+func TestTypeDropsEveryControlByteButLineFeedAndTab(t *testing.T) {
+	const dirty = "a\x1b[31mb\x03c\x7fd\r\ne\rf\u0085g\u009bh\x00i\tj\nk 日本語 🙂"
+	const clean = "a[31mbcd\nefghi\tj\nk 日本語 🙂"
+	long := strings.Repeat("x", pasteLength)
+	for name, test := range map[string]struct{ text, want string }{
+		"short": {dirty, clean},
+		"long":  {long + dirty + long, long + clean + long},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &recording{}
+			terminal := recordingTerminal(t, runner)
+			if err := terminal.Type(t.Context(), "lane-g1", test.text); err != nil {
+				t.Fatal(err)
+			}
+			call := runner.calls[0]
+			got := call[len(call)-1]
+			if name == "long" {
+				got = runner.fed[call[slices.Index(call, "-b")+1]]
+			}
+			if got != test.want {
+				t.Errorf("tmux was given %d bytes that differ from the %d wanted", len(got), len(test.want))
+			}
+		})
+	}
+}
+
+// The same holds in a real pane: an escape sequence typed into a program that reads raw bytes arrives as its
+// printable part only, on the send-keys path and on the paste path.
+func TestTypeSendsOnlyPrintableTextToARealPane(t *testing.T) {
+	const dirty = "a\x1b[31mb\x03c\x7fd\re\u0085f\tg"
+	const clean = "a[31mbcdef\tg"
+	long := strings.Repeat("x", pasteLength)
+	for name, test := range map[string]struct {
+		text, want string
+		bracketed  bool
+	}{
+		"short": {dirty, clean, false},
+		"long":  {long + dirty, long + clean, false},
+		"paste": {long + dirty, pasteBegin + long + clean + pasteEnd, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := typeAndRead(t, test.text, test.bracketed, len(test.want)); got != test.want {
+				t.Errorf("the pane received %q, want %q", got[max(0, len(got)-40):], test.want[max(0, len(test.want)-40):])
+			}
+		})
+	}
+}
+
+// A text that ends in a semicolon keeps it: tmux reads a trailing semicolon in an argument as the end of a
+// command, so it is sent escaped, as Keys sends one.
+func TestTypeKeepsATrailingSemicolon(t *testing.T) {
+	t.Run("asked", func(t *testing.T) {
+		runner := &recording{}
+		terminal := recordingTerminal(t, runner)
+		if err := terminal.Type(t.Context(), "lane-g1", "git status;"); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"send-keys", "-t", "=lane-g1:", "-l", "--", `git status\;`}; !slices.Equal(runner.calls[0], want) {
+			t.Errorf("tmux was asked %v, want %v", runner.calls[0], want)
+		}
+	})
+	for _, text := range []string{"git status;", ";", "a;;", "a;b", "a\\;"} {
+		t.Run("pane "+text, func(t *testing.T) {
+			if got := typeAndRead(t, text, false, len(text)); got != text {
+				t.Errorf("the pane received %q, want %q", got, text)
+			}
+		})
+	}
+}
+
+// pasteLength is a text length over the paste threshold.
+const pasteLength = 5000
+
 // typeIntoRawPane types the text into a pane that reads raw bytes, and returns what the pane received.
 func typeIntoRawPane(t *testing.T, text string, bracketed bool) string {
+	t.Helper()
+	return typeAndRead(t, text, bracketed, len(text))
+}
+
+// typeAndRead types the text into a raw pane, waits for at least min bytes, and returns what the pane received.
+func typeAndRead(t *testing.T, text string, bracketed bool, min int) string {
 	t.Helper()
 	doubles.RequireTmux(t)
 	terminal := doubles.PrivateTmux(t)
@@ -80,7 +162,7 @@ func typeIntoRawPane(t *testing.T, text string, bracketed bool) string {
 	}
 	waitFor(t, func() (bool, string) {
 		got, err := os.ReadFile(received)
-		return err == nil && len(got) >= len(text), fmt.Sprintf("the program read %d of %d bytes", len(got), len(text))
+		return err == nil && len(got) >= min, fmt.Sprintf("the program read %d of %d bytes", len(got), min)
 	})
 	// Let a late byte land before reading the whole file.
 	time.Sleep(200 * time.Millisecond)
