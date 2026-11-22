@@ -55,8 +55,8 @@ func (p DenyPolicy) Asks(call ToolCall) (string, bool) {
 	return "", false
 }
 
-// MayPush says a shell call is a push, or is one this cannot read that shows a push: it names one, or gives git a
-// subcommand only a shell knows. The worker reads a lane's commits for such a call before it lets it ask anyone
+// MayPush says a shell call is a push, or is one this cannot read that shows a push: it names one, or runs git, and
+// not in text some program may run, with a subcommand only a shell knows. The worker reads a lane's commits for such a call before it lets it ask anyone
 // (FR-LANE-20). Any other command this cannot read, such as `$LINT run`, asks with no such check, because a refusal
 // for a lane's commits says nothing to a command that is no push.
 func MayPush(tool, command string) bool {

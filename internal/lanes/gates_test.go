@@ -287,3 +287,203 @@ func TestOnlyACallTheAskRuleMatchesDefers(t *testing.T) {
 		t.Error("a pane defers")
 	}
 }
+
+// judged is what a policy makes of a call: a pass, or the reason it asks or denies.
+func judged(policy DenyPolicy, call ToolCall) string {
+	if reason, denied := policy.Decide(call); denied {
+		return reason
+	}
+	if reason, asks := policy.Asks(call); asks {
+		return reason
+	}
+	return ""
+}
+
+func policyWithGates(readOnly bool, gates ...string) DenyPolicy {
+	spec := PolicySpec{
+		Worktree: "/work/app-lanes/lane-1", Home: "/home/person", DefaultBranches: []string{"main"}, Kept: []string{"feature/kept"},
+		Writable: []string{"/run/t/lane-1"}, ReadOnly: readOnly,
+	}
+	for _, gate := range gates {
+		spec.Gates = append(spec.Gates, ReadGate(gate))
+	}
+	return CompilePolicy(spec)
+}
+
+// Where a gate is configured for a program, a word that varies fails closed, unless it is the value of an option
+// known to take one there. A leading dash and quotes say nothing of a value.
+func TestAVaryingWordFailsClosedOnAGatedProgram(t *testing.T) {
+	makeGate, npm, kubectl := "Bash(make deploy *)", "Bash(npm publish:*)", "Bash(kubectl delete *)"
+	merge, amend := "Bash(git merge main *)", "Bash(git commit --amend *)"
+	tests := []struct {
+		gate     string
+		asks     bool
+		commands []string
+	}{
+		{makeGate, true, []string{
+			`make -j "$t"`, `for t in build deploy; do make -j "$t"; done`, "make -j $t", "make -j$N", `make -j"$t"`, "make -l $t",
+			"make -C sub -j $t", "make -j $(cat n) test", "make -j $(echo deploy)", "make -j $(nproc) $t", "make -j$(nproc)$t",
+			"make -j$(nproc) $t", "make -C $d", "make -C $d test", `make -- -C "$t"`, `make -o -C "$t"`, `make -f -C "$t"`,
+			`make -C "${a[@]}"`, `make -C "$@"`, `make -C "${!ref}"`, "make -C ./*", "make test $T", "make V=$v", "make --jobs=$N",
+			"make depl?y", "make {build,deploy}", `nproc() { echo deploy; }; make -j $(nproc)`, "cat targets | parallel make",
+			`ssh host "make $(echo deploy)"`, "ls | xargs make test",
+		}},
+		{makeGate, false, []string{
+			"make -j$(nproc)", "make -j $(nproc)", `make -j "$(nproc)" test`, "make -j$(sysctl -n hw.ncpu) test", "make -k -j $(nproc)",
+			`make -C "$d" test`, `make -f "$MK" test`, "make test", "make -j4 test", "X=$Y make test", "make test > out.log",
+		}},
+		{npm, true, []string{
+			"npm --silent $cmd ./pkg", "npm -f $cmd", "npm -f $cmd ./pkg", `npm -f "$cmd"`, "npm --prefix $p", "npm --prefix $p x publish",
+			`npm --prefix "$@" test`, "npm --prefix $p --prefix $cmd test", `npm test "$X"`, "npm --workspace $W test",
+			"echo publish | xargs -I{} npm {}", `find . -maxdepth 0 -exec npm {} \;`,
+		}},
+		{npm, false, []string{"npm --prefix $p test", `npm --prefix "$p" test`, "npm test -- --watch=false"}},
+		{kubectl, true, []string{
+			"kubectl --insecure-skip-tls-verify $verb pod x", "kubectl -n $NS get pods", `kubectl get pod "$P"`,
+		}},
+		{"Bash(kubectl * --force)", true, []string{`kubectl delete pod x "$F"`}},
+		{merge, true, []string{`git merge --no-ff "$BRANCH"`, `git merge "$BRANCH"`, `git merge -m "$M" "$BRANCH"`, "git merge -m $M"}},
+		{merge, false, []string{`git merge -m "$M" feature/x`, "git -C $d status", `git checkout -q "$B"`}},
+		{"Bash(git checkout main)", true, []string{`git checkout -q "$BRANCH"`}},
+		{amend, true, []string{
+			`git commit -q "${ARGS[@]}"`, `git commit -q "$X"`, "git commit -m $MSG", `git commit -m "${ARGS[@]}"`, `git commit -F -m "$X"`,
+			`git commit -- -m "$X"`, `git commit -a "$X"`,
+		}},
+		{amend, false, []string{`git commit -m "$MSG"`, `git commit --message "$MSG"`, `git commit -m a -m "$MSG"`}},
+		{"Bash(git * --amend)", true, []string{`git commit "$X"`}},
+		{merge, true, []string{`ssh host 'git $v main'`, `ssh host "git $(echo merge main)"`}},
+		{makeGate, true, []string{
+			`echo deploy | xargs -I{} ssh host "make {}"`, `ssh host 'eval make $(echo deploy)'`, "make 1$(cat targets)>out.log",
+			"nproc ( ) { echo deploy; }; make -j $(nproc)", "alias nproc='echo deploy'\nmake -j $(nproc)",
+		}},
+	}
+	for _, tt := range tests {
+		policy := policyWithGates(false, tt.gate)
+		for _, command := range tt.commands {
+			if got := judged(policy, shellCall(command)); (got == ReasonAskGate || got == ReasonAskRead) != tt.asks || (!tt.asks && got != "") {
+				t.Errorf("%q under %q: %q, asks %v", command, tt.gate, got, tt.asks)
+			}
+		}
+	}
+}
+
+// Text some program may run shows no push, so the worker refuses none of it for a lane's commits.
+func TestLooseTextShowsNoPush(t *testing.T) {
+	for _, command := range []string{
+		`npm test -- --grep "git $x"`, `sed -i "s/git $OLD/git $NEW/" f`, "ssh host 'git $SUB'", `ssh host "cd app && git $cmd"`,
+	} {
+		if MayPush(ToolBash, command) {
+			t.Errorf("%q reads as a push", command)
+		}
+	}
+	for _, command := range []string{"git $SUB", "xargs git", "sh -c 'git $SUB'"} {
+		if !MayPush(ToolBash, command) {
+			t.Errorf("%q reads as no push", command)
+		}
+	}
+}
+
+// The branch, write, and wait holds read a shell's text past the operand of `o` or `O`.
+func TestTheHoldsReadPastAShellsOptionOperands(t *testing.T) {
+	waits := DefaultWaitRules()
+	writing, reading := policyWithGates(false), policyWithGates(true)
+	writing.Waits = &waits
+	tests := []struct {
+		policy          DenyPolicy
+		command, reason string
+	}{
+		{writing, "bash -euo pipefail -c 'git branch -f feature/kept HEAD'", ReasonKept},
+		{writing, "bash -o pipefail -c 'git branch -f feature/kept HEAD'", ReasonKept},
+		{writing, "bash -euo pipefail -c 'echo x > /etc/x'", ReasonOutside},
+		{writing, "bash -O extglob -c 'cp a /etc/a'", ReasonOutside},
+		{writing, "zsh +o nomatch -c 'cp a /etc/a'", ReasonOutside},
+		{writing, "zsh -oerrexit -c 'cp a /etc/a'", ReasonOutside},
+		{reading, "bash -euo pipefail -c 'git commit -m x'", ReasonReadOnly},
+	}
+	for _, tt := range tests {
+		if reason, denied := tt.policy.Decide(shellCall(tt.command)); !denied || reason != tt.reason {
+			t.Errorf("%q: %q denied %v, want %q", tt.command, reason, denied, tt.reason)
+		}
+	}
+	if _, rule, _ := writing.DecideRule(shellCall("bash -euo pipefail -c 'sleep 600'")); rule != "W1" {
+		t.Errorf("a wait past an operand names %q", rule)
+	}
+}
+
+// A wrapper's option whose value is optional, or joined to it, hides no command, and neither does one whose value
+// only a shell knows the shape of.
+func TestAWrappersOptionHidesNoCommand(t *testing.T) {
+	writing, reading := policyWithGates(false, "Bash(make deploy *)"), policyWithGates(true)
+	tests := []struct {
+		policy          DenyPolicy
+		command, reason string
+	}{
+		{writing, "xargs --max-lines git push", ReasonAskPush},
+		{writing, "xargs --max-lines git push --force", ReasonForcePush},
+		{writing, "xargs --max-lines git push origin main", ReasonDefaultBranch},
+		{writing, "git ls-files | xargs --max-lines rm /etc/x", ReasonOutside},
+		{writing, "xargs --max-lines make deploy", ReasonAskGate},
+		{reading, "xargs --max-lines git commit -m x", ReasonReadOnly},
+		{writing, "xargs -P$(nproc) git push", ReasonAskPush},
+		{writing, "xargs -P$(nproc) cp a /etc/a", ReasonOutside},
+		{writing, "xargs -P$(nproc) make deploy", ReasonAskGate},
+		{writing, "sudo -h git push", ReasonAskPush},
+		{writing, "env -P git push", ReasonAskPush},
+		{writing, "env -S cp a /etc/x", ReasonOutside},
+		{reading, "env -S git commit -m x", ReasonReadOnly},
+		{writing, "timeout $O 60 $CMD", ReasonAskRead},
+		{writing, "timeout $O 60 bash", ReasonAskRead},
+		{writing, "timeout $T push", ReasonAskRead},
+		{reading, "timeout $O 60 git commit -m x", ReasonAskRead},
+		{writing, "xargs -I $R sh -c x", ReasonAskRead},
+		{writing, "env -$X A go test ./...", ReasonAskRead},
+		{writing, `git -c "${OPTS[@]}" status`, ReasonAskRead},
+		{writing, `timeout "$@" go test ./...`, ReasonAskRead},
+		{writing, "git rebase -x$(cat step) main", ReasonAskRead},
+		{writing, "time -o $O git -C $D p", ReasonAskRead},
+		{writing, "X=1 time -o out.txt git p", ReasonAskRead},
+		{writing, "time -v go test ./...", ""},
+		{writing, "-- git -C $D p", ReasonAskRead},
+		{writing, "env -S make $(echo deploy)", ReasonAskRead},
+		{writing, "x=${ :; }; cp a /etc/a", ReasonOutside},
+		{reading, "x=${ :; }; git commit -m x", ReasonReadOnly},
+	}
+	for _, tt := range tests {
+		if got := judged(tt.policy, shellCall(tt.command)); got != tt.reason {
+			t.Errorf("%q: %q, want %q", tt.command, got, tt.reason)
+		}
+	}
+}
+
+// The bound is on the work of reading a command, so a long ordinary command passes and one that costs much asks.
+func TestTheBoundLeavesOrdinaryCommandsToPass(t *testing.T) {
+	var verbs []string
+	for _, verb := range []string{"delete", "apply", "patch", "scale", "drain", "cordon", "edit", "replace", "rollout", "exec"} {
+		verbs = append(verbs, "Bash(kubectl "+verb+" *)")
+	}
+	tests := []struct {
+		policy  DenyPolicy
+		command string
+	}{
+		{policyWithGates(false), "kubectl apply -f - <<'EOF'\nitems:\n" + strings.Repeat("- name: x\n", 130) + "EOF"},
+		{policyWithGates(false, "Bash(kubectl delete *)"), "kubectl apply -f - <<'EOF'\nitems:\n" + strings.Repeat("- name: x\n", 130) + "EOF"},
+		{policyWithGates(false, verbs...), strings.TrimSuffix(strings.Repeat("kubectl get pods; ", 14), "; ")},
+		{policyWithGates(false, verbs...), strings.Repeat("kubectl get pods\n", 400)},
+		{policyWithGates(false), "patch -p1 <<'EOF'\n" + strings.Repeat("-    old line\n+    new line\n", 135) + "EOF"},
+		{gatedPolicy(), strings.Repeat("sed -i s/a/b/ f\n", 130)},
+		{gatedPolicy(), strings.Repeat("git mv a b\n", 300)},
+	}
+	for _, tt := range tests {
+		if got := judged(tt.policy, shellCall(tt.command)); got != "" {
+			t.Errorf("%.50q: %q", tt.command, got)
+		}
+	}
+	for _, command := range []string{
+		"x " + strings.Repeat("git ", 4000), strings.Repeat("env ", 4000) + "go test .", "x " + strings.Repeat("sh -c y ", 2000),
+		"x " + strings.Repeat("node ", 4000), "x " + strings.Repeat("make ", 4000),
+	} {
+		if reason, asks := policyWithGates(false, "Bash(make deploy *)").Asks(shellCall(command)); !asks {
+			t.Errorf("%.40q asks nobody: %q", command, reason)
+		}
+	}
+}

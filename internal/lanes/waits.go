@@ -195,12 +195,11 @@ func (w WaitRules) scan(text string, inLoop bool, depth int, found map[string]bo
 		for _, inner := range command.processes {
 			w.scan(inner, inLoop || loops > 0, depth+1, found)
 		}
-		words := stripLeaders(command.words)
-		words = afterOperand(command.words, words)
-		if len(words) == 0 {
-			continue
+		for _, words := range leaderReadings(command.words) {
+			if words = afterOperand(command.words, words); len(words) != 0 {
+				w.read(words, inLoop || loops > 0, depth, found)
+			}
 		}
-		w.read(words, inLoop || loops > 0, depth, found)
 	}
 }
 
@@ -213,7 +212,7 @@ func afterOperand(all, words []shellWord) []shellWord {
 	switch path.Base(leaders[len(leaders)-1].text) {
 	case "timeout", "nice":
 		if operand.MatchString(words[0].text) {
-			return stripLeaders(words[1:])
+			return stripOptions(words[1:])
 		}
 	}
 	return words
@@ -229,7 +228,7 @@ func (w WaitRules) read(words []shellWord, inLoop bool, depth int, found map[str
 	case name == "eval":
 		w.scan(joinWords(words[1:]), inLoop, depth+1, found)
 	case slices.Contains(shells, name):
-		if inner, ok := shellArgument(words[1:]); ok {
+		for _, inner := range shellArguments(words[1:]) {
 			w.scan(inner, inLoop, depth+1, found)
 		}
 	case name == "sleep":

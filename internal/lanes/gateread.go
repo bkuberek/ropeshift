@@ -11,12 +11,13 @@ import (
 const maxGateWords = 4096
 
 // maxGateBytes bounds the command read for pushes and gates, maxGateRead the bytes read of it with what nests in it,
-// and maxGateStarts the places in it read as where a command could start. Past any, a command is not understood, so
-// it asks, and reading it costs the hook and the worker little.
+// and maxGateWork the bytes gone over again from each place a command could start. Past any, a command is not
+// understood, so it asks, and reading it costs the hook and the worker little. A long command of many short ones
+// goes over little again, however many it holds.
 const (
-	maxGateBytes  = 32 << 10
-	maxGateRead   = 8 * maxGateBytes
-	maxGateStarts = 128
+	maxGateBytes = 32 << 10
+	maxGateRead  = 8 * maxGateBytes
+	maxGateWork  = 16 * maxGateBytes
 )
 
 // shellGates is what one reading of a command found: each push it could take apart, whether it pushes, whether a gate
@@ -33,9 +34,9 @@ type shellGates struct {
 	unread bool
 	// mayPush says git runs a subcommand only a shell knows.
 	mayPush bool
-	// read counts the bytes read, and starts the places read as where a command could start.
-	read   int
-	starts int
+	// read counts the bytes read, and work those gone over again from each place a command could start.
+	read int
+	work int
 }
 
 // shellPush is one push's arguments, and whether the shell runs it, which a word some program may run as a command
@@ -62,6 +63,9 @@ type shellPlace struct {
 	// replace is what stands for those words.
 	input   bool
 	replace string
+	// varying says the text is of a word that expands, whose substitutions left nothing in it to read, or of one that
+	// words this cannot read may fill in.
+	varying bool
 }
 
 func (at shellPlace) deeper() shellPlace {
@@ -90,6 +94,21 @@ func readShellGates(command string, gates []GateRule) *shellGates {
 	return read
 }
 
+// spend counts one more reading of words, and says false once maxGateWork is spent.
+func (g *shellGates) spend(words []shellWord) bool {
+	for _, word := range words {
+		if g.work > maxGateWork {
+			break
+		}
+		g.work += len(word.text) + 1
+	}
+	if g.work > maxGateWork {
+		g.unread = true
+		return false
+	}
+	return true
+}
+
 func (g *shellGates) unsure(at shellPlace) {
 	if !at.loose {
 		g.unread = true
@@ -107,12 +126,12 @@ func (g *shellGates) script(text string, at shellPlace) {
 	if parsed.unread {
 		g.unsure(at)
 	}
-	inside := shellPlace{depth: at.depth + 1, loose: at.loose}
+	inside := shellPlace{depth: at.depth + 1, loose: at.loose, varying: at.varying}
 	for _, inner := range parsed.nested {
 		g.script(inner, inside)
 	}
 	for _, command := range parsed.commands {
-		g.command(shellPlace{command: command, depth: at.depth, loose: at.loose, replace: at.replace})
+		g.command(shellPlace{command: command, depth: at.depth, loose: at.loose, replace: at.replace, varying: at.varying})
 	}
 }
 
@@ -164,7 +183,7 @@ func (g *shellGates) run(words []shellWord, at shellPlace) {
 	}
 	var name string
 	for {
-		if g.starts > maxGateStarts {
+		if g.work > maxGateWork {
 			g.unread = true
 			return
 		}
@@ -180,8 +199,12 @@ func (g *shellGates) run(words []shellWord, at shellPlace) {
 			g.search(words, at)
 			return
 		}
+		if text := words[0].text; len(text) > 1 && strings.HasPrefix(text, "-") {
+			// No program's name starts with a dash, so this misread what stands before the command.
+			g.unsure(at)
+		}
 		g.matchLine(words)
-		g.matchWords(name, words[1:], at.input)
+		g.matchWords(name, words[1:], at, true)
 		wrapper, wraps := gateWrappers[name]
 		if !wraps {
 			break
@@ -200,10 +223,13 @@ func (g *shellGates) run(words []shellWord, at shellPlace) {
 		g.push(args, at)
 		return
 	case name == "eval":
-		if slices.ContainsFunc(args, func(word shellWord) bool { return word.expands }) || (at.input && len(args) == 0) {
+		expands := slices.ContainsFunc(args, func(word shellWord) bool { return word.expands })
+		if expands || (at.input && len(args) == 0) {
 			g.unsure(at)
 		}
-		g.script(joinWords(args), at.deeper())
+		inner := at.deeper()
+		inner.varying = inner.varying || expands
+		g.script(joinWords(args), inner)
 		return
 	case slices.Contains(gateShells, name):
 		g.shell(args, at)
@@ -246,9 +272,14 @@ func (g *shellGates) run(words []shellWord, at shellPlace) {
 	if slices.Contains(textRunners, name) {
 		g.runsText(name, args, at)
 	}
-	g.search(args, at)
+	searched := at
+	if name == "parallel" {
+		// parallel builds its command from words this cannot read, as xargs does.
+		searched.input, searched.replace = true, "{}"
+	}
+	g.search(args, searched)
 	for _, body := range at.command.fed {
-		g.script(body.text, shellPlace{depth: at.depth + 1, loose: true})
+		g.script(body.text, shellPlace{depth: at.depth + 1, loose: true, varying: at.varying || body.expands})
 	}
 }
 
@@ -284,7 +315,7 @@ var gateWrappers = map[string]gateWrapper{
 	},
 	"doas": {valued: []string{"-u", "-C"}},
 	"xargs": {valued: []string{
-		"-I", "-L", "--max-lines", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars", "-d", "--delimiter", "-a", "--arg-file", "-E", "-J", "-R",
+		"-I", "-L", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars", "-d", "--delimiter", "-a", "--arg-file", "-E", "-J", "-R",
 	}},
 	// zsh's `repeat`, and its `-` before a command.
 	"repeat": {operands: 1}, "-": {},
@@ -293,7 +324,9 @@ var gateWrappers = map[string]gateWrapper{
 
 // unwrap takes a wrapper's own words away. Ended says nothing of the command is left to read.
 func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, at shellPlace) ([]shellWord, shellPlace, bool) {
-	g.starts++
+	if !g.spend(args) {
+		return nil, at, true
+	}
 	operands, options, split := wrapper.operands, true, false
 	for len(args) != 0 {
 		word := args[0]
@@ -303,8 +336,10 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 			break
 		}
 		// A word such as `=git` could be the command: env takes it as an assignment, and zsh as git's path. An
-		// expansion in an option's value, an assignment, or an operand reads as the one word it is written as.
-		if assigns && !option && !isAssignment(word.text) {
+		// expansion in an option's value, an assignment, or an operand reads as the one word it is written as, unless
+		// it is written to give many. An option's name is never one.
+		if (assigns && !option && !isAssignment(word.text)) || word.manyWords() ||
+			(option && word.expands && !namesOption(word, wrapper.valued)) {
 			g.unsure(at)
 		}
 		split = split || word.split
@@ -315,20 +350,24 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 		case option:
 			flag, value, takes := readOption(word.text, wrapper.valued)
 			held := word
-			if takes {
+			// An expansion against an option is its value, though a substitution leaves no text of it.
+			if takes && !word.expands {
 				if len(args) == 0 {
 					return nil, at, !at.input && name != "xargs"
 				}
 				held, args = args[0], args[1:]
 				value = held.text
 				split = split || held.split
+				if held.manyWords() {
+					g.unsure(at)
+				}
 			}
 			switch {
 			case name == "command" && strings.ContainsAny(flag, "vV"):
 				// `command -v` only says where a program is.
 				return nil, at, true
 			case slices.Contains(wrapper.text, flag):
-				if held.expands {
+				if held.expands || (name == "env" && slices.ContainsFunc(args, func(word shellWord) bool { return word.expands })) {
 					g.unsure(at)
 				}
 				if name == "env" {
@@ -338,8 +377,15 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 				return nil, at, true
 			case name != "xargs":
 			case flag == "-I" || flag == "-J":
+				// With a placeholder only a shell knows, any word could be one.
+				if held.expands {
+					g.unsure(at)
+				}
 				at.replace = value
 			case flag == "--replace" || strings.HasPrefix(flag, "-i"):
+				if held.expands {
+					g.unsure(at)
+				}
 				if at.replace = value; value == "" {
 					at.replace = "{}"
 				}
@@ -349,8 +395,9 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 			operands--
 		}
 	}
-	// With nothing after it, an expansion a shell splits is the one place the command could be.
-	if len(args) == 0 && split {
+	// After an expansion a shell splits, no command is left to read where nothing follows, or where what follows reads
+	// as an operand, which says the expansion held options, or as what only follows git.
+	if split && (len(args) == 0 || operand.MatchString(args[0].text) || slices.Contains(pushSubcommands, args[0].text)) {
 		g.unsure(at)
 	}
 	if name == "xargs" {
@@ -375,6 +422,16 @@ func readOption(text string, valued []string) (flag, value string, takes bool) {
 		}
 	}
 	return text, "", false
+}
+
+// namesOption says a word that expands writes its option's name out, with only the value left to a shell.
+func namesOption(word shellWord, valued []string) bool {
+	literal := word.literal()
+	if strings.HasPrefix(literal, "--") {
+		return strings.Contains(literal, "=")
+	}
+	flag, _, _ := readOption(literal, valued)
+	return slices.Contains(valued, flag)
 }
 
 // programName reads the program a word names, by its last part, in lower case, as a file system that folds case
@@ -459,7 +516,9 @@ var (
 // git reads one git command after its own options. Starts says git is the command, and not a word some program may
 // run as one, where only a push, a gate, or a subcommand only a shell knows counts.
 func (g *shellGates) git(args []shellWord, at shellPlace, starts bool) {
-	g.starts++
+	if !g.spend(args) {
+		return
+	}
 	split := false
 	for len(args) != 0 && strings.HasPrefix(args[0].text, "-") {
 		option := args[0]
@@ -467,10 +526,17 @@ func (g *shellGates) git(args []shellWord, at shellPlace, starts bool) {
 		if option.glob && braced(option.text) {
 			g.unsure(at)
 		}
+		// Only a long option's value can be a shell's to know, after its `=`.
+		if option.expands && (option.manyWords() || !strings.HasPrefix(option.literal(), "--") || !strings.Contains(option.literal(), "=")) {
+			g.unsure(at)
+		}
 		split = split || option.split
 		flag, value, joined := strings.Cut(option.text, "=")
 		if !joined && slices.Contains(gitGlobalValues, flag) && len(args) != 0 {
 			split = split || args[0].split
+			if args[0].manyWords() {
+				g.unsure(at)
+			}
 			value, args = args[0].text, args[1:]
 		}
 		if flag != "-c" {
@@ -485,15 +551,21 @@ func (g *shellGates) git(args []shellWord, at shellPlace, starts bool) {
 		if at.input || split {
 			g.unsure(at)
 		}
-		g.mayPush = g.mayPush || at.input
+		g.mayPush = g.mayPush || (at.input && !at.loose)
+		if at.loose && (at.input || at.varying || split) {
+			g.gateGit()
+		}
 		return
 	}
 	if varies(args[0], at.replace) {
 		g.unsure(at)
-		g.mayPush = true
+		g.mayPush = g.mayPush || !at.loose
+		if at.loose {
+			g.gateGit()
+		}
 		return
 	}
-	g.matchGit(args, at.input)
+	g.matchGit(args, at)
 	subcommand := args[0].text
 	rest := args[1:]
 	if slices.Contains(pushSubcommands, subcommand) {
@@ -519,6 +591,14 @@ func (g *shellGates) git(args []shellWord, at shellPlace, starts bool) {
 		return
 	}
 	g.gitRuns(subcommand, rest, at)
+}
+
+// gateGit holds git with a subcommand only a shell knows as gated where a gate is configured for git. Outside loose
+// text such a command asks anyway, as one this cannot read.
+func (g *shellGates) gateGit() {
+	g.gated = g.gated || slices.ContainsFunc(g.gates, func(gate gatePattern) bool {
+		return len(gate.fields) != 0 && strings.EqualFold(path.Base(gate.fields[0]), "git")
+	})
 }
 
 // gitRuns reads the commands git runs for a subcommand.
@@ -561,7 +641,7 @@ func (g *shellGates) gitRuns(subcommand string, args []shellWord, at shellPlace)
 		case !joined && i+1 < len(args):
 			held, value = args[i+1], args[i+1].text
 		}
-		if held.expands {
+		if held.expands || word.expands {
 			g.unsure(at)
 		}
 		g.script(value, at.deeper())
@@ -569,7 +649,7 @@ func (g *shellGates) gitRuns(subcommand string, args []shellWord, at shellPlace)
 }
 
 func (g *shellGates) push(args []shellWord, at shellPlace) {
-	g.starts++
+	g.spend(args)
 	g.pushed = true
 	g.pushes = append(g.pushes, shellPush{args: args, runs: !at.loose})
 }
@@ -579,7 +659,9 @@ var gateShells = append(slices.Clone(shells), "ash", "mksh", "rbash", "fish", "c
 
 // shell reads a shell's options for the text or the script it runs.
 func (g *shellGates) shell(args []shellWord, at shellPlace) {
-	g.starts++
+	if !g.spend(args) {
+		return
+	}
 	coded, standard := false, false
 	for len(args) != 0 {
 		word := args[0]
@@ -616,6 +698,9 @@ func (g *shellGates) shell(args []shellWord, at shellPlace) {
 				standard = true
 			case 'o', 'O':
 				if len(args) != 0 {
+					if args[0].manyWords() {
+						g.unsure(at)
+					}
 					args = args[1:]
 				}
 			}
@@ -629,7 +714,7 @@ func (g *shellGates) shell(args []shellWord, at shellPlace) {
 		if args[0].expands || (at.replace != "" && strings.Contains(args[0].text, at.replace)) {
 			g.unsure(at)
 		}
-		g.script(args[0].text, shellPlace{depth: at.depth + 1, loose: at.loose})
+		g.script(args[0].text, shellPlace{depth: at.depth + 1, loose: at.loose, varying: at.varying || args[0].expands})
 	case standard || len(args) == 0 || readsStandardInput(args[0].text):
 		g.fedScript(at)
 	default:
@@ -656,7 +741,7 @@ func (g *shellGates) fedScript(at shellPlace) {
 		if body.expands {
 			g.unsure(at)
 		}
-		g.script(body.text, shellPlace{depth: at.depth + 1, loose: at.loose})
+		g.script(body.text, shellPlace{depth: at.depth + 1, loose: at.loose, varying: at.varying || body.expands})
 	}
 }
 
@@ -744,7 +829,9 @@ func interpreterOf(name string) (interpreter, bool) {
 // code reads what an interpreter runs for a mention of a push or a gate, because this reads no language but a
 // shell's. Starts says the interpreter is the command.
 func (g *shellGates) code(kind interpreter, args []shellWord, at shellPlace, starts bool) {
-	g.starts++
+	if !g.spend(args) {
+		return
+	}
 	for _, word := range args {
 		if strings.ContainsAny(word.text, shellSpecial) {
 			g.mentions(word.text)
@@ -782,6 +869,10 @@ func (g *shellGates) code(kind interpreter, args []shellWord, at shellPlace, sta
 		break
 	}
 	for _, body := range at.command.fed {
+		if g.work += len(body.text); g.work > maxGateWork {
+			g.unread = true
+			return
+		}
 		g.mentions(body.text)
 	}
 	if kind.standard && !coded && (standard || (at.command.piped && !file)) {
@@ -843,7 +934,7 @@ func (g *shellGates) search(words []shellWord, at shellPlace) {
 		return
 	}
 	for i, word := range words {
-		if g.starts > maxGateStarts {
+		if g.work > maxGateWork {
 			g.unread = true
 			return
 		}
@@ -867,14 +958,14 @@ func (g *shellGates) search(words []shellWord, at shellPlace) {
 					g.code(kind, rest, at, false)
 				}
 			}
-			g.matchWords(name, rest, false)
+			g.matchWords(name, rest, at, false)
 		}
 		value := word.text
 		if flag, held, joined := strings.Cut(value, "="); joined && strings.HasPrefix(flag, "-") {
 			value = held
 		}
 		if strings.ContainsAny(value, shellSpecial) {
-			g.script(value, shellPlace{depth: at.depth + 1, loose: true})
+			g.script(value, shellPlace{depth: at.depth + 1, loose: true, varying: at.varying || at.input || word.expands})
 		}
 	}
 }
@@ -907,68 +998,146 @@ func (g *shellGates) matchLine(words []shellWord) {
 	}
 }
 
-// matchWords matches each gate against a program and its arguments, with options and the word each may take between
-// the gate's words.
-func (g *shellGates) matchWords(name string, args []shellWord, input bool) {
+// optionValue is what may vary as the value of an option known to take one.
+type optionValue int
+
+const (
+	// valueNumber is only a substitution that prints a number, as make's `-j` takes no other word as its value.
+	valueNumber optionValue = iota + 1
+	// valueWord is one word, which no shell splits.
+	valueWord
+	// valueSplit is a word a shell may split, with another after it.
+	valueSplit
+)
+
+// gateValues are the options known to take a value where they stand, for each program, and for git for each
+// subcommand. A word that varies is none of a gate's words only as the value of one of these. Every other fails closed.
+var gateValues = map[string]map[string]optionValue{
+	"make":       makeValues,
+	"gmake":      makeValues,
+	"just":       {"-f": valueWord, "--justfile": valueWord},
+	"rake":       {"-f": valueWord},
+	"ninja":      {"-f": valueWord, "-C": valueWord, "-j": valueNumber},
+	"npm":        {"--prefix": valueSplit},
+	"git commit": {"-m": valueWord, "--message": valueWord},
+	"git merge":  {"-m": valueWord},
+}
+
+var makeValues = map[string]optionValue{
+	"-j": valueNumber, "-l": valueNumber, "--jobs": valueNumber,
+	"-C": valueWord, "--directory": valueWord, "-f": valueWord, "--file": valueWord,
+}
+
+// failsClosed says a word of args varies that is no value gateValues knows. It infers no value from a dash or from
+// quotes: an option it does not know may take the next word, a known option included, so that one exempts nothing.
+func failsClosed(program string, args []shellWord, replace string) bool {
+	values := gateValues[program]
+	known, options := true, true
+	for i := 0; i < len(args); i++ {
+		word := args[i]
+		option := options && !word.expands && strings.HasPrefix(word.text, "-")
+		if option && word.text == "--" {
+			options = false
+			continue
+		}
+		if kind := values[word.text]; option && kind != 0 && i+1 < len(args) {
+			held := args[i+1]
+			placed := known && held.expands && !held.glob && !held.manyWords() && (replace == "" || !strings.Contains(held.text, replace))
+			switch {
+			case kind == valueNumber && held.counts && held.text == "":
+				known = true
+				i++
+				continue
+			case placed && ((kind == valueWord && !held.split) || (kind == valueSplit && i+2 < len(args))):
+				// One that splits may be no word, and the option then takes the next.
+				known = !held.split
+				i++
+				continue
+			}
+		}
+		if varies(word, replace) {
+			joined := values[strings.TrimSuffix(word.text, "=")] == valueNumber && word.counts &&
+				word.head == len(word.text) && word.tail == len(word.text)
+			if !joined {
+				return true
+			}
+			known = true
+			continue
+		}
+		known = !option || (strings.HasPrefix(word.text, "--") && strings.Contains(word.text, "="))
+	}
+	return false
+}
+
+// matchWords matches each gate against a program and its arguments. Where a gate is configured for the program, a
+// word that varies, or words this cannot read, are the gate's (failsClosed). Starts says the program is the command.
+func (g *shellGates) matchWords(name string, args []shellWord, at shellPlace, starts bool) {
+	counted := false
 	for _, gate := range g.gates {
-		if len(gate.fields) == 0 || strings.Contains(gate.prefix, "*") || strings.ToLower(path.Base(gate.fields[0])) != name {
+		if len(gate.fields) == 0 {
+			continue
+		}
+		program := strings.ToLower(path.Base(gate.fields[0]))
+		anyProgram := strings.Contains(program, "*")
+		switch {
+		case anyProgram:
+			if matched, err := path.Match(program, name); !starts || err != nil || !matched {
+				continue
+			}
+		case program != name:
 			continue
 		}
 		// git's options are not its subcommand's, so matchGit reads them.
-		if name == "git" && len(gate.fields) > 1 {
+		if program == "git" && len(gate.fields) > 1 {
 			continue
 		}
-		g.starts++
-		g.gated = g.gated || followsGate(name, gate.fields[1:], args, input)
+		if !counted {
+			if !g.spend(args) {
+				return
+			}
+			counted = true
+		}
+		g.gated = g.gated || at.input || at.varying || failsClosed(name, args, at.replace) ||
+			(!strings.Contains(gate.prefix, "*") && followsGate(name, gate.fields[1:], args))
 	}
 }
 
 // targetRunners take several targets, so a gated one can follow another.
 var targetRunners = []string{"make", "gmake", "just", "rake", "ninja"}
 
-// placeOptions take a count or a place, which names no subcommand or target.
-var placeOptions = strings.Fields("-j -l -C -f --jobs --directory --file --prefix")
-
-// followsGate says args hold the rest of a gate's words in their order. An option, the word it may take, and a
-// `NAME=value` can stand between them, and so can a target where the program takes several.
-func followsGate(name string, fields []string, args []shellWord, input bool) bool {
-	at, valued, could, flag := 0, false, false, ""
+// followsGate says args, whose values failsClosed read, hold the rest of a gate's words in their order. An option, a
+// word after one, and a `NAME=value` can stand between them, which only ever lengthens the search, and so can a
+// target where the program takes several, or any word where a value a shell splits moved the rest along.
+func followsGate(name string, fields []string, args []shellWord) bool {
+	several := slices.Contains(targetRunners, name) || slices.ContainsFunc(args, func(word shellWord) bool { return word.split })
+	at, valued := 0, false
 	for i, field := range fields {
 		last := i+1 == len(fields)
 		if strings.HasPrefix(field, "-") {
-			if !input && !slices.ContainsFunc(args, func(word shellWord) bool { return word.expands || holdsOption(word.text, field) }) {
+			if !slices.ContainsFunc(args, func(word shellWord) bool { return word.expands || holdsOption(word.text, field) }) {
 				return false
 			}
 			continue
 		}
 		for {
 			if at >= len(args) {
-				return input || could
+				return false
 			}
 			word := args[at]
 			at++
 			if word.text == field || (last && strings.HasPrefix(word.text, field)) {
-				valued, could = false, false
+				valued = false
 				break
 			}
 			if strings.HasPrefix(word.text, "-") {
-				// A value joined to its option is no word of its own.
-				flag, valued = word.text, !word.expands && !strings.Contains(word.text, "=")
+				valued = !strings.Contains(word.text, "=")
 				continue
 			}
 			if valued {
 				valued = false
-				// With no word after it, what an option this does not know seems to take could be the gate's.
-				could = could || (varies(word, "") && !slices.Contains(placeOptions, flag))
 				continue
 			}
-			if isAssignment(word.text) {
-				continue
-			}
-			if varies(word, "") {
-				return true
-			}
-			if !slices.Contains(targetRunners, name) {
+			if !isAssignment(word.text) && !several {
 				return false
 			}
 		}
@@ -992,36 +1161,48 @@ func holdsOption(text, option string) bool {
 	return true
 }
 
-// matchGit matches each gate against git's subcommand and its arguments, which take options in any order.
-func (g *shellGates) matchGit(args []shellWord, input bool) {
+// matchGit matches each gate against git's subcommand and its arguments, which take options in any order. Where a
+// gate is configured for the subcommand, a word that varies fails closed as it does for any program (failsClosed).
+func (g *shellGates) matchGit(args []shellWord, at shellPlace) {
 	if len(g.gates) == 0 {
 		return
 	}
 	g.matchLine(append([]shellWord{{text: "git"}}, args...))
+	subcommand := args[0].text
 	for _, gate := range g.gates {
-		if len(gate.fields) < 2 || strings.Contains(gate.prefix, "*") || path.Base(gate.fields[0]) != "git" {
+		if len(gate.fields) < 2 || !strings.EqualFold(path.Base(gate.fields[0]), "git") {
 			continue
 		}
 		fields := gate.fields[1:]
-		if fields[0] != args[0].text && (len(fields) != 1 || !strings.HasPrefix(args[0].text, fields[0])) {
+		written := !strings.Contains(gate.prefix, "*")
+		configured := fields[0] == subcommand || strings.HasPrefix(fields[0], "-") ||
+			(len(fields) == 1 && strings.HasPrefix(subcommand, fields[0]))
+		if strings.Contains(fields[0], "*") {
+			matched, err := path.Match(fields[0], subcommand)
+			configured = err == nil && matched
+		}
+		if !configured {
 			continue
 		}
-		found, valued := 1, false
+		if at.input || at.varying || failsClosed("git "+subcommand, args[1:], at.replace) {
+			g.gated = true
+			return
+		}
+		// matchLine reads a gate with a `*`, or one that starts with git's own options.
+		if !written || strings.HasPrefix(fields[0], "-") {
+			continue
+		}
+		found := 1
 		for _, word := range args[1:] {
 			if found == len(fields) {
 				break
 			}
 			field := fields[found]
-			value := valued && word.quoted
-			valued = strings.HasPrefix(word.text, "-") && !strings.Contains(word.text, "=")
-			switch {
-			case varies(word, "") && !value:
-				found = len(fields)
-			case word.text == field, found+1 == len(fields) && strings.HasPrefix(word.text, field),
-				strings.HasPrefix(field, "-") && holdsOption(word.text, field):
+			if word.text == field || (found+1 == len(fields) && strings.HasPrefix(word.text, field)) ||
+				(strings.HasPrefix(field, "-") && holdsOption(word.text, field)) {
 				found++
 			}
 		}
-		g.gated = g.gated || found == len(fields) || input
+		g.gated = g.gated || found == len(fields)
 	}
 }

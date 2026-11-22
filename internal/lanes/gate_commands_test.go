@@ -216,7 +216,6 @@ var commandAnswers = []struct {
 		"git p",
 		"arr=(git push); \"${arr[@]}\"",
 		"alias gp='git push'",
-		"x=${ :; }; cp a /etc/a",
 		"[[ a\ncp a /etc/a",
 		"echo \"unterminated; cp a /etc/a",
 		"cat <<EOF\nhi\n\tEOF\ncp a /etc/a",
@@ -381,6 +380,7 @@ var commandAnswers = []struct {
 		"go test ./... > /etc/out",
 	}},
 	{false, ToolBash, ReasonOutside, []string{
+		"x=${ :; }; cp a /etc/a",
 		"echo x > /etc/x",
 		"echo x >/etc/x",
 		"cp a /etc/a",
@@ -435,6 +435,8 @@ var commandAnswers = []struct {
 		"timeout 60 git -C /work/other commit -m x",
 	}},
 	{true, ToolBash, ReasonReadOnly, []string{
+		"x=${ :; }; git commit -m x",
+		"bash -o pipefail -c 'git -C . commit -m x'",
 		"git commit -m x",
 		"git -C . commit -m x",
 		"timeout 60 git commit -m x",
@@ -455,7 +457,6 @@ var commandAnswers = []struct {
 		"timeout 60 git -C . checkout -b x",
 	}},
 	{true, ToolBash, answerPass, []string{
-		"bash -o pipefail -c 'git -C . commit -m x'",
 		"git add -A",
 		"git apply p.diff",
 		"git config alias.c commit",
@@ -465,7 +466,6 @@ var commandAnswers = []struct {
 		"git show HEAD",
 	}},
 	{true, ToolBash, ReasonAskRead, []string{
-		"x=${ :; }; git commit -m x",
 		"[[ x\ngit commit -m x",
 	}},
 	{true, toolMonitor, ReasonReadOnly, []string{

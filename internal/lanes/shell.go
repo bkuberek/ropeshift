@@ -19,6 +19,9 @@ type shellWord struct {
 	expands bool
 	split   bool
 	tail    int
+	// head is where the first expansion starts, and counts says the one expansion is a substitution of countCommands.
+	head   int
+	counts bool
 	// process says it is the path of a process substitution.
 	process bool
 }
@@ -89,6 +92,30 @@ var (
 	placeCommands = []string{"pwd", "go env GOPATH", "go env GOBIN", "git rev-parse --show-toplevel"}
 )
 
+// countCommands print a number and nothing else.
+var countCommands = []string{"nproc", "nproc --all", "getconf _NPROCESSORS_ONLN", "sysctl -n hw.ncpu", "sysctl -n hw.logicalcpu"}
+
+// literal is what of a word stands as written before its first expansion.
+func (w shellWord) literal() string {
+	if !w.expands {
+		return w.text
+	}
+	return w.text[:min(w.head, len(w.text))]
+}
+
+// manyWords says a word holds an expansion that is written to give many words, such as "$@".
+func (w shellWord) manyWords() bool {
+	if !w.expands {
+		return false
+	}
+	for _, form := range []string{"$@", "${@", "[@]", "${(", "${=", "$=", "${!"} {
+		if strings.Contains(w.text, form) {
+			return true
+		}
+	}
+	return w.split && (strings.Contains(w.text, "$*") || strings.Contains(w.text, "[*]"))
+}
+
 // shellParser reads a command line the way a shell splits it, and no further. It is not a
 // shell: it holds to what a policy needs, and a guardrail is not a sandbox.
 type shellParser struct {
@@ -143,7 +170,7 @@ func parseShell(text string) ([]shellCommand, []string) {
 // parseScript is parseShell, and it says whether it could follow the whole text.
 func parseScript(text string) *shellParser {
 	p := &shellParser{text: text, places: true, unread: strings.ContainsRune(text, 0)}
-	for _, change := range []string{"()", "function ", "read ", "HOME=", "PWD=", "GOPATH=", "GOBIN="} {
+	for _, change := range []string{"()", "( )", "function ", "alias ", "read ", "HOME=", "PWD=", "GOPATH=", "GOBIN="} {
 		p.places = p.places && !strings.Contains(text, change)
 	}
 	p.run()
@@ -363,6 +390,9 @@ func commandStart(words []shellWord) int {
 		switch {
 		case isKeyword(words[at], "function"):
 			at += 2
+		// With an option other than `-p`, time is the program, which takes options of its own.
+		case isKeyword(words[at], "time") && at+1 < len(words) && strings.HasPrefix(words[at+1].text, "-") && words[at+1].text != "-p":
+			return at
 		case isKeyword(words[at], "coproc"), isKeyword(words[at], commandKeywords...):
 			at++
 		case words[at].text == "-p" && at > 0 && isKeyword(words[at-1], "time"):
@@ -563,7 +593,7 @@ func (p *shellParser) takeWord(word shellWord) {
 		return
 	}
 	// A descriptor number written against its redirect belongs to the redirect.
-	if p.at < len(p.text) && (p.text[p.at] == '>' || p.text[p.at] == '<') && !word.quoted && isNumber(word.text) &&
+	if p.at < len(p.text) && (p.text[p.at] == '>' || p.text[p.at] == '<') && !word.quoted && !word.expands && isNumber(word.text) &&
 		!strings.HasPrefix(p.text[p.at:], "<(") && !strings.HasPrefix(p.text[p.at:], ">(") {
 		return
 	}
@@ -732,6 +762,9 @@ func (p *shellParser) readDoubleQuoted(out *strings.Builder, word *shellWord) {
 
 func (p *shellParser) readBackticks(out *strings.Builder, word *shellWord, quoted bool) {
 	word.dynamic = true
+	if !word.expands {
+		word.head = out.Len()
+	}
 	escaped := "$`\\"
 	if quoted {
 		escaped += `"`
@@ -757,7 +790,7 @@ func (p *shellParser) readBackticks(out *strings.Builder, word *shellWord, quote
 
 // expanded marks an expansion that ends at tail.
 func (w *shellWord) expanded(tail int, split bool) {
-	w.expands, w.split, w.tail = true, w.split || split, tail
+	w.expands, w.split, w.tail, w.counts = true, w.split || split, tail, false
 }
 
 // readSubstitution takes out the text up to the `)` that closes it, reading quotes, comments, and here-documents on
@@ -784,6 +817,9 @@ func (p *shellParser) readSubstitution() string {
 // substitution's text out to read in turn.
 func (p *shellParser) readExpansion(out *strings.Builder, word *shellWord, quoted bool) {
 	word.dynamic = true
+	if !word.expands {
+		word.head = out.Len()
+	}
 	p.at++
 	switch next := p.next(); {
 	case next == '(':
@@ -798,7 +834,9 @@ func (p *shellParser) readExpansion(out *strings.Builder, word *shellWord, quote
 			p.at = mark
 		}
 		inner := strings.TrimSpace(p.readSubstitution())
+		only := !word.expands && p.places
 		word.expanded(out.Len(), !quoted && (!p.places || !slices.Contains(placeCommands, inner)))
+		word.counts = only && slices.Contains(countCommands, inner)
 	case next == '[':
 		p.at++
 		p.unread = !p.readArithmetic(']') || p.unread
@@ -859,9 +897,13 @@ func (p *shellParser) splits(name string, quoted bool) bool {
 // readParameter reads `${...}` to the brace that closes it, and what expands inside it.
 func (p *shellParser) readParameter(quoted bool) {
 	// Bash runs the body of `${ ...; }` and `${|...}` as commands.
-	if next := p.peek(); p.nesting >= maxShellNesting || next != 0 && strings.IndexByte(" \t\n|", next) >= 0 {
+	if p.nesting >= maxShellNesting {
 		p.unread, p.at = true, len(p.text)
 		return
+	}
+	if next := p.peek(); next != 0 && strings.IndexByte(" \t\n|", next) >= 0 {
+		// The body goes unread, and what follows its brace is still held to the policy.
+		p.unread = true
 	}
 	p.nesting++
 	defer func() { p.nesting-- }()

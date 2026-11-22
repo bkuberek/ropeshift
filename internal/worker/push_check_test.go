@@ -79,9 +79,13 @@ func TestEveryFormOfAPushIsChecked(t *testing.T) {
 func TestAnUnreadableCommandThatShowsNoPushAsks(t *testing.T) {
 	t.Parallel()
 	r, g := staleLane(t, func(*laneRig) {})
-	reply := r.look(t, `{"command":"$LINT run"}`, "c-unread", false)
-	if reply.Approval == nil || reply.Approval.Decision != lanes.ApprovalWaiting {
-		t.Errorf("an unreadable command was answered %+v", reply.Approval)
+	for i, input := range []string{
+		`{"command":"$LINT run"}`, `{"command":"npm test -- --grep \"git $x\""}`, `{"command":"sed -i \"s/git $OLD/git $NEW/\" f"}`,
+	} {
+		reply := r.look(t, input, "c-unread-"+strconv.Itoa(i), false)
+		if reply.Approval == nil || reply.Approval.Decision != lanes.ApprovalWaiting {
+			t.Errorf("%s was answered %+v", input, reply.Approval)
+		}
 	}
 	g.free()
 }
