@@ -97,12 +97,13 @@ type OrchestratorReport struct {
 	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
-// Apply moves the projection. A report of a start this one replaced says nothing of it.
+// Apply moves the projection. A report of a start this one replaced says nothing of it, and a report of a run
+// that ended moves it no further: the next run starts from a row that says nothing yet.
 func (o Orchestrator) Apply(report OrchestratorReport) Orchestrator {
 	if report.Lane != o.Lane() {
 		return o
 	}
-	if report.Actual != "" {
+	if report.Actual != "" && (!o.Ended() || report.Actual == StateEnded) {
 		o.Actual, o.Conditions = report.Actual, report.Conditions
 	}
 	if report.At != 0 {
