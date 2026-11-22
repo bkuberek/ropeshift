@@ -51,7 +51,7 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     expect(card.textContent).toContain("How many repositories does the product have?");
     expect(card.textContent).toContain("The plan fixes one repository per service, and the lane recommends it.");
     expect(card.textContent).toContain("No work waits on your review.");
-    expect(within(card).getByRole("button", { name: "Keep" }).className).toContain("btn-primary");
+    expect(within(card).getByRole("button", { name: "Keep d-repositories" }).className).toContain("btn-primary");
     expect(within(card).getByRole("button", { name: "Overturn d-repositories" })).toBeTruthy();
   });
 
@@ -59,7 +59,7 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     const sent = serveApi((call) => (call.method === "POST" ? { status: 201, body: { ...review().one_way_review.decision, id: "kept-d-repositories" } } : { status: 200, body: {} }));
     const later = vi.fn(async () => {});
     show(review(), later);
-    await userEvent.click(within(theCard()).getByRole("button", { name: "Keep" }));
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Keep d-repositories" }));
     await waitFor(() => expect(later).toHaveBeenCalled());
     const posted = sent.filter((call) => call.method === "POST");
     expect(posted.map((call) => call.path)).toEqual(["/v1/decisions/d-repositories/keep"]);
@@ -70,7 +70,7 @@ describe("a one-way decision an unattended orchestrator made, in Needs you", () 
     const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { ...review().one_way_review.decision, id: "kept-d-repositories" } } : { status: 200, body: {} }));
     const later = vi.fn(async () => {});
     show({ ...review(), project: { id: "p-harbor", name: "harbor" } }, later);
-    await userEvent.click(within(theCard()).getByRole("button", { name: "Keep" }));
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Keep d-repositories" }));
     await waitFor(() => expect(later).toHaveBeenCalled());
     const posted = sent.filter((call) => call.method === "POST");
     expect(posted.map((call) => [call.project, call.path])).toEqual([["harbor", "/v1/decisions/d-repositories/keep"]]);
