@@ -424,8 +424,8 @@ func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
 
 // holdDialogs restores the waits of a question or a dialog that may still be open. None outlasts the end of its
 // turn or a clear, whether or not the worker read that end, and no question outlasts a later prompt.
-// Otherwise each open approval stands, and with none, the request is a dialog with no name, because its approval
-// may not be raised yet.
+// Otherwise each open approval stands, and beside them the newest request is a dialog with no name, because it
+// can be another call's, whose approval is not raised yet.
 func (s *paneSession) holdDialogs(open []string, askedMs, clearedMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -437,7 +437,7 @@ func (s *paneSession) holdDialogs(open []string, askedMs, clearedMs int64) {
 	for _, seen := range open {
 		s.approvals[seen] = true
 	}
-	if len(open) == 0 && askedMs != 0 {
+	if askedMs != 0 {
 		s.approvals[ports.UnnamedCall] = true
 	}
 }

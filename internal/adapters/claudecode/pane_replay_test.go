@@ -199,3 +199,18 @@ func TestAReplayHoldsTheKeysFromAQuestionNothingClosed(t *testing.T) {
 		})
 	}
 }
+
+// An open approval names one call, and a later request can be a second dialog with no approval yet, so the
+// first call's end frees no key.
+func TestAReplayHoldsTheKeysFromASecondDialogBesideAnApproval(t *testing.T) {
+	t.Parallel()
+	s := replayedPane(t, 110)
+	asked := hookAt(eventPermissionRequest, 120, "")
+	asked.LastMs, asked.Count = 125, 2
+	s.replay(ports.AdoptFrom{Hooks: []lanes.HookRecord{hookAt(hookStop, 110, ""), asked}, Approvals: []string{"seen-1"}}, 1)
+	refusesInput(t, s)
+	s.takeHook(lanes.HookEvent{Event: hookPostToolUse, Digest: "seen-1", AtMs: 130})
+	refusesInput(t, s)
+	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 140})
+	typesFreely(t, s)
+}
