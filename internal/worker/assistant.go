@@ -542,10 +542,20 @@ func assistantApproval() lanes.Reply {
 // rule allows reaches the hook, which denies it, whatever mode the member's profile gives lanes.
 const assistantMode = "default"
 
-// permissionMode is the mode a session runs in: its profile's, except for an assistant's.
+// readerMode is the least careful mode a review lane or an orchestrator runs in. Neither has work of its own that
+// needs a classifier to let commands run: one judges another's work, and the other calls its tools.
+const readerMode = "default"
+
+// permissionMode is the mode a session runs in: its profile's, except for an assistant's, and for a review lane's or
+// an orchestrator's, which is the more careful of the profile's and readerMode.
 func (r *laneRun) permissionMode(profile lanes.Profile) string {
 	if r.assisting() {
 		return assistantMode
 	}
-	return profile.Agent.PermissionMode
+	mode := profile.Agent.PermissionMode
+	// A mode no lane may run in stays as it is, for the driver to refuse.
+	if (r.reviewing() || r.orchestrating()) && lanes.CheckPermissionMode(mode) == nil && lanes.RaisesPermission(readerMode, mode) {
+		return readerMode
+	}
+	return mode
 }
