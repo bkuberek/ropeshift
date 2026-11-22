@@ -470,12 +470,16 @@ func (w Worktrees) fetchMissing(ctx context.Context, repository Git, commit stri
 }
 
 // FetchCommit brings a commit this repository does not hold from its remote, as a detached worktree's creation
-// does.
+// does, and runs no repository hook.
 func (w Worktrees) FetchCommit(ctx context.Context, repository, commit string) error {
 	if strings.HasPrefix(commit, "-") {
 		return fmt.Errorf("%w: %s", ports.ErrNotFound, commit)
 	}
-	return w.fetchMissing(ctx, w.git(repository), commit)
+	git, err := w.hookless(ctx, repository)
+	if err != nil {
+		return err
+	}
+	return w.fetchMissing(ctx, git, commit)
 }
 
 // hookless is the git of a repository's commands that run no repository hook, however git is asked to find
@@ -489,7 +493,8 @@ func (w Worktrees) hookless(ctx context.Context, dir string) (Git, error) {
 	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
 		return Git{}, err
 	}
-	git.Config = NoHooks()
+	// A hook with no name, from `[hook ""]` or a bare `[hook]`, is disabled whatever the configuration holds.
+	git.Config = append(NoHooks(), [2]string{"hook..enabled", "false"})
 	seen := map[string]bool{}
 	for line := range strings.Lines(string(names)) {
 		key := strings.TrimSpace(line)

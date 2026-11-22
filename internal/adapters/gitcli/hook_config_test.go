@@ -18,23 +18,24 @@ func TestHooklessGitDisablesEveryConfiguredHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range append(NoHooks(), [2]string{"hook.format.enabled", "false"}, [2]string{"hook.audit.enabled", "false"}, [2]string{"hook.dotted.name.enabled", "false"}) {
+	for _, want := range append(NoHooks(), [2]string{"hook..enabled", "false"}, [2]string{"hook.format.enabled", "false"}, [2]string{"hook.audit.enabled", "false"}, [2]string{"hook.dotted.name.enabled", "false"}) {
 		if !slices.Contains(git.Config, want) {
 			t.Errorf("the settings are %v, want %v among them", git.Config, want)
 		}
 	}
-	if len(git.Config) != len(NoHooks())+3 {
-		t.Errorf("the settings are %v, want core.hooksPath and one disabled setting for each of the three hooks", git.Config)
+	if len(git.Config) != len(NoHooks())+4 {
+		t.Errorf("the settings are %v, want core.hooksPath, the unnamed hook, and one disabled setting for each of the three hooks", git.Config)
 	}
 }
 
-func TestHooklessGitInARepositoryWithNoHookConfigurationOnlyRedirectsThePath(t *testing.T) {
+func TestHooklessGitInARepositoryWithNoHookConfigurationOnlyRedirectsThePathAndDisablesTheUnnamedHook(t *testing.T) {
 	repo := gittest.New(t)
 	git, err := Worktrees{Env: repo.Env()}.hookless(t.Context(), repo.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(git.Config, NoHooks()) {
-		t.Errorf("the settings are %v, want %v", git.Config, NoHooks())
+	want := append(NoHooks(), [2]string{"hook..enabled", "false"})
+	if !slices.Equal(git.Config, want) {
+		t.Errorf("the settings are %v, want %v", git.Config, want)
 	}
 }

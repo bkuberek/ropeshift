@@ -173,3 +173,20 @@ func TestWorktreesFetchRunsNoRepositoryHook(t *testing.T) {
 		t.Fatal("a reference-transaction hook ran in the fetch")
 	}
 }
+
+func TestWorktreesFetchCommitRunsNoRepositoryHook(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("README.txt", "seed\n")
+	local := origin.Clone("local")
+	head := origin.Commit("next.txt", "next\n")
+	marker := plantReferenceHook(t, local)
+	if err := (gitcli.Worktrees{Env: local.Env()}).FetchCommit(t.Context(), local.Dir, head); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := local.Try("cat-file", "-e", head+"^{commit}"); err != nil {
+		t.Fatalf("the commit was not fetched: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a reference-transaction hook ran in the fetch of a commit")
+	}
+}

@@ -214,7 +214,7 @@ A review lane only reads: it cannot edit a file with a tool, commit, push, or mo
 
 No lane gets a forge credential. Its session starts without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, or `GITHUB_ENTERPRISE_TOKEN`, with `GH_CONFIG_DIR` pointed at an empty directory of its own, so a `gh` it runs finds no sign-in ([gh environment](https://cli.github.com/manual/gh_help_environment)). A profile whose `secret_ref` names one of those variables is refused, and the lane does not start. Pushes and pull requests are the worker's own steps, never the agent's: see [Review through pull requests](#review-through-pull-requests). Like every lane guardrail, this is not a sandbox.
 
-A profile's `secret_ref` also cannot name a variable that starts with `ROPESHIFT_`, because that is where the daemon keeps its settings and signing keys: such a profile is refused, and the lane does not start, whether or not the variable is set.
+A profile's `secret_ref` also cannot name a variable that starts with `ROPESHIFT_`, because that is where the daemon keeps its settings and signing keys: such a profile is refused, and the lane does not start, whether or not the variable is set. An `env:` reference to `PGPASSWORD`, to `OTEL_EXPORTER_OTLP_HEADERS` or one of its per-signal forms is refused the same way.
 
 Two keys in the `[agent]` table of a profile control this:
 
