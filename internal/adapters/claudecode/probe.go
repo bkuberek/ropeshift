@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -320,7 +321,7 @@ func (p *prober) screens(ctx context.Context) {
 		return
 	}
 	launch := filepath.Join(config, "launch.json")
-	args := append([]string{"--permission-mode", "default", "--model", p.spec.Model, "--settings", settings, "--mcp-config", mcp}, p.spec.Override.PaneArgs()...)
+	args := slices.Concat([]string{"--permission-mode", "default", "--model", p.spec.Model, "--settings", settings, "--mcp-config", mcp}, p.isolation(), p.spec.Override.PaneArgs())
 	env := append(p.env(config, token, sockets), p.spec.Override.Env()...)
 	if err := shimlink.WritePaneLaunch(launch, shimlink.PaneLaunch{Dir: dir, Path: p.binary, Args: args, Env: env}); err != nil {
 		return
@@ -405,8 +406,16 @@ func (p *prober) dirs(name string) (dir, config string) {
 	return filepath.Join(p.spec.Dir, name), filepath.Join(p.spec.Dir, name+"-config")
 }
 
+// isolation is the flags that hold a probe session to a lane's isolation (isolationArgs), so what the probe qualifies is
+// what a lane runs, and a piece of the member's own setup that reaches a probe session reached it past the same flags:
+// a leak (ADR-0040).
+func (p *prober) isolation() []string {
+	return isolationArgs(ports.SessionSpec{Override: p.spec.Override})
+}
+
 // env is a probe session's environment: the allowlist with no session or telemetry variable, the
-// private socket directory, and tags whose hooks spool to the probe and reach no worker.
+// private socket directory, a lane's isolation (isolationEnv), and tags whose hooks spool to the probe and reach no
+// worker.
 func (p *prober) env(config, token, sockets string) []string {
 	var env []string
 	for _, entry := range withoutTelemetry(p.spec.Env) {
@@ -416,6 +425,7 @@ func (p *prober) env(config, token, sockets string) []string {
 		}
 		env = append(env, entry)
 	}
+	env = append(env, isolationEnv()...)
 	return append(env,
 		envTempDir+sockets, lanes.EnvSpool+"="+filepath.Join(config, "spool"), lanes.EnvLaneToken+"="+token,
 		lanes.EnvLaneID+"="+probeLane, lanes.EnvGeneration+"=1", EnvProbe+"=1",
@@ -470,7 +480,7 @@ func (p *prober) startAs(ctx context.Context, name, inbound string, extra ...str
 		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages",
 		"--permission-mode", "default", "--model", p.spec.Model, "--settings", settings, "--mcp-config", mcp, "--tools", "",
 	}
-	args = append(append(args, p.spec.Override.Args()...), extra...)
+	args = slices.Concat(args, p.isolation(), p.spec.Override.Args(), extra)
 	env := append(p.env(config, token, sockets), p.spec.Override.Env()...)
 	inR, inW, err := os.Pipe()
 	if err != nil {

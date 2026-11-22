@@ -3,6 +3,10 @@ package claudecode
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,7 +31,11 @@ import (
 //     connectors do not load either ([setting sources]).
 //   - Auto memory loads whatever the setting sources say ([setting sources]), and is the person's own notes,
 //     kept per repository and shared across its worktrees ([memory]), so `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
-//     turns it off ([environment variables]).
+//     turns it off ([environment variables]). It turns a subagent's `memory` off too, whose `user` scope is a
+//     directory in the member's `~/.claude/agent-memory/`: "Subagent memory is part of auto memory: if you turn auto
+//     memory off, with the `autoMemoryEnabled` setting or `CLAUDE_CODE_DISABLE_AUTO_MEMORY`, the `memory` field has no
+//     effect" ([subagent memory]), so a subagent a lane writes with `memory: user` reads nothing of the member's and
+//     holds nothing.
 //
 // `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` is documented too, but it drops every CLAUDE.md, the repository's own
 // among them ([environment variables]), and the repository's instructions are what a lane works by, so a
@@ -38,6 +46,7 @@ import (
 // [skills]: https://code.claude.com/docs/en/skills
 // [memory]: https://code.claude.com/docs/en/memory
 // [environment variables]: https://code.claude.com/docs/en/env-vars
+// [subagent memory]: https://code.claude.com/docs/en/sub-agents#enable-persistent-memory
 
 const (
 	flagStrictMCP = "--strict-mcp-config"
@@ -173,20 +182,38 @@ func envValue(env []string, name string) string {
 // repositoryServers are the MCP servers the repository's own `.mcp.json` names, which is project setup a lane keeps.
 // They are read as the repository holds them at the lane's base (repositoryFile), so an edit a lane makes to the file,
 // in its worktree or in a commit of a branch it continues, reaches no lane until it is merged, and a file that does not
-// parse names none. A server named after ropeshift's own is left out, so it never replaces it.
+// parse names none. A server named after ropeshift's own is left out, so it never replaces it, and the preflight says
+// so (serverClash).
 func repositoryServers(spec ports.SessionSpec) map[string]json.RawMessage {
+	servers, _ := repositoryServersOf(spec)
+	return servers
+}
+
+// repositoryServersOf is repositoryServers, and whether the repository named a server after ropeshift's own, which it
+// left out.
+func repositoryServersOf(spec ports.SessionSpec) (map[string]json.RawMessage, bool) {
 	raw := repositoryFile(spec, ".mcp.json")
 	if raw == nil {
-		return nil
+		return nil, false
 	}
 	var file struct {
 		Servers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	if json.Unmarshal(raw, &file) != nil {
+		return nil, false
+	}
+	_, clash := file.Servers[ServerName]
+	delete(file.Servers, ServerName)
+	return file.Servers, clash
+}
+
+// serverClash is what a preflight says of a repository whose `.mcp.json` names a server after ropeshift's own, which
+// the lane runs in its place.
+func serverClash(spec ports.SessionSpec) []string {
+	if _, clash := repositoryServersOf(spec); !clash {
 		return nil
 	}
-	delete(file.Servers, ServerName)
-	return file.Servers
+	return []string{fmt.Sprintf("the repository's .mcp.json names an MCP server %q, the name of ropeshift's own server, so it is left out and the lane runs ropeshift's", ServerName)}
 }
 
 // The bounds of a read of a repository's file: how long git may take, and the most the file may hold.
@@ -238,4 +265,105 @@ func laneMCP(spec ports.SessionSpec) any {
 	return struct {
 		Servers map[string]any `json:"mcpServers"`
 	}{servers}
+}
+
+// A linked git worktree with no `.claude/skills` of its own loads the main checkout's: "when the worktree checkout has
+// no `.claude/skills` directory at its root, for example because your `.claude/skills` is gitignored, Claude Code loads
+// the main checkout's project skills in the worktree session. In a worktree with its own `.claude/skills` directory,
+// only that copy loads", and "The same read-through covers `.claude/agents` and `.claude/commands`" ([worktrees]). A
+// lane is a linked worktree of the member's clone, whose untracked skills, subagents, and commands are the member's own
+// and no part of the repository, so each generation's start gives the worktree its own of each, empty where the
+// repository holds none (ownPieceDirs).
+//
+// [worktrees]: https://code.claude.com/docs/en/worktrees#what-worktrees-share-with-the-main-checkout
+var readThroughDirs = []string{".claude/agents", ".claude/commands", ".claude/skills"}
+
+// errNoOwnPieceDir says a worktree's skills, subagents, or commands directory is no directory of its own, so the main
+// checkout's could load in its place.
+var errNoOwnPieceDir = errors.New("is no directory of the worktree's own, so the main checkout's would load in its place")
+
+// ownPieceDirs makes each directory a linked worktree must hold so that no read-through reaches the main checkout
+// (readThroughDirs). One that is there, through a link of the lane's own included, is left as it is; a missing one is
+// made only through directories of the worktree's own, and a link or a file on the way, or one that is no directory,
+// fails the start. A worktree that is no linked worktree, whose `.git` is no file, reads through to nothing.
+func ownPieceDirs(spec ports.SessionSpec) error {
+	if spec.Dir == "" {
+		return nil
+	}
+	if info, err := os.Lstat(filepath.Join(spec.Dir, ".git")); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	for _, dir := range readThroughDirs {
+		info, err := os.Stat(filepath.Join(spec.Dir, filepath.FromSlash(dir)))
+		switch {
+		case err == nil && info.IsDir():
+			continue
+		case err == nil, !errors.Is(err, fs.ErrNotExist):
+			return fmt.Errorf("the worktree's %s %w", dir, errNoOwnPieceDir)
+		}
+		if _, err := ownParents(spec.Dir, dir+"/.", true); err != nil {
+			return fmt.Errorf("the worktree's %s %w: %v", dir, errNoOwnPieceDir, err)
+		}
+	}
+	return nil
+}
+
+// A lane is a linked worktree of the member's clone, and "plugins installed at project scope from the main checkout
+// also load in worktrees of the same repository" ([worktrees]). The `--settings` value does not replace what the other
+// files enable: their `enabledPlugins` "merge key by key. For each plugin id, the value that applies is the one from the
+// highest-precedence source that mentions the id. A source that doesn't mention the id leaves the value from the
+// lower-precedence source in effect", and the `flag` source, `--settings`, outranks the project and local files there
+// ([plugin loading]). No documented switch gives a worktree a plugin scope of its own. So a lane's generated settings
+// name each plugin the main checkout's working tree enables, in its shared or its local settings, that neither the
+// repository's settings at the lane's base nor the worktree's own enable, and turn it off, which holds whether the CLI
+// reaches the main checkout through its project scope or its install records. A plugin the base enables is left as the
+// repository's settings set it, and not stated as on, which would also fetch one with an external source ([plugin
+// loading]). Managed settings, which "no other source overrides", are the organization's.
+//
+// [worktrees]: https://code.claude.com/docs/en/worktrees#what-worktrees-share-with-the-main-checkout
+// [plugin loading]: https://code.claude.com/docs/en/plugins/loading#find-where-a-plugin-is-enabled
+func lanePlugins(spec ports.SessionSpec) map[string]bool {
+	if spec.Repository == "" || spec.Dir == "" {
+		return nil
+	}
+	allowed := enabledPlugins(repositoryFile(spec, projectSettingsFile))
+	for _, file := range settingsFiles(spec) {
+		for id := range enabledPlugins(worktreeFile(spec, file)) {
+			allowed[id] = true
+		}
+	}
+	var out map[string]bool
+	for _, file := range []string{projectSettingsFile, localSettingsFile} {
+		raw, whole := boundedFile(filepath.Join(spec.Repository, filepath.FromSlash(file)))
+		if !whole {
+			continue
+		}
+		for id := range enabledPlugins(raw) {
+			if !allowed[id] {
+				if out == nil {
+					out = map[string]bool{}
+				}
+				out[id] = false
+			}
+		}
+	}
+	return out
+}
+
+// enabledPlugins are the plugins a settings file's `enabledPlugins` turns on. A file that is absent or does not parse
+// turns none on.
+func enabledPlugins(raw []byte) map[string]bool {
+	var file struct {
+		Plugins map[string]bool `json:"enabledPlugins"`
+	}
+	out := map[string]bool{}
+	if len(raw) == 0 || json.Unmarshal(raw, &file) != nil {
+		return out
+	}
+	for id, on := range file.Plugins {
+		if on {
+			out[id] = true
+		}
+	}
+	return out
 }

@@ -424,3 +424,26 @@ func TestAProbeStartsNoSessionTheDesignRefuses(t *testing.T) {
 		t.Errorf("%d probe sessions started with a budget cap, and the budget check's is the only one", capped)
 	}
 }
+
+// Every probe session, headless and in its pane, starts with a lane's isolation, so what the probe qualifies is what a
+// lane runs, and a piece of the member's own setup that reaches the probe reached it past the same flags and is a leak
+// (ADR-0040): no user or local settings, ropeshift's MCP configuration alone, and no auto memory.
+func TestAProbeRunsWithALanesIsolation(t *testing.T) {
+	driver, spec, path := probeRig(t)
+	if _, err := driver.Probe(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	seen := doubles.ProbesSeenBy(t, doubles.BinDir(path))
+	if len(seen) != 5 {
+		t.Fatalf("the probe ran %d sessions", len(seen))
+	}
+	for _, session := range seen {
+		at := slices.Index(session.Args, "--setting-sources")
+		if at < 0 || at+1 >= len(session.Args) || session.Args[at+1] != "project" || !slices.Contains(session.Args, "--strict-mcp-config") {
+			t.Errorf("a probe session started without a lane's flags: %v", session.Args)
+		}
+		if memory := session.Env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"]; memory != "1" {
+			t.Errorf("a probe session started with CLAUDE_CODE_DISABLE_AUTO_MEMORY=%q: %v", memory, session.Args)
+		}
+	}
+}

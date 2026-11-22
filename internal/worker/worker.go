@@ -27,6 +27,9 @@ const (
 	// publishSettle is how long a worker lets a lane's moves settle before it publishes them, so a burst,
 	// such as a lane's start, goes out as one status and one upload rather than waiting on the heartbeat.
 	publishSettle = time.Second
+	// publishFailed opens the report of a settled publish that failed, which tells it from the other uploads a
+	// worker makes, such as the one a lane makes once its session binds, which a control plane that is away fails too.
+	publishFailed = "publishing the lanes' settled moves"
 )
 
 // Config is what a worker is told at start.
@@ -700,7 +703,7 @@ func (w *Worker) publishMoved(ctx context.Context) bool {
 		err = w.Upload(ctx)
 	}
 	if err != nil && ctx.Err() == nil {
-		w.config.Report(err)
+		w.config.Report(fmt.Errorf("%s: %w", publishFailed, err))
 	}
 	return err == nil
 }

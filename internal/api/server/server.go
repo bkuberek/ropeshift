@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -397,6 +398,8 @@ func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.As(err, &limited):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeSpendLimit, Message: err.Error()})
+	case errors.Is(err, lanes.ErrSettingsNotRestorable):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeSettingsNotRestorable, Message: err.Error()})
 	case errors.As(err, &fenced):
 		refuse(w, http.StatusConflict, api.ErrorDetail{
 			Code: api.CodeFenced, Message: err.Error(), CurrentFence: fenced.Current, State: string(fenced.State),

@@ -670,7 +670,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	// to its limit from here.
 	r.readAllowance(ctx)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
-		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
+		Spec: r.w.sessionSpec(ctx, r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
@@ -811,7 +811,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Project: r.lease.Project, PlanningRepository: r.w.planningRepository(ctx, r.lease.Project), Recorded: r.recordedWorktree(ctx), Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Lane: r.lease.Lane, Repository: repository, Project: r.lease.Project, PlanningRepository: r.w.planningRepository(ctx, r.lease.Project), Recorded: r.recordedWorktree(ctx), Branch: r.lease.Branch, Base: r.begins(), ProfileBase: r.settingsBase(), ProfileUnbased: r.settingsUnbased(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Detached: r.reviewing(), ForgeConfigDir: r.rt.forgeConfigDir(r.lease.Lane),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
@@ -1064,6 +1064,9 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	}
 	if len(report.Problems) != 0 {
 		return ports.SessionSpec{}, fmt.Errorf("preflight: %v", report.Problems)
+	}
+	for _, notice := range report.Notices {
+		r.w.config.Notice(fmt.Sprintf("lane %s: %s", r.lease.Lane, notice))
 	}
 	r.handleLock.Lock()
 	r.settingsFound = report.Settings

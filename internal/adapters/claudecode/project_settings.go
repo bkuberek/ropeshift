@@ -109,7 +109,7 @@ func settingsChange(spec ports.SessionSpec) *lanes.SettingsChange {
 		return nil
 	}
 	base, _ := readBaseSide(spec)
-	return compareSettings(spec, base)
+	return compareSettings(spec, base, nestedSkillDirs(spec))
 }
 
 // comparable says a spec names a worktree and the clone and commit its repository's side is read at, or says its
@@ -126,28 +126,80 @@ func comparable(spec ports.SessionSpec) bool {
 // has a few milliseconds, so the repository's side, which is fixed by the commit it is read at, is read once per clone
 // and commit and kept, and each later check reads only the worktree.
 func (d *Driver) SettingsChange(_ context.Context, spec ports.SessionSpec) *lanes.SettingsChange {
+	return d.settingsChangeOf(spec, false)
+}
+
+// settingsChangeOf is SettingsChange, which finds the worktree's nested skills directories again when rescan says so, as
+// a start's preflight does, and otherwise reads those its start found (nestedDirs).
+func (d *Driver) settingsChangeOf(spec ports.SessionSpec, rescan bool) *lanes.SettingsChange {
 	spec = atSettingsBase(spec)
 	if !comparable(spec) {
 		return nil
 	}
-	return compareSettings(spec, d.bases.of(spec))
+	return compareSettings(spec, d.bases.of(spec), d.nested.of(spec, rescan))
 }
 
 // baseSide is the repository's side of what a hold compares, at the commit a lane's work began from: each settings file
 // the session reads, as that commit holds it, and nil where it holds none, and the blob of each piece file it holds
-// (pieceDirs), whose hooks are read only for a piece the worktree holds otherwise.
+// (pieceDirs), whose hooks are read only for a piece the worktree holds otherwise. The pieces of a nested skills
+// directory are read once a worktree holds that directory (blobOf).
 type baseSide struct {
 	files  map[string][]byte
 	pieces map[string]string
-	// mu guards hooks, the frontmatter hooks read of each piece blob.
+	// nested holds the blob of each piece of each nested skills directory read, by the directory, under mu.
+	nested map[string]map[string]string
+	// trees holds the blob of each file below each plugin directory read, by the directory, under mu (treeAt).
+	trees map[string]map[string]string
+	// mu guards hooks, the frontmatter hooks read of each piece blob, and ran, each file a hook runs (fileAt).
 	mu    sync.Mutex
-	hooks map[string]pieceHooks
+	hooks map[string]pieceFront
+	ran   map[string]baseFile
+}
+
+// newBaseSide is a repository's side that holds nothing yet.
+func newBaseSide() *baseSide {
+	return &baseSide{
+		files: map[string][]byte{}, pieces: map[string]string{}, nested: map[string]map[string]string{}, trees: map[string]map[string]string{},
+		hooks: map[string]pieceFront{}, ran: map[string]baseFile{},
+	}
+}
+
+// blobOf is the blob of a piece the repository holds at the lane's base, by its path, empty for none, and whether that
+// was read: a piece of a nested skills directory is read with the rest of its directory once, and a read that fails says
+// false and is read again next time.
+func (b *baseSide) blobOf(spec ports.SessionSpec, path string) (string, bool) {
+	dir := nestedDirOf(path)
+	if dir == "" {
+		return b.pieces[path], true
+	}
+	b.mu.Lock()
+	pieces, read := b.nested[dir]
+	b.mu.Unlock()
+	if read || spec.SettingsUnbased {
+		return pieces[path], true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
+	defer cancel()
+	files, err := repositoryGit(spec).FilesUnder(ctx, spec.Base, dir, maxRepositoryPieceFiles)
+	if err != nil {
+		return "", false
+	}
+	pieces = map[string]string{}
+	for _, file := range files {
+		if isPiece(dir + "/" + file.Path) {
+			pieces[dir+"/"+file.Path] = file.Blob
+		}
+	}
+	b.mu.Lock()
+	b.nested[dir] = pieces
+	b.mu.Unlock()
+	return pieces[path], true
 }
 
 // readBaseSide reads the repository's side of a hold from git's objects, and says whether every read completed. A read
 // that failed reads as no file, as repositoryFile reads it, and leaves the side incomplete, so it is not kept.
 func readBaseSide(spec ports.SessionSpec) (*baseSide, bool) {
-	side := &baseSide{files: map[string][]byte{}, pieces: map[string]string{}, hooks: map[string]pieceHooks{}}
+	side := newBaseSide()
 	if spec.SettingsUnbased {
 		return side, true
 	}
@@ -178,9 +230,10 @@ func readBaseSide(spec ports.SessionSpec) (*baseSide, bool) {
 	return side, complete
 }
 
-// hooksOf are the frontmatter hooks of a piece blob the repository holds, read once. A blob that cannot be read holds
-// none, so a hook the worktree's piece holds reads as added, and it is read again next time.
-func (b *baseSide) hooksOf(spec ports.SessionSpec, blob string) pieceHooks {
+// frontOf is what the frontmatter of a piece blob the repository holds declares of the keys that widen what a session
+// runs, read once. A blob that cannot be read declares none, so a hook or a tool the worktree's piece declares reads as
+// added, and it is read again next time.
+func (b *baseSide) frontOf(spec ports.SessionSpec, blob string) pieceFront {
 	b.mu.Lock()
 	hooks, found := b.hooks[blob]
 	b.mu.Unlock()
@@ -191,9 +244,9 @@ func (b *baseSide) hooksOf(spec ports.SessionSpec, blob string) pieceHooks {
 	defer cancel()
 	raw, err := repositoryGit(spec).BlobOf(ctx, blob, maxRepositoryFile)
 	if err != nil {
-		return pieceHooks{readable: true}
+		return pieceFront{readable: true}
 	}
-	hooks = frontmatterHooks(raw)
+	hooks = frontmatterKeys(raw)
 	b.mu.Lock()
 	b.hooks[blob] = hooks
 	b.mu.Unlock()
@@ -232,9 +285,11 @@ func (b *baseSides) of(spec ports.SessionSpec) *baseSide {
 }
 
 // compareSettings names each key not known to be harmless (safeSettings) that the worktree's settings files hold
-// otherwise than the repository's side, and each piece whose frontmatter hooks the lane added or changed, which runs a
-// command as a settings hook does.
-func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChange {
+// otherwise than the repository's side, each piece whose frontmatter hooks the lane added or changed, which runs a
+// command as a settings hook does, or whose allowed tools it added or changed, which widen what it may do as a
+// permission rule does, and each file a hook, the status line, or the file suggestion command runs that the lane changed
+// (hookFiles).
+func compareSettings(spec ports.SessionSpec, base *baseSide, nested nestedScan) *lanes.SettingsChange {
 	change := &lanes.SettingsChange{}
 	digest := sha256.New()
 	for _, file := range settingsFiles(spec) {
@@ -259,15 +314,38 @@ func compareSettings(spec ports.SessionSpec, base *baseSide) *lanes.SettingsChan
 			fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", file, key, canonical(lane[key]))
 		}
 	}
-	for _, piece := range comparePieces(spec, base) {
+	pieces, within := worktreePieces(spec, nested.dirs)
+	held := comparePieces(spec, base, pieces, within)
+	for _, piece := range slices.Concat(held, nestedOverflow(nested)) {
 		if !piece.overflow {
 			change.Files = append(change.Files, piece.path)
 		}
-		if !slices.Contains(change.Keys, keyHooks) {
-			change.Keys = append(change.Keys, keyHooks)
+		for _, key := range piece.heldKeys() {
+			if !slices.Contains(change.Keys, key) {
+				change.Keys = append(change.Keys, key)
+			}
 		}
 		change.Summary = append(change.Summary, piece.summary()...)
 		fmt.Fprintf(digest, "%s\x00%s\x00", piece.path, piece.bound())
+	}
+	for _, plugin := range comparePlugins(spec, base, worktreePlugins(spec, slices.Concat([]string{skillsDir}, nested.dirs))) {
+		change.Files = append(change.Files, plugin.path)
+		if !slices.Contains(change.Keys, keyPlugins) {
+			change.Keys = append(change.Keys, keyPlugins)
+		}
+		change.Summary = append(change.Summary, plugin.summary())
+		fmt.Fprintf(digest, "%s\x00%s\x00", plugin.path, plugin.bound())
+	}
+	for _, ran := range hookFiles(spec, base, slices.Concat(sessionCommands(spec, pieces), baseCommands(spec, base, held))) {
+		if !slices.Contains(change.Files, ran.path) {
+			change.Files = append(change.Files, ran.path)
+		}
+		change.Scripts = append(change.Scripts, ran.path)
+		if !slices.Contains(change.Keys, ran.key) {
+			change.Keys = append(change.Keys, ran.key)
+		}
+		change.Summary = append(change.Summary, ran.summary())
+		fmt.Fprintf(digest, "%s\x00ran\x00%s\x00", ran.path, ran.bound())
 	}
 	if len(change.Keys) == 0 {
 		return nil
@@ -434,8 +512,11 @@ func shown(text, key string) string {
 var errSettingsNotRestorable = errors.New("a directory on the way to a settings file or a piece in the worktree is a link or no directory, so it cannot be restored")
 
 // restoreBaseSettings puts each project settings file a member chose the repository's version of back as the commit the
-// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, and each piece whose
-// frontmatter hooks the lane added or changed (restorePieces). It writes only inside the worktree: a `.claude` that is a
+// lane's work began from holds it (atSettingsBase), or removes it where that commit holds none, each piece whose
+// frontmatter hooks the lane added or changed (restorePieces), and each plugin under a skills directory whose files it
+// added or changed (restorePlugins). It never puts back a file a hook runs, which is the
+// lane's work: a hold that names one offers no restore (lanes.SettingsChange.Scripts). It compares again once it is
+// done, and refuses the start if anything is still held. It writes only inside the worktree: a `.claude` that is a
 // link is refused, and a file that is a link is replaced, never written through.
 func restoreBaseSettings(spec ports.SessionSpec) error {
 	spec = atSettingsBase(spec)
@@ -471,8 +552,21 @@ func restoreBaseSettings(spec ports.SessionSpec) error {
 			return err
 		}
 	}
-	return restorePieces(spec)
+	if err := restorePieces(spec); err != nil {
+		return err
+	}
+	if err := restorePlugins(spec, slices.Concat([]string{skillsDir}, nestedSkillDirs(spec).dirs)); err != nil {
+		return err
+	}
+	if left := settingsChange(spec); left != nil {
+		return fmt.Errorf("%w: after the restore, the lane still differs from the repository's in %s", errStillHeld, strings.Join(left.Keys, ", "))
+	}
+	return nil
 }
+
+// errStillHeld refuses a start whose restore of the repository's settings left something the hold holds, so nothing
+// starts that a member chose to run with the repository's settings and that would run otherwise.
+var errStillHeld = errors.New("the repository's settings were restored and the lane is still held")
 
 // replaceFile puts a regular file at path in one step: it writes a file of its own beside it, which it creates and
 // never opens through a link, and moves it over whatever path names, a link included.

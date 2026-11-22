@@ -2,6 +2,7 @@ package worker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -35,6 +36,15 @@ type LaneRequest struct {
 	// when it granted the claim. A branch that exists keeps the commit it has. Empty begins a new
 	// branch at the checkout's HEAD, which only a claim made before bases were resolved leaves.
 	Base string
+	// ProfileBase is the commit the repository's profile layer is read at: the lane's settings base, the commit its
+	// work began from, and never a commit a lane wrote, such as the tip of a branch it continues or the commit a review
+	// reads, so a layer a lane commits, and the hooks it names, reach no lane until it is merged. Empty reads the layer
+	// at Base.
+	ProfileBase string
+	// ProfileUnbased says the lane has no commit its work began from to read the repository's profile layer at, as a
+	// review of a lane that recorded no base has none. Its profile reads the layer at Base, the commit under review, for
+	// its agent.gates alone, which can only narrow the lane, and takes no other key of the layer, hooks included.
+	ProfileUnbased bool
 	// Tags are ropeshift's own variables for this lane.
 	Tags map[string]string
 	// Bracket records the worktree's creation as an external effect. It reports false
@@ -149,16 +159,57 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 	return laneModel, laneEffort, nil
 }
 
-// load resolves the lane's profile, reading its repository's layer at the commit its worktree begins from
-// (FR-PROF-5). A lane with no work of its own has a directory and no repository, so it has no layer. A lane that
-// another machine ran, and a review of a head another clone pushed, begin at a commit this machine has yet to
-// fetch, so a commit it does not hold is fetched for as the lane's worktree would and read once more.
+// load resolves the lane's profile, reading its repository's layer at the commit the lane's work began from
+// (ProfileBase), never at a commit a lane wrote. A lane with no work of its own has a directory and no repository, so
+// it has no layer. A lane with no commit its work began from (ProfileUnbased) reads the layer at the commit its worktree
+// begins at, which a lane wrote, and takes only its agent.gates, which can only narrow what the lane may do: every
+// other key the layer sets, a hook, the instructions file, a credential's reference, and the worktree root among them,
+// is left as the layers below the repository's give it. A lane that another machine ran, and a review of a head another
+// clone pushed, can name a commit this machine has yet to fetch, so a commit it does not hold is fetched for as the
+// lane's worktree would and read once more.
 func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
-	repository := request.Repository
+	profile, err := p.loadLayer(ctx, request, overrides)
+	if err != nil || !request.ProfileUnbased {
+		return profile, err
+	}
+	return gatesOnly(ctx, p.Profiles, profile, overrides)
+}
+
+// gatesOnly cuts the profile of a lane with no commit its work began from down to the gates of the layer it was read
+// with: it is the profile the layers below the repository's give the lane, with the gates of the profile read at the
+// commit its worktree begins at, which a lane wrote. Every read of such a lane's profile goes through it, a start's
+// (Provisioner.load) and the reads that give an adopted lane its settings and a lease its caps (leaseProfile), so none
+// takes a key of that layer but agent.gates.
+func gatesOnly(ctx context.Context, profiles ports.ProfileSource, layered lanes.Profile, overrides string) (lanes.Profile, error) {
+	profile, err := profiles.Load(ctx, "", "", overrides)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	profile.Agent.Gates = layered.Agent.Gates
+	return profile, nil
+}
+
+// leaseProfile reads the profile a lease's lane runs under from the repository's layer at base (profileLayer), and for
+// a review with no commit its work began from, takes the gates of that layer alone (gatesOnly). A lane with no
+// repository has no layer to cut down.
+func leaseProfile(ctx context.Context, profiles ports.ProfileSource, lease ledger.DesiredLease, repository, base string) (lanes.Profile, error) {
+	profile, err := profiles.Load(ctx, repository, base, lease.Overrides)
+	if err != nil || repository == "" || !leaseSettingsUnbased(lease) {
+		return profile, err
+	}
+	return gatesOnly(ctx, profiles, profile, lease.Overrides)
+}
+
+// loadLayer is load before a lane with no commit its work began from is cut down to the gates of the layer it read.
+func (p Provisioner) loadLayer(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
+	repository, base := request.Repository, cmp.Or(request.ProfileBase, request.Base)
+	if request.ProfileUnbased {
+		base = request.Base
+	}
 	if request.Private {
 		repository = ""
 	}
-	profile, err := p.Profiles.Load(ctx, repository, request.Base, overrides)
+	profile, err := p.Profiles.Load(ctx, repository, base, overrides)
 	if !errors.Is(err, ports.ErrNotFound) || repository == "" {
 		return profile, err
 	}
@@ -169,8 +220,8 @@ func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides st
 		}
 		fetched = true
 	}
-	if trees, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && offered && request.Base != "" {
-		if err := trees.FetchCommit(ctx, repository, request.Base); err != nil {
+	if trees, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && offered && base != "" {
+		if err := trees.FetchCommit(ctx, repository, base); err != nil {
 			return lanes.Profile{}, err
 		}
 		fetched = true
@@ -178,7 +229,7 @@ func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides st
 	if !fetched {
 		return profile, err
 	}
-	return p.Profiles.Load(ctx, repository, request.Base, overrides)
+	return p.Profiles.Load(ctx, repository, base, overrides)
 }
 
 // Prepare resolves the profile first, because a bad profile should stop a lane

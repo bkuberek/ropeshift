@@ -99,6 +99,9 @@ type settingsFile struct {
 	//
 	// [hooks]: https://code.claude.com/docs/en/hooks#disable-or-remove-hooks
 	DisableAllHooks bool `json:"disableAllHooks"`
+	// EnabledPlugins turns off each plugin the main checkout's working tree enables and the lane's base does not
+	// (lanePlugins).
+	EnabledPlugins map[string]bool `json:"enabledPlugins,omitempty"`
 }
 
 // toolRule is the permission rule of one ropeshift MCP tool.
@@ -239,7 +242,7 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 			DisableBypassPermissionsMode: bypassOff,
 		},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
-		ClaudeMdExcludes: instructionExcludes(spec),
+		ClaudeMdExcludes: instructionExcludes(spec), EnabledPlugins: lanePlugins(spec),
 	}
 	if spec.Binary == "" {
 		return out
@@ -314,6 +317,9 @@ func generatedPaths(spec ports.SessionSpec) (settings, mcp string) {
 // settings to the worktree where a member chose them (restoreBaseSettings).
 func writeGenerated(spec ports.SessionSpec) error {
 	if err := restoreBaseSettings(spec); err != nil {
+		return err
+	}
+	if err := ownPieceDirs(spec); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(spec.ConfigDir, 0o700); err != nil {

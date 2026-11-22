@@ -18,8 +18,9 @@ export const settingsChoiceWords: Record<LaneSettingsNeed["recommendation"], str
 
 // LaneSettingsCard is a lane whose worktree changed the project settings its agent CLI reads, in a key that runs code or
 // widens access, which parked before its session started (ADR-0040). It is in the security category, so only a member
-// answers it. It names the keys and what changed of each, and offers the three choices, the repository's settings first
-// and recommended; each binds to the change the member read.
+// answers it. It names the keys and what changed of each, and offers the choices the item lists, the repository's
+// settings first and recommended; each binds to the change the member read. A hold from a script a hook or a setting of
+// the repository runs offers no restore, because putting the script back would revert the lane's work, and says so.
 export function LaneSettingsCard({ need, after, frame }: { need: LaneSettingsNeed; after: () => Promise<void>; frame: Frame }) {
   const { act, busy, failure } = useAct(after);
   const change = need.change;
@@ -80,17 +81,29 @@ export function LaneSettingsCard({ need, after, frame }: { need: LaneSettingsNee
       </DecisionSection>
       <DecisionSection title="Choices">
         <ul className="criteria" aria-label="Choices">
-          <li>
-            <strong>{settingsChoiceWords.base}</strong>: the lane's settings files are put back as the commit it began from holds them before its next session
-            starts, and the lane is told so. Its own change to them leaves the worktree.
-          </li>
-          <li>
-            <strong>{settingsChoiceWords.lane}</strong>: its next session runs with what it wrote, recorded as your decision for this change.
-          </li>
-          <li>
-            <strong>{settingsChoiceWords.stop}</strong>: its work is blocked with the reason settings_changed, for you to resolve or replan.
-          </li>
+          {offers("settings_base") ? (
+            <li>
+              <strong>{settingsChoiceWords.base}</strong>: the lane's settings files are put back as the commit it began from holds them before its next session
+              starts, and the lane is told so. Its own change to them leaves the worktree.
+            </li>
+          ) : null}
+          {offers("settings_lane") ? (
+            <li>
+              <strong>{settingsChoiceWords.lane}</strong>: its next session runs with what it wrote, recorded as your decision for this change.
+            </li>
+          ) : null}
+          {offers("settings_stop") ? (
+            <li>
+              <strong>{settingsChoiceWords.stop}</strong>: its work is blocked with the reason settings_changed, for you to resolve or replan.
+            </li>
+          ) : null}
         </ul>
+        {change.scripts?.length ? (
+          <p>
+            No restore is offered: the lane changed {change.scripts.map(plainLine).join(", ")}, which a hook or a setting of the repository runs, and putting it
+            back would revert the lane's work. Run the lane with its version only if you trust it, or stop it.
+          </p>
+        ) : null}
         <p>
           Recommended: {settingsChoiceWords[need.recommendation] ?? plainLine(need.recommendation)}
           {need.recommendation_rationale ? `, because ${plainLine(need.recommendation_rationale)}` : ""}.

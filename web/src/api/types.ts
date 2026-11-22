@@ -639,11 +639,13 @@ export type PersonalSetupNeed = {
 
 // SettingsChange is what a lane's worktree changed of the project settings its agent CLI reads, in a key that runs code
 // or widens access, against the repository's at the lane's base: the files and keys, a plain-text summary of each
-// entry, and the digest a member's choice binds to.
-export type SettingsChange = { generation: number; files: string[]; keys: string[]; summary?: string[]; digest: string };
+// entry, the digest a member's choice binds to, and the scripts a hook or a setting runs that the lane changed, which
+// no restore puts back.
+export type SettingsChange = { generation: number; files: string[]; keys: string[]; summary?: string[]; digest: string; scripts?: string[] };
 
 // LaneSettingsNeed is a lane held on its own settings before its session started, in the security category, which only
-// a member answers: the change, the choice recommended, "base", with why, and the three choices.
+// a member answers: the change, the choice recommended with why, "base", or "stop" for a hold from a script, and the
+// choices it offers, which leave out "base" for a hold from a script.
 export type LaneSettingsNeed = {
   lane: string;
   work_order: WorkOrder;

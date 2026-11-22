@@ -149,7 +149,9 @@ func TestALaneThatKeepsMovingStillPublishes(t *testing.T) {
 // TestAnAwayPlaneHearsOneFailedPublishPerCycle keeps a worker whose control plane is away from reporting a
 // failure every window while a lane keeps moving: the first publish that fails leaves the rest to the next
 // cycle, which tries again after its own retry wait. The heartbeat is an hour off, so the lane's moves for
-// four windows, and the window its last move opens, report one failure.
+// four windows, and the window its last move opens, report one failed publish. Only the publishes count: the
+// lane reads `working` before its run has made the upload its session's binding makes, which a loaded machine
+// can hold back until the plane is away, and that upload's failure is its own and no publish.
 func TestAnAwayPlaneHearsOneFailedPublishPerCycle(t *testing.T) {
 	r, _ := runBeatingRarely(t)
 	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
@@ -159,7 +161,7 @@ func TestAnAwayPlaneHearsOneFailedPublishPerCycle(t *testing.T) {
 	time.Sleep(worker.PublishSettle + 500*time.Millisecond)
 	var failed []error
 	for _, problem := range r.problems()[before:] {
-		if strings.Contains(problem.Error(), "the control plane is away") {
+		if strings.HasPrefix(problem.Error(), worker.PublishFailed+": ") && strings.Contains(problem.Error(), "the control plane is away") {
 			failed = append(failed, problem)
 		}
 	}

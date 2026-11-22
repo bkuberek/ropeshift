@@ -259,8 +259,13 @@ func (r *laneRun) assistantDir(ctx context.Context) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("desired state names no conversation for run %s", r.lease.Lane)
 	}
-	dir := filepath.Join(r.rt.assistantHome(desired.Conversation), "session")
+	dir := r.rt.assistantSessionDir(desired.Conversation)
 	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// assistantSessionDir is the directory the sessions of an assistant's conversation run in.
+func (rt *LaneRuntime) assistantSessionDir(conversation string) string {
+	return filepath.Join(rt.assistantHome(conversation), "session")
 }
 
 type keptSession struct {

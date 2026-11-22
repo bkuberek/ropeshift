@@ -158,7 +158,7 @@ func (r *laneRun) reloadSpecOf(ctx context.Context) (ports.SessionSpec, string, 
 		r.w.config.Report(fmt.Errorf("lane %s: finding its clone to check a reload of its settings: %w", r.lease.Lane, err))
 		return ports.SessionSpec{}, "", false
 	}
-	spec = r.w.sessionSpec(r.record())
+	spec = r.w.sessionSpec(ctx, r.record())
 	spec.Dir, spec.Repository, spec.Base, spec.SettingsBase = r.worktreePath(), repository, r.begins(), r.settingsBase()
 	spec.SettingsUnbased = r.settingsUnbased()
 	return spec, "", true

@@ -122,6 +122,8 @@ type Driver struct {
 	// bases keeps the repository's side of each lane's settings hold, so a running session's reload is checked in a
 	// hook's time (SettingsChange).
 	bases baseSides
+	// nested keeps the nested skills directories each worktree's start found, which a reload's check reads.
+	nested nestedDirs
 }
 
 // liveSession is one session this process follows, in either run mode.
@@ -394,7 +396,8 @@ func (d *Driver) Preflight(ctx context.Context, spec ports.SessionSpec) (ports.P
 	for _, found := range agentProblems(spec) {
 		problem("%s", found)
 	}
-	report.Settings = d.SettingsChange(ctx, spec)
+	report.Notices = serverClash(spec)
+	report.Settings = d.settingsChangeOf(spec, true)
 	return report, nil
 }
 

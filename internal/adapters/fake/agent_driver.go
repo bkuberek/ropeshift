@@ -132,6 +132,9 @@ type AgentDriver struct {
 	// another, and restored counts the starts that asked for the repository's settings to be put back.
 	settings *lanes.SettingsChange
 	restored int
+	// stillHeld refuses a start that restored the repository's settings, as a driver does when the worktree still
+	// differs from the repository's after the restore.
+	stillHeld error
 	// calls counts the tool calls that ran, and denied those a hold stopped.
 	calls, denied int
 	// midTurnRefused stands for a socket that takes nothing, on a version that says it can.
@@ -534,6 +537,15 @@ func (d *AgentDriver) SettingsChange(context.Context, ports.SessionSpec) *lanes.
 	return &change
 }
 
+// RefuseAfterRestore has each start that asks for the repository's settings to be put back count the restore and then
+// fail with err, which leaves the change in place, as a driver's start does when the worktree still differs from the
+// repository's once restored. Nil starts them as any other.
+func (d *AgentDriver) RefuseAfterRestore(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stillHeld = err
+}
+
 // Restored counts the starts that put the repository's settings back.
 func (d *AgentDriver) Restored() int {
 	d.mu.Lock()
@@ -580,6 +592,9 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 	defer d.mu.Unlock()
 	if spec.SettingsAtBase {
 		d.restored++
+		if d.stillHeld != nil {
+			return ports.SessionHandle{}, d.stillHeld
+		}
 		d.settings = nil
 	}
 	if d.started != 0 && len(d.queue) != 0 {

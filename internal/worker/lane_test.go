@@ -647,8 +647,8 @@ func TestPrepareRefusesADetachedWorktreeFromAStoreThatMakesOnlyBranches(t *testi
 	}
 }
 
-// A lane reads its repository's layer at the commit its worktree begins from (FR-PROF-5), and a lane with a layer
-// of its own reads the layers below it at that commit too. A review lane's commit is the one under review.
+// A lane reads its repository's layer at the commit its request names for it, and a lane with a layer of its own reads
+// the layers below it at that commit too. A request that names none reads it at the commit its worktree begins from.
 func TestPrepareReadsTheRepositoryLayerAtTheLanesBase(t *testing.T) {
 	t.Parallel()
 	p, source, _ := provisioner(nil)
@@ -669,6 +669,78 @@ func TestPrepareReadsTheRepositoryLayerAtTheLanesBase(t *testing.T) {
 	for _, load := range source.Loaded() {
 		if load.Repository != "/work/app" || (load.Base != "c1" && load.Base != "c2") {
 			t.Errorf("a layer was read with %+v", load)
+		}
+	}
+}
+
+// A lane reads its repository's layer at the commit its work began from, not the one its worktree begins at, which a
+// lane wrote: a review's worktree is the commit under review and a continued lane's the tip of its branch. A lane
+// with no such commit reads the layer at the commit its worktree begins at and runs none of its hooks.
+func TestPrepareReadsTheRepositoryLayerAtTheProfileBase(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	source.PutAt("/work/app", "fork", "[agent]\nmodel = \"merged\"\n")
+	source.PutAt("/work/app", "tip", "[agent]\nmodel = \"written\"\n[hooks]\non_lane_created = [\"./setup.sh\"]\n")
+	for name, request := range map[string]worker.LaneRequest{
+		"a lane that continues a branch": {Lane: "c1", Repository: "/work/app", Base: "tip", ProfileBase: "fork"},
+		"a review":                       {Lane: "r1", Repository: "/work/app", Base: "tip", ProfileBase: "fork", Detached: true},
+	} {
+		lane, err := p.Prepare(t.Context(), request)
+		if err != nil || lane.Profile.Agent.Model != "merged" || len(lane.Profile.Hooks) != 0 {
+			t.Errorf("%s runs %q with hooks %v (%v), want the layer at fork", name, lane.Profile.Agent.Model, lane.Profile.Hooks, err)
+		}
+	}
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "r2", Repository: "/work/app", Base: "tip", ProfileUnbased: true, Detached: true})
+	if err != nil || lane.Profile.Agent.Model == "written" || len(lane.Profile.Hooks) != 0 {
+		t.Errorf("a review with no base runs %q with hooks %v (%v), want none of the layer at tip but its gates", lane.Profile.Agent.Model, lane.Profile.Hooks, err)
+	}
+	for _, load := range source.Loaded() {
+		if load.Base != "fork" && load.Base != "tip" {
+			t.Errorf("a layer was read with %+v", load)
+		}
+	}
+	if created := worktrees.Created(); len(created) != 3 || created[2].Base != "tip" {
+		t.Errorf("the worker asked for %+v", created)
+	}
+}
+
+// A review with no recorded base reads the repository's layer at the commit under review, which the writer wrote, and
+// takes only its gates, which can only narrow what the review may do. Every other key it sets leaves the review as the
+// layers below the repository's give it: the instructions file it reads, the credential it names, the worktree root,
+// the model, and its hooks. The layers below a lane's own, the user's and the lane's, still apply.
+func TestAReviewWithNoBaseTakesOnlyTheGatesOfTheLayerItReads(t *testing.T) {
+	t.Parallel()
+	p, source, _ := provisioner(map[string]string{"WRITER_SECRET": "s3cret"})
+	source.PutUser("[agent]\ngates = [\"Bash(git push *)\"]\n")
+	source.PutAt("/work/app", "tip", `[agent]
+model = "written"
+instructions_file = "WRITTEN.md"
+gates = ["Bash(git tag *)"]
+[agent.credentials]
+kind = "api_key"
+secret_ref = "env:WRITER_SECRET"
+[worktree]
+root = "/elsewhere/{lane}"
+[hooks]
+on_lane_created = ["./setup.sh"]
+`)
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{
+		Lane: "r3", Repository: "/work/app", Base: "tip", ProfileUnbased: true, Detached: true, Overrides: "[agent]\ngates = [\"Bash(rm *)\"]\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := lane.Profile.Agent
+	if agent.InstructionsFile == "WRITTEN.md" || agent.Credentials.SecretRef != "" || agent.Model == "written" || lane.Profile.Worktree.Root == "/elsewhere/{lane}" || len(lane.Profile.Hooks) != 0 {
+		t.Errorf("a review with no base applies the layer's instructions file %q, credential %q, model %q, worktree root %q, and hooks %v",
+			agent.InstructionsFile, agent.Credentials.SecretRef, agent.Model, lane.Profile.Worktree.Root, lane.Profile.Hooks)
+	}
+	if slices.ContainsFunc(lane.Environment, func(entry string) bool { return strings.Contains(entry, "s3cret") }) {
+		t.Errorf("a review with no base was given the secret the layer names: %v", lane.Environment)
+	}
+	for _, gate := range []string{"Bash(git push *)", "Bash(git tag *)", "Bash(rm *)"} {
+		if !slices.Contains(agent.Gates, gate) {
+			t.Errorf("a review with no base runs with the gates %v, want %q among them", agent.Gates, gate)
 		}
 	}
 }

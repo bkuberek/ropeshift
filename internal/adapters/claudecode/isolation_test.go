@@ -263,6 +263,27 @@ func TestALaneKeepsTheRepositorysOwnMCPServers(t *testing.T) {
 	}
 }
 
+// A server the repository names after ropeshift's own is left out and said so, never dropped in silence: the preflight
+// names it, and a repository with no such server is named nothing.
+func TestARepositoryServerNamedAfterRopeshiftsIsReported(t *testing.T) {
+	clash := laneSpec(t)
+	clash.Repository = clash.Dir
+	clash.Base = committed(t, clash.Dir, map[string]string{".mcp.json": `{"mcpServers":{"ropeshift":{"type":"stdio","command":"/elsewhere/ropeshift"}}}`})
+	report, err := New(nil, Options{}).Preflight(t.Context(), clash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Notices) != 1 || !strings.Contains(report.Notices[0], `"ropeshift"`) || !strings.Contains(report.Notices[0], "left out") {
+		t.Errorf("a repository server named after ropeshift's own was reported as %q", report.Notices)
+	}
+	plain := laneSpec(t)
+	plain.Repository = plain.Dir
+	plain.Base = committed(t, plain.Dir, map[string]string{".mcp.json": `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}`})
+	if report, err := New(nil, Options{}).Preflight(t.Context(), plain); err != nil || len(report.Notices) != 0 {
+		t.Errorf("a repository with no such server was reported as %q (%v)", report.Notices, err)
+	}
+}
+
 // A lane can edit `.mcp.json` in its worktree, and the next process would run a stdio command it names outside every
 // permission rule, so an edit reaches no lane until it is merged: the servers are the base commit's.
 func TestAWorktreeEditToMCPJSONReachesNoLane(t *testing.T) {
@@ -497,5 +518,118 @@ func TestAnOrchestratorStartsAsCleanAsALane(t *testing.T) {
 		if excludes := generateSettings(spec).ClaudeMdExcludes; !slices.Contains(excludes, "/home/member/.claude/CLAUDE.md") {
 			t.Errorf("the %s loads the member's own instructions: %v", name, excludes)
 		}
+	}
+}
+
+// linkedWorktree is a lane whose worktree is a linked git worktree, whose `.git` is a file that names the clone's.
+func linkedWorktree(t *testing.T) ports.SessionSpec {
+	t.Helper()
+	spec := laneSpec(t)
+	writeFile(t, filepath.Join(spec.Dir, ".git"), "gitdir: /clone/.git/worktrees/lane\n")
+	return spec
+}
+
+// A linked worktree with no `.claude/skills`, `.claude/agents`, or `.claude/commands` of its own loads the main
+// checkout's, its untracked ones among them ([worktrees]), so each generation's start makes the worktree's own,
+// empty where the repository holds none, and leaves one it holds as it is. It writes nothing through a link, and a
+// worktree whose directory is a link to none, or no directory, fails to start. A clone that is no linked worktree is
+// left alone.
+//
+// [worktrees]: https://code.claude.com/docs/en/worktrees#what-worktrees-share-with-the-main-checkout
+func TestALinkedWorktreeHasItsOwnSkillsAgentsAndCommands(t *testing.T) {
+	spec := linkedWorktree(t)
+	writeFile(t, filepath.Join(spec.Dir, ".claude", "skills", "deploy", "SKILL.md"), "---\nname: deploy\n---\n")
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{".claude/skills", ".claude/agents", ".claude/commands"} {
+		if info, err := os.Lstat(filepath.Join(spec.Dir, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
+			t.Errorf("the worktree's %s reads %v (%v)", dir, info, err)
+		}
+	}
+	if raw, err := os.ReadFile(filepath.Join(spec.Dir, ".claude", "skills", "deploy", "SKILL.md")); err != nil || string(raw) != "---\nname: deploy\n---\n" {
+		t.Errorf("the worktree's own skill reads %q (%v)", raw, err)
+	}
+
+	linked := linkedWorktree(t)
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(linked.Dir, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGenerated(linked); err == nil {
+		t.Error("a linked .claude with no skills directory started")
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Errorf("the start wrote through a link: %v", entries)
+	}
+
+	file := linkedWorktree(t)
+	writeFile(t, filepath.Join(file.Dir, ".claude", "skills"), "not a directory")
+	if err := writeGenerated(file); err == nil {
+		t.Error("a .claude/skills that is no directory started")
+	}
+
+	clone := laneSpec(t)
+	if err := os.Mkdir(filepath.Join(clone.Dir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGenerated(clone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(clone.Dir, ".claude")); !os.IsNotExist(err) {
+		t.Errorf("a clone that is no linked worktree was given a .claude: %v", err)
+	}
+}
+
+// generatedPlugins reads the plugins a generation's `--settings` turns on or off.
+func generatedPlugins(t *testing.T, spec ports.SessionSpec) map[string]bool {
+	t.Helper()
+	if err := writeGenerated(spec); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := generatedPaths(spec)
+	raw, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Plugins map[string]bool `json:"enabledPlugins"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	return file.Plugins
+}
+
+// A plugin the main checkout's working tree enables, in its shared or its local settings, and that the lane's settings
+// base does not, is turned off in the lane's `--settings`, whose value outranks both files for that plugin ([plugin
+// loading]), so a plugin a member enabled in their clone, with its hooks and MCP servers, never reaches a lane. A plugin
+// the base enables is left as the repository's settings set it, and so is one the main checkout only turns off.
+//
+// [plugin loading]: https://code.claude.com/docs/en/plugins/loading#find-where-a-plugin-is-enabled
+func TestAPluginOnlyTheMainCheckoutEnablesIsOffInALane(t *testing.T) {
+	const base = `{"enabledPlugins": {"formatter@tools": true}}`
+	spec := laneSpec(t)
+	spec.Repository = t.TempDir()
+	spec.Base = committed(t, spec.Repository, map[string]string{projectSettingsFile: base})
+	writeFile(t, filepath.Join(spec.Repository, filepath.FromSlash(projectSettingsFile)),
+		`{"enabledPlugins": {"formatter@tools": true, "leak@tools": true, "off@tools": false}}`)
+	writeFile(t, filepath.Join(spec.Repository, filepath.FromSlash(localSettingsFile)), `{"enabledPlugins": {"local-leak@tools": true}}`)
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(projectSettingsFile)), base)
+	plugins := generatedPlugins(t, spec)
+	if on, set := plugins["leak@tools"]; on || !set {
+		t.Errorf("a plugin only the main checkout's settings enable is %v (set %v): %v", on, set, plugins)
+	}
+	if on, set := plugins["local-leak@tools"]; on || !set {
+		t.Errorf("a plugin only the main checkout's local settings enable is %v (set %v): %v", on, set, plugins)
+	}
+	if on, set := plugins["formatter@tools"]; set && !on {
+		t.Errorf("the plugin the base enables is turned off: %v", plugins)
+	}
+	if _, set := plugins["off@tools"]; set {
+		t.Errorf("a plugin the main checkout turns off is named: %v", plugins)
+	}
+	if plugins := generatedPlugins(t, laneSpec(t)); len(plugins) != 0 {
+		t.Errorf("a session with no clone turns plugins %v", plugins)
 	}
 }
