@@ -729,10 +729,14 @@ func (r *laneRun) adopt(ctx context.Context) error {
 }
 
 // unread settles a lane whose session cannot be read. Parking and a handoff still finish,
-// because those are the failures with somewhere to go. The turn the session may have ended in counts first, so the
-// lane's end, its next generation, or its wake carries it.
+// because those are the failures with somewhere to go, and a sign-in that is out is one more, because it parks
+// the lane. The turn the session may have ended in counts first, so the lane's end, its next generation, or its
+// wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
 	r.unreadEnd(ctx)
+	if _, reported := r.reported(ctx); !reported && !r.left.Open() {
+		r.w.parkOnSignIn(ctx)
+	}
 	if _, _, asked := r.waitParkOf(); asked || r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}

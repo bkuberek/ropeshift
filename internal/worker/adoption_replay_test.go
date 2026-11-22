@@ -412,3 +412,51 @@ func TestAnEarlierGenerationsLimitExcusesNoFailure(t *testing.T) {
 		t.Errorf("another generation's limit sent %+v", sent)
 	}
 }
+
+// failingAdoption is a driver that cannot take a session over, and says so after a moment.
+type failingAdoption struct {
+	*fake.AgentDriver
+	asked atomic.Bool
+}
+
+func (d *failingAdoption) Adopt(context.Context, ports.SessionHandle, ports.AdoptFrom) error {
+	d.asked.Store(true)
+	time.Sleep(50 * time.Millisecond)
+	return ports.ErrNoSession
+}
+
+// A session that cannot be taken over while the sign-in is out parks on it, as one that can does, and is not
+// lost as a restart's failure.
+func TestAnAdoptionThatFailsWhileTheSignInIsOutParks(t *testing.T) {
+	t.Parallel()
+	tests := map[string]lanes.SignInState{
+		"a usage limit": {Limited: true, ResetAtMs: time.UnixMilli(1_000_000).Add(time.Hour).UnixMilli()},
+		"a sign-out":    {SignedOut: true},
+	}
+	for name, out := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorldRig(t)
+			w.driver.SetSignInStatus(lanes.SignInUnknown)
+			w.desire("lane-1")
+			w.adoptedAt(t, lanes.Working, lanes.Idle)
+			if err := w.journal.SaveSignIn(t.Context(), out); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.subject.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			driver := &failingAdoption{AgentDriver: w.driver}
+			w.config.Driver = driver
+			var record lanes.Record
+			w.passUntil(t, "the lane never settled", func() bool {
+				record = w.lane("lane-1")
+				return driver.asked.Load() && record.State != lanes.StateRunning
+			})
+			// This rig has no work order, so the ledger can end the lane once it parked.
+			if record.Parking == nil || (record.State != lanes.StateParked && record.Actual != lanes.Parked) {
+				t.Errorf("a failed adoption while the sign-in is out left the lane %s, parking %+v", record.State, record.Parking)
+			}
+		})
+	}
+}
