@@ -122,7 +122,8 @@ type LaneStatus struct {
 	// version and the probe has not ended (FR-DRV-2).
 	Checking *CLICheck `json:"checking,omitempty"`
 	// Surfaces is where the surfaces the lane's process started on come from: SurfacesShipped for those the release's
-	// shipped matrix qualified for its version, and empty for documented surfaces.
+	// shipped matrix qualified for its version, and empty otherwise: for surfaces a probe qualified and for documented
+	// surfaces alike.
 	Surfaces string `json:"surfaces,omitempty"`
 }
 

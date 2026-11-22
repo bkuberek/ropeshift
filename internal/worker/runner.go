@@ -678,6 +678,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
 	}
+	r.noteAdoptedSurfaces()
 	crashpoint.Hit("worker.lane", "adopted")
 	r.reach(ctx)
 	r.signal(ctx, lanes.OnDriverReady)

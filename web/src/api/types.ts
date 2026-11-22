@@ -186,7 +186,8 @@ export type Lane = {
   ledger_reach?: string;
   checking?: CLICheck;
   // surfaces is where the surfaces the lane's process started on come from: "matrix" for the ones the release's shipped
-  // qualification matrix holds for its version, and absent for documented surfaces.
+  // qualification matrix holds for its version, and absent otherwise: for surfaces a probe qualified and for documented
+  // surfaces alike.
   surfaces?: string;
   // condition_notes is the sentence of each condition the lane carries that has one, as the server words it.
   condition_notes?: Record<string, string>;

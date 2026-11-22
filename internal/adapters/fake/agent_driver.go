@@ -103,6 +103,8 @@ type AgentDriver struct {
 	specs    []ports.SessionSpec
 	resumed  []ports.ResumeRef
 	left     map[string]ports.Located
+	// leftOn is the version each left session started on, for the sessions Find reads it for.
+	leftOn   map[string]string
 	adopted  []ports.AdoptFrom
 	findErr  error
 	stopped  bool
@@ -177,7 +179,7 @@ type driverSession struct {
 // NewAgentDriver returns a driver with an empty script.
 func NewAgentDriver() *AgentDriver {
 	return &AgentDriver{
-		version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{},
+		version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{}, leftOn: map[string]string{},
 		signIn: ports.SignInAPIKey, present: true, costs: DefaultResumeCosts(),
 	}
 }
@@ -226,6 +228,16 @@ func (d *AgentDriver) Leave(lane string, generation int64, session lanes.Session
 	defer d.mu.Unlock()
 	id := sessionID(lane, generation)
 	d.left[id] = ports.Located{Session: session, Handle: ports.SessionHandle{ID: id}}
+}
+
+// LeaveOn places a session as an earlier process left it, one that started on a version: Find reports that version
+// and what qualifies it when Find reads, as the real driver does from what the launch wrote down.
+func (d *AgentDriver) LeaveOn(lane string, generation int64, session lanes.Session, version string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	id := sessionID(lane, generation)
+	d.left[id] = ports.Located{Session: session, Handle: ports.SessionHandle{ID: id}}
+	d.leftOn[id] = version
 }
 
 // FailFind makes every Find an incomplete read, until it is given nil.
@@ -386,13 +398,18 @@ func (d *AgentDriver) gateLocked() (degraded bool, injection string) {
 // is not degraded reads as one the shipped matrix qualifies, as the real driver's matrix answers for a version it
 // holds, and a degraded one as a version nothing has checked.
 func (d *AgentDriver) surfacesLocked() (degraded bool, injection, source string) {
+	return d.surfacesOfLocked(d.version)
+}
+
+// surfacesOfLocked is surfacesLocked for a version a session started on, which may not be the installed one.
+func (d *AgentDriver) surfacesOfLocked(version string) (degraded bool, injection, source string) {
 	degraded, channel := d.degraded, !d.noPeerChannel
 	switch {
 	case d.qualified.Version == "":
 		if !degraded {
 			source = lanes.QualifiedByMatrix
 		}
-	case d.qualified.For(d.version):
+	case d.qualified.For(version):
 		degraded, channel, source = d.qualified.Degraded, channel && d.qualified.Passed(SurfacePeerChannel), d.qualified.Source
 	default:
 		degraded, channel = true, false
@@ -644,7 +661,12 @@ func (d *AgentDriver) Find(_ context.Context, spec ports.SessionSpec) (ports.Loc
 	if _, ok := d.sessions[id]; ok {
 		return ports.Located{Session: lanes.Session{Found: true, Liveness: lanes.LivenessAlive}, Handle: ports.SessionHandle{ID: id}}, nil
 	}
-	return d.left[id], nil
+	located := d.left[id]
+	if version := d.leftOn[id]; version != "" {
+		located.Handle.Version = version
+		located.Handle.Degraded, _, located.Handle.Source = d.surfacesOfLocked(version)
+	}
+	return located, nil
 }
 
 // Adopt plays the next script as the rest of a session an earlier process started.
