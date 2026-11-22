@@ -203,11 +203,11 @@ Nothing, by default. Lanes commit on branches of their own on this machine, and 
 
 A lane that writes, which is a change, rework, planning, or adopt lane, works in its own worktree with no approval request. It creates, edits, and deletes files there with the agent's file tools, runs `mkdir`, `rm`, `rmdir`, and `mv` there, and stages and commits on its own branch with `git add`, `git rm`, `git mv`, and `git commit`. Nobody has to be watching for that work to go on.
 
-Everything else is a call no rule allows. In the built-in `auto` mode the agent CLI's classifier decides it, and in `default`, `plan`, and `acceptEdits` it asks and the request waits for a member. These reach a member or are refused in every mode:
+Everything else still asks, and the request waits for a member:
 
 - A write outside the worktree. Where the lane's hook can read the path, it refuses the call outright, and that includes a path that climbs out with `..` and a file program whose path passes through a link. A file tool that writes through a link that leads out of the worktree asks, or is refused where a generated deny rule names the place it lands.
 - A push of any kind. A force push, and a push to the default branch or to a branch the lane continues, are refused.
-- A move of any other branch.
+- A move of any other branch, and any command not listed above.
 - Every action your profile gates.
 
 A review lane only reads: it cannot edit a file with a tool, commit, push, or move a branch.
@@ -218,11 +218,11 @@ Two keys in the `[agent]` table of a profile control this:
 
 ```toml
 [agent]
-permission_mode = "auto"
+permission_mode = "default"
 gates = ["Bash(git commit *)", "Edit"]
 ```
 
-`permission_mode` is the agent's permission mode: `auto` unless you set `plan`, `default`, `acceptEdits`, or `dontAsk`. `auto` is the highest mode a profile can choose, so your layer, a repository's layer, and a lane's layer can only keep it or lower it. A member's assistant runs in `default` whatever this sets. No layer, yours included, can choose `bypassPermissions`, which skips every check, or a mode ropeshift does not know: the profile is refused, and the lane does not start. Every session's generated settings also turn the bypass mode off in the agent CLI. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above. The gates of every layer join: yours, a repository's `.ropeshift/profile.toml`, and a lane's `--profile` layer. A layer that sets `gates` adds to the list of the layers below it, in the order the layers name them and with each gate once, so a repository can gate one more action without restating yours, and no layer can drop a gate of another's, an empty `gates = []` included ([a lane's own profile layer](#a-lanes-own-profile-layer)).
+`permission_mode` is the agent's permission mode: `default` unless you set `plan`, `acceptEdits`, `dontAsk`, or `auto`. A member's assistant runs in `default` whatever this sets. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot raise it. No layer, yours included, can choose `bypassPermissions`, which skips every check, or a mode ropeshift does not know: the profile is refused, and the lane does not start. Every session's generated settings also turn the bypass mode off in the agent CLI. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above. The gates of every layer join: yours, a repository's `.ropeshift/profile.toml`, and a lane's `--profile` layer. A layer that sets `gates` adds to the list of the layers below it, in the order the layers name them and with each gate once, so a repository can gate one more action without restating yours, and no layer can drop a gate of another's, an empty `gates = []` included ([a lane's own profile layer](#a-lanes-own-profile-layer)).
 
 ### How many lanes run at once
 
