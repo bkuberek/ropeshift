@@ -128,20 +128,17 @@ func (r *laneRig) keepMoving(t *testing.T, span time.Duration, seen func() bool)
 }
 
 // TestALaneThatKeepsMovingStillPublishes holds a publish to one window from a lane's first move: a later move
-// does not put the window off, so a lane that moves more often than once a window is seen while it moves, and
-// not only once it stops. A window that closes in the moment the lane is between moves finds nothing new, and
-// a loaded machine runs late, so the lane moves for three windows.
+// does not put the window off, so a lane that moves more often than once a window is published while it moves,
+// and not only once it stops. The lane moves until a status is journaled, and fails if none is within the wait
+// any other test gives a worker: a window that put itself off at each move would never publish, however long
+// the lane moved. The test does not read what the status says, because the lane is `working` for a moment
+// between moves, and a loaded machine stretches that moment until a publish lands in it.
 func TestALaneThatKeepsMovingStillPublishes(t *testing.T) {
-	r, _ := runBeatingRarely(t)
+	r, statuses := runBeatingRarely(t)
 	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
-	compacting := func() bool {
-		view, err := r.plane.Lane(t.Context(), "lane-1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return view.ActualState == string(lanes.Compacting)
-	}
-	if moved, seen := r.keepMoving(t, 3*worker.PublishSettle, compacting); !seen {
+	before := statuses.count.Load()
+	published := func() bool { return statuses.count.Load() > before }
+	if moved, seen := r.keepMoving(t, 20*time.Second, published); !seen {
 		t.Fatalf("a lane that moved for %s was never published while it moved", moved)
 	}
 }
