@@ -397,15 +397,15 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 }
 
 // replay takes the hooks a journal kept of a session, oldest first. A journal merges each hook into one
-// record that names no call, so a record cannot say whether the wait it began still stands: the waits are
-// not replayed, and holdDialogs says which dialogs may still be open.
+// record that names no call, so a PermissionRequest is not replayed as one, and holdDialogs says which dialogs
+// and questions may still be open.
 func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
 	records := slices.Clone(from.Hooks)
 	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
 	var askedMs, clearedMs int64
 	for _, record := range records {
 		// A clear moves a lane's generation under this process, and no later generation has one.
-		if record.Generation < generation || record.Event == hookNotification {
+		if record.Generation < generation {
 			continue
 		}
 		if record.Event == eventPermissionRequest {
@@ -422,13 +422,15 @@ func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
 	s.holdDialogs(from.Approvals, askedMs, clearedMs)
 }
 
-// holdDialogs restores the waits of a dialog that may still be open. None outlasts the end of its turn or a
-// clear, whether or not the worker read that end. Otherwise each open approval stands, and with none, the
-// request is a dialog with no name, because its approval may not be raised yet.
+// holdDialogs restores the waits of a question or a dialog that may still be open. None outlasts the end of its
+// turn or a clear, whether or not the worker read that end, and no question outlasts a later prompt.
+// Otherwise each open approval stands, and with none, the request is a dialog with no name, because its approval
+// may not be raised yet.
 func (s *paneSession) holdDialogs(open []string, askedMs, clearedMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	endedMs, unread := max(s.stopMs, s.floor, clearedMs), s.stopMs > s.floor
+	s.waiting = s.waiting && s.waitingMs > max(endedMs, s.promptMs)
 	if endedMs > askedMs && (askedMs != 0 || unread) {
 		return
 	}

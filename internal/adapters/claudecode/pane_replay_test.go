@@ -161,3 +161,41 @@ func TestAReplayRestoresNoApprovalOfATurnThatEnded(t *testing.T) {
 		}
 	}
 }
+
+// A Notification that asks for an answer is all that says a question stands, so one that nothing after it
+// closed holds the keys across a restart.
+func TestAReplayHoldsTheKeysFromAQuestionNothingClosed(t *testing.T) {
+	t.Parallel()
+	asked := hookAt(hookNotification, 120, notificationNeedsInput)
+	tests := []struct {
+		name  string
+		floor int64
+		hooks []lanes.HookRecord
+		holds bool
+	}{
+		{"a question after the read Stop", 110, []lanes.HookRecord{hookAt(hookStop, 110, ""), asked}, true},
+		{"a question after an unread Stop", 110, []lanes.HookRecord{hookAt(hookStop, 115, ""), asked}, true},
+		{"a question after the prompt", 110, []lanes.HookRecord{hookAt(hookUserPromptSubmit, 115, ""), asked}, true},
+		{"a question after a clear", 110, []lanes.HookRecord{hookAt(hookSessionStart, 115, lanes.SourceClear), asked}, true},
+		{"a question a Stop closed", 110, []lanes.HookRecord{asked, hookAt(hookStop, 130, "")}, false},
+		{"a question a StopFailure closed", 110, []lanes.HookRecord{asked, hookAt(hookStopFailure, 130, "server_error")}, false},
+		{"a question before the floor", 125, []lanes.HookRecord{asked}, false},
+		{"a question a prompt answered", 110, []lanes.HookRecord{asked, hookAt(hookUserPromptSubmit, 130, "")}, false},
+		{"a question a clear closed", 110, []lanes.HookRecord{asked, hookAt(hookSessionStart, 130, lanes.SourceClear)}, false},
+		{"a Notification that asks nothing", 110, []lanes.HookRecord{hookAt(hookNotification, 120, "idle_prompt")}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, test.floor)
+			s.replay(ports.AdoptFrom{Hooks: test.hooks}, 1)
+			if !test.holds {
+				typesFreely(t, s)
+				return
+			}
+			refusesInput(t, s)
+			s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: 140})
+			typesFreely(t, s)
+		})
+	}
+}
