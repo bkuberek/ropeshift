@@ -524,7 +524,7 @@ func checkProfileDefaults(t *testing.T, ctx context.Context, r ProfileRig) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.Driver != "claude-code" || profile.Agent.PermissionMode != "default" || profile.Worktree.Root == "" || profile.Worktree.BranchPrefix == "" {
+	if profile.Driver != "claude-code" || profile.Agent.PermissionMode != "auto" || profile.Worktree.Root == "" || profile.Worktree.BranchPrefix == "" {
 		t.Errorf("profile %+v", profile)
 	}
 	if profile.Context.Roles["writer"].HandoffTokens == 0 || profile.Lifecycle.ReadyTimeout == "" {

@@ -73,7 +73,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		ReadOnlyRoots: readOnly,
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
-		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
+		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: policyGates(spec), GatesAskOnly: spec.RunMode == ports.RunModeInteractive, ReadRoots: readRoots,
 		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec), RefusedFlags: refusedFlagsOf(spec),
 	})
 	if spec.Assistant {
@@ -269,9 +269,10 @@ func within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
 
-// askRules make every push on a lane that writes, and every action a profile gates, ask, in every mode
-// (FR-LANE-19). An ask rule beats an allow rule and holds in a mode that asks nothing, and one on a call
-// that would ask anyway changes nothing, so no mode needs its own reading.
+// askRules make a push on a lane that writes, and each action a profile gates, ask in every mode, as the call is
+// written. An ask rule beats an allow rule and holds in a mode that asks nothing, and one on a call that would ask
+// anyway changes nothing, so no mode needs its own reading. The hook asks for a push and a gated shell command in
+// every other form (lanes.DenyPolicy.Asks, FR-LANE-19).
 func askRules(spec ports.SessionSpec) []string {
 	var rules []string
 	if !spec.OnlyTools && !spec.ReadOnly {
@@ -285,12 +286,9 @@ func askRules(spec ports.SessionSpec) []string {
 	return rules
 }
 
-// deferredGates are the calls a hook defers. Only `-p` honors `defer`, and a pane has a screen for
-// its wait, so an interactive session has none.
-func deferredGates(spec ports.SessionSpec) []lanes.GateRule {
-	if spec.RunMode == ports.RunModeInteractive {
-		return nil
-	}
+// policyGates are what the hook holds as gated, in both run modes. Only `-p` honors `defer`, and a pane has a
+// screen for its wait, so a pane's policy asks for each and defers none (GatesAskOnly).
+func policyGates(spec ports.SessionSpec) []lanes.GateRule {
 	gates := make([]lanes.GateRule, 0, len(spec.Gates))
 	for _, rule := range spec.Gates {
 		gates = append(gates, lanes.ReadGate(rule))

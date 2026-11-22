@@ -3,6 +3,7 @@ package worker
 import (
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 )
 
@@ -86,5 +87,20 @@ func TestAShellCommandIsAGateWhenAnyCommandInItIs(t *testing.T) {
 		if got := shellGated(command, gates); got != want {
 			t.Errorf("%q reads as gate %v, want %v", command, got, want)
 		}
+	}
+}
+
+// What the hook asks for as a push or a gate is a gate to the worker, so no batch and no judgment covers it, whichever
+// shell tool it runs in.
+func TestWhatTheHookAsksForIsAGate(t *testing.T) {
+	t.Parallel()
+	run := &laneRun{gates: []string{"Bash(git tag *)"}}
+	for tool, command := range map[string]string{"Bash": "git p", "Monitor": "git -C . push", "PowerShell": "Get-ChildItem"} {
+		if !run.gated(authority.ToolCall{Tool: tool, Command: command}) {
+			t.Errorf("%s %q is no gate", tool, command)
+		}
+	}
+	if run.gated(authority.ToolCall{Tool: "Monitor", Command: "tail -f app.log"}) {
+		t.Error("a monitor of a log is a gate")
 	}
 }

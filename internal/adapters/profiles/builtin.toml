@@ -6,7 +6,7 @@ driver = "claude-code"
 [agent]
 model = "opus"
 effort = "high"
-permission_mode = "default"
+permission_mode = "auto"
 instructions_file = "AGENTS.md"
 
 # The model each capability class of the agent roster runs on this driver (ADR-0025). A driver with fewer

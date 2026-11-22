@@ -10,9 +10,10 @@
 # The worktree root is a machine's choice, not a repository's: set it in each machine's own layer.
 
 [agent]
-# A gate makes one kind of action ask a person, in every permission mode. The gates of every layer join,
-# so these add to the person's own. A lane already asks before every command except file edits, mkdir,
-# rm, rmdir, mv, and git add, rm, mv, and commit in its worktree, so a gate matters for those actions.
+# A gate makes one kind of action ask a person, in every permission mode but dontAsk, which refuses it.
+# The gates of every layer join, so these add to the person's own. A push always asks. A lane edits
+# files, runs mkdir, rm, rmdir, and mv, and runs git add, rm, mv, and commit in its worktree without
+# asking, and its permission mode decides every other command, so gate what a person must see.
 #
 # Gate every commit when this repository's commit hooks run files a lane can change, and you want a
 # person to see each commit before its hooks run. Unattended lanes then wait at every commit.
