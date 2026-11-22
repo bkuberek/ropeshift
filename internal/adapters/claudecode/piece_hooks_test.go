@@ -456,3 +456,116 @@ func TestAWalkPastItsBoundHoldsTheLaneForTheTreesSize(t *testing.T) {
 		t.Errorf("a walk past its bound holds %+v", change)
 	}
 }
+
+// linkedLane is a lane as production makes one: its worktree is a linked worktree of a clone, whose one commit holds
+// baseSettings and which the lane's base names.
+func linkedLane(t *testing.T) ports.SessionSpec {
+	t.Helper()
+	clone := t.TempDir()
+	base := committed(t, clone, map[string]string{projectSettingsFile: baseSettings})
+	worktree := filepath.Join(t.TempDir(), "lane")
+	gitIn(t, clone, "worktree", "add", "--quiet", "--detach", worktree, base)
+	spec := laneSpec(t)
+	spec.Dir, spec.Repository, spec.Base = worktree, clone, base
+	return spec
+}
+
+// redirectGitFile points a worktree's `.git` file at a git directory of the lane's own whose `core.worktree` names an
+// empty folder elsewhere, so every `git ls-files` run in the worktree succeeds and lists nothing.
+func redirectGitFile(t *testing.T, worktree string) {
+	t.Helper()
+	elsewhere, own := t.TempDir(), filepath.Join(t.TempDir(), "own.git")
+	gitIn(t, elsewhere, "init", "--quiet", "--bare", own)
+	gitIn(t, own, "config", "core.bare", "false")
+	gitIn(t, own, "config", "core.worktree", elsewhere)
+	writeFile(t, filepath.Join(worktree, ".git"), "gitdir: "+own+"\n")
+}
+
+// A lane can edit the `.git` file of its worktree, so git run there follows it: a git directory whose `core.worktree`
+// names another folder lists nothing for the worktree and still exits well. The listing runs in the git directory the
+// clone records for the worktree, so a skill the lane nests below the root with a hook still holds it.
+func TestALaneThatRedirectsItsGitFileStillHoldsForANestedHook(t *testing.T) {
+	const skill = "pkg/.claude/skills/x/SKILL.md"
+	spec := linkedLane(t)
+	writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(skill)), hookedPiece)
+	if change := settingsChange(spec); change == nil || !slices.Equal(change.Files, []string{skill}) {
+		t.Fatalf("a nested hook in a worktree as git made it holds %+v", change)
+	}
+	redirectGitFile(t, spec.Dir)
+	change := settingsChange(spec)
+	if change == nil || !slices.Equal(change.Files, []string{skill}) || !slices.Contains(change.Summary, skill+" hooks.PreToolUse: added") {
+		t.Errorf("a nested hook in a worktree whose .git file is redirected holds %+v", change)
+	}
+}
+
+// The listing runs in the git directory the clone records for the worktree: the registration under the clone's
+// `.git/worktrees` for a linked worktree, and the clone's own git directory for a worktree that is the clone. It is
+// refused, so the walk by names alone stands in, where no registration names the worktree, where two do, and where git
+// run in the registration does not name the worktree as its top level, as a `core.worktree` the lane set there makes it.
+func TestTheListingRunsInTheGitDirTheCloneRecordsForTheWorktree(t *testing.T) {
+	canonical := func(path string) string {
+		t.Helper()
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return real
+	}
+	t.Run("a linked worktree", func(t *testing.T) {
+		spec := linkedLane(t)
+		dir, ok := registeredGitDir(t.Context(), spec)
+		if want := filepath.Join(canonical(spec.Repository), ".git", "worktrees", "lane"); !ok || canonical(dir) != want {
+			t.Errorf("the registered git directory is %q (%t), want %q", dir, ok, want)
+		}
+		redirectGitFile(t, spec.Dir)
+		if again, ok := registeredGitDir(t.Context(), spec); !ok || again != dir {
+			t.Errorf("after the lane redirected its .git file the registered git directory is %q (%t), want %q", again, ok, dir)
+		}
+	})
+	t.Run("a worktree that is the clone", func(t *testing.T) {
+		spec := pieceSpec(t, nil)
+		dir, ok := registeredGitDir(t.Context(), spec)
+		if want := filepath.Join(canonical(spec.Dir), ".git"); !ok || canonical(dir) != want {
+			t.Errorf("the registered git directory is %q (%t), want %q", dir, ok, want)
+		}
+	})
+	t.Run("a worktree no registration names", func(t *testing.T) {
+		spec := linkedLane(t)
+		spec.Dir = t.TempDir()
+		if dir, ok := registeredGitDir(t.Context(), spec); ok {
+			t.Errorf("a folder of no registration lists through %q", dir)
+		}
+	})
+	t.Run("a lane with no clone", func(t *testing.T) {
+		spec := linkedLane(t)
+		spec.Repository = ""
+		if dir, ok := registeredGitDir(t.Context(), spec); ok {
+			t.Errorf("a lane with no clone lists through %q", dir)
+		}
+	})
+	t.Run("two registrations naming one worktree", func(t *testing.T) {
+		spec := linkedLane(t)
+		registrations := filepath.Join(spec.Repository, ".git", "worktrees")
+		gitdir, err := os.ReadFile(filepath.Join(registrations, "lane", "gitdir"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(registrations, "twin", "gitdir"), string(gitdir))
+		if dir, ok := registeredGitDir(t.Context(), spec); ok {
+			t.Errorf("a worktree two registrations name lists through %q", dir)
+		}
+	})
+	t.Run("a git directory that puts the work tree elsewhere", func(t *testing.T) {
+		spec := linkedLane(t)
+		gitIn(t, spec.Repository, "config", "extensions.worktreeConfig", "true")
+		gitIn(t, spec.Dir, "config", "--worktree", "core.worktree", t.TempDir())
+		if dir, ok := registeredGitDir(t.Context(), spec); ok {
+			t.Errorf("a registration whose work tree is elsewhere lists through %q", dir)
+		}
+		const skill = "pkg/.claude/skills/x/SKILL.md"
+		writeFile(t, filepath.Join(spec.Dir, filepath.FromSlash(skill)), hookedPiece)
+		if change := settingsChange(spec); change == nil || !slices.Equal(change.Files, []string{skill}) {
+			t.Errorf("a nested hook in a worktree whose registration puts its work tree elsewhere holds %+v", change)
+		}
+	})
+}

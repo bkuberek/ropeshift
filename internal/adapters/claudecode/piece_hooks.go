@@ -46,7 +46,8 @@ const skillsDir = ".claude/skills"
 // discovery leaves out, such as one git ignores, so finding them reads the whole worktree but `.git`, in two parts:
 //
 //   - Every path git sees, its tracked files and the untracked ones it does not ignore, is read in full from git's own
-//     listing (gitListing).
+//     listing, which runs through the git directory the clone records for the worktree and never the worktree's own
+//     `.git` file, which a lane can edit (gitListing).
 //   - The directories git ignores, such as `node_modules`, and those a link or a submodule git lists leads to, are walked
 //     by their names alone, through links, each once, for a `.claude` that holds a `skills` directory, reading no file,
 //     up to nestedWalkWait. Past it, the skills in them were not compared, and the hold says that the size of the tree,
@@ -101,22 +102,96 @@ func worktreeGit(spec ports.SessionSpec) gitcli.Git {
 	}
 }
 
+// registeredGitDir is the git directory the lane's clone records for the lane's worktree, which git is told to list the
+// worktree through. A lane can edit the `.git` file of its worktree, and git run there follows it to a git directory of
+// the lane's own, whose `core.worktree` can name another folder, so every listing succeeds and lists nothing. So the
+// directory is read from the clone's own registrations, `.git/worktrees/<name>` whose `gitdir` file names this
+// worktree's `.git`, or from the clone itself when the worktree is its own, and never from the worktree's `.git`. It
+// says no unless exactly one registration names the worktree and git, run in that directory with no work tree given,
+// names the worktree as its top level, which a `core.worktree` set for that directory would not.
+func registeredGitDir(ctx context.Context, spec ports.SessionSpec) (string, bool) {
+	if spec.Repository == "" || spec.Dir == "" {
+		return "", false
+	}
+	root, err := filepath.EvalSymlinks(spec.Dir)
+	if err != nil {
+		return "", false
+	}
+	found, err := repositoryGit(spec).Text(ctx, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir")
+	paths := strings.Split(found, "\n")
+	if err != nil || len(paths) != 3 {
+		return "", false
+	}
+	dir := ""
+	if clone, err := filepath.EvalSymlinks(paths[0]); err == nil && clone == root {
+		dir = paths[1]
+	} else if dir = registrationOf(paths[2], root); dir == "" {
+		return "", false
+	}
+	top, err := worktreeGit(spec).Text(ctx, "--git-dir="+dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", false
+	}
+	if real, err := filepath.EvalSymlinks(top); err != nil || real != root {
+		return "", false
+	}
+	return dir, true
+}
+
+// registrationOf is the registration under a clone's common git directory whose `gitdir` file names the `.git` of the
+// worktree at root, a path with its links resolved, or empty when none does or more than one does.
+func registrationOf(common, root string) string {
+	registrations := filepath.Join(common, "worktrees")
+	entries, err := os.ReadDir(registrations)
+	if err != nil {
+		return ""
+	}
+	found := ""
+	for _, entry := range entries {
+		dir := filepath.Join(registrations, entry.Name())
+		raw, err := os.ReadFile(filepath.Join(dir, "gitdir"))
+		if err != nil {
+			continue
+		}
+		named := strings.TrimRight(string(raw), "\r\n")
+		if !filepath.IsAbs(named) {
+			named = filepath.Join(dir, named)
+		}
+		if filepath.Base(named) != ".git" {
+			continue
+		}
+		if real, err := filepath.EvalSymlinks(filepath.Dir(named)); err != nil || real != root {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = dir
+	}
+	return found
+}
+
 // gitListing is what git lists of a lane's worktree: each path it sees, a tracked one and an untracked one it does not
 // ignore, each path a link or a submodule git lists leads to a directory through, and each path it ignores, a directory
-// as a whole, ending with a slash. It says whether git could list the worktree.
+// as a whole, ending with a slash. It lists through the git directory the clone records for the worktree and with the
+// worktree named as its work tree (registeredGitDir), and says whether git could list the worktree that way.
 func gitListing(spec ports.SessionSpec) (seen, leads, ignored []string, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), repositoryReadWait)
 	defer cancel()
-	git := worktreeGit(spec)
-	staged, err := git.Output(ctx, "--no-optional-locks", "ls-files", "-z", "--stage")
+	dir, ok := registeredGitDir(ctx, spec)
+	if !ok {
+		return nil, nil, nil, false
+	}
+	git, place := worktreeGit(spec), []string{"--git-dir=" + dir, "--work-tree=" + spec.Dir, "--no-optional-locks"}
+	staged, err := git.Output(ctx, append(slices.Clone(place), "ls-files", "-z", "--stage")...)
 	if err != nil {
 		return nil, nil, nil, false
 	}
-	untracked, err := git.Output(ctx, "--no-optional-locks", "ls-files", "-z", "--others", "--exclude-standard")
+	untracked, err := git.Output(ctx, append(slices.Clone(place), "ls-files", "-z", "--others", "--exclude-standard")...)
 	if err != nil {
 		return nil, nil, nil, false
 	}
-	skipped, err := git.Output(ctx, "--no-optional-locks", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
+	skipped, err := git.Output(ctx, append(slices.Clone(place), "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")...)
 	if err != nil {
 		return nil, nil, nil, false
 	}
