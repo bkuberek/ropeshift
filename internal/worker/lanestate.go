@@ -84,15 +84,19 @@ type laneState struct {
 	// that starts that turn ends the count.
 	background      int
 	backgroundSince time.Time
-	// stopLeftWork says the newest Stop left background work and no turn's end has been decided since. A prompt
-	// leaves it: that work can start the next turn before the worker has decided the end of the one that stopped.
-	stopLeftWork bool
 	// stoppedMs, failedMs, and promptedMs are when the newest Stop, StopFailure, and prompt fired, by their hooks'
 	// clock, because a spooled hook arrives late or twice. They are the turn clock: a lane works while its newest
 	// prompt is newer than its newest turn's end, whoever started that turn.
 	stoppedMs  int64
 	failedMs   int64
 	promptedMs int64
+	// stops and failures count the Stops and StopFailures of this generation's session, and placedStops and
+	// placedFailures the turns' ends a stream reported that took one of them as their time (placeEnd).
+	stops, failures             int
+	placedStops, placedFailures int
+	// handedMs is the newest turn's end heard when the worker last handed the session input: an end no newer than
+	// it is older than that input.
+	handedMs int64
 	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
 	moves  uint64
 	saving atomic.Bool
@@ -256,7 +260,8 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]string{}, now, now, 0, baseline
-	s.unconfirmed, s.retried, s.baselined, s.stopLeftWork = false, false, false, false
+	s.unconfirmed, s.retried, s.baselined = false, false, false
+	s.stops, s.failures, s.placedStops, s.placedFailures = 0, 0, 0, 0
 	s.compact = compaction{}
 }
 
@@ -390,6 +395,9 @@ func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Sig
 	if moved {
 		s.moves++
 	}
+	if slices.Contains(signals, lanes.OnInputHanded) {
+		s.handedMs = s.endedMs()
+	}
 	s.mu.Unlock()
 	if !moved {
 		return false
@@ -494,9 +502,15 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		} else {
 			r.noteModel(lanes.Reachable)
 		}
-		r.turnEndedWithRequests(ctx, event.Turn)
-		s.callsEnded()
-		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed, lanes.OnTurnFinished)
+		// An end older than the session's newest input ends a turn the lane has already left: the requests, calls,
+		// and state of the turn it is in stand.
+		if r.endHeld {
+			r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed)
+		} else {
+			r.turnEndedWithRequests(ctx, event.Turn)
+			s.callsEnded()
+			r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed, lanes.OnTurnFinished)
+		}
 		if event.Turn.Status == ports.TurnCompleted {
 			r.limitPassed(ctx)
 		}
@@ -585,7 +599,10 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 	if atMs > 0 && atMs <= s.stoppedMs {
 		return
 	}
-	s.stoppedMs, s.stopLeftWork = max(s.stoppedMs, atMs), tasks > 0
+	if atMs > s.stoppedMs {
+		s.stops++
+	}
+	s.stoppedMs = max(s.stoppedMs, atMs)
 	if atMs > 0 && atMs < s.promptedMs {
 		tasks = 0
 	}
@@ -611,8 +628,40 @@ func (s *laneState) notePrompt(atMs int64) bool {
 func (s *laneState) noteStopFailure(atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.background, s.backgroundSince, s.stopLeftWork = 0, time.Time{}, false
-	s.failedMs = max(s.failedMs, atMs)
+	s.background, s.backgroundSince = 0, time.Time{}
+	if atMs > s.failedMs {
+		s.failures++
+		s.failedMs = atMs
+	}
+}
+
+// placeEnd says when the end of a turn a driver reported fired, by its hook's clock, and zero when nothing says. A
+// driver that reads turns from hooks names the time. A stream does not, but a hook is answered before the session
+// goes on, and the spool is read before a turn's end is acted on, so the Stop of a turn that completed, or the
+// StopFailure of one that failed, was heard before its end is read. Such an end takes the newest hook of its kind,
+// while that kind has a hook no earlier end took. A stopped turn has no hook, and neither has one whose hook was lost.
+func (s *laneState) placeEnd(turn *ports.TurnResult) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case turn.EndedMs > 0:
+		return turn.EndedMs
+	case turn.Status == ports.TurnCompleted && s.stops > s.placedStops:
+		s.placedStops++
+		return s.stoppedMs
+	case turn.Status == ports.TurnFailed && s.failures > s.placedFailures:
+		s.placedFailures++
+		return s.failedMs
+	}
+	return 0
+}
+
+// olderThanInput says a turn's end that fired at atMs is older than the session's newest prompt, or than input the
+// worker handed once that end was heard: a turn runs that the end does not end.
+func (s *laneState) olderThanInput(atMs int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return atMs > 0 && (atMs < s.promptedMs || atMs <= s.handedMs)
 }
 
 // endedMs is when the newest turn's end fired, whether it stopped or failed. The caller holds the lock.
@@ -623,15 +672,6 @@ func (s *laneState) turnUnended() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.promptedMs > s.endedMs()
-}
-
-// takeStopLeftWork says the turn whose end is being decided left background work, and is true for one end.
-func (s *laneState) takeStopLeftWork() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	left := s.stopLeftWork
-	s.stopLeftWork = false
-	return left
 }
 
 // backgroundRest says the session's last turn stopped with its own background work still running, since when,

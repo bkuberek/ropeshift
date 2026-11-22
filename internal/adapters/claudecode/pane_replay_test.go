@@ -241,3 +241,32 @@ func TestALateTurnEndLeavesANewerWait(t *testing.T) {
 		})
 	}
 }
+
+// A turn's end carries the time of the hook that ended it, because a worker reads it against the newest prompt.
+func TestATurnsEndCarriesTheTimeOfItsHook(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		event  lanes.HookEvent
+		status ports.TurnStatus
+	}{
+		{"a Stop", lanes.HookEvent{Event: hookStop, AtMs: 200}, ports.TurnCompleted},
+		{"a StopFailure", lanes.HookEvent{Event: hookStopFailure, Detail: "server_error", AtMs: 200}, ports.TurnFailed},
+		{"a compaction asked for", lanes.HookEvent{Event: hookPostCompact, Detail: compactRequested, AtMs: 200}, ports.TurnCompleted},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, 0)
+			s.takeHook(tt.event)
+			var turn *ports.TurnResult
+			for _, event := range s.queue {
+				if event.Kind == ports.EventTurnEnded {
+					turn = event.Turn
+				}
+			}
+			if turn == nil || turn.Status != tt.status || turn.EndedMs != 200 {
+				t.Fatalf("turn %+v, want a %s end at 200", turn, tt.status)
+			}
+		})
+	}
+}

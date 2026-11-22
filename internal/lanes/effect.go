@@ -88,6 +88,10 @@ const (
 // read that input, so it did not happen, and what fails any other way may have reached a session.
 const DetailNotDelivered = "no session took it"
 
+// DetailWithheld begins the detail of an input the worker held back before any of it reached the session: a turn
+// began after it was decided, or the session waited on an answer the input's keys could have given.
+const DetailWithheld = "withheld"
+
 // EffectVerdict is what a person's word does to one attempt at an effect. Retry sends it back to
 // started for a run to repeat, and State and Detail settle it otherwise.
 type EffectVerdict struct {
@@ -122,6 +126,12 @@ type Effect struct {
 // by a later attempt. A record that failed is settled for good, so that attempt keeps a key of its own.
 func (e Effect) Undelivered() bool {
 	return e.Kind == EffectInput && e.State == EffectFailed && strings.HasPrefix(e.Detail, DetailNotDelivered)
+}
+
+// Withheld says the worker held this input back before any of it reached a session, so it did not happen, and a
+// later attempt keeps a key of its own.
+func (e Effect) Withheld() bool {
+	return e.Kind == EffectInput && e.State == EffectFailed && strings.HasPrefix(e.Detail, DetailWithheld)
 }
 
 // NewEffect names one effect of a generation. Label separates effects of one kind.

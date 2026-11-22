@@ -752,7 +752,7 @@ func (s *paneSession) endTurn(event lanes.HookEvent, status ports.TurnStatus, re
 	// An end can arrive late, and it ends only what is not newer than it.
 	s.waiting = s.waiting && s.waitingMs > event.AtMs
 	maps.DeleteFunc(s.approvals, func(_ string, askedMs int64) bool { return askedMs <= event.AtMs })
-	turn := ports.TurnResult{Status: status, Reason: reason, CostUSD: s.meter.ObserveTurn(s.totalUSD)}
+	turn := ports.TurnResult{Status: status, Reason: reason, CostUSD: s.meter.ObserveTurn(s.totalUSD), EndedMs: event.AtMs}
 	turn.Cost = s.meter
 	s.push(ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &turn, Seq: event.AtMs})
 }

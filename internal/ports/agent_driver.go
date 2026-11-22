@@ -411,6 +411,9 @@ type TurnResult struct {
 	// stream says so. A driver that reads neither leaves them nil.
 	DurationMs *int64
 	APIMs      *int64
+	// EndedMs is when the hook that ended the turn fired, by its clock, where a driver reads turns from hooks. A
+	// driver that reads a stream leaves it zero.
+	EndedMs int64
 }
 
 // SessionEnd says how a session ended.
