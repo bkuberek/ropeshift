@@ -90,8 +90,6 @@ type laneState struct {
 	// hook arrives late or twice.
 	stoppedMs  int64
 	promptedMs int64
-	// refusedUntil is when the wait on a nudge a turn's end could not send runs out, and zero with no such wait.
-	refusedUntil time.Time
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -253,7 +251,7 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]string{}, now, now, 0, baseline
 	s.unconfirmed, s.retried, s.baselined, s.stopLeftWork = false, false, false, false
-	s.compact, s.refusedUntil = compaction{}, time.Time{}
+	s.compact = compaction{}
 }
 
 // noteCleared keeps when the clear that began this generation fired.
@@ -525,14 +523,12 @@ func (r *laneRun) observe(ctx context.Context, event lanes.HookEvent, replayed b
 	case hookPostToolUse, lanes.EventToolFailed:
 		r.progressed()
 		s.callEnded(event.Subject)
-		s.waitAnswered(event.AtMs)
 		if event.Digest != "" {
 			r.terminalAnswer(ctx, event.Digest, noteToolRan)
 		}
 	case lanes.EventToolDenied:
 		r.progressed()
 		s.callEnded(event.Subject)
-		s.waitAnswered(event.AtMs)
 	case lanes.EventCallDenied:
 		s.callEnded(event.Subject)
 	case lanes.EventStop:
@@ -573,32 +569,7 @@ func (s *laneState) notePrompt(atMs int64) {
 	if atMs > 0 && atMs < s.stoppedMs {
 		return
 	}
-	s.background, s.backgroundSince, s.refusedUntil = 0, time.Time{}, time.Time{}
-}
-
-// noteRefusal keeps until when a lane waits on the nudge a wait refused, and zero ends that wait.
-func (s *laneState) noteRefusal(until time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.refusedUntil = until
-}
-
-// refusal reads that wait.
-func (s *laneState) refusal() (until time.Time, waiting bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.refusedUntil, !s.refusedUntil.IsZero()
-}
-
-// waitAnswered ends that wait at a call's end. The lane still reads idle in the turn an answer begins, so this
-// and a prompt are what say it works again. A call that ended before the newest Stop is of the turn that stopped.
-func (s *laneState) waitAnswered(atMs int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if atMs > 0 && atMs < s.stoppedMs {
-		return
-	}
-	s.refusedUntil = time.Time{}
+	s.background, s.backgroundSince = 0, time.Time{}
 }
 
 // noteStopFailure says a failed turn left nothing to wait on.

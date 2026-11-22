@@ -141,24 +141,3 @@ func TestAnAdoptionThatCannotReadItsDialogsHoldsTheKeys(t *testing.T) {
 		})
 	}
 }
-
-// A pane refuses a nudge while it may hold a dialog. That wait is no reason to end the lane.
-func TestANudgeAWaitRefusedEndsNoLane(t *testing.T) {
-	t.Parallel()
-	w := newWorldRig(t)
-	w.desire("lane-1")
-	w.adoptedAt(t, lanes.Working, lanes.Idle)
-	w.driver.Play(script([]fake.DriverStep{completed(0.01)}, []fake.DriverStep{{Hold: true}}))
-	w.driver.FailSend(ports.ErrAwaitingAnswer)
-	w.passesOnceAdopted(t)
-	w.passUntil(t, "the nudge was never refused", func() bool {
-		effect, err := w.journal.Effect(t.Context(), lanes.NewEffect(lanes.EffectInput, "lane-1", 1, "", "nudge").Key)
-		return err == nil && effect.State == lanes.EffectFailed
-	})
-	for range 200 {
-		time.Sleep(time.Millisecond)
-		if record := w.lane("lane-1"); record.State != lanes.StateRunning || record.Actual == lanes.Retiring {
-			t.Fatalf("a refused nudge left the lane %s, %s", record.State, record.Actual)
-		}
-	}
-}
