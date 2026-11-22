@@ -53,6 +53,11 @@ const (
 	// fires once it has waited about six seconds, and an MCP server's form's once nobody typed for about six
 	// (https://code.claude.com/docs/en/hooks#notification).
 	dialogNotice = 10 * time.Second
+	// inputGrace is how long typed input has to show that the session took it. A prompt's hook runs before the session
+	// goes on with the prompt, so its report comes in moments.
+	inputGrace = 5 * time.Second
+	// takenPoll is how often a session that has not shown it took typed input is read again.
+	takenPoll = 20 * time.Millisecond
 )
 
 // The hooks a pane's state derives from.
@@ -62,6 +67,7 @@ const (
 	hookStop             = "Stop"
 	hookStopFailure      = "StopFailure"
 	hookNotification     = "Notification"
+	hookPreCompact       = "PreCompact"
 	hookPostCompact      = "PostCompact"
 	hookPostToolUse      = "PostToolUse"
 )
@@ -327,6 +333,11 @@ func (s *paneSession) brief(ctx context.Context, spec ports.SessionSpec, state p
 	}
 	crashpoint.Hit("pane.start", "briefing")
 	if _, err := s.send(ctx, ports.Input{Text: state.Brief}); err != nil {
+		// A typed brief the session did not take may stand in its prompt, so it may still arrive: the worker reads
+		// whether it does, as it reads any brief, and the phase on disk says it may have.
+		if errors.Is(err, ports.ErrInputUnconfirmed) {
+			return nil
+		}
 		return err
 	}
 	crashpoint.Hit("pane.start", "briefed")
@@ -480,21 +491,28 @@ type paneSession struct {
 	// waiting says a Notification told of a dialog that waits for a person, and waitingMs is when the newest fired.
 	waiting   bool
 	waitingMs int64
+	// compactMs is when the newest compaction began, by its hook's clock, and unsentMs is when the worker last
+	// pressed Enter on typed input the session did not take, and zero once a prompt or a compaction at or after it
+	// shows the session took a line.
+	compactMs int64
+	unsentMs  int64
 	totalUSD  float64
 	// approvals names the calls a hook is waiting on and when each was asked, and no key reaches a pane until
 	// each ends, because an Enter on a permission prompt is an answer.
 	approvals map[string]int64
 	meter     lanes.CostMeter
 	seen      ports.Observation
-	// now reads the clock that a prompt's hook is stamped by.
-	now func() time.Time
+	// now reads the clock that a prompt's hook is stamped by, and grace is how long typed input has to show the
+	// session took it.
+	now   func() time.Time
+	grace time.Duration
 }
 
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
 		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]int64{},
-		now: time.Now,
+		now: time.Now, grace: inputGrace,
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)
@@ -696,6 +714,7 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case hookUserPromptSubmit:
 		s.promptMs = max(s.promptMs, event.AtMs)
 		s.waiting = false
+		s.tookLine()
 		s.note(event)
 		s.push(ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.seen.SessionID, ModelResolved: s.seen.ModelResolved})
 		s.push(ports.DriverEvent{Kind: ports.EventInputAdmitted})
@@ -715,6 +734,9 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 		if event.Digest != ports.UnnamedCall {
 			delete(s.approvals, event.Digest)
 		}
+	case hookPreCompact:
+		s.compactMs = max(s.compactMs, event.AtMs)
+		s.tookLine()
 	case hookPostCompact:
 		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})
 		if event.Detail == compactRequested {
@@ -746,11 +768,23 @@ func (s *paneSession) closedBy(event lanes.HookEvent, closedMs int64) bool {
 // keysHeld is the one rule every key a worker sends to a pane obeys: no key goes while a dialog may be open, because
 // a key answers a dialog. A dialog may be open from the first sign of one until the session shows it closed: a
 // PermissionRequest until its call ends or its turn does, a Notification of a dialog until a newer prompt, a newer
-// turn's end, or its dialog's close, and the first seconds of a turn, in which a dialog no hook announces is still
-// untold (dialogNotice). The caller holds the lock.
+// turn's end, or its dialog's close, typed input the session did not take until it takes a line, and the first
+// seconds of a turn, in which a dialog no hook announces is still untold (dialogNotice). The caller holds the lock.
 func (s *paneSession) keysHeld() bool {
 	turnStarting := s.promptMs > s.stopMs && s.now().UnixMilli()-s.promptMs < dialogNotice.Milliseconds()
-	return s.waiting || len(s.approvals) != 0 || turnStarting
+	return s.waiting || len(s.approvals) != 0 || s.unsentMs != 0 || turnStarting
+}
+
+// took says the session took a line entered at sinceMs or later: a prompt's hook or a compaction's fired since. The
+// caller holds the lock.
+func (s *paneSession) took(sinceMs int64) bool { return max(s.promptMs, s.compactMs) >= sinceMs }
+
+// tookLine ends the hold of typed input the session did not take, once it shows it took a line. The caller holds the
+// lock.
+func (s *paneSession) tookLine() {
+	if s.unsentMs != 0 && s.took(s.unsentMs) {
+		s.unsentMs = 0
+	}
 }
 
 // endCompaction ends the turn a compaction ran as, and says that is all it held, because a person
@@ -863,15 +897,9 @@ func (s *paneSession) send(ctx context.Context, in ports.Input) (ports.SendRecei
 // typeInput is the worker's own input to a pane on a version whose socket line passed no check. It
 // goes by keys, which the ranked surfaces allow only as this fallback, and the lane shows degraded
 // mode while it does. A line feed is the CLI's documented newline inside a prompt, so a brief of many
-// lines stays one prompt, and Enter submits it. Nothing is read from the screen, and no key goes to
-// a session that may show a dialog (keysHeld), because the Enter would answer it.
+// lines stays one prompt, and Enter submits it. Nothing is read from the screen: the session's hooks say
+// whether it took the line (press).
 func (s *paneSession) typeInput(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
-	s.mu.Lock()
-	held := s.keysHeld()
-	s.mu.Unlock()
-	if held {
-		return ports.SendReceipt{}, ports.ErrAwaitingAnswer
-	}
 	if in.ID == "" {
 		id, err := newUUID()
 		if err != nil {
@@ -879,14 +907,80 @@ func (s *paneSession) typeInput(ctx context.Context, in ports.Input) (ports.Send
 		}
 		in.ID = id
 	}
-	if err := s.terminal.Type(ctx, s.name, strings.ReplaceAll(in.Text, "\r", "")); err != nil {
-		return ports.SendReceipt{}, s.typingFailed(err)
-	}
-	pause(ctx, compactPause)
-	if err := s.terminal.Keys(ctx, s.name, keyEnter); err != nil {
-		return ports.SendReceipt{}, s.typingFailed(err)
+	if err := s.press(ctx, strings.ReplaceAll(in.Text, "\r", "")); err != nil {
+		return ports.SendReceipt{}, err
 	}
 	return ports.SendReceipt{ID: in.ID, Path: ports.SendKeys}, nil
+}
+
+// enterAttempts is how many times a line's Enter is pressed before the session is taken not to take it.
+const enterAttempts = 2
+
+// press types a line and presses Enter, and returns once the session shows it took the line: a prompt's hook, or a
+// compaction's, at or after the Enter. A session that shows nothing within the grace gets Enter once more and never
+// the text again, because the text may stand in its prompt. Every key obeys keysHeld, read just before it goes. A line
+// the session never took holds the keys until the session takes one, so nothing is typed after its text, and says
+// ErrInputUnconfirmed.
+func (s *paneSession) press(ctx context.Context, line string) error {
+	s.mu.Lock()
+	held := s.keysHeld()
+	s.mu.Unlock()
+	if held {
+		return ports.ErrAwaitingAnswer
+	}
+	if err := s.terminal.Type(ctx, s.name, line); err != nil {
+		return s.typingFailed(err)
+	}
+	pause(ctx, compactPause)
+	var enteredMs int64
+	for range enterAttempts {
+		s.mu.Lock()
+		held, sinceMs := s.keysHeld(), s.now().UnixMilli()
+		s.mu.Unlock()
+		if held {
+			break
+		}
+		if err := s.terminal.Keys(ctx, s.name, keyEnter); err != nil {
+			return s.typingFailed(err)
+		}
+		enteredMs = sinceMs
+		if taken, err := s.awaitTaken(ctx, sinceMs); taken || err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A line taken before the text was typed, which held its Enter, does not take the text.
+	s.unsentMs = max(enteredMs, max(s.promptMs, s.compactMs)+1)
+	return fmt.Errorf("%s: %w", s.handle.ID, ports.ErrInputUnconfirmed)
+}
+
+// awaitTaken waits up to the grace for the session to show it took a line entered at sinceMs. A session that ends
+// took nothing.
+func (s *paneSession) awaitTaken(ctx context.Context, sinceMs int64) (bool, error) {
+	deadline := time.NewTimer(s.grace)
+	defer deadline.Stop()
+	poll := time.NewTicker(takenPoll)
+	defer poll.Stop()
+	for {
+		s.mu.Lock()
+		taken := s.took(sinceMs)
+		s.mu.Unlock()
+		if taken {
+			return true, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-s.done:
+			return false, fmt.Errorf("%s: %w", s.handle.ID, ports.ErrNoSession)
+		case <-s.gone:
+			return false, fmt.Errorf("%s: %w", s.handle.ID, ports.ErrNoSession)
+		case <-deadline.C:
+			return false, nil
+		case <-poll.C:
+		}
+	}
 }
 
 // typingFailed is what a terminal's failure to take keys means for the input. A pane that is not there
@@ -906,20 +1000,10 @@ func (s *paneSession) refused(input string) {
 	s.push(ports.DriverEvent{Kind: ports.EventInputRefused, InputID: input})
 }
 
-// compact goes by keys, because a command in a message's text is not executed. No key goes
-// to a session that may show a dialog (keysHeld): the Enter would answer it.
+// compact goes by keys, because a command in a message's text is not executed, and as any line typed into a pane, it
+// is asked for once the session shows it took it (press).
 func (s *paneSession) compact(ctx context.Context) error {
-	s.mu.Lock()
-	held := s.keysHeld()
-	s.mu.Unlock()
-	if held {
-		return ports.ErrAwaitingAnswer
-	}
-	if err := s.terminal.Type(ctx, s.name, compactCommand); err != nil {
-		return err
-	}
-	pause(ctx, compactPause)
-	return s.terminal.Keys(ctx, s.name, keyEnter)
+	return s.press(ctx, compactCommand)
 }
 
 // beginStop sends one signal, because one SIGINT ended an interactive process in the

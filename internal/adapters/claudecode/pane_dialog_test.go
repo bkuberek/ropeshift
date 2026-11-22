@@ -13,16 +13,8 @@ import (
 // dialogPane is a session in an open pane, at rest after a turn that stopped at 110, and the terminal that holds it.
 func dialogPane(t *testing.T) (*paneSession, *fake.Terminal) {
 	t.Helper()
-	terminal := fake.NewTerminal()
-	spec := policySpec(t)
-	spec.RunMode = ports.RunModeInteractive
-	name := paneName(spec)
-	if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: name, Command: []string{"claude", "x"}}); err != nil {
-		t.Fatal(err)
-	}
-	s := New(nil, Options{Terminal: terminal}).newPaneSession(spec, name, ports.SessionHandle{ID: sessionHandleID(spec)}, lanes.CostMeter{})
-	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 110})
-	return s, terminal
+	terminal := &takingTerminal{}
+	return takingPane(t, terminal), terminal.Terminal
 }
 
 // noKeyReached fails if any key or text reached the pane.

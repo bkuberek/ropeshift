@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -14,7 +15,7 @@ import (
 // stopped at floor.
 func replayedPane(t *testing.T, floor int64) *paneSession {
 	t.Helper()
-	terminal := fake.NewTerminal()
+	terminal := &takingTerminal{Terminal: fake.NewTerminal()}
 	spec := policySpec(t)
 	spec.RunMode = ports.RunModeInteractive
 	name := paneName(spec)
@@ -22,7 +23,8 @@ func replayedPane(t *testing.T, floor int64) *paneSession {
 		t.Fatal(err)
 	}
 	s := New(nil, Options{Terminal: terminal}).newPaneSession(spec, name, ports.SessionHandle{ID: sessionHandleID(spec)}, lanes.CostMeter{})
-	s.floor = floor
+	s.floor, s.grace = floor, 50*time.Millisecond
+	terminal.session = s
 	return s
 }
 
@@ -30,16 +32,21 @@ func hookAt(event string, atMs int64, detail string) lanes.HookRecord {
 	return lanes.HookRecord{HookEvent: lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: event, Subject: "s", Detail: detail}, FirstMs: atMs, LastMs: atMs, Count: 1}
 }
 
-// typesFreely says the pane takes a key, which it refuses to a session that waits for an answer.
+// typesFreely says the pane takes a key, which it refuses to a session that waits for an answer, and ends the turn the
+// line began, so the session rests again.
 func typesFreely(t *testing.T, s *paneSession) {
 	t.Helper()
 	_, err := s.typeInput(t.Context(), ports.Input{Text: "a nudge"})
+	if errors.Is(err, ports.ErrInputUnconfirmed) {
+		t.Fatal("the session never took the line")
+	}
 	if errors.Is(err, ports.ErrAwaitingAnswer) {
 		t.Fatal("the pane refused input as if an answer were waited on")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: time.Now().UnixMilli() + 1})
 }
 
 func refusesInput(t *testing.T, s *paneSession) {

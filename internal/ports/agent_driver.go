@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -42,6 +43,11 @@ var ErrNoChannel = errors.New("no channel for a peer's message")
 
 // ErrAwaitingAnswer means a session is waiting on an answer, so a key could give one.
 var ErrAwaitingAnswer = errors.New("the session is waiting for an answer")
+
+// ErrInputUnconfirmed means input typed into a session's pane showed no sign that the session took it, though its
+// Enter was pressed again. Its text may stand in the session's prompt, so it is no input the session holds and none
+// to type again. A session that takes no line may show a dialog no hook told of, so it is ErrAwaitingAnswer too.
+var ErrInputUnconfirmed = fmt.Errorf("the session did not take typed input: %w", ErrAwaitingAnswer)
 
 // ErrVersionMoved means the installed version changed while a probe ran, so its result names no
 // one version and a new probe is due.
