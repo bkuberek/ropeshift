@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -454,6 +455,38 @@ func TestAWalkPastItsBoundHoldsTheLaneForTheTreesSize(t *testing.T) {
 		return strings.Contains(line, "could not all be read within") && strings.Contains(line, "the size of the tree holds the lane, and no change the lane made")
 	}) {
 		t.Errorf("a walk past its bound holds %+v", change)
+	}
+}
+
+// A hold from a walk that ran past its bound binds the incomplete read alone, where the walk found no piece to hold: its
+// digest is the same at every start and for every tree that runs past the bound, whatever the tree holds, so a member's
+// choice for it still matches at the next start. The bound is injected as none, so no walk gets anywhere.
+func TestAWalkPastItsBoundHoldsWithTheSameDigestAtEveryStart(t *testing.T) {
+	waitAtMost(t, 0)
+	digests := map[string]bool{}
+	for _, dirs := range [][]string{{"node_modules/pkg/lib"}, {"node_modules/a/b/c", "node_modules/d"}} {
+		spec := pieceSpec(t, map[string]string{".gitignore": "node_modules/\n"})
+		for _, dir := range dirs {
+			if err := os.MkdirAll(filepath.Join(spec.Dir, filepath.FromSlash(dir)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		driver := New(nil, Options{})
+		for range 2 {
+			change := settingsChange(spec)
+			if change == nil || len(change.Files) != 0 || change.Digest == "" {
+				t.Fatalf("a walk past its bound holds %+v", change)
+			}
+			digests[change.Digest] = true
+			if report, err := driver.Preflight(t.Context(), spec); err != nil || report.Settings == nil {
+				t.Fatalf("the preflight of a walk past its bound holds %+v (%v)", report.Settings, err)
+			} else {
+				digests[report.Settings.Digest] = true
+			}
+		}
+	}
+	if len(digests) != 1 {
+		t.Errorf("a walk past its bound holds with %d digests: %v", len(digests), slices.Sorted(maps.Keys(digests)))
 	}
 }
 

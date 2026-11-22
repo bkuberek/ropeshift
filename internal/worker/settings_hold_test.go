@@ -193,3 +193,30 @@ func TestOnlyAMembersChoiceEndsASettingsHold(t *testing.T) {
 		t.Errorf("the work is %s", row.State)
 	}
 }
+
+// A member who runs the lane with the repository's settings, where restoring them still leaves the worktree differing from
+// them, as a walk past its bound does, finds the start refused: the lane fails once, with one hold recorded and one
+// restore tried, and its generations are the one that was held and the one that was refused, so no later pass spawns
+// another or holds again.
+func TestAStartRefusedAfterARestoreHoldsOnceAndSpawnsNoGenerationAgain(t *testing.T) {
+	t.Parallel()
+	r := heldOnSettings(t)
+	r.driver.RefuseAfterRestore(errors.New("the repository's settings were restored and the lane is still held"))
+	r.choose(t, lanes.SettingsBase)
+	for range 4 {
+		r.pass(t)
+	}
+	r.subject.Wait()
+	if change := r.outcome(); change.Outcome != workorders.OutcomeFailed || change.Reason != workorders.ReasonSpawnFailed {
+		t.Errorf("outcome %+v", change)
+	}
+	if held := r.settingsHeld(t); len(held) != 1 {
+		t.Errorf("the ledger holds %d settings holds: %+v", len(held), held)
+	}
+	if specs, restored := r.driver.Specs(), r.driver.Restored(); len(specs) != 0 || restored != 1 {
+		t.Errorf("the lane started %d sessions and tried %d restores, want none and one", len(specs), restored)
+	}
+	if generations := r.readGenerations(t); len(generations) != 2 || generations[0].EndReason != "parked" || generations[1].EndReason != "failed" {
+		t.Errorf("the lane began %d generations, want the one that was held and the one that was refused: %+v", len(generations), generations)
+	}
+}
