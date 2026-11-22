@@ -150,6 +150,11 @@ type laneRun struct {
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
 	gates []string
 
+	// untold is what a driver may have missed while an adoption runs, and nil once it ended (tellDriver).
+	// untoldLock guards it.
+	untoldLock sync.Mutex
+	untold     []lanes.HookEvent
+
 	bound   bool
 	nudged  atomic.Bool
 	cursor  int64
@@ -644,6 +649,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.fenced.Store(w.leaseGone(ctx, record))
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
+	run.untold = []lanes.HookEvent{}
 	// A session's token ends only when a worker reads its end, or with its generation or its lane.
 	run.endTold = record.TokenDigest == ""
 	run.state = laneStateOf(record, w.clock.Now())
@@ -670,18 +676,21 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
 	r.adopted.Store(true)
+	var unread []string
 	hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
+		unread = []string{ports.UnnamedCall}
 	}
 	r.replayHooks(ctx, hooks)
-	approvals := r.resumeApprovals(ctx)
+	approvals := append(r.resumeApprovals(ctx), unread...)
 	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
 	// to its limit from here.
 	r.readAllowance(ctx)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
 		Spec: r.w.sessionSpec(ctx, r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks, Approvals: approvals,
 	})
+	r.tellUntold(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
@@ -1475,6 +1484,10 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 	r.decided = &report
 	r.signal(ctx, lanes.OnOutcomeReported)
 	r.stop(ctx, ports.StopAtRest)
+		// A session that may wait on an answer is not done, and a wait nobody is sure of ends no lane.
+		if errors.Is(err, ports.ErrAwaitingAnswer) {
+			return
+		}
 }
 
 // restOnBackground holds a lane at rest on its own background work until the longest it may wait live has passed

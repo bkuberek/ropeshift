@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -99,4 +100,64 @@ func TestAReplayWaitsOnAnOpenApprovalUntilItsCallEnds(t *testing.T) {
 	refusesInput(t, s)
 	s.takeHook(lanes.HookEvent{Event: hookPostToolUse, Digest: "seen-1", AtMs: 120})
 	typesFreely(t, s)
+}
+
+// A PermissionRequest no turn's end followed may have left a dialog open, and its request may not be raised
+// yet, so no key reaches the pane until that turn ends.
+func TestAReplayHoldsTheKeysFromADialogWithNoRequest(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		hooks []lanes.HookRecord
+	}{
+		{"a dialog in the turn under way", []lanes.HookRecord{hookAt(eventPermissionRequest, 120, "")}},
+		{"a dialog after an end not yet read", []lanes.HookRecord{hookAt(hookStop, 115, ""), hookAt(eventPermissionRequest, 120, "")}},
+		{"a dialog beside a call that ended", []lanes.HookRecord{hookAt(eventPermissionRequest, 120, ""), hookAt(hookPostToolUse, 125, "")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, 110)
+			s.replay(ports.AdoptFrom{Hooks: test.hooks}, 1)
+			refusesInput(t, s)
+			s.takeHook(lanes.HookEvent{Event: hookPostToolUse, AtMs: 128})
+			refusesInput(t, s)
+			s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 130})
+			typesFreely(t, s)
+		})
+	}
+}
+
+// What a worker could not read may be an open dialog.
+func TestAReplayHoldsTheKeysFromACallItCouldNotRead(t *testing.T) {
+	t.Parallel()
+	s := replayedPane(t, 0)
+	s.replay(ports.AdoptFrom{Approvals: []string{""}}, 1)
+	refusesInput(t, s)
+}
+
+// A turn that ended asks nothing, whatever request the worker still holds of it, so its end draws a nudge
+// the pane takes and the lane does not end blocked.
+func TestAReplayRestoresNoApprovalOfATurnThatEnded(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		floor int64
+		hooks []lanes.HookRecord
+	}{
+		{"a Stop not yet read", 50, []lanes.HookRecord{hookAt(eventPermissionRequest, 100, ""), hookAt(hookStop, 200, "")}},
+		{"a Stop already read", 200, []lanes.HookRecord{hookAt(eventPermissionRequest, 100, ""), hookAt(hookStop, 200, "")}},
+		{"a StopFailure not yet read", 50, []lanes.HookRecord{hookAt(eventPermissionRequest, 100, ""), hookAt(hookStopFailure, 200, "server_error")}},
+		{"a clear", 50, []lanes.HookRecord{hookAt(eventPermissionRequest, 100, ""), hookAt(hookSessionStart, 200, lanes.SourceClear)}},
+	}
+	for _, test := range tests {
+		for _, open := range [][]string{nil, {"seen-1"}, {""}} {
+			t.Run(test.name+"/"+strings.Join(append([]string{"open"}, open...), "-"), func(t *testing.T) {
+				t.Parallel()
+				s := replayedPane(t, test.floor)
+				s.replay(ports.AdoptFrom{Hooks: test.hooks, Approvals: open}, 1)
+				typesFreely(t, s)
+			})
+		}
+	}
 }

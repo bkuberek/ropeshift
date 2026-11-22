@@ -196,7 +196,7 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 			run.noteInstruction(ctx, event)
 		}
 		event.Generation = run.processGeneration()
-		run.rt.Driver.TakeHook(ctx, event)
+		run.tellDriver(ctx, event)
 		if len(event.Asked) != 0 {
 			record, asked, categories := run.record(), event.Asked, run.askCategories()
 			w.goTracked(trackedConversion, func() { w.convertAsked(ctx, record, asked, categories) })

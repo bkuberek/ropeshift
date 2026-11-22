@@ -1,10 +1,38 @@
 package worker_test
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 )
+
+// heldToken is the token of a session that outlived its worker.
+const heldToken = "held-token"
+
+// holdsToken gives the adopted session the token its hooks speak with.
+func (w *worldRig) holdsToken(t *testing.T) {
+	t.Helper()
+	record := w.lane("lane-1")
+	record.TokenDigest = lanes.TokenDigest(heldToken)
+	if err := w.journal.SaveLane(t.Context(), record); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hookOnSocket is one hook reaching the worker's socket.
+func (w *worldRig) hookOnSocket(t *testing.T, event lanes.HookEvent) {
+	t.Helper()
+	line, err := json.Marshal(lanes.Request{Version: lanes.SocketProtocol, Token: heldToken, Hook: &event})
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if reply := w.subject.AnswerLane(context.Background(), line); !reply.OK {
+		t.Errorf("the hook was refused: %+v", reply)
+	}
+}
 
 // failedHook lays down one StopFailure as a hook left it in the journal while no worker listened.
 func (w *worldRig) failedHook(t *testing.T, detail string, atMs int64) {

@@ -825,12 +825,12 @@ func (r *laneRun) parkDeferred(ctx context.Context) bool {
 }
 
 // resumeApprovals restores what a journal held of a lane that goes on, and returns the calls it still waits
-// on, each as a hook names its call.
+// on, each as a hook names its call. What cannot be read may be an open dialog, so it is a call with no name.
 func (r *laneRun) resumeApprovals(ctx context.Context) []string {
 	rows, err := r.requestsOfThisGeneration(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		return nil
+		return []string{ports.UnnamedCall}
 	}
 	r.state.noteApprovals(len(rows))
 	if len(rows) != 0 && !r.parkingOf().Open() {
@@ -841,6 +841,44 @@ func (r *laneRun) resumeApprovals(ctx context.Context) []string {
 		waits = append(waits, row.Seen)
 	}
 	return waits
+}
+
+// tellDriver hands the driver one hook. A driver drops a hook of a session it does not hold yet, so until an
+// adoption ends the run also keeps the newest end of a turn, and each call asked since that has not ended.
+func (r *laneRun) tellDriver(ctx context.Context, event lanes.HookEvent) {
+	r.untoldLock.Lock()
+	defer r.untoldLock.Unlock()
+	if r.untold != nil {
+		switch event.Event {
+		case hookPermissionRequest:
+			r.untold = append(r.untold, event)
+		case hookPostToolUse, lanes.EventToolFailed:
+			r.untold = slices.DeleteFunc(r.untold, func(kept lanes.HookEvent) bool {
+				return kept.Event == hookPermissionRequest && kept.Digest == event.Digest
+			})
+		case lanes.EventStop, hookStopFailure:
+			r.untold = append(r.untold[:0], event)
+		}
+	}
+	r.rt.Driver.TakeHook(ctx, event)
+}
+
+// adopting says an adoption is under way, so the driver may not hold the session yet.
+func (r *laneRun) adopting() bool {
+	r.untoldLock.Lock()
+	defer r.untoldLock.Unlock()
+	return r.untold != nil
+}
+
+// tellUntold ends what tellDriver keeps, and hands it to the driver in order. A second read of the approvals
+// would not do in its place: a look raises its request after its hook is delivered, so maybe after that read.
+func (r *laneRun) tellUntold(ctx context.Context) {
+	r.untoldLock.Lock()
+	defer r.untoldLock.Unlock()
+	for _, event := range r.untold {
+		r.rt.Driver.TakeHook(ctx, event)
+	}
+	r.untold = nil
 }
 
 // requestsOfThisGeneration reads what this session is waiting on. A request an earlier generation

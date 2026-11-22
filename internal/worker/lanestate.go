@@ -24,6 +24,8 @@ const (
 	hookPostToolUse  = "PostToolUse"
 	hookStopFailure  = "StopFailure"
 	hookSessionStart = "SessionStart"
+
+	hookPermissionRequest = "PermissionRequest"
 )
 
 // reachSeen is the last thing seen about one target.

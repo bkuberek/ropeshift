@@ -398,23 +398,45 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 
 // replay takes the hooks a journal kept of a session, oldest first. A journal merges each hook into one
 // record that names no call, so a record cannot say whether the wait it began still stands: the waits are
-// not replayed, and the approvals the worker still holds open are the ones the session waits on.
+// not replayed, and holdDialogs says which dialogs may still be open.
 func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
 	records := slices.Clone(from.Hooks)
 	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
+	var askedMs, clearedMs int64
 	for _, record := range records {
 		// A clear moves a lane's generation under this process, and no later generation has one.
-		if record.Generation < generation || record.Event == hookNotification || record.Event == eventPermissionRequest {
+		if record.Generation < generation || record.Event == hookNotification {
 			continue
+		}
+		if record.Event == eventPermissionRequest {
+			askedMs = record.LastMs
+			continue
+		}
+		if record.Event == hookSessionStart && record.Detail == lanes.SourceClear {
+			clearedMs = record.FirstMs
 		}
 		event := record.HookEvent
 		event.AtMs = record.LastMs
 		s.takeHook(event)
 	}
+	s.holdDialogs(from.Approvals, askedMs, clearedMs)
+}
+
+// holdDialogs restores the waits of a dialog that may still be open. None outlasts the end of its turn or a
+// clear, whether or not the worker read that end. Otherwise each open approval stands, and with none, the
+// request is a dialog with no name, because its approval may not be raised yet.
+func (s *paneSession) holdDialogs(open []string, askedMs, clearedMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, seen := range from.Approvals {
+	endedMs, unread := max(s.stopMs, s.floor, clearedMs), s.stopMs > s.floor
+	if endedMs > askedMs && (askedMs != 0 || unread) {
+		return
+	}
+	for _, seen := range open {
 		s.approvals[seen] = true
+	}
+	if len(open) == 0 && askedMs != 0 {
+		s.approvals[ports.UnnamedCall] = true
 	}
 }
 
@@ -681,7 +703,9 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case eventPermissionRequest:
 		s.approvals[event.Digest] = true
 	case hookPostToolUse, lanes.EventToolFailed:
-		delete(s.approvals, event.Digest)
+		if event.Digest != ports.UnnamedCall {
+			delete(s.approvals, event.Digest)
+		}
 	case hookPostCompact:
 		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})
 		if event.Detail == compactRequested {
