@@ -33,17 +33,20 @@ const webhookTimeout = 10 * time.Second
 type Dial func(ctx context.Context, network, address string) (net.Conn, error)
 
 // WebhookConfig is one workspace's webhook. URL comes from a published policy, which refused a secret
-// in it, and Key from the daemon's environment.
+// in it, and Key from the daemon's environment. KeyEnv is the name of the variable Key was read from, empty
+// when the policy names none: a webhook with a KeyEnv and no Key sends nothing.
 type WebhookConfig struct {
-	URL  string
-	Key  string
-	Dial Dial
+	URL    string
+	Key    string
+	KeyEnv string
+	Dial   Dial
 }
 
 // Webhook posts a notice as JSON.
 type Webhook struct {
 	url    string
 	key    []byte
+	keyEnv string
 	client *http.Client
 }
 
@@ -55,7 +58,7 @@ func NewWebhook(config WebhookConfig) *Webhook {
 	if dial == nil {
 		dial = (&net.Dialer{Timeout: webhookTimeout}).DialContext
 	}
-	return &Webhook{url: config.URL, key: []byte(config.Key), client: &http.Client{
+	return &Webhook{url: config.URL, key: []byte(config.Key), keyEnv: config.KeyEnv, client: &http.Client{
 		Timeout:       webhookTimeout,
 		Transport:     &http.Transport{DialContext: dial, DisableKeepAlives: true, ResponseHeaderTimeout: webhookTimeout},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -84,8 +87,13 @@ func failure(ctx context.Context, err error) error {
 	return errors.New("the webhook could not be reached")
 }
 
-// Notify posts one notice. Anything but a 2xx is a refusal, a redirect among them.
+// Notify posts one notice. Anything but a 2xx is a refusal, a redirect among them. A webhook whose policy
+// names a key variable that holds no key refuses before it opens a connection, and names the variable and no
+// value, so a delivery is never sent unsigned in place of a signed one.
 func (w *Webhook) Notify(ctx context.Context, notice ledger.Notice) error {
+	if w.keyEnv != "" && len(w.key) == 0 {
+		return fmt.Errorf("the webhook's key variable %s is not set or is empty", w.keyEnv)
+	}
 	body, err := json.Marshal(notice)
 	if err != nil {
 		return err
