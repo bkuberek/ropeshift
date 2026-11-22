@@ -527,9 +527,9 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 			r.noteModel(lanes.Reachable)
 		}
 		// An end older than the session's newest input ends a turn the lane has already left: the requests, calls,
-		// and state of the turn it is in stand.
+		// compaction, and state of the turn it is in stand.
 		if r.endHeld {
-			r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed)
+			r.signal(ctx, lanes.OnActivity)
 		} else {
 			r.turnEndedWithRequests(ctx, event.Turn)
 			s.callsEnded()

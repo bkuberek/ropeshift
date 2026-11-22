@@ -255,3 +255,29 @@ func TestARestsBoundReadsTheTurnAgainBeforeItNudges(t *testing.T) {
 	working.free()
 	r.awaitOrderState(t, workorders.Acceptance)
 }
+
+// An end older than the newest prompt says nothing of a compaction that began in the turn after it: the lane stays in
+// that compaction until the compaction ends.
+func TestAnEndOlderThanItsPromptLeavesANewerCompaction(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	first, next := newGate(), newGate()
+	r.gates(first, next)
+	r.driver.Play(script([]fake.DriverStep{
+		{Bound: true}, first.step(), completed(0.01), next.step(), r.reports(workorders.OutcomeCompleted), completed(0.02),
+	}))
+	r.atGate(first)
+	at := time.Now().UnixMilli()
+	r.stopAt(t, at, 1)
+	r.promptAt(t, at+1)
+	r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "session-1", Detail: "auto", AtMs: at + 2})
+	first.free()
+	r.reach(t, next)
+	r.turnDecided(t, 0.01)
+	if view := r.read(); view.ActualState != string(lanes.Compacting) {
+		t.Fatalf("an end older than the prompt took the lane out of the compaction after it: it reads %s", view.ActualState)
+	}
+	r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "session-1", Detail: "auto", AtMs: at + 3})
+	next.free()
+	r.awaitOrderState(t, workorders.Acceptance)
+}
