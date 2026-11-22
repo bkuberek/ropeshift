@@ -20,6 +20,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -109,12 +110,19 @@ func (f Forge) binary() (string, error) {
 }
 
 func (f Forge) environment() []string {
-	base := f.Env
-	if base == nil {
-		base = os.Environ()
+	source := f.Env
+	if source == nil {
+		source = os.Environ()
+	}
+	// The daemon's own secrets stay out. GH_TOKEN stays, because it is how `gh` signs in.
+	base := make([]string, 0, len(source)+3)
+	for _, entry := range source {
+		if name, _, _ := strings.Cut(entry, "="); !lanes.DaemonSecret(name) {
+			base = append(base, entry)
+		}
 	}
 	// A worker has no terminal to prompt on, and a notice of a new version is no answer to parse.
-	return append(base[:len(base):len(base)], "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
+	return append(base, "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
 }
 
 // run runs one command in a checkout and returns its stdout. A command the forge refused for a rate limit is a
