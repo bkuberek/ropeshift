@@ -62,14 +62,17 @@ func (d *adoptingDriver) TakeHook(ctx context.Context, event lanes.HookEvent) {
 func TestADialogAskedDuringAnAdoptionReachesTheDriver(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		after string
-		told  string
+		name    string
+		after   string
+		afterMs int64
+		told    []string
 	}{
-		{name: "still open", told: "PermissionRequest"},
-		{name: "its call ended", after: "PostToolUse"},
-		{name: "its turn ended", after: "Stop", told: "Stop"},
-		{name: "its turn failed", after: "StopFailure", told: "StopFailure"},
+		{name: "still open", told: []string{"PermissionRequest"}},
+		{name: "its call ended", after: "PostToolUse", afterMs: 20},
+		{name: "its turn ended", after: "Stop", afterMs: 20, told: []string{"Stop"}},
+		{name: "its turn failed", after: "StopFailure", afterMs: 20, told: []string{"StopFailure"}},
+		{name: "an older Stop came late", after: "Stop", afterMs: 5, told: []string{"Stop", "PermissionRequest"}},
+		{name: "an older StopFailure came late", after: "StopFailure", afterMs: 5, told: []string{"StopFailure", "PermissionRequest"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -81,14 +84,11 @@ func TestADialogAskedDuringAnAdoptionReachesTheDriver(t *testing.T) {
 			w.config.Driver = &adoptingDriver{AgentDriver: w.driver, during: func() {
 				w.hookOnSocket(t, lanes.HookEvent{Event: "PermissionRequest", Subject: "s", Digest: "seen-1", AtMs: 10})
 				if test.after != "" {
-					w.hookOnSocket(t, lanes.HookEvent{Event: test.after, Subject: "s", Digest: "seen-1", AtMs: 20})
+					w.hookOnSocket(t, lanes.HookEvent{Event: test.after, Subject: "s", Digest: "seen-1", AtMs: test.afterMs})
 				}
 			}}
 			w.passesOnceAdopted(t)
-			var want []string
-			if test.told != "" {
-				want = []string{test.told}
-			}
+			want := test.told
 			for end := time.Now().Add(2 * time.Second); len(w.driver.Hooks()) < len(want) && time.Now().Before(end); {
 				time.Sleep(time.Millisecond)
 			}

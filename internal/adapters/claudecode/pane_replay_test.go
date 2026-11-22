@@ -214,3 +214,30 @@ func TestAReplayHoldsTheKeysFromASecondDialogBesideAnApproval(t *testing.T) {
 	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 140})
 	typesFreely(t, s)
 }
+
+// A spool can deliver an end late, and an adoption hands it on after the replay. It ends only what is not
+// newer than it.
+func TestALateTurnEndLeavesANewerWait(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		event string
+		hook  lanes.HookRecord
+		open  []string
+	}{
+		{"a dialog and a late Stop", hookStop, hookAt(eventPermissionRequest, 125, ""), nil},
+		{"a named dialog and a late StopFailure", hookStopFailure, hookAt(eventPermissionRequest, 125, ""), []string{"seen-1"}},
+		{"a question and a late Stop", hookStop, hookAt(hookNotification, 125, notificationNeedsInput), nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, 110)
+			s.replay(ports.AdoptFrom{Hooks: []lanes.HookRecord{test.hook}, Approvals: test.open}, 1)
+			s.takeHook(lanes.HookEvent{Event: test.event, AtMs: 118})
+			refusesInput(t, s)
+			s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 140})
+			typesFreely(t, s)
+		})
+	}
+}

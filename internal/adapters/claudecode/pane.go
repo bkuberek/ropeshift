@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -435,10 +436,10 @@ func (s *paneSession) holdDialogs(open []string, askedMs, clearedMs int64) {
 		return
 	}
 	for _, seen := range open {
-		s.approvals[seen] = true
+		s.approvals[seen] = askedMs
 	}
 	if askedMs != 0 {
-		s.approvals[ports.UnnamedCall] = true
+		s.approvals[ports.UnnamedCall] = askedMs
 	}
 }
 
@@ -479,9 +480,9 @@ type paneSession struct {
 	waiting   bool
 	waitingMs int64
 	totalUSD  float64
-	// approvals names the calls a hook is waiting on, and no key reaches a pane until each ends,
-	// because an Enter on a permission prompt is an answer.
-	approvals map[string]bool
+	// approvals names the calls a hook is waiting on and when each was asked, and no key reaches a pane until
+	// each ends, because an Enter on a permission prompt is an answer.
+	approvals map[string]int64
 	meter     lanes.CostMeter
 	seen      ports.Observation
 }
@@ -489,7 +490,7 @@ type paneSession struct {
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
-		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]bool{},
+		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]int64{},
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)
@@ -703,7 +704,7 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case hookNotification:
 		s.waiting, s.waitingMs = event.Detail == notificationNeedsInput, event.AtMs
 	case eventPermissionRequest:
-		s.approvals[event.Digest] = true
+		s.approvals[event.Digest] = event.AtMs
 	case hookPostToolUse, lanes.EventToolFailed:
 		if event.Digest != ports.UnnamedCall {
 			delete(s.approvals, event.Digest)
@@ -747,8 +748,10 @@ func (s *paneSession) endTurn(event lanes.HookEvent, status ports.TurnStatus, re
 		}
 		return
 	}
-	s.stopMs, s.waiting = event.AtMs, false
-	clear(s.approvals)
+	s.stopMs = event.AtMs
+	// An end can arrive late, and it ends only what is not newer than it.
+	s.waiting = s.waiting && s.waitingMs > event.AtMs
+	maps.DeleteFunc(s.approvals, func(_ string, askedMs int64) bool { return askedMs <= event.AtMs })
 	turn := ports.TurnResult{Status: status, Reason: reason, CostUSD: s.meter.ObserveTurn(s.totalUSD)}
 	turn.Cost = s.meter
 	s.push(ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &turn, Seq: event.AtMs})

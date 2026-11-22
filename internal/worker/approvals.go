@@ -844,7 +844,8 @@ func (r *laneRun) resumeApprovals(ctx context.Context) []string {
 }
 
 // tellDriver hands the driver one hook. A driver drops a hook of a session it does not hold yet, so until an
-// adoption ends the run also keeps the newest end of a turn, and each call asked since that has not ended.
+// adoption ends the run also keeps the ends of turns, and the calls asked that have not ended. An end discards
+// only what is not newer than it, and goes ahead of the rest, because a spool can deliver one late.
 func (r *laneRun) tellDriver(ctx context.Context, event lanes.HookEvent) {
 	r.untoldLock.Lock()
 	defer r.untoldLock.Unlock()
@@ -857,7 +858,9 @@ func (r *laneRun) tellDriver(ctx context.Context, event lanes.HookEvent) {
 				return kept.Event == hookPermissionRequest && kept.Digest == event.Digest
 			})
 		case lanes.EventStop, hookStopFailure:
-			r.untold = append(r.untold[:0], event)
+			r.untold = slices.Insert(slices.DeleteFunc(r.untold, func(kept lanes.HookEvent) bool {
+				return kept.AtMs <= event.AtMs
+			}), 0, event)
 		}
 	}
 	r.rt.Driver.TakeHook(ctx, event)
