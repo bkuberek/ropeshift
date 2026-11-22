@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -48,6 +49,27 @@ func TestAPushTheWorkerCannotCheckSaysSoAndNamesNoBase(t *testing.T) {
 	if !strings.Contains(reason, "cannot check") || !strings.Contains(reason, foreignFile) || !strings.Contains(reason, "holds until") ||
 		strings.Contains(reason, "git reset") {
 		t.Errorf("the refusal reads %q", reason)
+	}
+	g.free()
+}
+
+// TestEveryFormOfAPushIsChecked holds FR-LANE-20's check to each form of a push the hook asks for, a command that
+// could be one included, in each tool that runs a shell.
+func TestEveryFormOfAPushIsChecked(t *testing.T) {
+	t.Parallel()
+	r, g := staleLane(t, func(*laneRig) {})
+	for i, call := range []struct{ tool, input string }{
+		{"Bash", `{"command":"git -C . push origin lane/lane-1"}`},
+		{"Bash", `{"command":"env -u HOME git push origin lane/lane-1"}`},
+		{"Bash", `{"command":"timeout 60 git push origin lane/lane-1"}`},
+		{"Bash", `{"command":"$GIT push origin lane/lane-1"}`},
+		{"Bash", `{"command":"echo git push | sh"}`},
+		{"Monitor", `{"command":"git push origin lane/lane-1"}`},
+	} {
+		reply := r.lookAtTool(t, call.tool, call.input, "c-push-"+strconv.Itoa(i), false)
+		if reply.Approval == nil || reply.Approval.Decision != lanes.ApprovalDeny || !strings.Contains(reply.Approval.Reason, foreignFile) {
+			t.Errorf("%s %s was answered %+v", call.tool, call.input, reply.Approval)
+		}
 	}
 	g.free()
 }

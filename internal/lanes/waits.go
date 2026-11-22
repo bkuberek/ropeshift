@@ -192,6 +192,9 @@ func (w WaitRules) scan(text string, inLoop bool, depth int, found map[string]bo
 				continue
 			}
 		}
+		for _, inner := range command.processes {
+			w.scan(inner, inLoop || loops > 0, depth+1, found)
+		}
 		words := stripLeaders(command.words)
 		words = afterOperand(command.words, words)
 		if len(words) == 0 {

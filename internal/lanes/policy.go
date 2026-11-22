@@ -118,9 +118,11 @@ type PolicySpec struct {
 	OwnTools string
 	// Ground is what a session that lost its place is told of its work.
 	Ground Grounding
-	// ApprovalWaitMs bounds a hook that waits on a decision, and Gates are what it defers.
+	// ApprovalWaitMs bounds a hook that waits on a decision, and Gates are what it asks for or defers.
 	ApprovalWaitMs int64
 	Gates          []GateRule
+	// GatesAskOnly makes a gated call ask and never defer.
+	GatesAskOnly bool
 	// ReadOnly makes a lane that reads and reports: it edits no file with a tool, and writes no commit
 	// and no ref.
 	ReadOnly bool
@@ -182,7 +184,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		Waits:    waits,
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
-		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots),
 		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
 		RefusedFlags: slices.Clone(spec.RefusedFlags),
 	}
@@ -249,11 +251,19 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 		if reason, denied := p.decideShell(call.Command, call.Cwd, 0, &seen); denied {
 			return reason, true
 		}
-		if seen.pushes && seen.commits {
+		reason, pushes, denied := p.decidePushes(call.Command)
+		if denied {
+			return reason, true
+		}
+		if (seen.pushes || pushes) && seen.commits {
 			return ReasonPushApart, true
 		}
 		if wait, waits := p.WaitDenial(call); waits {
 			return wait.Reason, true
+		}
+	case toolMonitor, toolPowerShell:
+		if reason, _, denied := p.decidePushes(call.Command); denied {
+			return reason, true
 		}
 	case toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit:
 		if len(p.Roots) != 0 && !p.inside(shellWord{text: call.Path}, call.Cwd) {
@@ -376,8 +386,8 @@ var shellKeywords = []string{"if", "then", "elif", "else", "do", "while", "until
 // shells take a command as an argument.
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh"}
 
-// Pushes says a shell command runs git push, however deep it stands, which is what the worker reads a lane's
-// commits for before it lets the push ask anyone (FR-LANE-20).
+// Pushes says a shell command runs git push where the policy's own reading of commands finds one, however deep it
+// stands. MayPush also takes the forms past that reading, and what cannot be read.
 func Pushes(command string) bool {
 	var seen gitSeen
 	_, _ = DenyPolicy{}.decideShell(command, "", 0, &seen)
@@ -409,6 +419,11 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				if !p.inside(target, at) {
 					return ReasonOutside, true
 				}
+			}
+		}
+		for _, inner := range command.processes {
+			if reason, denied := p.decideShell(inner, at, depth+1, seen); denied {
+				return reason, true
 			}
 		}
 		words := stripLeaders(command.words)
@@ -648,10 +663,11 @@ func (p DenyPolicy) namesKept(subcommand string, args []shellWord) bool {
 }
 
 // pushOptionsWithValue are the options of `git push` that take the next word.
-var pushOptionsWithValue = []string{"-o", "--push-option", "--repo", "--receive-pack", "--exec", "--signed"}
+var pushOptionsWithValue = []string{"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
+// isForceOption reads a forcing option, also cut short as git takes a long option.
 func isForceOption(text string) bool {
-	if text == "--force" || text == "--force-if-includes" || strings.HasPrefix(text, "--force-with-lease") {
+	if strings.HasPrefix(text, "--forc") {
 		return true
 	}
 	return strings.HasPrefix(text, "-") && !strings.HasPrefix(text, "--") && strings.Contains(text, "f")
@@ -667,7 +683,7 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		switch {
 		case isForceOption(text):
 			return ReasonForcePush, true
-		case text == "--all" || text == "--mirror" || text == "--branches":
+		case pushesEverything(text):
 			everything = true
 		case slices.Contains(pushOptionsWithValue, text):
 			i++
@@ -690,7 +706,7 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		if _, after, found := strings.Cut(refspec, ":"); found {
 			destination = after
 		}
-		destination = strings.TrimPrefix(destination, "refs/heads/")
+		destination = strings.TrimPrefix(strings.TrimPrefix(destination, "refs/"), "heads/")
 		if slices.Contains(p.DefaultBranches, destination) {
 			return ReasonDefaultBranch, true
 		}
@@ -699,6 +715,13 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// pushesEverything reads an option that pushes every branch, also cut short as far as it stays the one option.
+func pushesEverything(text string) bool {
+	return (len(text) >= len("--al") && strings.HasPrefix("--all", text)) ||
+		(len(text) >= len("--m") && strings.HasPrefix("--mirror", text)) ||
+		(len(text) >= len("--b") && strings.HasPrefix("--branches", text))
 }
 
 // writeRule says which operands of a program it writes.
@@ -777,7 +800,7 @@ func sedTargets(args []shellWord) []shellWord {
 }
 
 // quietDevices take a write and keep nothing.
-var quietDevices = []string{"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
+var quietDevices = []string{"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", processPath}
 
 // resolve turns a word into a path with no `..`, as far as text can. Only the variables a
 // policy knows read as paths, and anything else is not known.

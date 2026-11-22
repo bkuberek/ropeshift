@@ -327,9 +327,11 @@ type DenyPolicy struct {
 	Hold string `json:"hold,omitempty"`
 	// ApprovalWaitMs bounds a hook that waits on a decision.
 	ApprovalWaitMs int64 `json:"approval_wait_ms,omitempty"`
-	// Gates are the calls a person must approve, and a hook defers one where it can, so a lane parks
-	// with no process waiting. Empty leaves every call to the wait.
+	// Gates are the calls a person must approve. A hook asks for a shell command one names, however it is written,
+	// and defers a call where it can (Defers), so a lane parks with no process waiting.
 	Gates []GateRule `json:"gates,omitempty"`
+	// GatesAskOnly says the session cannot honor a deferral, as a pane cannot, so a gated call asks and never defers.
+	GatesAskOnly bool `json:"gates_ask_only,omitempty"`
 	// OwnTools is the prefix of the lane's own tools, which a hold leaves open.
 	OwnTools string `json:"own_tools,omitempty"`
 	// Ground is what a session that lost its place is told of its work.
@@ -381,10 +383,11 @@ type GateRule struct {
 	Tool string `json:"tool"`
 	// CommandPrefix narrows a rule to commands that start with it.
 	CommandPrefix string `json:"command_prefix,omitempty"`
+	// Exact says the rule's command ends with no wildcard, so the agent CLI matches that command and no longer one.
+	Exact bool `json:"exact,omitempty"`
 }
 
-// Gated says a call is one a person must approve. It reads what a call says, so a call it misses
-// reaches `PermissionRequest` and waits there, and one it takes too widely only parks sooner.
+// Gated says a call starts as a gate does. It reads a command only as written: Asks reads the other forms.
 func (p DenyPolicy) Gated(call ToolCall) bool {
 	for _, gate := range p.Gates {
 		if gate.Tool == call.Tool && strings.HasPrefix(call.Command, gate.CommandPrefix) {
@@ -402,10 +405,11 @@ func ReadGate(rule string) GateRule {
 	if !found || tool != ToolBash {
 		return gate
 	}
-	body := strings.TrimSuffix(rest, ")")
+	command := strings.TrimSuffix(rest, ")")
+	body := command
 	for _, suffix := range []string{":*", " *", "*"} {
 		body = strings.TrimSuffix(body, suffix)
 	}
-	gate.CommandPrefix = body
+	gate.CommandPrefix, gate.Exact = body, body != "" && body == command
 	return gate
 }
