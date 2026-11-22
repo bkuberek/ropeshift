@@ -229,6 +229,7 @@ func (w *Worker) sessionSpec(ctx context.Context, record lanes.Record) ports.Ses
 	return ports.SessionSpec{
 		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.ProcessGeneration(), Dir: dir,
 		ConfigDir: rt.configDir(record.ID), TempDir: rt.tempDir(record.ID), Binary: rt.Binary, Override: rt.Override,
+		Assistant: record.Owner == ownerAssistant,
 	}
 }
 
@@ -453,10 +454,13 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		return err
 	case lanes.ActionContinue:
 		lease, ok := seen.leases[action.Lane]
-		if !ok || !w.admitsRestart(ctx, lease.Project) {
-			return w.endUnattended(ctx, seen.records[action.Lane])
+		record := seen.records[action.Lane]
+		// A drain lets a crashed lane end, and leaves an orchestrator as it is: it holds no lane's place, and the
+		// run a restart continues waits for something to judge before it starts a session.
+		if !ok || (record.Owner != lanes.OwnerOrchestrator && !w.admitsRestart(ctx, lease.Project)) {
+			return w.endUnattended(ctx, record)
 		}
-		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).proceed)
+		w.startRun(ctx, w.resumedRun(lease, record), (*laneRun).proceed)
 	case lanes.ActionAdopt:
 		run, err := w.adoptedRun(ctx, seen.records[action.Lane], seen.located[action.Lane], seen.leases[action.Lane])
 		if err != nil {
