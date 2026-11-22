@@ -490,6 +490,9 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.running = progress.Cost.SessionTotalUSD
 	r.handleLock.Unlock()
 	r.state.newGeneration(r.w.clock.Now(), progress.BaselineTokens)
+	if r.assisting() {
+		r.assistant().newGeneration()
+	}
 	r.digestBegins(r.w.clock.Now().UnixMilli())
 }
 

@@ -150,6 +150,11 @@ type laneRun struct {
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
 	gates []string
 
+	// untold is what a driver may have missed while an adoption runs, and nil once it ended (tellDriver).
+	// untoldLock guards it.
+	untoldLock sync.Mutex
+	untold     []lanes.HookEvent
+
 	bound   bool
 	nudged  atomic.Bool
 	cursor  int64
@@ -345,11 +350,11 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 		case hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied, lanes.EventCallDenied:
 			calls = append(calls, record)
 		default:
-			r.observeHook(ctx, record.HookEvent)
+			r.observeReplayedHook(ctx, record.HookEvent)
 		}
 	}
 	for _, record := range calls {
-		r.observeHook(ctx, record.HookEvent)
+		r.observeReplayedHook(ctx, record.HookEvent)
 	}
 	switch {
 	case began > ended:
@@ -637,9 +642,14 @@ func (r *laneRun) endResult(report workorders.Report) workorders.LaneResult {
 func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located, lease ledger.DesiredLease) (*laneRun, error) {
 	lease.WorkOrder, lease.ClaimID, lease.Fence, lease.Lane = record.WorkOrder, record.ClaimID, record.Fence, record.ID
 	run := w.resumedRun(lease, record)
+	// A cursor moves only when a turn ends, so it says the same in a journal kept before Briefed was.
+	if run.assisting() && (record.Progress.Briefed || record.Progress.Cursor > 0) {
+		run.assistant().noteTurn()
+	}
 	run.fenced.Store(w.leaseGone(ctx, record))
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
+	run.untold = []lanes.HookEvent{}
 	// A session's token ends only when a worker reads its end, or with its generation or its lane.
 	run.endTold = record.TokenDigest == ""
 	run.state = laneStateOf(record, w.clock.Now())
@@ -666,18 +676,21 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
 	r.adopted.Store(true)
+	var unread []string
 	hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
+		unread = []string{ports.UnnamedCall}
 	}
 	r.replayHooks(ctx, hooks)
-	r.resumeApprovals(ctx)
+	approvals := append(r.resumeApprovals(ctx), unread...)
 	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
 	// to its limit from here.
 	r.readAllowance(ctx)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
-		Spec: r.w.sessionSpec(ctx, r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
+		Spec: r.w.sessionSpec(ctx, r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks, Approvals: approvals,
 	})
+	r.tellUntold(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
@@ -697,6 +710,10 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	}
 	r.resumeParking(ctx)
 	r.resumeHandoff(ctx)
+	if !reported {
+		// Before the stream is read, because a headless turn that failed on the sign-in names no reason.
+		r.w.parkOnSignIn(ctx)
+	}
 	switch {
 	case r.state.current() != lanes.Idle:
 	case len(r.blockingQuestions()) != 0:
@@ -709,10 +726,14 @@ func (r *laneRun) adopt(ctx context.Context) error {
 }
 
 // unread settles a lane whose session cannot be read. Parking and a handoff still finish,
-// because those are the failures with somewhere to go. The turn the session may have ended in counts first, so the
-// lane's end, its next generation, or its wake carries it.
+// because those are the failures with somewhere to go, and a sign-in that is out is one more, because it parks
+// the lane. The turn the session may have ended in counts first, so the lane's end, its next generation, or its
+// wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
 	r.unreadEnd(ctx)
+	if _, reported := r.reported(ctx); !reported && !r.left.Open() {
+		r.w.parkOnSignIn(ctx)
+	}
 	if _, _, asked := r.waitParkOf(); asked || r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}
@@ -1254,7 +1275,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
-		EndCounted: r.endKept,
+		EndCounted: r.endKept, Briefed: r.assisting() && r.assistant().isBriefed(),
 	}
 	r.state.journalContext(&progress)
 	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {

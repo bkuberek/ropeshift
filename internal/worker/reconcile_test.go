@@ -29,7 +29,13 @@ type worldRig struct {
 // newWorldRig stops what a test left running before its directories go.
 func newWorldRig(t *testing.T) *worldRig {
 	t.Helper()
-	w := &worldRig{laneRig: newLaneRig(t)}
+	return newWorldRigOn(t, newRig(t))
+}
+
+// newWorldRigOn builds on a rig a test has already set up.
+func newWorldRigOn(t *testing.T, base *rig) *worldRig {
+	t.Helper()
+	w := &worldRig{laneRig: newLaneRigFor(t, base)}
 	t.Cleanup(func() {
 		w.driver.StopEverySession()
 		w.subject.Wait()

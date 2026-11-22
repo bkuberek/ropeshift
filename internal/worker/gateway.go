@@ -142,7 +142,13 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		if run := w.runOf(lane.ID); run != nil && run.currentGeneration() == event.Generation {
 			run.readStart(ctx, event)
 		}
+		heard := w.runOf(lane.ID) != nil
 		w.deliverHook(ctx, event)
+		if !heard {
+			if err := w.noteUnheard(ctx, event); err != nil {
+				w.config.Report(fmt.Errorf("lane %s: a failure no run heard: %w", lane.ID, err))
+			}
+		}
 		w.takeAdmission(ctx, event)
 		w.recordWaitDenied(ctx, lane, event)
 		reply := lanes.Reply{OK: true, Generation: lane.Generation}
@@ -196,7 +202,7 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 			run.noteInstruction(ctx, event)
 		}
 		event.Generation = run.processGeneration()
-		run.rt.Driver.TakeHook(ctx, event)
+		run.tellDriver(ctx, event)
 		if len(event.Asked) != 0 {
 			record, asked, categories := run.record(), event.Asked, run.askCategories()
 			w.goTracked(trackedConversion, func() { w.convertAsked(ctx, record, asked, categories) })
@@ -392,6 +398,7 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		return err
 	}
 	dropped := 0
+	var unheard []lanes.HookEvent
 	digestOf := func(lane string) (string, error) { return w.tokenDigestOf(ctx, lane) }
 	for line := range bytes.SplitSeq(raw, []byte("\n")) {
 		if len(line) == 0 {
@@ -409,8 +416,12 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return err
 		}
-		if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation && event.Event == lanes.EventUserPromptSubmit {
+		run := w.runOf(event.Lane)
+		if run != nil && run.currentGeneration() == event.Generation && event.Event == lanes.EventUserPromptSubmit {
 			run.leaveUnread(ctx)
+		}
+		if run == nil && event.Event == hookStopFailure {
+			unheard = append(unheard, event)
 		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
@@ -418,6 +429,13 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 			if record, err := w.journal.Lane(ctx, event.Lane); err == nil {
 				w.recordWaitDenied(ctx, record, event)
 			}
+		}
+	}
+	// A failure is read once the whole file is in the journal, because a later line can be the Stop after it, and
+	// before the file goes, so a crash reads it again.
+	for _, event := range unheard {
+		if err := w.noteUnheard(ctx, event); err != nil {
+			return err
 		}
 	}
 	if dropped != 0 {

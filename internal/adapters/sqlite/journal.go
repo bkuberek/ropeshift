@@ -941,7 +941,8 @@ func (j *Journal) ExpireToken(ctx context.Context, lane string) error {
 }
 
 // MergeHook stores one event, or adds a repeat to its first. Order does not matter,
-// because hook payloads have no sequence and the bounds only widen.
+// because hook payloads have no sequence, the bounds only widen, and the detail is the newest one's, except
+// that a SessionStart that was a clear stays one, because that word is what begins a generation.
 func (j *Journal) MergeHook(ctx context.Context, event lanes.HookEvent) error {
 	malformed := 0
 	if event.Malformed {
@@ -952,9 +953,12 @@ func (j *Journal) MergeHook(ctx context.Context, event lanes.HookEvent) error {
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?10, ?11, ?9, ?9, 1)
 ON CONFLICT (lane, generation, event, subject) DO UPDATE SET
   first_ms = min(first_ms, ?9), last_ms = max(last_ms, ?9), count = count + 1,
+  detail = CASE
+    WHEN ?3 = 'SessionStart' AND (detail = ?12 OR ?7 = ?12) THEN ?12
+    WHEN ?9 >= last_ms THEN ?7 ELSE detail END,
   socket = CASE WHEN ?10 = '' THEN socket ELSE ?10 END, model = CASE WHEN ?11 = '' THEN model ELSE ?11 END`,
 		event.Lane, event.Generation, event.Event, event.Subject, event.SessionID, event.Tool, event.Detail, malformed, event.AtMs,
-		event.Socket, event.Model)
+		event.Socket, event.Model, lanes.SourceClear)
 	return err
 }
 

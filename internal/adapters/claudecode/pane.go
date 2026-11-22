@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -376,17 +377,7 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	if err := s.listen(spec, d.adoptedUse(ctx, launchedVersion(spec))); err != nil {
 		return err
 	}
-	records := slices.Clone(from.Hooks)
-	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
-	for _, record := range records {
-		// A clear moves a lane's generation under this process, and no later generation has one.
-		if record.Generation < spec.Generation {
-			continue
-		}
-		event := record.HookEvent
-		event.AtMs = record.LastMs
-		s.takeHook(event)
-	}
+	s.replay(from, spec.Generation)
 	d.keep(h.ID, s, spec)
 	s.follow()
 	switch state.Phase {
@@ -404,6 +395,52 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 		}
 	}
 	return nil
+}
+
+// replay takes the hooks a journal kept of a session, oldest first. A journal merges each hook into one
+// record that names no call, so a PermissionRequest is not replayed as one, and holdDialogs says which dialogs
+// and questions may still be open.
+func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
+	records := slices.Clone(from.Hooks)
+	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
+	var askedMs, clearedMs int64
+	for _, record := range records {
+		// A clear moves a lane's generation under this process, and no later generation has one.
+		if record.Generation < generation {
+			continue
+		}
+		if record.Event == eventPermissionRequest {
+			askedMs = record.LastMs
+			continue
+		}
+		if record.Event == hookSessionStart && record.Detail == lanes.SourceClear {
+			clearedMs = record.FirstMs
+		}
+		event := record.HookEvent
+		event.AtMs = record.LastMs
+		s.takeHook(event)
+	}
+	s.holdDialogs(from.Approvals, askedMs, clearedMs)
+}
+
+// holdDialogs restores the waits of a question or a dialog that may still be open. None outlasts the end of its
+// turn or a clear, whether or not the worker read that end, and no question outlasts a later prompt.
+// Otherwise each open approval stands, and beside them the newest request is a dialog with no name, because it
+// can be another call's, whose approval is not raised yet.
+func (s *paneSession) holdDialogs(open []string, askedMs, clearedMs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	endedMs, unread := max(s.stopMs, s.floor, clearedMs), s.stopMs > s.floor
+	s.waiting = s.waiting && s.waitingMs > max(endedMs, s.promptMs)
+	if endedMs > askedMs && (askedMs != 0 || unread) {
+		return
+	}
+	for _, seen := range open {
+		s.approvals[seen] = askedMs
+	}
+	if askedMs != 0 {
+		s.approvals[ports.UnnamedCall] = askedMs
+	}
 }
 
 // paneSession is one session in a pane. Everything a worker learns of it comes from its
@@ -438,12 +475,14 @@ type paneSession struct {
 	promptMs int64
 	stopMs   int64
 	// floor is where the worker stopped reading, so a replay does not end a turn twice.
-	floor    int64
-	waiting  bool
-	totalUSD float64
-	// approvals names the calls a hook is waiting on, and no key reaches a pane until each ends,
-	// because an Enter on a permission prompt is an answer.
-	approvals map[string]bool
+	floor int64
+	// waiting says a Notification asked for an answer, and waitingMs is when it fired.
+	waiting   bool
+	waitingMs int64
+	totalUSD  float64
+	// approvals names the calls a hook is waiting on and when each was asked, and no key reaches a pane until
+	// each ends, because an Enter on a permission prompt is an answer.
+	approvals map[string]int64
 	meter     lanes.CostMeter
 	seen      ports.Observation
 }
@@ -451,7 +490,7 @@ type paneSession struct {
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
-		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]bool{},
+		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]int64{},
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)
@@ -663,11 +702,13 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case lanes.EventStatusLine:
 		s.takeStatus(event)
 	case hookNotification:
-		s.waiting = event.Detail == notificationNeedsInput
+		s.waiting, s.waitingMs = event.Detail == notificationNeedsInput, event.AtMs
 	case eventPermissionRequest:
-		s.approvals[event.Digest] = true
+		s.approvals[event.Digest] = event.AtMs
 	case hookPostToolUse, lanes.EventToolFailed:
-		delete(s.approvals, event.Digest)
+		if event.Digest != ports.UnnamedCall {
+			delete(s.approvals, event.Digest)
+		}
 	case hookPostCompact:
 		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})
 		if event.Detail == compactRequested {
@@ -702,10 +743,15 @@ func (s *paneSession) note(event lanes.HookEvent) {
 func (s *paneSession) endTurn(event lanes.HookEvent, status ports.TurnStatus, reason string) {
 	if event.AtMs <= s.stopMs || event.AtMs <= s.floor {
 		s.stopMs = max(s.stopMs, event.AtMs)
+		if s.waiting && s.waitingMs > 0 && event.AtMs >= s.waitingMs {
+			s.waiting = false
+		}
 		return
 	}
-	s.stopMs, s.waiting = event.AtMs, false
-	clear(s.approvals)
+	s.stopMs = event.AtMs
+	// An end can arrive late, and it ends only what is not newer than it.
+	s.waiting = s.waiting && s.waitingMs > event.AtMs
+	maps.DeleteFunc(s.approvals, func(_ string, askedMs int64) bool { return askedMs <= event.AtMs })
 	turn := ports.TurnResult{Status: status, Reason: reason, CostUSD: s.meter.ObserveTurn(s.totalUSD)}
 	turn.Cost = s.meter
 	s.push(ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &turn, Seq: event.AtMs})

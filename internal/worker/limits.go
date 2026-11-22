@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -37,12 +38,12 @@ func (w *Worker) signIn() lanes.SignInState {
 
 // loadSignIn reads what an earlier process kept.
 func (w *Worker) loadSignIn(ctx context.Context) error {
+	w.signLock.Lock()
+	defer w.signLock.Unlock()
 	state, err := w.journal.SignIn(ctx)
 	if err != nil {
 		return err
 	}
-	w.signLock.Lock()
-	defer w.signLock.Unlock()
 	w.sign = state
 	return nil
 }
@@ -132,6 +133,34 @@ func (r *laneRun) noteFailure(ctx context.Context, category string) bool {
 		return false
 	}
 	return true
+}
+
+// noteUnheard notes a StopFailure that arrived with no run to hear it, as one spooled while the worker was
+// down does, unless the session stopped after it. An adoption's replay is quiet, so this is where such a
+// failure counts. The sign-in is read first, because one can arrive before Start has read it.
+func (w *Worker) noteUnheard(ctx context.Context, event lanes.HookEvent) error {
+	if event.Event != hookStopFailure {
+		return nil
+	}
+	hooks, err := w.journal.HookEvents(ctx, event.Lane)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(hooks, func(hook lanes.HookRecord) bool {
+		return hook.Event == lanes.EventStop && hook.LastMs > event.AtMs
+	}) {
+		return nil
+	}
+	record, err := w.journal.Lane(ctx, event.Lane)
+	if err != nil {
+		return err
+	}
+	if err := w.loadSignIn(ctx); err != nil {
+		return err
+	}
+	run := w.resumedRun(ledger.DesiredLease{Project: record.Project, Lane: record.ID}, record)
+	run.noteFailure(ctx, event.Detail)
+	return nil
 }
 
 // noteRetry reads one retry. A session retries a 429 by itself, so only one that keeps at it counts
@@ -247,6 +276,10 @@ func (w *Worker) parkOnSignIn(ctx context.Context) {
 		return
 	}
 	for _, run := range runs {
+		// A stop needs a session the driver holds, and adopt parks this run once it does.
+		if run.adopting() {
+			continue
+		}
 		if request, ok := parkRequestOf(w.sign, key, run.lease.Lane, run.currentGeneration(), now); ok {
 			run.parkReported(ctx, request)
 		}
