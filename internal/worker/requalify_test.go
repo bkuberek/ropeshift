@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -259,4 +260,23 @@ func TestTheLastResultStaysInForceWhileAVersionIsProbedAgain(t *testing.T) {
 	}
 	release()
 	r.eventually("the second probe's end", func(ledger.LaneView) bool { return len(r.qualifications()) == 2 })
+}
+
+// TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory names where a probe leaves what it saw of a check: the
+// worker's own state directory, beside the probe's working directory and not within it, which the probe clears.
+func TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	r.subject.Wait()
+	probes := r.driver.Probes()
+	if len(probes) != 1 {
+		t.Fatalf("%d probes", len(probes))
+	}
+	want := filepath.Join(r.config.StateDir, "probe-evidence")
+	if got := probes[0].EvidenceDir; got != want {
+		t.Errorf("the probe's evidence directory is %q, want %q", got, want)
+	}
+	if probes[0].EvidenceDir == probes[0].Dir || filepath.Dir(probes[0].EvidenceDir) != filepath.Dir(probes[0].Dir) {
+		t.Errorf("the evidence directory %q is not beside the probe's directory %q", probes[0].EvidenceDir, probes[0].Dir)
+	}
 }

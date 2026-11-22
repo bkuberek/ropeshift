@@ -26,6 +26,9 @@ const (
 	// it waits, and each wait after that doubles, up to requalifyCap. Each probe spends real CLI sessions.
 	requalifyFirst = time.Hour
 	requalifyCap   = 24 * time.Hour
+	// evidenceDirName is where a worker's probes keep what they saw of the checks that did not pass, within its state
+	// directory and beside the probe's own, which each probe clears.
+	evidenceDirName = "probe-evidence"
 )
 
 // errNoVersion is a driver that reports no installed version.
@@ -187,7 +190,7 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	defer cancel()
 	rt := w.config.Lanes
 	spec := ports.ProbeSpec{
-		Dir: filepath.Join(rt.StateDir, "probe"), TempDir: rt.probeTempDir(), Model: probeModel,
+		Dir: filepath.Join(rt.StateDir, "probe"), TempDir: rt.probeTempDir(), EvidenceDir: filepath.Join(rt.StateDir, evidenceDirName), Model: probeModel,
 		Binary: rt.Binary, SignIn: w.signInKind(), Override: rt.Override,
 	}
 	q, err := rt.Driver.Probe(ctx, spec)

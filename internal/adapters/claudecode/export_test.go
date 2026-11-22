@@ -21,3 +21,13 @@ func ShortenProbeWaits(d time.Duration) (restore func()) {
 			saved[0], saved[1], saved[2], saved[3], saved[4], saved[5], saved[6], saved[7]
 	}
 }
+
+// ShortenEvidence bounds each file of a probe's evidence to n bytes, and returns what restores the bound.
+func ShortenEvidence(n int) (restore func()) {
+	saved := evidenceLimit
+	evidenceLimit = n
+	return func() { evidenceLimit = saved }
+}
+
+// EvidenceCut is the line that ends a file of evidence that was cut at its bound.
+const EvidenceCut = evidenceCut

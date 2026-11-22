@@ -272,6 +272,10 @@ type ProbeSpec struct {
 	Dir string
 	// TempDir is a short private directory for the probe's sockets.
 	TempDir string
+	// EvidenceDir is where the probe keeps what it saw of each check that did not pass, so a person can look at it
+	// afterwards. The driver replaces its own part of it with each probe's, and it never lies within Dir, which the
+	// probe clears. It is empty when nothing is kept.
+	EvidenceDir string
 	// Env is the environment from the allowlist, as a lane gets it.
 	Env []string
 	// Model is the model the probe's sessions ask for.

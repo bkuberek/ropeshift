@@ -49,6 +49,22 @@ A probe in which every check passed ends the wait, and a probe of a version the 
 
 While the probe runs, the last result stays in force: the driver keeps it, a lane's status reads it, and no lane waits. One probe runs at a time, for the version and for every lane on it.
 
+## Evidence of a check that did not pass
+
+A probe's own directories are removed when it ends. When a check failed or no session reached it, the probe first keeps what the session that ran it showed, in the `probe-evidence/claude-code` directory of the [state directory](onboarding.md#where-ropeshift-keeps-its-state):
+
+| File | Holds | Checks |
+|------|-------|--------|
+| `accept.stream` | The stream of the session that accepts messages | `socket_line`, `socket_dir`, `unified_windows`, `command_lifecycle`, `stream_usage`, `print_keeps_login` |
+| `refuse.stream` | The stream of the session that refuses them | `receipts` |
+| `hold.stream` | The stream of the session that holds them | `peer_message_hold` |
+| `budget.stream` | The stream of the session with a budget cap | `max_budget_usd` |
+| `screens.screen` | The pane's screen as the start check left it | `start_screens` |
+
+A file is kept only when one of its checks did not pass. Only the newest probe's evidence stays: each probe that ends with a result replaces what the one before left, and a probe in which every check passed leaves none. Only its owner can read the directory and its files, and no file holds more than 256 KiB: a file cut at that bound ends with `[truncated]`.
+
+The files hold what the CLI wrote and showed, and never the environment a session started with, an agent credential, or the settings ropeshift generated for it. Nothing of them reaches the ledger, the daemon's log, or an API response.
+
 ## When the CLI updates itself
 
 A running process keeps the version it started on. A new process reads the installed version at its launch:

@@ -128,7 +128,9 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	if d.terminal == nil {
 		delete(q.Checks, SurfaceStartScreens)
 	}
-	return judged(q, d.terminal != nil), nil
+	q = judged(q, d.terminal != nil)
+	p.writeEvidence(q)
+	return q, nil
 }
 
 // prober is one probe's run. Its checks run at once, each in a session and directories of its own, and
@@ -138,9 +140,10 @@ type prober struct {
 	spec   ports.ProbeSpec
 	binary string
 
-	mu     sync.Mutex
-	checks map[lanes.Surface]lanes.CheckResult
-	count  int
+	mu       sync.Mutex
+	checks   map[lanes.Surface]lanes.CheckResult
+	count    int
+	evidence []evidence
 }
 
 func (p *prober) set(surface lanes.Surface, result lanes.CheckResult) {
@@ -177,6 +180,7 @@ func (p *prober) accept(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	defer p.keepStream("accept", s, SurfaceSocketLine, SurfaceSocketDir, SurfaceUnifiedWindows, SurfaceCommandLifecycle, SurfaceStreamUsage, SurfacePrintKeepsLogin)
 	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
 	id, sent, turn := "", false, false
@@ -219,6 +223,7 @@ func (p *prober) refuse(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	defer p.keepStream("refuse", s, SurfaceReceipts)
 	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
 	if !s.private(socket) {
@@ -266,6 +271,7 @@ func (p *prober) hold(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	defer p.keepStream("hold", s, SurfacePeerMessageHold)
 	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
 	if !s.prompt(ctx) || !s.awaitTurn(ctx) {
@@ -299,6 +305,7 @@ func (p *prober) budget(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	defer p.keepStream("budget", s, SurfaceMaxBudget)
 	defer s.end(ctx)
 	if !s.prompt(ctx) || !s.awaitTurn(ctx) {
 		return
@@ -347,6 +354,7 @@ func (p *prober) screens(ctx context.Context) {
 	})
 	// An open that a stop cut short can still leave the pane tmux made, so the pane is closed either way.
 	defer p.closePane(ctx, name)
+	defer p.keepScreen(ctx, name)
 	if err != nil {
 		return
 	}
@@ -559,6 +567,9 @@ type probeSession struct {
 	lines    []probeLine
 	inMu     sync.Mutex
 	inClosed bool
+	// raw is what the stream wrote, up to the bound of a probe's evidence, and rawCut says it wrote more. mu guards them.
+	raw    []byte
+	rawCut bool
 }
 
 // probeLine holds the fields of a stream line a check reads.
@@ -623,6 +634,7 @@ func (s *probeSession) readStream(out *os.File, log io.WriteCloser) {
 		if log != nil {
 			_, _ = log.Write(append(scanner.Bytes(), '\n'))
 		}
+		s.keepRaw(scanner.Bytes())
 		var line probeLine
 		if json.Unmarshal(scanner.Bytes(), &line) != nil {
 			continue
