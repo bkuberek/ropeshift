@@ -501,13 +501,14 @@ describe("a first version from a planning branch", () => {
   const requestPage = here(`/plan?id=${request.id}&version=1`);
   const draft = { id: "sailings-under-berths", question: "Do the sailings get a page of their own?", answer: "No. Each berth shows its sailings under it." };
 
-  function serveBranch(drafts: unknown[], registration?: ManifestRegistration) {
+  function serveBranch(drafts: unknown[], registration?: ManifestRegistration, edit: (detail: Record<string, unknown>) => void = () => {}) {
     const approval = structuredClone(request) as ApprovalRecord;
     approval.registration = registration;
     const detail = JSON.parse(approval.detail ?? "{}") as Record<string, unknown>;
     delete detail.adoption;
     detail.decisions = drafts.length;
     detail.drafts = drafts;
+    edit(detail);
     approval.detail = JSON.stringify(detail);
     serveViews((call) => {
       if (call.method === "GET" && call.path.startsWith("/v1/plans/")) {
@@ -524,6 +525,31 @@ describe("a first version from a planning branch", () => {
     expect(within(panel).getByRole("list", { name: "Draft decisions" }).textContent).toContain(draft.answer);
     const decision = screen.getByRole("complementary", { name: "Your decision" });
     expect(decision.textContent).toContain("Approving decides 1 draft decision as yours");
+  });
+
+  it("says a request made before requests carried the plan's text did not record its goal or its contracts", async () => {
+    serveBranch([], undefined, (detail) => {
+      delete detail.goal;
+      delete detail.body;
+      delete detail.contracts;
+      detail.counts = { contract: 2 };
+    });
+    openPage(requestPage);
+    await screen.findByRole("heading", { level: 1 });
+    expect(within(await screen.findByRole("region", { name: "Goal" })).getByText("The goal was not recorded with this request.")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Contracts in this version" })).getByText("The contracts were not recorded with this request.")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Plan text" })).getByText("This version recorded no plan text.")).toBeTruthy();
+  });
+
+  it("keeps its own words for a request that recorded its text and a plan it counts no contract in", async () => {
+    serveBranch([], undefined, (detail) => {
+      delete detail.contracts;
+      detail.counts = {};
+    });
+    openPage(requestPage);
+    const contracts = await screen.findByRole("region", { name: "Contracts in this version" });
+    expect(within(contracts).getByText("This version holds no contract.")).toBeTruthy();
+    expect(within(contracts).queryByText("The contracts were not recorded with this request.")).toBeNull();
   });
 
   it("shows the preview its request carries before the ledger holds the version, and says what approving creates", async () => {

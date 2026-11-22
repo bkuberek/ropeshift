@@ -11,7 +11,9 @@ export type ContractText = { id: string; title: string; statement?: string; crit
 
 export const outside = "This text comes from a repository, as anyone with a commit wrote it. It is shown as text: nothing in it runs, loads, or links.";
 
-export function GoalPanel({ goal }: { goal?: GoalText }) {
+// unrecorded says a version is a branch's, read from a request that carried none of the plan's text, such as one made
+// before requests carried it, so a goal or a contract that is missing was never kept and is not absent from the plan.
+export function GoalPanel({ goal, unrecorded = false }: { goal?: GoalText; unrecorded?: boolean }) {
   return (
     <Panel title="Goal">
       {goal ? (
@@ -29,7 +31,7 @@ export function GoalPanel({ goal }: { goal?: GoalText }) {
           ) : null}
         </div>
       ) : (
-        <p className="muted">This plan names no goal.</p>
+        <p className="muted">{unrecorded ? "The goal was not recorded with this request." : "This plan names no goal."}</p>
       )}
     </Panel>
   );
@@ -53,7 +55,9 @@ export function PlanTextPanel({ title, body, cut = false }: { title: string; bod
   );
 }
 
-export function ContractsPanel({ contracts, plan }: { contracts: ContractText[]; plan?: string }) {
+// counted is how many contracts the version holds by its request's own count, which says that the contracts of a version
+// that recorded none were not recorded and are not absent from it.
+export function ContractsPanel({ contracts, plan, unrecorded = false, counted = 0 }: { contracts: ContractText[]; plan?: string; unrecorded?: boolean; counted?: number }) {
   return (
     <Panel title="Contracts in this version" actions={plan ? <Link to={addressOf("/plans", { plan })}>Open the plan</Link> : undefined}>
       {contracts.length ? (
@@ -75,19 +79,37 @@ export function ContractsPanel({ contracts, plan }: { contracts: ContractText[];
           ))}
         </ul>
       ) : (
-        <p className="muted">This version holds no contract.</p>
+        <p className="muted">{unrecorded && counted > 0 ? "The contracts were not recorded with this request." : "This version holds no contract."}</p>
       )}
     </Panel>
   );
 }
 
 // WhatThePlanSays is the three panels in the order a member reads them.
-export function WhatThePlanSays({ title, goal, body, cut, contracts, plan }: { title: string; goal?: GoalText; body?: string; cut?: boolean; contracts: ContractText[]; plan?: string }) {
+export function WhatThePlanSays({
+  title,
+  goal,
+  body,
+  cut,
+  contracts,
+  plan,
+  unrecorded,
+  counted,
+}: {
+  title: string;
+  goal?: GoalText;
+  body?: string;
+  cut?: boolean;
+  contracts: ContractText[];
+  plan?: string;
+  unrecorded?: boolean;
+  counted?: number;
+}) {
   return (
     <>
-      <GoalPanel goal={goal} />
+      <GoalPanel goal={goal} unrecorded={unrecorded} />
       <PlanTextPanel title={title} body={body} cut={cut} />
-      <ContractsPanel contracts={contracts} plan={plan} />
+      <ContractsPanel contracts={contracts} plan={plan} unrecorded={unrecorded} counted={counted} />
     </>
   );
 }
