@@ -3,6 +3,7 @@ package lanes
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -97,6 +98,14 @@ func Unprobed(driver, version, signIn string, surfaces []Surface) Qualification 
 		q.Checks[surface] = CheckUnobserved
 	}
 	return q
+}
+
+// ProbeAttempt is the last probe a worker began, which outlives its process, so a worker that restarts does not begin
+// another at once. It holds a version and a time, and nothing of a session or an account.
+type ProbeAttempt struct {
+	Version string
+	// BeganAt is when the probe began, before it started its first session.
+	BeganAt time.Time
 }
 
 // QualificationKey names a worker's driver, the way a sign-in is named (D10).

@@ -263,6 +263,125 @@ func TestTheLastResultStaysInForceWhileAVersionIsProbedAgain(t *testing.T) {
 	r.eventually("the second probe's end", func(ledger.LaneView) bool { return len(r.qualifications()) == 2 })
 }
 
+// restarted is a worker on the journal of an earlier one, with a driver of its own whose probe fails a check, which
+// starts at the clock's time.
+func restarted(t *testing.T, earlier *laneRig) (*worker.Worker, *fake.AgentDriver) {
+	t.Helper()
+	driver := fake.NewAgentDriver()
+	driver.SetVersion("1.0.0", true)
+	subject := worker.New(earlier.link, earlier.journal, earlier.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	subject.Wait()
+	return subject, driver
+}
+
+// TestARestartInsideTheDelayHoldsBackItsProbe is a worker that starts on a result a probe left with a check that did
+// not pass, where the last probe began minutes before: it holds that probe back until ten minutes after the last
+// began, and then probes the version.
+func TestARestartInsideTheDelayHoldsBackItsProbe(t *testing.T) {
+	t.Parallel()
+	first := degradedRig(t)
+	first.subject.Wait()
+	first.clock.Advance(5 * time.Minute)
+	second, driver := restarted(t, first)
+	if n := len(driver.Probes()); n != 0 {
+		t.Fatalf("%d probes at a start five minutes after the last probe began", n)
+	}
+	if q := driver.Qualified(); q.Version != "1.0.0" || !q.Degraded {
+		t.Errorf("until its probe the driver holds %+v, the last result", q)
+	}
+	first.clock.Advance(4 * time.Minute)
+	if _, err := second.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second.Wait()
+	if n := len(driver.Probes()); n != 0 {
+		t.Fatalf("%d probes nine minutes after the last probe began", n)
+	}
+	first.clock.Advance(90 * time.Second)
+	if _, err := second.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second.Wait()
+	if n := len(driver.Probes()); n != 1 {
+		t.Errorf("%d probes once ten minutes had passed since the last began", n)
+	}
+}
+
+// TestARestartStormProbesOnce is a worker that keeps restarting on a result with a check that did not pass: each
+// probe spends real sessions, so only the first start probes, and the restarts a minute apart inside the delay do not.
+func TestARestartStormProbesOnce(t *testing.T) {
+	t.Parallel()
+	first := degradedRig(t)
+	first.subject.Wait()
+	total := len(first.driver.Probes())
+	for range 8 {
+		first.clock.Advance(time.Minute)
+		_, driver := restarted(t, first)
+		total += len(driver.Probes())
+	}
+	if total != 1 {
+		t.Errorf("%d probes across a start and eight restarts a minute apart", total)
+	}
+}
+
+// TestAProbeIsJournaledBeforeItsSessionsStart is the record a restart reads: it is in the journal by the time the
+// probe's first session could start.
+func TestAProbeIsJournaledBeforeItsSessionsStart(t *testing.T) {
+	t.Parallel()
+	var release func()
+	r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", true)
+		release = driver.HoldProbes()
+	})
+	t.Cleanup(release)
+	deadline := time.Now().Add(10 * time.Second)
+	for len(r.driver.Probes()) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the probe never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	got, err := r.journal.ProbeAttempt(t.Context())
+	if err != nil || got.Version != "1.0.0" || !got.BeganAt.Equal(r.clock.Now()) {
+		t.Errorf("while the probe runs the journal reads the attempt %+v, %v, want 1.0.0 at %v", got, err, r.clock.Now())
+	}
+}
+
+// unrecorded is a journal that cannot keep that a probe began.
+type unrecorded struct {
+	ports.Journal
+	saves atomic.Int64
+}
+
+func (j *unrecorded) SaveProbeAttempt(context.Context, lanes.ProbeAttempt) error {
+	j.saves.Add(1)
+	return errors.New("the journal is full")
+}
+
+// TestAProbeThatCannotBeJournaledStartsNoSession is a journal that refuses the record of an attempt: a probe that a
+// restart could not hold back is not started, and the worker tries again only when the wait ends.
+func TestAProbeThatCannotBeJournaledStartsNoSession(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &unrecorded{Journal: base.journal}
+	base.workerJournal = journal
+	r := newLaneRigFor(t, base)
+	r.subject.Wait()
+	for range 58 {
+		r.moveAndLook(time.Minute)
+	}
+	if n := len(r.driver.Probes()); n != 0 || journal.saves.Load() != 1 {
+		t.Fatalf("%d probes and %d records of an attempt the journal refuses, in under an hour", n, journal.saves.Load())
+	}
+	r.moveAndLook(3 * time.Minute)
+	if n := len(r.driver.Probes()); n != 0 || journal.saves.Load() != 2 {
+		t.Errorf("%d probes and %d records once the hour ended", n, journal.saves.Load())
+	}
+}
+
 // restartedAfter is how long a restart waits after the last worker began a probe: past the delay a start holds
 // back its probe for.
 const restartedAfter = 11 * time.Minute

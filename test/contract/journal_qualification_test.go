@@ -3,6 +3,7 @@ package contract
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -54,5 +55,31 @@ func TestJournalKeepsAQualificationWithItsEvent(t *testing.T) {
 	}
 	if count := pendingCount(t, j); count != 2 {
 		t.Errorf("%d events after two probes", count)
+	}
+}
+
+// TestJournalKeepsWhenTheLastProbeBegan is what a restarted worker reads to hold back its probe: none before the first
+// attempt, and then the last one, which each later attempt replaces.
+func TestJournalKeepsWhenTheLastProbeBegan(t *testing.T) {
+	t.Parallel()
+	j := openTestJournal(t)
+	ctx := t.Context()
+	got, err := j.ProbeAttempt(ctx)
+	if err != nil || got.Version != "" || !got.BeganAt.IsZero() {
+		t.Fatalf("a new journal holds the attempt %+v, %v", got, err)
+	}
+	first := lanes.ProbeAttempt{Version: "2.1.317", BeganAt: time.UnixMilli(1_700_000_000_123)}
+	if err := j.SaveProbeAttempt(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = j.ProbeAttempt(ctx); err != nil || got.Version != first.Version || !got.BeganAt.Equal(first.BeganAt) {
+		t.Fatalf("the journal reads %+v, %v, want %+v", got, err, first)
+	}
+	next := lanes.ProbeAttempt{Version: "2.1.318", BeganAt: first.BeganAt.Add(time.Hour)}
+	if err := j.SaveProbeAttempt(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = j.ProbeAttempt(ctx); err != nil || got.Version != next.Version || !got.BeganAt.Equal(next.BeganAt) {
+		t.Errorf("a later attempt reads %+v, %v, want %+v", got, err, next)
 	}
 }

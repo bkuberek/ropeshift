@@ -29,6 +29,9 @@ const (
 	// evidenceDirName is where a worker's probes keep what they saw of the checks that did not pass, within its state
 	// directory and beside the probe's own, which each probe clears.
 	evidenceDirName = "probe-evidence"
+	// restartProbeDelay is how long after the last probe began a worker that starts holds back its own, so a worker
+	// that keeps restarting does not open a probe's sessions on each start.
+	restartProbeDelay = 10 * time.Minute
 )
 
 // errNoVersion is a driver that reports no installed version.
@@ -58,11 +61,23 @@ func (w *Worker) loadQualification(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	attempt, err := w.journal.ProbeAttempt(ctx)
+	if err != nil {
+		return err
+	}
 	w.qualLock.Lock()
 	defer w.qualLock.Unlock()
 	w.life = ctx
 	if q.Version != "" {
 		w.qual = q
+	}
+	if attempt.Version != "" {
+		// An attempt dated after now is one a clock that moved back left, which holds the probe back for the delay and no more.
+		now := w.clock.Now()
+		w.probeAfter = attempt.BeganAt.Add(restartProbeDelay)
+		if latest := now.Add(restartProbeDelay); w.probeAfter.After(latest) {
+			w.probeAfter = latest
+		}
 	}
 	w.handOverLocked()
 	return nil
@@ -118,8 +133,8 @@ func (w *Worker) qualify(ctx context.Context) error {
 	}
 	checks := w.config.Lanes.Driver.ProbeChecks(w.signInKind())
 	w.qualLock.Lock()
-	defer w.qualLock.Unlock()
 	if w.probe != nil || !w.probeDueLocked(capabilities.Version, checks, w.clock.Now()) {
+		w.qualLock.Unlock()
 		return nil
 	}
 	life := w.life
@@ -128,16 +143,32 @@ func (w *Worker) qualify(ctx context.Context) error {
 	}
 	p := &probeRun{version: capabilities.Version}
 	w.probe = p
+	w.qualLock.Unlock()
+	// The attempt is journaled before any session starts, so a worker that restarts knows when this one began. A
+	// journal that cannot keep it starts no probe, and the wait before the next try begins.
+	if err := w.journal.SaveProbeAttempt(ctx, lanes.ProbeAttempt{Version: p.version, BeganAt: w.clock.Now()}); err != nil {
+		w.qualLock.Lock()
+		w.probe = nil
+		w.noteProbeLocked(p.version, false)
+		w.qualLock.Unlock()
+		w.laneMoved()
+		w.config.Report(fmt.Errorf("recording the probe of %s: %w", p.version, err))
+		return nil
+	}
 	w.probes.Go(func() { w.runProbe(life, p) })
 	return nil
 }
 
 // probeDueLocked says a probe of the installed version is due. A result that holds for the version and passed every
-// check a probe runs now, which the driver names for this sign-in, is never probed again. Any other version is, unless the last probe of it ended less than its wait ago,
+// check a probe runs now, which the driver names for this sign-in, is never probed again. No probe starts before
+// probeAfter, which a restart sets from the journal's record of the last attempt. Any other version is, unless the last probe of it ended less than its wait ago,
 // whether it left a result with a check that did not pass, left none because it could not run or its result could not
 // be kept, or ended because the version moved under it. So no path probes a version in a loop.
 func (w *Worker) probeDueLocked(version string, checks []lanes.Surface, now time.Time) bool {
 	if w.qual.Holds(version) && w.qual.PassedAll(checks) {
+		return false
+	}
+	if now.Before(w.probeAfter) {
 		return false
 	}
 	return w.backoff.version != version || !now.Before(w.backoff.next)
