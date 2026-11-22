@@ -155,14 +155,12 @@ func TestALaneRunsAsItsPlannedAgentAndHandsWorkToTheRoster(t *testing.T) {
 		}
 	}
 
-	laneRoot := in.homeLaneRoot(repo.Dir)
-	for _, place := range []string{
-		filepath.Join(in.home, ".claude", "agents"), filepath.Join(repo.Dir, ".claude", "agents"), filepath.Join(laneRoot, "lane-1", ".claude", "agents"),
-	} {
+	for _, place := range []string{filepath.Join(in.home, ".claude", "agents"), filepath.Join(repo.Dir, ".claude", "agents")} {
 		if _, err := os.Stat(place); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("something wrote %s: %v", place, err)
 		}
 	}
+	onlyOwnPieceDirs(t, filepath.Join(in.homeLaneRoot(repo.Dir), "lane-1", ".claude"))
 	branches := branchesOf(in.acceptance(id))
 	if len(branches) != 1 {
 		t.Fatalf("the work left %+v", branches)
@@ -170,6 +168,32 @@ func TestALaneRunsAsItsPlannedAgentAndHandsWorkToTheRoster(t *testing.T) {
 	files := strings.Split(repo.Git("ls-tree", "-r", "--name-only", branches[0].Digest), "\n")
 	if !slices.Contains(files, "notes.md") || slices.ContainsFunc(files, func(file string) bool { return strings.HasPrefix(file, ".claude/") }) {
 		t.Errorf("the lane's commit holds %q", files)
+	}
+}
+
+// onlyOwnPieceDirs fails the test unless a lane worktree's `.claude` holds nothing but the skills, agents, and commands
+// directories each generation's start makes so that the CLI does not read the main checkout's through to the worktree.
+// Each must be an empty directory, which git does not track, so the lane's commit cannot pick one up. A file in one, a
+// link in its place, and any other entry is something a lane or the product wrote. A `.claude` that is absent holds none.
+func onlyOwnPieceDirs(t *testing.T, claude string) {
+	t.Helper()
+	entries, err := os.ReadDir(claude)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		place := filepath.Join(claude, entry.Name())
+		if !entry.IsDir() || !slices.Contains([]string{"skills", "agents", "commands"}, entry.Name()) {
+			t.Errorf("something wrote %s", place)
+			continue
+		}
+		inside, err := os.ReadDir(place)
+		if err != nil || len(inside) != 0 {
+			t.Errorf("something wrote into %s: %d entries (%v)", place, len(inside), err)
+		}
 	}
 }
 
