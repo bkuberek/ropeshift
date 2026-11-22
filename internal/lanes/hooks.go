@@ -62,9 +62,38 @@ type HookEvent struct {
 	Malformed  bool  `json:"malformed,omitempty"`
 }
 
-// NotificationNeedsInput is the Detail of the Notification that says a session waits for an answer, which a key
-// typed into its pane would give.
-const NotificationNeedsInput = "agent_needs_input"
+// The Details of the Notifications that say a dialog waits for a person in a session's pane, which a key typed into
+// the pane would answer: a permission prompt, an MCP server's form or browser URL, and a question a session puts to
+// a person, such as a teammate's setup question. Each fires once its dialog has waited about six seconds
+// (https://code.claude.com/docs/en/hooks#notification).
+const (
+	NotificationPermission     = "permission_prompt"
+	NotificationElicitation    = "elicitation_dialog"
+	NotificationElicitationURL = "elicitation_url_dialog"
+	NotificationNeedsInput     = "agent_needs_input"
+)
+
+// The Details of the Notifications that say an MCP server's dialog closed: its response went back to the server, or
+// the browser step it asked for is complete (https://code.claude.com/docs/en/hooks#notification).
+const (
+	NotificationElicitationResponse = "elicitation_response"
+	NotificationElicitationComplete = "elicitation_complete"
+)
+
+// DialogOpens says a Notification of this type tells of a dialog that waits for a person. Any other type, such as one
+// that says a session has been idle, tells of none.
+func DialogOpens(notificationType string) bool {
+	switch notificationType {
+	case NotificationPermission, NotificationElicitation, NotificationElicitationURL, NotificationNeedsInput:
+		return true
+	}
+	return false
+}
+
+// DialogCloses says a Notification of this type tells that an MCP server's dialog closed.
+func DialogCloses(notificationType string) bool {
+	return notificationType == NotificationElicitationResponse || notificationType == NotificationElicitationComplete
+}
 
 // EventStatusLine names a status line's report among hook events. The CLI has no hook of
 // this name: the driver's status line command reports on the same socket.

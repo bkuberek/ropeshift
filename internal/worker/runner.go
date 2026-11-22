@@ -1707,7 +1707,7 @@ func (r *laneRun) refusalBound(ctx context.Context) {
 
 // refusalOutstanding says the nudge's newest attempt is one the session refused because it waited on an answer, and
 // that nothing in the hooks says the session went on since: no prompt and no call's end is newer than both the
-// newest turn's end and the newest dialog, a PermissionRequest or a Notification that asks for input.
+// newest turn's end and the newest dialog, a PermissionRequest or a Notification that tells of a dialog.
 func (r *laneRun) refusalOutstanding(ctx context.Context, hooks []lanes.HookRecord) bool {
 	_, newest, err := r.nudgeAttempts(ctx)
 	if err != nil {
@@ -1731,7 +1731,7 @@ func (r *laneRun) refusalOutstanding(ctx context.Context, hooks []lanes.HookReco
 		case hookPermissionRequest:
 			dialog = max(dialog, hook.LastMs)
 		case hookNotification:
-			if hook.Detail == lanes.NotificationNeedsInput {
+			if lanes.DialogOpens(hook.Detail) {
 				dialog = max(dialog, hook.LastMs)
 			}
 		}

@@ -49,6 +49,10 @@ const (
 	// attachedEvery is how often the attached marker is refreshed. It sits well inside the time a
 	// hook trusts a marker, so one slow read does not tell the hook that nobody is attached.
 	attachedEvery = time.Second
+	// dialogNotice is how long a dialog that no hook announces can stand untold. A permission prompt's Notification
+	// fires once it has waited about six seconds, and an MCP server's form's once nobody typed for about six
+	// (https://code.claude.com/docs/en/hooks#notification).
+	dialogNotice = 10 * time.Second
 )
 
 // The hooks a pane's state derives from.
@@ -61,9 +65,6 @@ const (
 	hookPostCompact      = "PostCompact"
 	hookPostToolUse      = "PostToolUse"
 )
-
-// notificationNeedsInput is the Notification that says a session waits for an answer.
-const notificationNeedsInput = lanes.NotificationNeedsInput
 
 // compactRequested is the trigger of a compaction someone asked for, which runs at rest as a turn of
 // its own. A stream ends that turn with a result, and in a pane no Stop follows it, so its last hook
@@ -476,7 +477,7 @@ type paneSession struct {
 	stopMs   int64
 	// floor is where the worker stopped reading, so a replay does not end a turn twice.
 	floor int64
-	// waiting says a Notification asked for an answer, and waitingMs is when it fired.
+	// waiting says a Notification told of a dialog that waits for a person, and waitingMs is when the newest fired.
 	waiting   bool
 	waitingMs int64
 	totalUSD  float64
@@ -485,12 +486,15 @@ type paneSession struct {
 	approvals map[string]int64
 	meter     lanes.CostMeter
 	seen      ports.Observation
+	// now reads the clock that a prompt's hook is stamped by.
+	now func() time.Time
 }
 
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
 		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]int64{},
+		now: time.Now,
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)
@@ -702,9 +706,11 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case lanes.EventStatusLine:
 		s.takeStatus(event)
 	case hookNotification:
-		s.waiting, s.waitingMs = event.Detail == notificationNeedsInput, event.AtMs
+		s.takeNotification(event)
 	case eventPermissionRequest:
-		s.approvals[event.Digest] = event.AtMs
+		if !s.closedBy(event, max(s.stopMs, s.floor)) {
+			s.approvals[event.Digest] = event.AtMs
+		}
 	case hookPostToolUse, lanes.EventToolFailed:
 		if event.Digest != ports.UnnamedCall {
 			delete(s.approvals, event.Digest)
@@ -715,6 +721,36 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 			s.endCompaction(event)
 		}
 	}
+}
+
+// takeNotification reads what a Notification says of a dialog. One that tells of a dialog holds the keys until the
+// session shows the dialog closed, and one that tells an MCP server's dialog closed frees them. A dialog older than the
+// newest turn's end or prompt is gone, however late its hook arrives, and any other Notification, such as one that
+// the session has been idle, tells of no dialog.
+func (s *paneSession) takeNotification(event lanes.HookEvent) {
+	switch {
+	case s.closedBy(event, max(s.stopMs, s.floor, s.promptMs)):
+	case lanes.DialogOpens(event.Detail):
+		s.waiting, s.waitingMs = true, max(s.waitingMs, event.AtMs)
+	case lanes.DialogCloses(event.Detail) && event.AtMs > s.waitingMs:
+		s.waiting = false
+	}
+}
+
+// closedBy says a dialog's hook fired at or before closedMs, by which the dialog it told of closed. A hook with no
+// time cannot be placed, and closes nothing.
+func (s *paneSession) closedBy(event lanes.HookEvent, closedMs int64) bool {
+	return event.AtMs > 0 && event.AtMs <= closedMs
+}
+
+// keysHeld is the one rule every key a worker sends to a pane obeys: no key goes while a dialog may be open, because
+// a key answers a dialog. A dialog may be open from the first sign of one until the session shows it closed: a
+// PermissionRequest until its call ends or its turn does, a Notification of a dialog until a newer prompt, a newer
+// turn's end, or its dialog's close, and the first seconds of a turn, in which a dialog no hook announces is still
+// untold (dialogNotice). The caller holds the lock.
+func (s *paneSession) keysHeld() bool {
+	turnStarting := s.promptMs > s.stopMs && s.now().UnixMilli()-s.promptMs < dialogNotice.Milliseconds()
+	return s.waiting || len(s.approvals) != 0 || turnStarting
 }
 
 // endCompaction ends the turn a compaction ran as, and says that is all it held, because a person
@@ -828,12 +864,12 @@ func (s *paneSession) send(ctx context.Context, in ports.Input) (ports.SendRecei
 // goes by keys, which the ranked surfaces allow only as this fallback, and the lane shows degraded
 // mode while it does. A line feed is the CLI's documented newline inside a prompt, so a brief of many
 // lines stays one prompt, and Enter submits it. Nothing is read from the screen, and no key goes to
-// a session that is waiting for an answer, because the Enter would answer it.
+// a session that may show a dialog (keysHeld), because the Enter would answer it.
 func (s *paneSession) typeInput(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
 	s.mu.Lock()
-	waiting := s.waiting || len(s.approvals) != 0
+	held := s.keysHeld()
 	s.mu.Unlock()
-	if waiting {
+	if held {
 		return ports.SendReceipt{}, ports.ErrAwaitingAnswer
 	}
 	if in.ID == "" {
@@ -871,12 +907,12 @@ func (s *paneSession) refused(input string) {
 }
 
 // compact goes by keys, because a command in a message's text is not executed. No key goes
-// to a session that is waiting for an answer: the Enter would answer it.
+// to a session that may show a dialog (keysHeld): the Enter would answer it.
 func (s *paneSession) compact(ctx context.Context) error {
 	s.mu.Lock()
-	waiting := s.waiting || len(s.approvals) != 0
+	held := s.keysHeld()
 	s.mu.Unlock()
-	if waiting {
+	if held {
 		return ports.ErrAwaitingAnswer
 	}
 	if err := s.terminal.Type(ctx, s.name, compactCommand); err != nil {

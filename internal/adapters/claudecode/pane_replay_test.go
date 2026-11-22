@@ -49,12 +49,13 @@ func refusesInput(t *testing.T, s *paneSession) {
 	}
 }
 
-// A Stop the worker already read ends the wait a Notification began before it, however late it arrives.
+// A Stop the worker already read ended the dialog a Notification before it told of, so that Notification holds no key
+// however late it arrives, and neither does the Stop's own late hook.
 func TestAStopAlreadyReadEndsTheWaitBeforeIt(t *testing.T) {
 	t.Parallel()
 	s := replayedPane(t, 120)
-	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: notificationNeedsInput, AtMs: 100})
-	refusesInput(t, s)
+	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationNeedsInput, AtMs: 100})
+	typesFreely(t, s)
 	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 110})
 	typesFreely(t, s)
 }
@@ -63,7 +64,7 @@ func TestAStopAlreadyReadEndsTheWaitBeforeIt(t *testing.T) {
 func TestAStopAlreadyReadLeavesALaterWait(t *testing.T) {
 	t.Parallel()
 	s := replayedPane(t, 120)
-	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: notificationNeedsInput, AtMs: 130})
+	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationNeedsInput, AtMs: 130})
 	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 110})
 	refusesInput(t, s)
 }
@@ -77,10 +78,10 @@ func TestAReplayWaitsOnlyOnTheOpenApprovals(t *testing.T) {
 		hooks []lanes.HookRecord
 	}{
 		{"a wait the turn's end closed", []lanes.HookRecord{
-			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, notificationNeedsInput), hookAt(hookStop, 110, ""),
+			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, lanes.NotificationNeedsInput), hookAt(hookStop, 110, ""),
 		}},
 		{"a wait nothing after it closed", []lanes.HookRecord{
-			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, notificationNeedsInput),
+			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, lanes.NotificationNeedsInput),
 		}},
 	}
 	for _, test := range tests {
@@ -166,7 +167,7 @@ func TestAReplayRestoresNoApprovalOfATurnThatEnded(t *testing.T) {
 // closed holds the keys across a restart.
 func TestAReplayHoldsTheKeysFromAQuestionNothingClosed(t *testing.T) {
 	t.Parallel()
-	asked := hookAt(hookNotification, 120, notificationNeedsInput)
+	asked := hookAt(hookNotification, 120, lanes.NotificationNeedsInput)
 	tests := []struct {
 		name  string
 		floor int64
@@ -227,7 +228,7 @@ func TestALateTurnEndLeavesANewerWait(t *testing.T) {
 	}{
 		{"a dialog and a late Stop", hookStop, hookAt(eventPermissionRequest, 125, ""), nil},
 		{"a named dialog and a late StopFailure", hookStopFailure, hookAt(eventPermissionRequest, 125, ""), []string{"seen-1"}},
-		{"a question and a late Stop", hookStop, hookAt(hookNotification, 125, notificationNeedsInput), nil},
+		{"a question and a late Stop", hookStop, hookAt(hookNotification, 125, lanes.NotificationNeedsInput), nil},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

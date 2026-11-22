@@ -177,17 +177,19 @@ func TestARefusedNudgesBoundAcrossARestart(t *testing.T) {
 			t.Errorf("sent %+v after a restart", sent)
 		}
 	})
-	t.Run("a dialog after the call's end", func(t *testing.T) {
-		t.Parallel()
-		r := refusedLane(t, "", endsAtRest)
-		r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
-		journalHook(t, r, lanes.HookEvent{Event: "PostToolUse", Subject: "tool-1", Tool: "Bash", AtMs: time.Now().UnixMilli()})
-		journalHook(t, r, lanes.HookEvent{Event: "Notification", Subject: "s", Detail: lanes.NotificationNeedsInput, AtMs: time.Now().UnixMilli() + 1})
-		driver := r.takeOver(t, script())
-		r.eventually("the session adopted", func(ledger.LaneView) bool { return len(driver.Adopted()) == 1 })
-		r.runsOn(t, bound-time.Minute)
-		r.endsPastTheBound(t, workorders.Blocked, workorders.ReasonNoOutcome)
-	})
+	for _, dialog := range []string{lanes.NotificationNeedsInput, lanes.NotificationPermission, lanes.NotificationElicitation} {
+		t.Run("a dialog after the call's end/"+dialog, func(t *testing.T) {
+			t.Parallel()
+			r := refusedLane(t, "", endsAtRest)
+			r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+			journalHook(t, r, lanes.HookEvent{Event: "PostToolUse", Subject: "tool-1", Tool: "Bash", AtMs: time.Now().UnixMilli()})
+			journalHook(t, r, lanes.HookEvent{Event: "Notification", Subject: "s", Detail: dialog, AtMs: time.Now().UnixMilli() + 1})
+			driver := r.takeOver(t, script())
+			r.eventually("the session adopted", func(ledger.LaneView) bool { return len(driver.Adopted()) == 1 })
+			r.runsOn(t, bound-time.Minute)
+			r.endsPastTheBound(t, workorders.Blocked, workorders.ReasonNoOutcome)
+		})
+	}
 	t.Run("a prompt since", func(t *testing.T) {
 		t.Parallel()
 		r := refusedLane(t, "", endsAtRest)
