@@ -60,6 +60,10 @@ func (p *prober) writeEvidence(q lanes.Qualification, checks []lanes.Surface) {
 	if root == "" {
 		return
 	}
+	// A root that is a link leads out of the directory the worker owns, and nothing here follows it.
+	if info, err := os.Lstat(root); err == nil && !info.IsDir() || err != nil && !os.IsNotExist(err) {
+		return
+	}
 	dir := filepath.Join(root, DriverName)
 	_ = os.RemoveAll(dir)
 	p.mu.Lock()
@@ -73,7 +77,11 @@ func (p *prober) writeEvidence(q lanes.Qualification, checks []lanes.Surface) {
 		return
 	}
 	for _, path := range []string{root, dir} {
-		if os.MkdirAll(path, 0o700) != nil || os.Chmod(path, 0o700) != nil {
+		if os.MkdirAll(path, 0o700) != nil {
+			return
+		}
+		// What was made, or is there, is a directory and no link, which Chmod would follow.
+		if info, err := os.Lstat(path); err != nil || !info.IsDir() || os.Chmod(path, 0o700) != nil {
 			return
 		}
 	}

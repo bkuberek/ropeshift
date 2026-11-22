@@ -211,3 +211,65 @@ func TestAProbeKeepsNoEvidenceForACheckItDoesNotRun(t *testing.T) {
 		t.Errorf("a probe that passed every check it runs kept %v", got)
 	}
 }
+
+// A probe never follows a link where it keeps its evidence. A root that is a link leads out of the directory the
+// worker owns, so the probe keeps nothing and removes nothing through it, and a driver directory that is a link is
+// replaced by a directory of its own and leaves what the link led to.
+func TestAProbeDoesNotFollowASymlinkedEvidenceRoot(t *testing.T) {
+	plant := func(t *testing.T) (elsewhere string) {
+		t.Helper()
+		elsewhere = t.TempDir()
+		dir := filepath.Join(elsewhere, claudecode.DriverName)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "keep"), []byte("not the probe's"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return elsewhere
+	}
+	requireUntouched := func(t *testing.T, elsewhere string) {
+		t.Helper()
+		entries, err := os.ReadDir(filepath.Join(elsewhere, claudecode.DriverName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].Name() != "keep" {
+			t.Errorf("the probe changed what its link led to: %v", entries)
+		}
+	}
+	t.Run("a root that is a link", func(t *testing.T) {
+		driver, spec, _ := probeRig(t, "max_budget_usd")
+		elsewhere := plant(t)
+		spec.EvidenceDir = filepath.Join(t.TempDir(), "evidence")
+		if err := os.Symlink(elsewhere, spec.EvidenceDir); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := driver.Probe(t.Context(), spec); err != nil {
+			t.Fatal(err)
+		}
+		requireUntouched(t, elsewhere)
+		if info, err := os.Lstat(spec.EvidenceDir); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("the probe replaced the link: %v, %v", info, err)
+		}
+	})
+	t.Run("a driver directory that is a link", func(t *testing.T) {
+		driver, spec, _ := probeRig(t, "max_budget_usd")
+		elsewhere := plant(t)
+		spec.EvidenceDir = filepath.Join(t.TempDir(), "evidence")
+		if err := os.MkdirAll(spec.EvidenceDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(elsewhere, claudecode.DriverName), filepath.Join(spec.EvidenceDir, claudecode.DriverName)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := driver.Probe(t.Context(), spec); err != nil {
+			t.Fatal(err)
+		}
+		requireUntouched(t, elsewhere)
+		if got := names(evidenceOf(t, spec.EvidenceDir)); !slices.Equal(got, []string{"budget.stream"}) {
+			t.Errorf("the probe kept %v in a directory of its own", got)
+		}
+		requireMode(t, filepath.Join(spec.EvidenceDir, claudecode.DriverName), 0o700)
+	})
+}
