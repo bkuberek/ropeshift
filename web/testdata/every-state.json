@@ -908,6 +908,9 @@
           "lane": {
             "actual_state": "handing_off",
             "as_of": 1790000133001,
+            "condition_notes": {
+              "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
+            },
             "conditions": [
               "degraded_mode"
             ],
@@ -5486,6 +5489,9 @@
         {
           "actual_state": "handing_off",
           "as_of": 1790000133001,
+          "condition_notes": {
+            "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
+          },
           "conditions": [
             "degraded_mode"
           ],

@@ -567,7 +567,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                         <span className="row-tight">
                           <LaneBadge state={shown.actual_state} />
                           {(shown.conditions ?? []).map((condition) => (
-                            <ConditionChip key={condition} name={condition} />
+                            <ConditionChip key={condition} name={condition} note={shown.condition_notes?.[condition]} />
                           ))}
                         </span>
                       </Fact>

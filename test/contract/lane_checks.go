@@ -294,7 +294,7 @@ func checkStatusCheck(r *Rig) error {
 		return err
 	}
 	named := s.working
-	named.Checking = ledger.CheckingCLI("claude-code", "2.1.400")
+	named.Checking = ledger.CheckingCLI("claude-code", "2.1.400", "")
 	if _, err := s.report(named); err != nil {
 		return err
 	}
@@ -357,6 +357,42 @@ func checkStatusCheck(r *Rig) error {
 		if status.Checking != nil && *status.Checking != *named.Checking {
 			return Violatedf("the log keeps a lane's check of %+v", status.Checking)
 		}
+	}
+	// A check that names the shipped matrix's surfaces keeps its source and its words as the ledger states them.
+	shipped := s.working
+	shipped.Surfaces = ledger.SurfacesShipped
+	shipped.Checking = ledger.CheckingCLI("claude-code", "2.1.317", ledger.SurfacesShipped)
+	if _, err := s.report(shipped); err != nil {
+		return err
+	}
+	view, err = s.want("working", ledger.FreshnessObserved)
+	if err != nil {
+		return err
+	}
+	if view.Checking == nil || *view.Checking != *shipped.Checking || view.Surfaces != ledger.SurfacesShipped {
+		return Violatedf("a lane on the shipped matrix's surfaces reads %+v from %q, want %+v from %q", view.Checking, view.Surfaces, shipped.Checking, ledger.SurfacesShipped)
+	}
+	// The surfaces outlive the check: a lane whose check ended still says where its process's surfaces came from.
+	shipped.Checking = nil
+	if _, err := s.report(shipped); err != nil {
+		return err
+	}
+	if view, err = s.want("working", ledger.FreshnessObserved); err != nil {
+		return err
+	}
+	if view.Checking != nil || view.Surfaces != ledger.SurfacesShipped {
+		return Violatedf("a lane whose check ended reads %+v from %q, want no check from %q", view.Checking, view.Surfaces, ledger.SurfacesShipped)
+	}
+	// A source of surfaces no table holds reads as documented surfaces, and the status still moves the lane.
+	shipped.Surfaces = "elsewhere"
+	if _, err := s.report(shipped); err != nil {
+		return err
+	}
+	if view, err = s.want("working", ledger.FreshnessObserved); err != nil {
+		return err
+	}
+	if view.Surfaces != "" {
+		return Violatedf("a lane that reported surfaces from %q reads %q", "elsewhere", view.Surfaces)
 	}
 	return r.CheckProjection(s.store)
 }

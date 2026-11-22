@@ -544,7 +544,7 @@ func TestNoDecisionReadsAFindingCanFail(t *testing.T) {
 }
 
 // markingFields are the names that would let a caller say what a lane is.
-var markingFields = []string{"ready", "briefed", "actual_state", "liveness", "conditions", "reachability", "model_reach", "ledger_reach", "checking"}
+var markingFields = []string{"ready", "briefed", "actual_state", "liveness", "conditions", "surfaces", "reachability", "model_reach", "ledger_reach", "checking"}
 
 // markingField walks a request's fields, by their wire names, for one that could mark a
 // lane. A lane's state derives from what happened (FR-LANE-5).

@@ -213,7 +213,7 @@ export function WorkCard({
             <span className="row-tight">
               <LaneBadge state={work.lane.actual_state} />
               {(work.lane.conditions ?? []).map((condition) => (
-                <ConditionChip key={condition} name={condition} />
+                <ConditionChip key={condition} name={condition} note={work.lane?.condition_notes?.[condition]} />
               ))}
               <Freshness kind={freshnessOf(work.lane.freshness)} at={work.lane.as_of} source="the lane's worker" />
             </span>

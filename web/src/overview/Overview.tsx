@@ -120,7 +120,7 @@ function Lanes({ floor }: { floor: ShopFloor }) {
                   <span className="row-tight">
                     <LaneBadge state={lane.state} />
                     {lane.conditions.map((condition) => (
-                      <ConditionChip key={condition} name={condition} />
+                      <ConditionChip key={condition} name={condition} note={lane.notes[condition]} />
                     ))}
                   </span>
                 </td>
