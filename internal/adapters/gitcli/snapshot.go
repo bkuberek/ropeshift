@@ -384,7 +384,10 @@ func (w Worktrees) PushBranch(ctx context.Context, repository, branch string) er
 // so a fetch can lose git's lock on that ref to intake's fetch of the clone, and it goes through
 // Git.Fetch, which tries again.
 func (w Worktrees) Fetch(ctx context.Context, repository string, refs []string) error {
-	git := w.git(repository)
+	git, err := w.hookless(ctx, repository)
+	if err != nil {
+		return err
+	}
 	remote, err := remoteOf(ctx, git, "")
 	if err != nil || remote == "" {
 		return err

@@ -18,6 +18,8 @@ var planted = map[string]string{
 	"ROPESHIFT_DELEGATE_TOKEN":           "planted-delegate-token",
 	"ROPESHIFT_DATABASE":                 "planted-database-address",
 	"ROPESHIFT_JOIN":                     "planted-join-string",
+	"ROPESHIFT_WEBHOOK_KEY":              "planted-old-webhook-key",
+	"PGPASSWORD":                         "planted-database-password",
 	"OTEL_EXPORTER_OTLP_HEADERS":         "planted-headers",
 	"OTEL_EXPORTER_OTLP_TRACES_HEADERS":  "planted-trace-headers",
 	"OTEL_EXPORTER_OTLP_METRICS_HEADERS": "planted-metric-headers",
@@ -116,5 +118,58 @@ func TestWorktreeCreateRunsNoRepositoryHook(t *testing.T) {
 		if _, err := os.Stat(marker); err == nil {
 			t.Fatalf("a post-checkout hook ran during the create (detached=%v)", detached)
 		}
+	}
+}
+
+// plantReferenceHook writes a reference-transaction hook, which git runs whenever it updates a ref, and returns
+// the file it writes to when it runs.
+func plantReferenceHook(t *testing.T, repo *gittest.Repo) string {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "reference-hook-ran")
+	hooks := filepath.Join(repo.Dir, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hook := "#!/bin/sh\ncat >/dev/null\necho \"$1\" >> '" + marker + "'\n"
+	if err := os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte(hook), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return marker
+}
+
+func TestWorktreeCreateFetchesWithNoRepositoryHook(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("README.txt", "seed\n")
+	local := origin.Clone("local")
+	head := origin.Commit("next.txt", "next\n")
+	marker := plantReferenceHook(t, local)
+	worktrees := gitcli.Worktrees{Env: local.Env()}
+	spec := ports.WorktreeSpec{Repository: local.Dir, Path: filepath.Join(t.TempDir(), "tree"), Base: head, Detached: true}
+	if _, err := worktrees.Create(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a reference-transaction hook ran in the fetch of a create")
+	}
+}
+
+func TestWorktreesFetchRunsNoRepositoryHook(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("README.txt", "seed\n")
+	origin.Git("branch", "lane/resumed")
+	local := origin.Clone("local")
+	origin.Commit("next.txt", "next\n")
+	origin.Git("checkout", "--quiet", "lane/resumed")
+	origin.Commit("lane.txt", "lane\n")
+	marker := plantReferenceHook(t, local)
+	worktrees := gitcli.Worktrees{Env: local.Env()}
+	if err := worktrees.Fetch(t.Context(), local.Dir, []string{"refs/heads/lane/resumed"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := local.Git("rev-parse", "refs/heads/lane/resumed"), origin.Git("rev-parse", "refs/heads/lane/resumed"); got != want {
+		t.Fatalf("the fetch left the ref at %s, want %s", got, want)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a reference-transaction hook ran in the fetch")
 	}
 }

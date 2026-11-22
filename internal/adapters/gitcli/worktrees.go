@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -154,8 +155,14 @@ func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 }
 
 // create is one run of a create.
+//
+// Every git command of it runs no repository hook: the fetch and the add change refs and check a tree out, and a
+// hook a lane wrote would run outside the lane's gates.
 func (w Worktrees) create(ctx context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
-	repository := w.git(spec.Repository)
+	repository, err := w.hookless(ctx, spec.Repository)
+	if err != nil {
+		return ports.Worktree{}, err
+	}
 	if prunesBeforeCreate() {
 		if err := repository.changeWorktrees(ctx, "prune"); err != nil {
 			return ports.Worktree{}, err
@@ -211,9 +218,6 @@ func (w Worktrees) create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 			args = append(args, "-b", spec.Branch, "--", spec.Path, base)
 		}
 	}
-	// The add checks the tree out, and a repository's post-checkout hook, which a lane may have written, would run
-	// outside the lane's gates.
-	repository.Config = NoHooks()
 	if err := repository.changeWorktrees(ctx, args...); err != nil {
 		return ports.Worktree{}, err
 	}
@@ -472,4 +476,31 @@ func (w Worktrees) FetchCommit(ctx context.Context, repository, commit string) e
 		return fmt.Errorf("%w: %s", ports.ErrNotFound, commit)
 	}
 	return w.fetchMissing(ctx, w.git(repository), commit)
+}
+
+// hookless is the git of a repository's commands that run no repository hook, however git is asked to find
+// one. core.hooksPath points at nothing, and since git 2.54 a hook named in the configuration with `hook.<name>.command`
+// runs wherever core.hooksPath points, so each such name is disabled with `hook.<name>.enabled`
+// (https://git-scm.com/docs/git-hook).
+func (w Worktrees) hookless(ctx context.Context, dir string) (Git, error) {
+	git := w.git(dir)
+	names, err := git.Output(ctx, "config", "--name-only", "--get-regexp", `^hook\..*\.(command|event)$`)
+	var exit *exec.ExitError
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
+		return Git{}, err
+	}
+	git.Config = NoHooks()
+	seen := map[string]bool{}
+	for line := range strings.Lines(string(names)) {
+		key := strings.TrimSpace(line)
+		name := strings.TrimPrefix(key, "hook.")
+		if dot := strings.LastIndex(name, "."); dot > 0 && name != key {
+			name = name[:dot]
+			if !seen[name] {
+				seen[name] = true
+				git.Config = append(git.Config, [2]string{"hook." + name + ".enabled", "false"})
+			}
+		}
+	}
+	return git, nil
 }

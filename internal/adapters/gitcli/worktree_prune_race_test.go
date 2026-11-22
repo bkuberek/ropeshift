@@ -16,9 +16,9 @@ import (
 )
 
 // Git's own auto maintenance runs `git worktree prune` in a process of its own, outside the adapter's lock.
-// A prune that looks at the entry `git worktree add` just made under .git/worktrees, before the add writes
-// its locked file, decides to remove it, and removes it file by file while the add goes on writing. The add
-// then fails with "could not open '.git/worktrees/X/locked' for writing" or "could not find created
+// A locked worktree is never pruned, and `git worktree add` locks the entry it makes only once it has made
+// it. A prune that reads the entry before that sees no worktree behind it, decides to remove it, and removes
+// it file by file while the add goes on writing. The add then fails with "could not open '.git/worktrees/X/locked' for writing" or "could not find created
 // worktree 'X'", or succeeds and leaves the entry without its gitdir, which the next prune removes. A
 // create meets each of these and does the whole step again.
 
