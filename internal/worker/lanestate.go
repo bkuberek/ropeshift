@@ -154,7 +154,18 @@ func (s *laneState) thresholds(profile lanes.Profile, role string) {
 	s.approvalLimit, _ = time.ParseDuration(profile.Lifecycle.ApprovalWait)
 }
 
-// wakeBounds reads the two settings that batch an orchestrator's wakes, once a profile named them.
+// defaultWakeBounds batches the wakes of an orchestrator whose profile could not be read by the defaults.
+// Bounds a profile named stay.
+func (s *laneState) defaultWakeBounds() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wakeFloor == 0 {
+		s.wakeDebounce, s.wakeFloor = lanes.WakeBounds(lanes.LifecycleSettings{})
+	}
+}
+
+// wakeBounds reads the two settings that batch an orchestrator's wakes, once a profile named them or their
+// defaults stand in for one that could not be read.
 func (s *laneState) wakeBounds() (debounce, floor time.Duration, known bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
