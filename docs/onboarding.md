@@ -420,7 +420,7 @@ The branch a planning or adopt session leaves has no review agent: your plan app
 
 A change can go through three kinds of checks:
 
-- **Your commit hooks.** A lane commits with git, and git runs the repository's commit hooks, so a quick check in a pre-commit hook runs on every lane commit. Ropeshift's own merge runs no hook.
+- **Your commit hooks.** A lane commits with git, and git runs the repository's commit hooks, so a quick check in a pre-commit hook runs on every lane commit. Ropeshift's own merge runs no hook, and neither does the creation of a lane's worktree, so a `post-checkout` hook never runs outside the lane's gates. No git command the daemon runs reads a webhook key, a member or delegate token, the database address, or the telemetry exporter's headers from the daemon's environment, and a profile's `env:` reference cannot name one.
 - **Checks a lane reports.** A lane reports the checks it ran with its outcome. A failed one blocks acceptance. A passing one stands behind no criterion, because no agent stands behind a lane's own checks.
 - **Required checks on GitHub.** With review target `pull_request` at `person_approves` or `review_approves`, the checks the base branch requires gate ropeshift's merge, and a failure sends the work back.
 
