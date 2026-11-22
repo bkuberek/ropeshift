@@ -126,7 +126,11 @@ func TestABrokenLayerAtTheCommitStopsTheLaneAndNamesIt(t *testing.T) {
 			repo := gittest.New(t)
 			clean := repo.Commit("README.md", "a repository\n")
 			bad := repo.Commit(RepositoryFile, text)
-			_, err := Filesystem{Env: repo.Env()}.Load(t.Context(), repo.Dir, bad, "")
+			user := filepath.Join(t.TempDir(), "profile.toml")
+			if err := os.WriteFile(user, []byte("[agent]\npermission_mode = \"default\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Filesystem{User: user, Env: repo.Env()}.Load(t.Context(), repo.Dir, bad, "")
 			if !errors.Is(err, lanes.ErrBadProfile) {
 				t.Fatalf("a layer that does not parse gave %v", err)
 			}
@@ -134,7 +138,7 @@ func TestABrokenLayerAtTheCommitStopsTheLaneAndNamesIt(t *testing.T) {
 				t.Errorf("the failure %q does not name the file and the commit %s", err, bad)
 			}
 			// The same text only in the working tree, with the commit before it as the base, is no layer.
-			if _, err := (Filesystem{Env: repo.Env()}).Load(t.Context(), repo.Dir, clean, ""); err != nil {
+			if _, err := (Filesystem{User: user, Env: repo.Env()}).Load(t.Context(), repo.Dir, clean, ""); err != nil {
 				t.Errorf("a broken layer outside the commit stopped the lane: %v", err)
 			}
 		})

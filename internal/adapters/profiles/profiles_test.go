@@ -36,7 +36,7 @@ func TestNoDefaultBypass(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if profile.Agent.PermissionMode != "default" {
+			if profile.Agent.PermissionMode != "auto" {
 				t.Errorf("mode %q", profile.Agent.PermissionMode)
 			}
 		})
@@ -52,10 +52,10 @@ func TestARepositoryCannotRaiseThePermissionMode(t *testing.T) {
 		repository string
 		refused    bool
 	}{
-		{name: "a repository says what is already so", repository: raise("default")},
+		{name: "a repository says what is already so", repository: raise("auto")},
 		{name: "a repository narrows", user: raise("auto"), repository: raise("default")},
 		{name: "a user chooses auto", user: raise("auto")},
-		{name: "a repository raises to auto", repository: raise("auto"), refused: true},
+		{name: "a repository raises past a user's default", user: raise("default"), repository: raise("auto"), refused: true},
 		{name: "a repository raises past a user's dontAsk", user: raise("dontAsk"), repository: raise("default"), refused: true},
 		{name: "a repository narrows to dontAsk", user: raise("default"), repository: raise("dontAsk")},
 		{name: "a repository raises to bypass", repository: raise(bypassMode), refused: true},
@@ -325,12 +325,12 @@ func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 		refused                      bool
 	}{
 		{name: "a lane can narrow", user: "[agent]\npermission_mode = \"auto\"\n", lane: "[agent]\npermission_mode = \"default\"\n"},
-		{name: "a lane cannot raise", lane: "[agent]\npermission_mode = \"auto\"\n", refused: true},
+		{name: "a lane cannot raise", user: "[agent]\npermission_mode = \"default\"\n", lane: "[agent]\npermission_mode = \"auto\"\n", refused: true},
 		{name: "a lane cannot reach bypass", lane: "[agent]\npermission_mode = \"bypassPermissions\"\n", refused: true},
 		{name: "a lane cannot raise past a repository", user: "[agent]\npermission_mode = \"auto\"\n", repository: "[agent]\npermission_mode = \"default\"\n", lane: "[agent]\npermission_mode = \"auto\"\n", refused: true},
 		{name: "a lane can keep a repository's mode", user: "[agent]\npermission_mode = \"auto\"\n", repository: "[agent]\npermission_mode = \"default\"\n", lane: "[agent]\npermission_mode = \"default\"\n"},
 		{name: "a lane can lower a repository's mode", user: "[agent]\npermission_mode = \"auto\"\n", repository: "[agent]\npermission_mode = \"default\"\n", lane: "[agent]\npermission_mode = \"dontAsk\"\n"},
-		{name: "a repository cannot raise for a lane", repository: "[agent]\npermission_mode = \"auto\"\n", refused: true},
+		{name: "a repository cannot raise for a lane", user: "[agent]\npermission_mode = \"default\"\n", repository: "[agent]\npermission_mode = \"auto\"\n", refused: true},
 		{name: "a lane cannot admit more", user: "[admission]\nmax_lanes = 4\n", lane: "[admission]\nmax_lanes = 99\n", refused: true},
 		{name: "a repository cannot admit more", user: "[admission]\nmax_lanes_per_sign_in = 2\n", repository: "[admission]\nmax_lanes_per_sign_in = 99\n", refused: true},
 		{name: "a repository cannot lift a cap", user: "[admission]\nmax_lanes_per_sign_in = 2\n", repository: "[admission]\nmax_lanes_per_sign_in = 0\n", refused: true},
