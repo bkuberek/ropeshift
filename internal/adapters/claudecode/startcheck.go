@@ -225,11 +225,6 @@ func keepScreen(ctx context.Context, terminal ports.Terminal, name string, spec 
 	return os.WriteFile(filepath.Join(spec.ConfigDir, fmt.Sprintf("screen-%d.txt", spec.Generation)), []byte(text), 0o600)
 }
 
-// startCheckScreen reads the pane's screen for the probe's evidence; the start check is where a screen is read.
-func startCheckScreen(ctx context.Context, terminal ports.Terminal, name string) (string, error) {
-	return terminal.Capture(ctx, name)
-}
-
 // answerKey is the one key a dialog takes from where its focus stands.
 func answerKey(focus focusLine) string {
 	switch focus {
@@ -246,4 +241,9 @@ func pause(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+// startCheckScreen reads the pane's screen for the probe's evidence; the start check is where a screen is read.
+func startCheckScreen(ctx context.Context, terminal ports.Terminal, name string) (string, error) {
+	return terminal.Capture(ctx, name)
 }
