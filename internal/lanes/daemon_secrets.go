@@ -12,12 +12,13 @@ import (
 // command the daemon runs.
 var daemonSecrets = []string{
 	authority.EnvMemberToken, authority.EnvDelegateToken,
-	"ROPESHIFT_DATABASE", "ROPESHIFT_JOIN", "ROPESHIFT_TLS_KEY",
+	"ROPESHIFT_DATABASE", "ROPESHIFT_JOIN", "ROPESHIFT_TLS_KEY", "ROPESHIFT_WEBHOOK_KEY",
+	"PGPASSWORD",
 	"OTEL_EXPORTER_OTLP_HEADERS",
 }
 
 // DaemonSecret reports a variable that holds a secret of the daemon: a webhook key, a member or delegate
-// token, the database address, the join string, the TLS key, or the telemetry exporter's headers, whether
+// token, the database address or password, the join string, the TLS key, or the telemetry exporter's headers, whether
 // shared or for one signal.
 func DaemonSecret(name string) bool {
 	if strings.HasPrefix(name, ledger.WebhookSecretEnvPrefix) {

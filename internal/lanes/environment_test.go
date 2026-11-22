@@ -89,7 +89,8 @@ func TestBuildEnvironment(t *testing.T) {
 
 func TestBuildEnvironmentRefuses(t *testing.T) {
 	parent := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t", "CLAUDECODE": "1", "ROPESHIFT_SIGNING_KEY": "k", "ROPESHIFT_HOOK_NOTIFY": "k",
-		"OTEL_EXPORTER_OTLP_HEADERS": "h", "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "h", "OTEL_EXPORTER_OTLP_METRICS_HEADERS": "h", "OTEL_EXPORTER_OTLP_LOGS_HEADERS": "h"}
+		"OTEL_EXPORTER_OTLP_HEADERS": "h", "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "h", "OTEL_EXPORTER_OTLP_METRICS_HEADERS": "h", "OTEL_EXPORTER_OTLP_LOGS_HEADERS": "h",
+		"ROPESHIFT_WEBHOOK_KEY": "k", "PGPASSWORD": "p"}
 	tests := []struct {
 		name string
 		spec EnvironmentSpec
@@ -103,6 +104,8 @@ func TestBuildEnvironmentRefuses(t *testing.T) {
 		{"the exporter's trace headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_TRACES_HEADERS"}}, ErrDaemonVariable},
 		{"the exporter's metric headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_METRICS_HEADERS"}}, ErrDaemonVariable},
 		{"the exporter's log headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_LOGS_HEADERS"}}, ErrDaemonVariable},
+		{"an older webhook key", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_WEBHOOK_KEY"}}, ErrDaemonVariable},
+		{"the database password", EnvironmentSpec{SecretRefs: []string{"env:PGPASSWORD"}}, ErrDaemonVariable},
 		{"a daemon variable that is not set", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_UNSET"}}, ErrDaemonVariable},
 		{"a variable that is not set", EnvironmentSpec{SecretRefs: []string{"env:ANTHROPIC_API_KEY"}}, ErrMissingVariable},
 		{"a reference with no name", EnvironmentSpec{SecretRefs: []string{"env:"}}, ErrBadReference},
@@ -227,6 +230,8 @@ func TestDaemonSecret(t *testing.T) {
 		"ROPESHIFT_DELEGATE_TOKEN":           true,
 		"ROPESHIFT_DATABASE":                 true,
 		"ROPESHIFT_JOIN":                     true,
+		"ROPESHIFT_WEBHOOK_KEY":              true,
+		"PGPASSWORD":                         true,
 		"ROPESHIFT_TLS_KEY":                  true,
 		"OTEL_EXPORTER_OTLP_HEADERS":         true,
 		"OTEL_EXPORTER_OTLP_TRACES_HEADERS":  true,
