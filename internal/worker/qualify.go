@@ -200,8 +200,9 @@ func (w *Worker) handOverLocked() {
 }
 
 // runProbe runs one probe and keeps its result: in the journal with the event that records it, and
-// in the driver, which from then on qualifies that version alone. While it runs the last result stays in force. A
-// probe that could not run leaves every surface unobserved, so the version runs degraded.
+// in the driver, which from then on qualifies that version alone. While it runs the last result stays in force, and
+// so it does when the probe cannot run. A probe that could not run, for a version no result holds for, leaves every
+// surface unobserved, so the version runs degraded.
 func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	// A probe's end moves the status of every lane on its version, so the loop publishes at once. A probe
 	// that ends with no result of its own, because the version moved under it, leaves the driver what the
@@ -235,6 +236,11 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 		return
 	case err != nil:
 		w.config.Report(fmt.Errorf("the probe of %s could not run: %w", p.version, err))
+		// A probe that could not run proved nothing against a result that holds for its version, so that result stays in
+		// force and only the wait begins. With no result for the version, every surface reads unobserved.
+		if w.holdsFor(p.version) {
+			return
+		}
 		q = lanes.Unprobed(w.driverName(), p.version, spec.SignIn, nil)
 	}
 	if err := w.keepQualification(life, q); err != nil {
@@ -243,6 +249,13 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	}
 	// A result for a version other than the one this probe was started for leaves that version to be probed again.
 	ownResult, passed = true, q.PassedAll(checks) && q.Version == p.version
+}
+
+// holdsFor says the worker holds a probe's result for this version.
+func (w *Worker) holdsFor(version string) bool {
+	w.qualLock.Lock()
+	defer w.qualLock.Unlock()
+	return w.qual.Holds(version)
 }
 
 // keepQualification stores a result and its event in one write, then hands it to the driver, so the

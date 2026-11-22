@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -421,6 +423,43 @@ func TestAResultThatLacksACheckAProbeRunsNowIsProbedAgain(t *testing.T) {
 	again.Wait()
 	if n := len(third.Probes()); n != 0 {
 		t.Errorf("%d probes of a result that has every check a probe runs now", n)
+	}
+}
+
+// TestAProbeThatCannotRunKeepsTheResultInForce is a probe of a version whose result is held that ends in an error, as
+// a timeout or a CLI that would not start does: that result stays in force, in the driver and in the journal, no new
+// result is recorded, and only the wait before the next probe starts.
+func TestAProbeThatCannotRunKeepsTheResultInForce(t *testing.T) {
+	t.Parallel()
+	r := degradedRig(t)
+	r.subject.Wait()
+	held := r.driver.Qualified()
+	if held.Version != "1.0.0" || held.Checks[fake.SurfacePeerChannel] != lanes.CheckFailed {
+		t.Fatalf("the first probe left the driver %+v", held)
+	}
+	r.driver.FailProbe(errors.New("the CLI would not start"))
+	r.moveAndLook(time.Hour + time.Minute)
+	if n := len(r.driver.Probes()); n != 2 {
+		t.Fatalf("%d probes, want the second once the hour ended", n)
+	}
+	if q := r.driver.Qualified(); !reflect.DeepEqual(q, held) {
+		t.Errorf("a probe that could not run left the driver %+v, want %+v", q, held)
+	}
+	stored, err := r.journal.Qualification(t.Context())
+	if err != nil || !reflect.DeepEqual(stored, held) {
+		t.Errorf("the journal holds %+v, %v, want %+v", stored, err, held)
+	}
+	if got := r.qualifications(); len(got) != 1 {
+		t.Errorf("a probe that could not run recorded %+v", got)
+	}
+	if problems := r.problems(); len(problems) != 1 || !strings.Contains(problems[0].Error(), "could not run") {
+		t.Errorf("the worker said %v", problems)
+	}
+	for range 118 {
+		r.moveAndLook(time.Minute)
+	}
+	if n := len(r.driver.Probes()); n != 2 {
+		t.Errorf("%d probes inside the two hours the second wait lasts", n)
 	}
 }
 
