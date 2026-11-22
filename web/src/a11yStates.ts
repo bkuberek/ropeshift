@@ -30,6 +30,7 @@ export const views = [
   "/needs-you?item=work%3Awo-tripped",
   "/needs-you?item=work%3Awo-long-parked",
   "/needs-you?item=work%3Awo-behind",
+  "/needs-you?item=work%3Awo-in-pane",
   "/needs-you?item=personal_setup%3Aworker-a%2F2.1.330%2Fmcp_server%2Fgithub",
   "/needs-you?item=lane_settings%3Alane-wo-hooked",
   "/needs-you?item=work%3Awo-history-missing",

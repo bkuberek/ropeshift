@@ -322,6 +322,10 @@ type Observation struct {
 	// Attached says a person's terminal is attached to the session's pane. A session with no pane, and
 	// a read that could not tell, say nobody is.
 	Attached bool
+	// AwaitsPerson says the session's pane shows something only a person can answer, which no key of the worker's
+	// may: a dialog a hook told of, or typed input the session did not take, whose text may stand in its prompt. A
+	// session with no pane says no.
+	AwaitsPerson bool
 }
 
 // Located is what Find learned of a session from an earlier process.

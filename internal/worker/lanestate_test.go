@@ -462,3 +462,24 @@ type startRefusal struct {
 func (d startRefusal) Start(context.Context, ports.SessionSpec) (ports.SessionHandle, error) {
 	return ports.SessionHandle{}, d.err
 }
+
+// A dialog no request covers holds a call open, so the lane never reads stalled, and no key of the worker's answers it:
+// the lane reads waiting_in_pane while its pane shows it, which reaches Needs you.
+func TestALaneWhosePaneShowsADialogReadsWaitingInPane(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.hook(t, lanes.HookEvent{Event: "PreToolUse", Subject: "tool-1", Tool: "mcp__docs__fetch"})
+	r.driver.SetAwaitsPerson(true)
+	r.clock.Advance(21 * time.Minute)
+	if view := r.read(); !slices.Contains(view.Conditions, string(lanes.WaitingInPane)) {
+		t.Errorf("a lane whose pane shows a dialog reads %v", view.Conditions)
+	}
+	r.driver.SetAwaitsPerson(false)
+	if view := r.read(); slices.Contains(view.Conditions, string(lanes.WaitingInPane)) {
+		t.Errorf("a lane whose dialog closed reads %v", view.Conditions)
+	}
+}

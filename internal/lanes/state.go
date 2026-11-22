@@ -259,6 +259,9 @@ const (
 	// WaitingBackground says a lane at rest waits on background work its own last turn left running, such as a
 	// watch, which starts its next turn when it ends. The wait lasts no longer than the lane may wait live.
 	WaitingBackground Condition = "waiting_background"
+	// WaitingInPane says the lane's pane shows something only a person can answer, such as a dialog, which no key of
+	// the worker's answers, so it reaches Needs you.
+	WaitingInPane Condition = "waiting_in_pane"
 )
 
 // Note is the sentence that says what a condition means for a lane that runs on documented surfaces, and is empty
@@ -281,8 +284,8 @@ func (c Condition) NoteFor(surfaces string) string {
 
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
-	Stalled, Overdue, WaitingExternal, WaitingBackground, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode,
-	UnpushedWork, Drifted, DayCapped, WaitingForPerson, AwaitingWake,
+	Stalled, Overdue, WaitingExternal, WaitingBackground, WaitingInPane, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded,
+	DegradedMode, UnpushedWork, Drifted, DayCapped, WaitingForPerson, AwaitingWake,
 }
 
 // Facts is what a lane's conditions derive from.
@@ -300,6 +303,10 @@ type Facts struct {
 	// BackgroundInFlight says a lane at rest waits on background work its last turn left running, which
 	// starts its next turn when it ends. It raises `waiting_background` and no other condition.
 	BackgroundInFlight bool
+	// AwaitsPerson says the lane's pane shows something only a person can answer, such as a dialog. It raises
+	// `waiting_in_pane`, which reaches Needs you, because no key of the worker's answers it and a call it holds
+	// open keeps the lane from reading `stalled`.
+	AwaitsPerson bool
 	// ContextTokens is the last call's context, and WarnTokens the profile's warning.
 	ContextTokens int64
 	WarnTokens    int64
@@ -335,6 +342,7 @@ func Conditions(f Facts) []Condition {
 	raise(Overdue, f.PastDeadline)
 	raise(WaitingExternal, waiting)
 	raise(WaitingBackground, f.BackgroundInFlight)
+	raise(WaitingInPane, f.AwaitsPerson)
 	raise(NearBudget, f.WarnTokens > 0 && f.ContextTokens >= f.WarnTokens)
 	raise(BriefUnconfirmed, f.BriefUnconfirmed)
 	raise(PackOversized, f.PackOversized)

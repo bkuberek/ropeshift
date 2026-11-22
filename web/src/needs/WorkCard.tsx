@@ -23,6 +23,7 @@ const reasonWords: Record<string, string> = {
   blocked: "Its lane stopped, and no answer to a question would change that.",
   tripped: "Its lane crashed too often, and its breaker stopped it.",
   stalled: "Its lane shows no progress.",
+  waiting_in_pane: "Its lane's pane shows something only a person can answer, such as a dialog, and no key of the worker's answers it.",
   long_parked: "Its lane has stayed parked for a long time.",
   failed: "Its lane failed, and nothing retries failed work on its own.",
   acceptance: "Its lane finished, and it waits for a member's word.",
@@ -38,6 +39,8 @@ const toldReasons = ["worker_behind", "history_missing", "history_unread"];
 const orchestratorWords: Record<string, string> = {
   tripped: "This orchestrator crashed too often, and its breaker stopped it. Questions wait until it runs.",
   stalled: "This orchestrator shows no progress. Questions wait until it runs.",
+  waiting_in_pane:
+    "This orchestrator's pane shows something only a person can answer, such as a dialog, and no key of the worker's answers it. Talk to the orchestrator to answer it in its pane.",
 };
 
 export const actionWords: Record<WorkAction | OrchestratorAction, string> = {
@@ -202,6 +205,11 @@ export function WorkCard({
       {work.work_order && !inPage ? (
         <p className="small">
           <Link to={`/work-order?id=${encodeURIComponent(work.work_order.id)}`}>Open work order {work.work_order.id}</Link>
+        </p>
+      ) : null}
+      {work.reason === "waiting_in_pane" && work.lane && !work.orchestrator ? (
+        <p className="small">
+          <Link to={`/lane?id=${encodeURIComponent(work.lane.id)}`}>Open its pane</Link>
         </p>
       ) : null}
       {work.lane ? (

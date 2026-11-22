@@ -203,6 +203,11 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 		}
 		event.Generation = run.processGeneration()
 		run.tellDriver(ctx, event)
+		// A Notification can change what the session's pane waits on, which the driver reads, so the lanes publish once
+		// the driver has it.
+		if event.Event == hookNotification {
+			w.laneMoved()
+		}
 		if len(event.Asked) != 0 {
 			record, asked, categories := run.record(), event.Asked, run.askCategories()
 			w.goTracked(trackedConversion, func() { w.convertAsked(ctx, record, asked, categories) })

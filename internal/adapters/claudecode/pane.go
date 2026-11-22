@@ -865,6 +865,7 @@ func (s *paneSession) takeStatus(event lanes.HookEvent) {
 func (s *paneSession) observe(ctx context.Context) ports.Observation {
 	s.mu.Lock()
 	out := s.seen
+	out.AwaitsPerson = s.waiting || s.unsentMs != 0
 	s.mu.Unlock()
 	select {
 	case <-s.done:

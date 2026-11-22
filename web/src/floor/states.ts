@@ -64,6 +64,7 @@ export const conditions: Record<string, ConditionLook> = {
   overdue: { label: "Overdue", tone: "warning" },
   waiting_external: { label: "Waiting on something outside", tone: "neutral" },
   waiting_background: { label: "Waiting on its own background work", tone: "neutral" },
+  waiting_in_pane: { label: "Waiting for you in its pane", tone: "warning" },
   near_budget: { label: "Near its budget", tone: "warning" },
   brief_unconfirmed: { label: "Brief not confirmed", tone: "neutral" },
   pack_oversized: { label: "Context pack too large", tone: "warning" },

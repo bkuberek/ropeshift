@@ -813,11 +813,11 @@ func (r *laneRun) settleBrief(ctx context.Context) {
 func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 	r.settleBrief(ctx)
 	r.retryBrief(ctx)
-	liveness := lanes.LivenessUnknown
+	liveness, awaitsPerson := lanes.LivenessUnknown, false
 	if handle := r.sessionHandle(); handle.ID != "" {
 		observation, err := r.rt.Driver.Observe(ctx, handle)
 		if err == nil {
-			liveness = observation.Liveness
+			liveness, awaitsPerson = observation.Liveness, observation.AwaitsPerson
 		}
 	}
 	// The process uses the surfaces it started with, so the condition it launched with stands, and a
@@ -837,7 +837,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: degraded,
 		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded, PackOversized: s.policy.Oversized(s.baseline),
 		DayCapped: s.dayCapped, WaitingForPerson: s.forPerson && state == lanes.Idle, AwaitingWake: s.forWake,
-		BackgroundInFlight: s.background > 0 && state == lanes.Idle,
+		BackgroundInFlight: s.background > 0 && state == lanes.Idle, AwaitsPerson: awaitsPerson,
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),

@@ -217,9 +217,10 @@ func commandsFor(item api.NeedItem) []string {
 
 // reasonWords says the reasons whose names are codes, and the rest read as they are.
 var reasonWords = map[string]string{
-	api.ReasonResume:       "parked",
-	api.ReasonLongParked:   "long parked",
-	api.ReasonWorkerBehind: "waits for a worker upgrade",
+	api.ReasonResume:        "parked",
+	api.ReasonLongParked:    "long parked",
+	api.ReasonWorkerBehind:  "waits for a worker upgrade",
+	api.ReasonWaitingInPane: "waits for you in its pane",
 }
 
 // waitsFor says what a parked lane's wakes wait for, in the short words of the web UI's.

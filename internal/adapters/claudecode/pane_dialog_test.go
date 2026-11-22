@@ -141,3 +141,38 @@ func TestALatePromptLeavesANewerDialog(t *testing.T) {
 	refusesInput(t, s)
 	noKeyReached(t, s, terminal)
 }
+
+// A pane says it awaits a person while a dialog a hook told of stands, or typed input the session did not take may
+// stand in its prompt, because no key of the worker's may answer either.
+func TestAPaneSaysItAwaitsAPerson(t *testing.T) {
+	t.Parallel()
+	awaits := func(t *testing.T, s *paneSession) bool {
+		t.Helper()
+		return s.observe(t.Context()).AwaitsPerson
+	}
+	t.Run("a dialog", func(t *testing.T) {
+		t.Parallel()
+		s, _ := dialogPane(t)
+		if awaits(t, s) {
+			t.Fatal("a pane at rest awaits a person")
+		}
+		s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationPermission, AtMs: 120})
+		if !awaits(t, s) {
+			t.Fatal("a pane that shows a dialog does not await a person")
+		}
+		s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: 130})
+		if awaits(t, s) {
+			t.Fatal("a pane whose dialog a prompt answered still awaits a person")
+		}
+	})
+	t.Run("typed input the session did not take", func(t *testing.T) {
+		t.Parallel()
+		s := takingPane(t, &takingTerminal{loseAll: true})
+		if _, err := s.typeInput(t.Context(), ports.Input{Text: "a nudge"}); !errors.Is(err, ports.ErrInputUnconfirmed) {
+			t.Fatalf("typed input came back as %v", err)
+		}
+		if !awaits(t, s) {
+			t.Fatal("a pane whose prompt may hold the worker's text does not await a person")
+		}
+	})
+}

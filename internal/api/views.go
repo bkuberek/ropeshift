@@ -183,6 +183,9 @@ const (
 	ReasonTripped    = "tripped"
 	ReasonStalled    = "stalled"
 	ReasonLongParked = "long_parked"
+	// ReasonWaitingInPane is a lane or an orchestrator whose pane shows something only a person can answer, such as
+	// a dialog, which no key of the worker's answers. A person answers it in the pane.
+	ReasonWaitingInPane = "waiting_in_pane"
 	// ReasonWorkerBehind is a claim whose worker is too old to read the lane a delegate started under a delegate
 	// policy that restricts it (FR-AUTH-16). The worker renews the claim and starts nothing until it is upgraded,
 	// so nothing lapses and the claim would otherwise look as if it were about to start.

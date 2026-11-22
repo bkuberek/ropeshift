@@ -153,8 +153,10 @@ type AgentDriver struct {
 	probeErr  error
 	// noHeadless stands for a version whose `-p` lost a subscription's login.
 	noHeadless bool
-	// attached stands for a person's terminal attached to every session's pane.
-	attached bool
+	// attached stands for a person's terminal attached to every session's pane, and awaitsPerson for a pane that
+	// shows something only a person can answer, such as a dialog.
+	attached     bool
+	awaitsPerson bool
 	// observeErr is what the next Observe says, and observeFailed that one Observe said it.
 	observeErr    error
 	observeFailed bool
@@ -854,7 +856,7 @@ func (d *AgentDriver) Observe(_ context.Context, h ports.SessionHandle) (ports.O
 		return ports.Observation{Liveness: ports.LivenessUnknown}, err
 	}
 	d.mu.Lock()
-	unknown, attached, failure := d.unknown, d.attached, d.observeErr
+	unknown, attached, awaits, failure := d.unknown, d.attached, d.awaitsPerson, d.observeErr
 	if failure != nil {
 		d.observeErr, d.observeFailed = nil, true
 	}
@@ -867,6 +869,7 @@ func (d *AgentDriver) Observe(_ context.Context, h ports.SessionHandle) (ports.O
 	}
 	observation := ports.Observation{
 		Liveness: ports.LivenessAlive, SessionID: session.script.SessionID, ModelResolved: session.script.Model, Attached: attached,
+		AwaitsPerson: awaits,
 	}
 	select {
 	case <-session.done:
@@ -928,6 +931,13 @@ func (d *AgentDriver) SetAttached(on bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.attached = on
+}
+
+// SetAwaitsPerson says whether every session's pane shows something only a person can answer, as Observe reads it.
+func (d *AgentDriver) SetAwaitsPerson(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.awaitsPerson = on
 }
 
 // FailObserve makes the next Observe say this, as a read of a pane that failed once.
