@@ -103,11 +103,12 @@ func TestWhatTheSessionDoesHoldsARefusedNudgesBound(t *testing.T) {
 	})
 	t.Run("an open request", func(t *testing.T) {
 		t.Parallel()
-		r := refusedLane(t, approvalProfile, endsAtRest)
+		r := refusedLane(t, profileAt+"[lifecycle]\napproval_wait = \"20m\"\nhandoff_timeout = \"30ms\"\n", endsAtRest)
 		if reply := r.look(t, gatedCall, "call-1", false); !reply.OK {
 			t.Fatalf("reply %+v", reply)
 		}
 		r.runsOn(t, bound+time.Minute)
+		r.runsOn(t, 20*time.Minute-bound-2*time.Minute)
 		r.awaitParked(t)
 		if parking := r.parkingOf(t); parking == nil || parking.Trigger != lanes.ParkApproval {
 			t.Errorf("parking %+v, want the request's wait", parking)
@@ -118,6 +119,7 @@ func TestWhatTheSessionDoesHoldsARefusedNudgesBound(t *testing.T) {
 		r := refusedLane(t, profileAt+"[lifecycle]\nask_wait = \"10m\"\nhandoff_timeout = \"30ms\"\n", endsAtRest)
 		r.askBlocking(t, "Which harbour comes first?")
 		r.runsOn(t, bound+time.Minute)
+		r.runsOn(t, 10*time.Minute-2*time.Minute)
 		r.awaitParked(t)
 		if parking := r.parkingOf(t); parking == nil || parking.Trigger != lanes.ParkBlockingQuestion {
 			t.Errorf("parking %+v, want the question's wait", parking)
