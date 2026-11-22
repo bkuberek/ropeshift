@@ -211,6 +211,11 @@ type Journal interface {
 	Qualification(ctx context.Context) (lanes.Qualification, error)
 	// SaveQualification keeps a probe's result and the event that records it, in one write.
 	SaveQualification(ctx context.Context, q lanes.Qualification, events ...ledger.UploadEvent) error
+	// ProbeAttempt reads the last qualification probe this worker began, and the zero value before any.
+	ProbeAttempt(ctx context.Context) (lanes.ProbeAttempt, error)
+	// SaveProbeAttempt keeps that a probe is beginning, before it starts a session, in place of the attempt before it,
+	// so a worker that restarts knows when the last one began.
+	SaveProbeAttempt(ctx context.Context, attempt lanes.ProbeAttempt) error
 	// LanePeaks reads the peaks of the last lanes this worker ran, oldest first, and none before it saves.
 	LanePeaks(ctx context.Context) ([]lanes.LanePeak, error)
 	// SaveLanePeaks keeps them in place of what it held.

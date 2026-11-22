@@ -3,6 +3,7 @@ package lanes
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -57,6 +58,22 @@ func (q Qualification) Holds(installed string) bool {
 	return q.Source == QualifiedByProbe && q.For(installed)
 }
 
+// PassedAll reports a result that passed every one of the checks, which are the ones a probe runs now, so it holds
+// for its version for good. A check the result does not hold counts as not passed, as one that failed or that no
+// session reached does, and so does a probe that could not run, which holds none. A check the result holds and the
+// probe no longer runs is not asked for.
+func (q Qualification) PassedAll(checks []Surface) bool {
+	if len(checks) == 0 || q.Degraded {
+		return false
+	}
+	for _, surface := range checks {
+		if !q.Passed(surface) {
+			return false
+		}
+	}
+	return true
+}
+
 // Check reports a qualification a worker could have sent: a driver, a version, a probe as its
 // source, and only the three results.
 func (q Qualification) Check() error {
@@ -81,6 +98,14 @@ func Unprobed(driver, version, signIn string, surfaces []Surface) Qualification 
 		q.Checks[surface] = CheckUnobserved
 	}
 	return q
+}
+
+// ProbeAttempt is the last probe a worker began, which outlives its process, so a worker that restarts does not begin
+// another at once. It holds a version and a time, and nothing of a session or an account.
+type ProbeAttempt struct {
+	Version string
+	// BeganAt is when the probe began, before it started its first session.
+	BeganAt time.Time
 }
 
 // QualificationKey names a worker's driver, the way a sign-in is named (D10).

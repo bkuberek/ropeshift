@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -134,7 +135,8 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 	}
 }
 
-// A login check made on an API key cannot read a subscription's login, so it stays unobserved.
+// A login check made on an API key cannot read a subscription's login, so it stays unobserved, and the probe does
+// not ask for it.
 func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
 	driver, spec, _ := probeRig(t)
 	spec.SignIn = ports.SignInAPIKey
@@ -142,8 +144,36 @@ func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.Checks[claudecode.SurfacePrintKeepsLogin] != lanes.CheckUnobserved || q.Degraded {
+	if q.Checks[claudecode.SurfacePrintKeepsLogin] != lanes.CheckUnobserved || q.Degraded || !q.PassedAll(driver.ProbeChecks(ports.SignInAPIKey)) {
 		t.Errorf("qualification %+v", q)
+	}
+}
+
+// A probe runs every surface of the matrix, except the login where the sign-in is an API key and the screens where the
+// driver has no terminal, and a result holds only when it passed all of those.
+func TestAProbeRunsEveryCheckItCanObserve(t *testing.T) {
+	t.Parallel()
+	headless := claudecode.New(osexec.Runner{}, claudecode.Options{})
+	withTerminal := claudecode.New(osexec.Runner{}, claudecode.Options{Terminal: fake.NewTerminal()})
+	for _, tt := range []struct {
+		name    string
+		driver  *claudecode.Driver
+		signIn  string
+		without []lanes.Surface
+	}{
+		{"a subscription with a terminal", withTerminal, ports.SignInSubscription, nil},
+		{"an unknown sign-in with a terminal", withTerminal, "", nil},
+		{"an API key with a terminal", withTerminal, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin}},
+		{"a subscription with no terminal", headless, ports.SignInSubscription, []lanes.Surface{claudecode.SurfaceStartScreens}},
+		{"an API key with no terminal", headless, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceStartScreens}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			want := slices.DeleteFunc(slices.Clone(claudecode.Surfaces), func(s lanes.Surface) bool { return slices.Contains(tt.without, s) })
+			if got := tt.driver.ProbeChecks(tt.signIn); !slices.Equal(got, want) {
+				t.Errorf("a probe runs %v, want %v", got, want)
+			}
+		})
 	}
 }
 

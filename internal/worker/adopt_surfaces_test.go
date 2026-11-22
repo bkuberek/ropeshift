@@ -96,6 +96,8 @@ func aMatrixLaneTakenOver(t *testing.T, waitForProbe bool) (r *laneRig, taken *w
 	endProbe = driver.HoldProbes()
 	t.Cleanup(endProbe)
 	taken = newWatchedAdoption(driver, waitForProbe)
+	// The first worker journaled the probe it began, and a worker that starts holds its own back for a while after it.
+	r.clock.Advance(restartedAfter)
 	config := *r.config
 	config.Driver = taken
 	r.subject = worker.New(r.link, r.journal, r.clock, worker.Config{Name: "test", Lanes: &config})

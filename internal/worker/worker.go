@@ -118,14 +118,17 @@ type Worker struct {
 	// creationFolders are the folders the repository creations of this process write now.
 	creationFolders creationFolders
 
-	// qualLock guards qual, the probe result in force, probe, the one probe running, life, the
-	// context a probe runs under, which outlives any one lane, and lookedAt, when the worker last read
-	// the installed version for itself.
-	qualLock sync.Mutex
-	qual     lanes.Qualification
-	probe    *probeRun
-	life     context.Context
-	lookedAt time.Time
+	// qualLock guards qual, the probe result in force, probe, the one probe running, backoff, the wait before the
+	// installed version is probed again, probeAfter, before which a restarted worker starts no probe, life, the
+	// context a probe runs under, which outlives any one lane, and lookedAt, when the worker last read the installed
+	// version for itself.
+	qualLock   sync.Mutex
+	qual       lanes.Qualification
+	probe      *probeRun
+	backoff    probeBackoff
+	probeAfter time.Time
+	life       context.Context
+	lookedAt   time.Time
 	// probes holds the probe goroutine, which Wait also waits for.
 	probes sync.WaitGroup
 
