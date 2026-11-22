@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -48,8 +49,13 @@ func tmuxRig(pasteWindow string) func(*testing.T) TerminalRig {
 				}
 			}
 		}
+		scrolls := func(name string, lines int) ports.PaneSpec {
+			doubles.KillTmux(t, terminal, name)
+			script := fmt.Sprintf("i=1; while [ $i -le %d ]; do echo line$i; i=$((i+1)); done; exec sleep 600", lines)
+			return ports.PaneSpec{Name: name, Dir: t.TempDir(), Width: 40, Height: 5, Command: []string{"sh", "-c", script}}
+		}
 		return TerminalRig{
-			Terminal: terminal, Spec: spec(terminalPath), Exits: spec(exitPath), Attaches: attachesOnATerminal(terminal, pasteWindow),
+			Terminal: terminal, Spec: spec(terminalPath), Exits: spec(exitPath), Scrolls: scrolls, Attaches: attachesOnATerminal(terminal, pasteWindow),
 			Waits: func(t *testing.T, name, text string) {
 				t.Helper()
 				deadline := time.Now().Add(20 * time.Second)
@@ -285,6 +291,21 @@ func TestFakeTerminalContract(t *testing.T) {
 						t.Errorf("the attach ended with %v", err)
 					}
 				}
+			},
+			Scrolls: func(name string, lines int) ports.PaneSpec {
+				// Four lines stay on the screen, and every line above them is history.
+				shown := min(lines, 4)
+				var history, screen []string
+				for line := 1; line <= lines; line++ {
+					text := "line" + strconv.Itoa(line)
+					if line <= lines-shown {
+						history = append(history, text)
+					} else {
+						screen = append(screen, text)
+					}
+				}
+				terminal.Play(fake.PaneScript{Screen: strings.Join(screen, "\n") + "\n", History: history})
+				return ports.PaneSpec{Name: name, Command: []string{"claude", "scrolls"}}
 			},
 			Spec: func(name string) ports.PaneSpec {
 				opened.Add(1)

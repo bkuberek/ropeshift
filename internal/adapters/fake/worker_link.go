@@ -28,6 +28,9 @@ type WorkerLink struct {
 	// HangAsk holds every ask until its deadline, as a control plane that took the
 	// connection and went quiet would.
 	HangAsk atomic.Bool
+	// UnhurriedApprovals lets a use of an approval finish after its caller's deadline, as an answer that lands does.
+	// It is for a test of what an answer that lands does.
+	UnhurriedApprovals atomic.Bool
 	// FailLaneFacts fails every read of a lane's facts, as a control plane that is away would.
 	FailLaneFacts atomic.Bool
 	// LaneFactsReads counts the reads of a lane's facts, the failed ones too, so a test can show how often a worker asks.
@@ -219,6 +222,9 @@ var _ ports.WorkerLink = (*WorkerLink)(nil)
 func (l *WorkerLink) UseApproval(ctx context.Context, use authority.ApprovalUse) (authority.ApprovalAnswer, error) {
 	if l.FailLaneFacts.Load() {
 		return authority.ApprovalAnswer{}, errPlaneAway
+	}
+	if l.UnhurriedApprovals.Load() {
+		ctx = context.WithoutCancel(ctx)
 	}
 	return l.Plane.UseApproval(ctx, use)
 }

@@ -3,10 +3,9 @@ package worker_test
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
-	"ropeshift.com/ropeshift/internal/lanes"
-	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // TestAWorkerNamesWhatItsWaitWaitsOn names each lane whose goroutine runs, so a daemon that gives up
@@ -16,9 +15,7 @@ func TestAWorkerNamesWhatItsWaitWaitsOn(t *testing.T) {
 	r, _, _, stop := runStoppable(t, "", func(*laneRig) []fake.DriverStep {
 		return []fake.DriverStep{{Bound: true}, {Hold: true}}
 	})
-	r.eventually("a turn in progress", func(view ledger.LaneView) bool {
-		return view.ActualState == string(lanes.Working)
-	})
+	r.awaitWorking(t, 20*time.Second)
 	if got := r.subject.Unfinished(); !slices.Equal(got, []string{"lane lane-1"}) {
 		t.Errorf("a worker running one lane names %q", got)
 	}

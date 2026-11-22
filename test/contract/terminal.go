@@ -18,6 +18,8 @@ type TerminalRig struct {
 	Spec func(name string) ports.PaneSpec
 	// Exits is a pane whose process ends by itself with code 7.
 	Exits func(name string) ports.PaneSpec
+	// Scrolls is a pane five rows tall that prints line1 to line<lines>, one to a line, and stays.
+	Scrolls func(name string, lines int) ports.PaneSpec
 	// Waits holds a test until a pane shows a piece of text.
 	Waits func(t *testing.T, name, text string)
 	// Took holds a test until the pane's process has read n keys in all, and drawn the screen each
@@ -48,6 +50,10 @@ func RunTerminal(t *testing.T, fresh func(*testing.T) TerminalRig) {
 		{"a detached client leaves the pane running", checkDetachLeavesThePane},
 		{"a closed pane ends the client attached to it", checkCloseEndsTheClient},
 		{"a pane that never was has no clients to count or attach", checkNoClients},
+		{"the history reads its newest lines", checkHistoryReadsNewest},
+		{"a pane with nothing scrolled off has no history", checkNoScrolledHistory},
+		{"a read of no history lines is refused", checkHistoryRefusesNone},
+		{"a pane that never was has no history to read", checkNoHistory},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -248,5 +254,52 @@ func checkCloseEndsTheClient(t *testing.T, ctx context.Context, rig TerminalRig)
 func checkNoClients(t *testing.T, ctx context.Context, rig TerminalRig) {
 	if _, err := rig.Terminal.Clients(ctx, "never"); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("clients of a pane that never was: %v, want not found", err)
+	}
+}
+
+// checkHistoryReadsNewest scrolls twelve lines through a five-row pane. Four of them stay on the screen
+// and the empty row under them, so line1 to line8 are the history.
+func checkHistoryReadsNewest(t *testing.T, ctx context.Context, rig TerminalRig) {
+	openPane(t, ctx, rig, rig.Scrolls("scrolled", 12))
+	rig.Waits(t, "scrolled", "line12")
+	got, err := rig.Terminal.History(ctx, "scrolled", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (ports.Scrollback{Lines: "line6\nline7\nline8\n", Size: 8, Limit: 2000}); got != want {
+		t.Errorf("history %+v, want %+v", got, want)
+	}
+	all, err := rig.Terminal.History(ctx, "scrolled", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\n"; all.Lines != want || all.Size != 8 {
+		t.Errorf("all of the history %+v, want %q", all, want)
+	}
+}
+
+func checkNoScrolledHistory(t *testing.T, ctx context.Context, rig TerminalRig) {
+	openPane(t, ctx, rig, rig.Scrolls("fits", 2))
+	rig.Waits(t, "fits", "line2")
+	got, err := rig.Terminal.History(ctx, "fits", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (ports.Scrollback{Limit: 2000}); got != want {
+		t.Errorf("history %+v, want %+v", got, want)
+	}
+}
+
+func checkHistoryRefusesNone(t *testing.T, ctx context.Context, rig TerminalRig) {
+	openPane(t, ctx, rig, rig.Scrolls("none", 12))
+	rig.Waits(t, "none", "line12")
+	if got, err := rig.Terminal.History(ctx, "none", 0); err == nil {
+		t.Errorf("a read of no lines answered %+v", got)
+	}
+}
+
+func checkNoHistory(t *testing.T, ctx context.Context, rig TerminalRig) {
+	if _, err := rig.Terminal.History(ctx, "never", 3); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("history of a pane that never was: %v, want not found", err)
 	}
 }
