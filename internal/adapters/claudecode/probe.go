@@ -435,7 +435,7 @@ func (p *prober) env(config, token, sockets string) []string {
 // probeFiles are what a probe session's `--settings` and `--mcp-config` hold: the two hooks a check
 // reads, the inbound policy under test, and no server.
 func writeProbeFiles(config, binary, inbound string) (settings, mcp string, err error) {
-	file := settingsFile{Permissions: permissions{Allow: []string{}}, CrossSessionInbound: inbound, Hooks: map[string][]hookGroup{}}
+	file := settingsFile{Permissions: permissions{Allow: []string{}, DisableBypassPermissionsMode: bypassOff}, CrossSessionInbound: inbound, Hooks: map[string][]hookGroup{}}
 	for _, event := range []string{hookSessionStart, hookUserPromptSubmit} {
 		command := hookCommand{Type: "command", Command: lanes.ShellQuote(binary) + " hook " + event, Timeout: hookTimeoutSeconds}
 		file.Hooks[event] = []hookGroup{{Hooks: []hookCommand{command}}}
