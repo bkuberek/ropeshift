@@ -88,7 +88,9 @@ func TestBuildEnvironment(t *testing.T) {
 }
 
 func TestBuildEnvironmentRefuses(t *testing.T) {
-	parent := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t", "CLAUDECODE": "1", "ROPESHIFT_SIGNING_KEY": "k", "ROPESHIFT_HOOK_NOTIFY": "k"}
+	parent := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t", "CLAUDECODE": "1", "ROPESHIFT_SIGNING_KEY": "k", "ROPESHIFT_HOOK_NOTIFY": "k",
+		"OTEL_EXPORTER_OTLP_HEADERS": "h", "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "h", "OTEL_EXPORTER_OTLP_METRICS_HEADERS": "h", "OTEL_EXPORTER_OTLP_LOGS_HEADERS": "h",
+		"ROPESHIFT_WEBHOOK_KEY": "k", "PGPASSWORD": "p"}
 	tests := []struct {
 		name string
 		spec EnvironmentSpec
@@ -98,6 +100,12 @@ func TestBuildEnvironmentRefuses(t *testing.T) {
 		{"a child session marker", EnvironmentSpec{SecretRefs: []string{"env:CLAUDECODE"}}, ErrSessionVariable},
 		{"a variable of the daemon's own", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_SIGNING_KEY"}}, ErrDaemonVariable},
 		{"a webhook key", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_HOOK_NOTIFY"}}, ErrDaemonVariable},
+		{"the exporter's headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_HEADERS"}}, ErrDaemonVariable},
+		{"the exporter's trace headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_TRACES_HEADERS"}}, ErrDaemonVariable},
+		{"the exporter's metric headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_METRICS_HEADERS"}}, ErrDaemonVariable},
+		{"the exporter's log headers", EnvironmentSpec{SecretRefs: []string{"env:OTEL_EXPORTER_OTLP_LOGS_HEADERS"}}, ErrDaemonVariable},
+		{"an older webhook key", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_WEBHOOK_KEY"}}, ErrDaemonVariable},
+		{"the database password", EnvironmentSpec{SecretRefs: []string{"env:PGPASSWORD"}}, ErrDaemonVariable},
 		{"a daemon variable that is not set", EnvironmentSpec{SecretRefs: []string{"env:ROPESHIFT_UNSET"}}, ErrDaemonVariable},
 		{"a variable that is not set", EnvironmentSpec{SecretRefs: []string{"env:ANTHROPIC_API_KEY"}}, ErrMissingVariable},
 		{"a reference with no name", EnvironmentSpec{SecretRefs: []string{"env:"}}, ErrBadReference},
@@ -212,5 +220,31 @@ func TestAProfilesOwnGitConfigurationIsKept(t *testing.T) {
 	want := []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.editor", "GIT_CONFIG_VALUE_0=vi", "PATH=/usr/bin"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestDaemonSecret(t *testing.T) {
+	for name, want := range map[string]bool{
+		"ROPESHIFT_HOOK_NOTIFY":              true,
+		"ROPESHIFT_MEMBER_TOKEN":             true,
+		"ROPESHIFT_DELEGATE_TOKEN":           true,
+		"ROPESHIFT_DATABASE":                 true,
+		"ROPESHIFT_JOIN":                     true,
+		"ROPESHIFT_WEBHOOK_KEY":              true,
+		"PGPASSWORD":                         true,
+		"ROPESHIFT_TLS_KEY":                  true,
+		"OTEL_EXPORTER_OTLP_HEADERS":         true,
+		"OTEL_EXPORTER_OTLP_TRACES_HEADERS":  true,
+		"OTEL_EXPORTER_OTLP_METRICS_HEADERS": true,
+		"OTEL_EXPORTER_OTLP_LOGS_HEADERS":    true,
+		"OTEL_EXPORTER_OTLP_ENDPOINT":        false,
+		"PATH":                               false,
+		"SSH_AUTH_SOCK":                      false,
+		"GIT_ASKPASS":                        false,
+		"HOME":                               false,
+	} {
+		if got := DaemonSecret(name); got != want {
+			t.Errorf("DaemonSecret(%q) = %v, want %v", name, got, want)
+		}
 	}
 }

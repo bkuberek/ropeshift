@@ -214,7 +214,7 @@ A review lane only reads: it cannot edit a file with a tool, commit, push, or mo
 
 No lane gets a forge credential. Its session starts without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, or `GITHUB_ENTERPRISE_TOKEN`, with `GH_CONFIG_DIR` pointed at an empty directory of its own, so a `gh` it runs finds no sign-in ([gh environment](https://cli.github.com/manual/gh_help_environment)). A profile whose `secret_ref` names one of those variables is refused, and the lane does not start. Pushes and pull requests are the worker's own steps, never the agent's: see [Review through pull requests](#review-through-pull-requests). Like every lane guardrail, this is not a sandbox.
 
-A profile's `secret_ref` also cannot name a variable that starts with `ROPESHIFT_`, because that is where the daemon keeps its settings and signing keys: such a profile is refused, and the lane does not start, whether or not the variable is set.
+A profile's `secret_ref` also cannot name a variable that starts with `ROPESHIFT_`, because that is where the daemon keeps its settings and signing keys: such a profile is refused, and the lane does not start, whether or not the variable is set. An `env:` reference to `PGPASSWORD`, to `OTEL_EXPORTER_OTLP_HEADERS` or one of its per-signal forms is refused the same way.
 
 Two keys in the `[agent]` table of a profile control this:
 
@@ -420,7 +420,7 @@ The branch a planning or adopt session leaves has no review agent: your plan app
 
 A change can go through three kinds of checks:
 
-- **Your commit hooks.** A lane commits with git, and git runs the repository's commit hooks, so a quick check in a pre-commit hook runs on every lane commit. Ropeshift's own merge runs no hook.
+- **Your commit hooks.** A lane commits with git, and git runs the repository's commit hooks, so a quick check in a pre-commit hook runs on every lane commit. Ropeshift's own merge runs no hook, and neither does the creation of a lane's worktree, so a `post-checkout` hook never runs outside the lane's gates. No git command the daemon runs reads a webhook key, a member or delegate token, the database address, or the telemetry exporter's headers from the daemon's environment, and a profile's `env:` reference cannot name one.
 - **Checks a lane reports.** A lane reports the checks it ran with its outcome. A failed one blocks acceptance. A passing one stands behind no criterion, because no agent stands behind a lane's own checks.
 - **Required checks on GitHub.** With review target `pull_request` at `person_approves` or `review_approves`, the checks the base branch requires gate ropeshift's merge, and a failure sends the work back.
 
