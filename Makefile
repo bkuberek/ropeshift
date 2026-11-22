@@ -228,12 +228,15 @@ screenshots:
 # test/screenshots/guides, in the light and the dark theme, each on a fresh installation with the fake agent CLI
 # (docs/development/screenshots.md). GUIDE names one guide by its prefix, which the walk captures after walking
 # the guides before it, and by default every guide is captured. CHECKS=1 runs the walk's product gap checks in
-# place of a capture. It takes the output, ref, and keep variables of screenshots, and never runs in `make check`.
+# place of a capture, and SCENARIO=1 runs the group scenario, a group server and two workers, which needs initdb and
+# postgres as check-postgres does. It takes the output, ref, and keep variables of screenshots, and never runs in
+# `make check`.
 GUIDE ?=
 CHECKS ?=
+SCENARIO ?=
 
 guide-shots:
-	sh scripts/screenshots.sh $(if $(SHOTS_OUT),-o "$(SHOTS_OUT)") $(if $(SHOTS_REF),-r "$(SHOTS_REF)") $(if $(SHOTS_KEEP),-k) $(if $(CHECKS),-c,$(if $(GUIDE),-g "$(GUIDE)",-G))
+	sh scripts/screenshots.sh $(if $(SHOTS_OUT),-o "$(SHOTS_OUT)") $(if $(SHOTS_REF),-r "$(SHOTS_REF)") $(if $(SHOTS_KEEP),-k) $(if $(SCENARIO),-s,$(if $(CHECKS),-c,$(if $(GUIDE),-g "$(GUIDE)",-G)))
 	@$(MAKE) --no-print-directory canary
 
 # Optimizes the captures of a screenshot run with pngquant and copies the ones the table in

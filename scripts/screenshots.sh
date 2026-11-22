@@ -2,7 +2,7 @@
 # Captures every view of the web UI and `ropeshift top` on a sample project, for the README and the
 # website (docs/development/screenshots.md). make screenshots runs it.
 #
-#   screenshots.sh [-o DIR] [-r REF] [-k] [-g GUIDE | -G | -c]
+#   screenshots.sh [-o DIR] [-r REF] [-k] [-g GUIDE | -G | -c | -s]
 #
 #   -o DIR   where the images go, by default .scratch/shots/<version>
 #   -r REF   a commit or tag to build, by default this checkout as it stands
@@ -10,6 +10,9 @@
 #   -G       walk the guides (test/screenshots/guides) in place of the views, and capture every guide
 #   -g GUIDE like -G, but capture only the guide with this prefix, after walking the guides before it
 #   -c       run the product gap checks of the guide walk (PG6 and PG9) in place of a capture
+#   -s       run the group scenario in place of a capture: a group server and two workers, each in an isolated
+#            installation, joined with a join string. It needs initdb and postgres on PATH or in
+#            ROPESHIFT_TEST_PG_BIN, as make check-postgres does.
 #
 # It builds the web UI and the binary with the screenshots tag, which reports a fixed machine and worker ID,
 # then runs test/screenshots with the same tag, which makes an isolated installation, starts the daemon on a
@@ -40,9 +43,11 @@ keep=""
 walk=""
 guide=""
 checks=""
-while getopts o:r:kGg:c flag; do
+scenario=""
+while getopts o:r:kGg:cs flag; do
 	case $flag in
 	c) checks=1 ;;
+	s) scenario=1 ;;
 	o) out=$OPTARG ;;
 	r) ref=$OPTARG ;;
 	k) keep=1 ;;
@@ -52,7 +57,7 @@ while getopts o:r:kGg:c flag; do
 		guide=$OPTARG
 		;;
 	*)
-		printf 'usage: screenshots.sh [-o DIR] [-r REF] [-k] [-g GUIDE | -G | -c]\n' >&2
+		printf 'usage: screenshots.sh [-o DIR] [-r REF] [-k] [-g GUIDE | -G | -c | -s]\n' >&2
 		exit 2
 		;;
 	esac
@@ -99,7 +104,10 @@ if ! (cd web && node --input-type=module -e "import { chromium } from 'playwrigh
 fi
 
 printf 'screenshots: capturing %s into %s\n' "$version" "$out"
-if [ -n "$checks" ]; then
+if [ -n "$scenario" ]; then
+	go test -tags 'screenshots postgres' -count=1 -timeout 20m -v -run '^TestGroupScenario$' ./test/screenshots \
+		-args -binary "$build/ropeshift" -out "$out" ${keep:+-keep}
+elif [ -n "$checks" ]; then
 	go test -tags screenshots -count=1 -timeout 30m -v -run '^(TestNoCommandSpendsAJoinToken|TestAssistantAnswersInALaterProject)$' ./test/screenshots \
 		-args -binary "$build/ropeshift" -out "$out" ${keep:+-keep}
 elif [ -n "$walk" ]; then
