@@ -196,10 +196,6 @@ func (j Job) units() []unit {
 	return out
 }
 
-func (j Job) asked() bool {
-	return slices.ContainsFunc(j.units(), func(u unit) bool { return u.remote != nil })
-}
-
 // Start runs the checks that come before anything is written and records the decisions that stand across a restart.
 // A refusal is a report the caller returns as it is: nothing is written and nothing is created. An error is a
 // failure to ask, which the caller tries again.
@@ -219,8 +215,8 @@ func Start(ctx context.Context, rt Runtime, job Job, prog *Progress) (*ledger.Te
 			}
 		}
 	}
-	if job.asked() && !job.NeedsRepository {
-		return refusal(ledger.TemplateRefusedNoOwnRepository, "a remote is added only to a repository ropeshift makes, and a clone this folder lies in holds its files", ""), nil
+	if refused := job.Request.RefuseNoOwnRepository(job.NeedsRepository); refused != nil {
+		return refused, nil
 	}
 	if creates := createdUnits(job); len(creates) > 0 {
 		account, refused, err := check(ctx, rt, creates)

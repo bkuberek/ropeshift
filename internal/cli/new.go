@@ -70,7 +70,7 @@ func (r newResult) text() string {
 	var out strings.Builder
 	wrote := "wrote"
 	if r.DryRun {
-		out.WriteString("Dry run: nothing was written, and no git or gh command ran.\n")
+		out.WriteString("Dry run: nothing was written, and no gh command and no git command that changes a repository ran.\n")
 		fmt.Fprintf(&out, "project\t%s\n\n", r.Project)
 		wrote = "would write"
 	}

@@ -174,6 +174,32 @@ func (r TemplateWriteRequest) Creates() bool {
 	return false
 }
 
+// AsksRemote says a repository this request makes, the folder's own or a new code repository, is given a remote.
+func (r TemplateWriteRequest) AsksRemote() bool {
+	if r.Remote != nil {
+		return true
+	}
+	for _, repository := range r.Repositories {
+		if repository.New && repository.ProjectRemote() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// RefuseNoOwnRepository is the refusal of a request that asks for a remote when the folder makes no repository of its
+// own, and nil otherwise: a remote is added only to a repository ropeshift makes. A worker and the command line,
+// whether it runs or only plans, refuse with this report.
+func (r TemplateWriteRequest) RefuseNoOwnRepository(needsRepository bool) *TemplateWriteReport {
+	if !r.AsksRemote() || needsRepository {
+		return nil
+	}
+	return &TemplateWriteReport{
+		Outcome: TemplateOutcomeRefused, Reason: TemplateRefusedNoOwnRepository,
+		Detail: "a remote is added only to a repository ropeshift makes, and a clone this folder lies in holds its files",
+	}
+}
+
 // HasParentElement says a path, as it was sent and before any cleaning, holds a `..` element.
 func HasParentElement(path string) bool {
 	return slices.Contains(strings.Split(path, "/"), "..")
