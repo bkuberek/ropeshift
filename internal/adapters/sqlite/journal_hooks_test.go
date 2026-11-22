@@ -46,3 +46,25 @@ func TestAMergedHookKeepsTheNewestDetail(t *testing.T) {
 		})
 	}
 }
+
+// A clear begins a generation, and what the cleared session started on later does not undo it.
+func TestAMergedSessionStartKeepsItsClear(t *testing.T) {
+	t.Parallel()
+	for name, order := range map[string][]int64{"oldest first": {10, 20}, "newest first": {20, 10}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			journal := openedJournal(t)
+			for _, at := range order {
+				detail := map[int64]string{10: lanes.SourceClear, 20: "compact"}[at]
+				err := journal.MergeHook(t.Context(), lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "SessionStart", Subject: "s", Detail: detail, AtMs: at})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			hooks, err := journal.HookEvents(t.Context(), "lane-1")
+			if err != nil || len(hooks) != 1 || hooks[0].Detail != lanes.SourceClear {
+				t.Errorf("the merged hook reads %+v (%v)", hooks, err)
+			}
+		})
+	}
+}

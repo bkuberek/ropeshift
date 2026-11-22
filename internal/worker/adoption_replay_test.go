@@ -37,3 +37,20 @@ func TestAReplayedStopFailureChangesNoSignIn(t *testing.T) {
 		})
 	}
 }
+
+// A clear while no worker listened is a generation, though the cleared session compacted after it.
+func TestAClearBeforeACompactionSurvivesAReplay(t *testing.T) {
+	t.Parallel()
+	w := newWorldRig(t)
+	w.adoptedAt(t, lanes.Idle, lanes.Working)
+	for at, detail := range []string{lanes.SourceClear, "compact"} {
+		event := lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "SessionStart", Subject: "s2", SessionID: "s2", Detail: detail, AtMs: int64(10 + at)}
+		if err := w.journal.MergeHook(t.Context(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.passesOnceAdopted(t)
+	if got := w.lane("lane-1").Generation; got != 2 {
+		t.Errorf("the lane reads generation %d after a clear", got)
+	}
+}
