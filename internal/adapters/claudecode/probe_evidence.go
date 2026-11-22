@@ -51,11 +51,11 @@ func (p *prober) keepScreen(ctx context.Context, pane string) {
 	p.keep(evidence{file: "screens.screen", surfaces: []lanes.Surface{SurfaceStartScreens}, body: body[:min(len(body), evidenceLimit)], cut: len(body) > evidenceLimit})
 }
 
-// writeEvidence replaces the driver's evidence with this probe's: the sessions that ran a check that failed or that
-// no session reached, and nothing else of the probe. A probe that passed every check leaves none. Files are
+// writeEvidence replaces the driver's evidence with this probe's: the sessions that ran a check, of the checks the
+// probe runs, that failed or that no session reached, and nothing else of the probe. A probe that passed every check leaves none. Files are
 // private to the person the worker runs as, and none is longer than evidenceLimit. A write that fails leaves what it
 // could not write unkept, and never changes the probe's result.
-func (p *prober) writeEvidence(q lanes.Qualification) {
+func (p *prober) writeEvidence(q lanes.Qualification, checks []lanes.Surface) {
 	root := p.spec.EvidenceDir
 	if root == "" {
 		return
@@ -65,8 +65,7 @@ func (p *prober) writeEvidence(q lanes.Qualification) {
 	p.mu.Lock()
 	kept := slices.DeleteFunc(slices.Clone(p.evidence), func(e evidence) bool {
 		return !slices.ContainsFunc(e.surfaces, func(s lanes.Surface) bool {
-			result, ran := q.Checks[s]
-			return ran && result != lanes.CheckPassed
+			return slices.Contains(checks, s) && !q.Passed(s)
 		})
 	})
 	p.mu.Unlock()

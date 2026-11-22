@@ -40,7 +40,7 @@ type probeRun struct {
 }
 
 // probeBackoff is the last probe of one version that ended, whatever it ended with, and when the next may start. A
-// worker keeps one: a probe of another version, or one with every check passed, starts it over.
+// worker keeps one: a probe of another version, or one that passed every check it runs, starts it over.
 type probeBackoff struct {
 	version string
 	wait    time.Duration
@@ -48,8 +48,8 @@ type probeBackoff struct {
 }
 
 // loadQualification hands the driver what this worker's last probe observed, so a restart on the
-// same version starts work on that result, and a version that moved since reads unqualified. A result with every
-// check passed holds, and any other is probed again as the worker starts.
+// same version starts work on that result, and a version that moved since reads unqualified. A result that passed
+// every check a probe runs now holds, and any other is probed again as the worker starts.
 func (w *Worker) loadQualification(ctx context.Context) error {
 	if w.config.Lanes == nil {
 		return nil
@@ -116,9 +116,10 @@ func (w *Worker) qualify(ctx context.Context) error {
 	if capabilities.Version == "" {
 		return errNoVersion
 	}
+	checks := w.config.Lanes.Driver.ProbeChecks(w.signInKind())
 	w.qualLock.Lock()
 	defer w.qualLock.Unlock()
-	if w.probe != nil || !w.probeDueLocked(capabilities.Version, w.clock.Now()) {
+	if w.probe != nil || !w.probeDueLocked(capabilities.Version, checks, w.clock.Now()) {
 		return nil
 	}
 	life := w.life
@@ -131,20 +132,20 @@ func (w *Worker) qualify(ctx context.Context) error {
 	return nil
 }
 
-// probeDueLocked says a probe of the installed version is due. A result with every check passed that holds for
-// the version is never probed again. Any other version is, unless the last probe of it ended less than its wait ago,
+// probeDueLocked says a probe of the installed version is due. A result that holds for the version and passed every
+// check a probe runs now, which the driver names for this sign-in, is never probed again. Any other version is, unless the last probe of it ended less than its wait ago,
 // whether it left a result with a check that did not pass, left none because it could not run or its result could not
 // be kept, or ended because the version moved under it. So no path probes a version in a loop.
-func (w *Worker) probeDueLocked(version string, now time.Time) bool {
-	if w.qual.Holds(version) && w.qual.AllPassed() {
+func (w *Worker) probeDueLocked(version string, checks []lanes.Surface, now time.Time) bool {
+	if w.qual.Holds(version) && w.qual.PassedAll(checks) {
 		return false
 	}
 	return w.backoff.version != version || !now.Before(w.backoff.next)
 }
 
-// noteProbeLocked starts the wait after a probe of a version that has ended. A probe that ended with every check
-// passed and kept ends the backoff, and any other starts it at requalifyFirst for a version the last probe did not
-// name, or doubles it, up to requalifyCap.
+// noteProbeLocked starts the wait after a probe of a version that has ended. A probe that passed every check it runs,
+// and whose result was kept, ends the backoff, and any other starts it at requalifyFirst for a version the last
+// probe did not name, or doubles it, up to requalifyCap.
 func (w *Worker) noteProbeLocked(version string, passed bool) {
 	if passed {
 		w.backoff = probeBackoff{}
@@ -193,6 +194,7 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 		Dir: filepath.Join(rt.StateDir, "probe"), TempDir: rt.probeTempDir(), EvidenceDir: filepath.Join(rt.StateDir, evidenceDirName), Model: probeModel,
 		Binary: rt.Binary, SignIn: w.signInKind(), Override: rt.Override,
 	}
+	checks := rt.Driver.ProbeChecks(spec.SignIn)
 	q, err := rt.Driver.Probe(ctx, spec)
 	switch {
 	case life.Err() != nil:
@@ -209,7 +211,7 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 		return
 	}
 	// A result for a version other than the one this probe was started for leaves that version to be probed again.
-	ownResult, passed = true, q.AllPassed() && q.Version == p.version
+	ownResult, passed = true, q.PassedAll(checks) && q.Version == p.version
 }
 
 // keepQualification stores a result and its event in one write, then hands it to the driver, so the

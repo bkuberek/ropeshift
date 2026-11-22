@@ -57,15 +57,16 @@ func (q Qualification) Holds(installed string) bool {
 	return q.Source == QualifiedByProbe && q.For(installed)
 }
 
-// AllPassed reports a result in which every check passed, which holds for its version for good. A result that
-// holds no check, as a probe that could not run leaves, is not one, and neither is one with a check that failed or
-// that no session reached.
-func (q Qualification) AllPassed() bool {
-	if len(q.Checks) == 0 {
+// PassedAll reports a result that passed every one of the checks, which are the ones a probe runs now, so it holds
+// for its version for good. A check the result does not hold counts as not passed, as one that failed or that no
+// session reached does, and so does a probe that could not run, which holds none. A check the result holds and the
+// probe no longer runs is not asked for.
+func (q Qualification) PassedAll(checks []Surface) bool {
+	if len(checks) == 0 || q.Degraded {
 		return false
 	}
-	for _, result := range q.Checks {
-		if result != CheckPassed {
+	for _, surface := range checks {
+		if !q.Passed(surface) {
 			return false
 		}
 	}

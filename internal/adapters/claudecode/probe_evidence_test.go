@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // evidenceOf reads what a probe kept for this driver: each file's name and body. A directory that is not there
@@ -194,5 +195,19 @@ func TestAProbeWithNoEvidenceDirectoryKeepsNothing(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(here); err != nil || len(entries) != 0 {
 		t.Errorf("a probe with no evidence directory left %v, %v", entries, err)
+	}
+}
+
+// A probe on an API key does not run the login check, which reads unobserved by design, so a probe that passed every
+// check it runs keeps no evidence.
+func TestAProbeKeepsNoEvidenceForACheckItDoesNotRun(t *testing.T) {
+	driver, spec, _ := probeRig(t)
+	spec.SignIn = ports.SignInAPIKey
+	spec.EvidenceDir = filepath.Join(t.TempDir(), "evidence")
+	if _, err := driver.Probe(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(evidenceOf(t, spec.EvidenceDir)); len(got) != 0 {
+		t.Errorf("a probe that passed every check it runs kept %v", got)
 	}
 }

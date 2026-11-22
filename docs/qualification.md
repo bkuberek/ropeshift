@@ -21,7 +21,7 @@ Each surface has one check and one use. A surface whose check failed, or could n
 
 The start check answers the trust dialog with the key its focus calls for, and reads the screen again only once it shows a different frame, so a pane that repaints slowly is never answered twice. It sends Enter once. A key the pane never took, or an Enter that was lost, ends the check at its timeout. A fresh start then parks the lane on the screen it stopped on, for a person, and a resume falls back to a new generation.
 
-A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, `max_budget_usd`, and `stream_usage` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription. A check a probe does not run, the login check on an API key and the screen check on a worker with no terminal, is not part of its result.
+A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, `max_budget_usd`, and `stream_usage` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription. The login check on an API key and the screen check on a worker with no terminal cannot run, so they read `unobserved` and no result is asked to pass them there.
 
 ## Where results come from
 
@@ -41,11 +41,11 @@ No lane waits for the probe. A lane that starts while it runs starts at once, on
 
 ## Probing a version again
 
-A result in which every check passed holds for its version until the version changes. Any other result is probed again: one with a check that failed, one with a check no session reached, and one a probe that could not run left, which holds no check. The worker probes such a version once when it starts, and then while it runs, on a backoff.
+A result that passed every check a probe runs now holds for its version until the version changes. A probe runs every surface above, except the login check on an API key and the screen check on a worker with no terminal. Any other result is probed again: one with a check that failed, one with a check no session reached, one that lacks a check a probe runs now, as a result from an earlier release, from another sign-in, or from a worker with no terminal does, and one a probe that could not run left, which holds no check. The worker probes such a version once when it starts, and then while it runs, on a backoff.
 
 The wait after a probe is 1 hour, and doubles with each later probe of the same version, to 2, 4, 8, and 16 hours, and no more than 24 hours after that. It runs from the end of the probe, and the worker's clock reads it.
 
-A probe in which every check passed ends the wait, and a probe of a version the last probe did not name starts it at 1 hour. A probe that ends in any other way starts the wait too: one that could not run, one whose result could not be kept, and one that ended because the version moved under it. So no version is probed in a loop, and no look at the version, whether the worker's own each minute or a lane's before its process, starts a probe before its wait is over. A worker that restarts probes such a version once as it starts.
+A probe whose result passed every check it runs ends the wait, and a probe of a version the last probe did not name starts it at 1 hour. A probe that ends in any other way starts the wait too: one that could not run, one whose result could not be kept, and one that ended because the version moved under it. So no version is probed in a loop, and no look at the version, whether the worker's own each minute or a lane's before its process, starts a probe before its wait is over. A worker that restarts probes such a version once as it starts.
 
 While the probe runs, the last result stays in force: the driver keeps it, a lane's status reads it, and no lane waits. One probe runs at a time, for the version and for every lane on it.
 

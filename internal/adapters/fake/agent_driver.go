@@ -116,6 +116,8 @@ type AgentDriver struct {
 	noResume bool
 	// noPeerChannel stands for a version whose socket surfaces passed no check.
 	noPeerChannel bool
+	// probeChecks are the surfaces a probe runs, and SurfacePeerChannel alone when none was set.
+	probeChecks []lanes.Surface
 	// ignoresPeers stands for a session that took a write and will never reach it: frozen,
 	// refusing, or behind a long tool.
 	ignoresPeers atomic.Bool
@@ -440,14 +442,38 @@ func (d *AgentDriver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qu
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	result := lanes.CheckPassed
+	checks := map[lanes.Surface]lanes.CheckResult{}
+	for _, surface := range d.checksLocked() {
+		checks[surface] = lanes.CheckPassed
+	}
 	if d.noPeerChannel || d.degraded {
-		result = lanes.CheckFailed
+		checks[SurfacePeerChannel] = lanes.CheckFailed
 	}
 	return lanes.Qualification{
 		Driver: FakeDriverName, Version: d.version, Source: lanes.QualifiedByProbe, SignIn: spec.SignIn,
-		Checks: map[lanes.Surface]lanes.CheckResult{SurfacePeerChannel: result}, Degraded: d.degraded || d.noPeerChannel,
+		Checks: checks, Degraded: d.degraded || d.noPeerChannel,
 	}, nil
+}
+
+// ProbeChecks lists the surfaces a probe of the fake checks, whatever the sign-in.
+func (d *AgentDriver) ProbeChecks(string) []lanes.Surface {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.checksLocked()
+}
+
+func (d *AgentDriver) checksLocked() []lanes.Surface {
+	if len(d.probeChecks) == 0 {
+		return []lanes.Surface{SurfacePeerChannel}
+	}
+	return append([]lanes.Surface{}, d.probeChecks...)
+}
+
+// SetProbeChecks sets the surfaces a probe checks, which are SurfacePeerChannel alone until a test sets them.
+func (d *AgentDriver) SetProbeChecks(surfaces ...lanes.Surface) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.probeChecks = surfaces
 }
 
 // Qualify keeps a probe's result, which Capabilities then follows.

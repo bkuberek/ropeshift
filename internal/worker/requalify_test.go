@@ -40,10 +40,11 @@ func TestAWorkerProbesADegradedResultAgainWhenItStarts(t *testing.T) {
 	t.Parallel()
 	first := degradedRig(t)
 	first.subject.Wait()
-	if got := first.qualifications(); len(got) != 1 || !got[0].Degraded || got[0].AllPassed() {
+	if got := first.qualifications(); len(got) != 1 || !got[0].Degraded || got[0].PassedAll(first.driver.ProbeChecks("")) {
 		t.Fatalf("the first worker recorded %+v", got)
 	}
 	driver := fake.NewAgentDriver()
+	first.clock.Advance(restartedAfter)
 	second := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
 	if err := second.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestAWorkerProbesADegradedResultAgainWhenItStarts(t *testing.T) {
 	if n := len(driver.Probes()); n != 1 {
 		t.Fatalf("%d probes of a version the journal holds with a check that did not pass", n)
 	}
-	if q := driver.Qualified(); q.Version != "1.0.0" || q.Degraded || !q.AllPassed() {
+	if q := driver.Qualified(); q.Version != "1.0.0" || q.Degraded || !q.PassedAll(driver.ProbeChecks("")) {
 		t.Errorf("after its probe the driver was handed %+v", q)
 	}
 }
@@ -137,7 +138,7 @@ func TestAVersionChangeAndAFullPassEndTheBackoff(t *testing.T) {
 	if n := len(r.driver.Probes()); n != probes+3 {
 		t.Fatalf("%d probes, want the version probed at the end of its second wait", n)
 	}
-	if q := r.driver.Qualified(); !q.AllPassed() || q.Version != "1.0.1" {
+	if q := r.driver.Qualified(); !q.PassedAll(r.driver.ProbeChecks("")) || q.Version != "1.0.1" {
 		t.Fatalf("the driver was handed %+v", q)
 	}
 	for range 3 {
@@ -260,6 +261,48 @@ func TestTheLastResultStaysInForceWhileAVersionIsProbedAgain(t *testing.T) {
 	}
 	release()
 	r.eventually("the second probe's end", func(ledger.LaneView) bool { return len(r.qualifications()) == 2 })
+}
+
+// restartedAfter is how long a restart waits after the last worker began a probe: past the delay a start holds
+// back its probe for.
+const restartedAfter = 11 * time.Minute
+
+// TestAResultThatLacksACheckAProbeRunsNowIsProbedAgain is a full pass stored by a probe that ran fewer checks, as
+// one from an older build, or on another sign-in, or with no terminal, does: the missing check was never observed, so
+// the worker that starts on it probes the version again, and the result it keeps holds.
+func TestAResultThatLacksACheckAProbeRunsNowIsProbedAgain(t *testing.T) {
+	t.Parallel()
+	first := newLaneRig(t)
+	first.subject.Wait()
+	if got := first.qualifications(); len(got) != 1 || !got[0].PassedAll(first.driver.ProbeChecks("")) {
+		t.Fatalf("the first worker recorded %+v", got)
+	}
+	const later lanes.Surface = "a_check_a_later_probe_runs"
+	driver := fake.NewAgentDriver()
+	driver.SetProbeChecks(fake.SurfacePeerChannel, later)
+	first.clock.Advance(restartedAfter)
+	second := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
+	if err := second.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second.Wait()
+	if n := len(driver.Probes()); n != 1 {
+		t.Fatalf("%d probes of a version whose result lacks a check a probe runs now", n)
+	}
+	if q := driver.Qualified(); !q.Passed(later) || !q.PassedAll(driver.ProbeChecks("")) {
+		t.Errorf("after its probe the driver was handed %+v", q)
+	}
+	third := fake.NewAgentDriver()
+	third.SetProbeChecks(fake.SurfacePeerChannel, later)
+	again := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: third}})
+	first.clock.Advance(restartedAfter)
+	if err := again.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	again.Wait()
+	if n := len(third.Probes()); n != 0 {
+		t.Errorf("%d probes of a result that has every check a probe runs now", n)
+	}
 }
 
 // TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory names where a probe leaves what it saw of a check: the
