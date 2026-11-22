@@ -531,6 +531,27 @@ func TestAProbeRunsOnTheKindTheHeldResultWasProbedOnWhenTheSignInIsUnread(t *tes
 	}
 }
 
+// TestACancelledCallDoesNotStartAWaitWithNoProbe is a lane's or a pass's context that ends while the worker records the
+// probe it starts: the probe is the worker's, so it runs, and no wait begins for a probe that never ran.
+func TestACancelledCallDoesNotStartAWaitWithNoProbe(t *testing.T) {
+	t.Parallel()
+	r := degradedRig(t)
+	r.subject.Wait()
+	r.clock.Advance(time.Hour + time.Minute)
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _ = r.subject.Reconcile(ended)
+	r.subject.Wait()
+	if n := len(r.driver.Probes()); n != 2 {
+		t.Errorf("%d probes, want the second, which the cancelled call asked for", n)
+	}
+	for _, problem := range r.problems() {
+		if strings.Contains(problem.Error(), "recording the probe") {
+			t.Errorf("the worker said %v", problem)
+		}
+	}
+}
+
 // TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory names where a probe leaves what it saw of a check: the
 // worker's own state directory, beside the probe's working directory and not within it, which the probe clears.
 func TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory(t *testing.T) {

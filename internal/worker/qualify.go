@@ -146,7 +146,7 @@ func (w *Worker) qualify(ctx context.Context) error {
 	w.qualLock.Unlock()
 	// The attempt is journaled before any session starts, so a worker that restarts knows when this one began. A
 	// journal that cannot keep it starts no probe, and the wait before the next try begins.
-	if err := w.journal.SaveProbeAttempt(ctx, lanes.ProbeAttempt{Version: p.version, BeganAt: w.clock.Now()}); err != nil {
+	if err := w.journal.SaveProbeAttempt(life, lanes.ProbeAttempt{Version: p.version, BeganAt: w.clock.Now()}); err != nil {
 		w.qualLock.Lock()
 		w.probe = nil
 		w.noteProbeLocked(p.version, false)
