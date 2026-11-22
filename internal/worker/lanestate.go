@@ -78,9 +78,16 @@ type laneState struct {
 	forWake bool
 	// background is how many background tasks the session's newest Stop said still run, and backgroundSince when
 	// the worker heard that Stop. Each task wakes the session with a turn of its own when it ends, and the prompt
-	// that starts a turn ends the count.
+	// that starts that turn ends the count.
 	background      int
 	backgroundSince time.Time
+	// stopLeftWork says the newest Stop left background work and no turn's end has been decided since. A prompt
+	// leaves it: that work can start the next turn before the worker has decided the end of the one that stopped.
+	stopLeftWork bool
+	// stoppedMs and promptedMs are when the newest Stop and prompt fired, by their hooks' clock, because a spooled
+	// hook arrives late or twice.
+	stoppedMs  int64
+	promptedMs int64
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -230,7 +237,7 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]string{}, now, now, 0, baseline
-	s.unconfirmed, s.retried, s.baselined = false, false, false
+	s.unconfirmed, s.retried, s.baselined, s.stopLeftWork = false, false, false, false
 	s.compact = compaction{}
 }
 
@@ -499,22 +506,57 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 	case lanes.EventCallDenied:
 		s.callEnded(event.Subject)
 	case lanes.EventStop:
-		s.noteBackground(event.Background, r.w.clock.Now())
+		s.noteStop(event.Background, r.w.clock.Now(), event.AtMs)
 	case lanes.EventUserPromptSubmit:
-		s.noteBackground(0, time.Time{})
+		s.notePrompt(event.AtMs)
 	case hookStopFailure:
-		s.noteBackground(0, time.Time{})
+		s.noteStopFailure()
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)
 	}
 }
 
-// noteBackground keeps what the turn that just stopped left running in the background, and when the worker heard
-// it. A failed turn leaves nothing to wait on, and a turn that starts ends the wait.
-func (s *laneState) noteBackground(tasks int, at time.Time) {
+// noteStop keeps what the turn that just stopped left running in the background, and when the worker heard it.
+// A Stop no newer than the last says nothing, and one older than the newest prompt left a wait that is over.
+func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if atMs > 0 && atMs <= s.stoppedMs {
+		return
+	}
+	s.stoppedMs, s.stopLeftWork = max(s.stoppedMs, atMs), tasks > 0
+	if atMs > 0 && atMs < s.promptedMs {
+		tasks = 0
+	}
 	s.background, s.backgroundSince = tasks, at
+}
+
+// notePrompt ends the wait on background work. A prompt older than the newest Stop began the turn that stopped,
+// and ends none.
+func (s *laneState) notePrompt(atMs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.promptedMs = max(s.promptedMs, atMs)
+	if atMs > 0 && atMs < s.stoppedMs {
+		return
+	}
+	s.background, s.backgroundSince = 0, time.Time{}
+}
+
+// noteStopFailure says a failed turn left nothing to wait on.
+func (s *laneState) noteStopFailure() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.background, s.backgroundSince, s.stopLeftWork = 0, time.Time{}, false
+}
+
+// takeStopLeftWork says the turn whose end is being decided left background work, and is true for one end.
+func (s *laneState) takeStopLeftWork() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	left := s.stopLeftWork
+	s.stopLeftWork = false
+	return left
 }
 
 // backgroundRest says the session's last turn stopped with its own background work still running, since when,
