@@ -331,6 +331,8 @@ type AdoptFrom struct {
 	Cost lanes.CostMeter
 	// Hooks are what a session's hooks reported, for a driver with no stream to reread.
 	Hooks []lanes.HookRecord
+	// Approvals are the calls this session still waits on a decision for, each as a hook names its call.
+	Approvals []string
 }
 
 // EventKind sorts a driver's normalized events.

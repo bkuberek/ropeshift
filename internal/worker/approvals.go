@@ -824,17 +824,23 @@ func (r *laneRun) parkDeferred(ctx context.Context) bool {
 	return true
 }
 
-// resumeApprovals restores what a journal held of a lane that goes on.
-func (r *laneRun) resumeApprovals(ctx context.Context) {
+// resumeApprovals restores what a journal held of a lane that goes on, and returns the calls it still waits
+// on, each as a hook names its call.
+func (r *laneRun) resumeApprovals(ctx context.Context) []string {
 	rows, err := r.requestsOfThisGeneration(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		return
+		return nil
 	}
 	r.state.noteApprovals(len(rows))
 	if len(rows) != 0 && !r.parkingOf().Open() {
 		r.awaitApproval(ctx)
 	}
+	waits := make([]string, 0, len(rows))
+	for _, row := range rows {
+		waits = append(waits, row.Seen)
+	}
+	return waits
 }
 
 // requestsOfThisGeneration reads what this session is waiting on. A request an earlier generation

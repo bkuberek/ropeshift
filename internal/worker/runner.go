@@ -671,12 +671,12 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
 	}
 	r.replayHooks(ctx, hooks)
-	r.resumeApprovals(ctx)
+	approvals := r.resumeApprovals(ctx)
 	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
 	// to its limit from here.
 	r.readAllowance(ctx)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
-		Spec: r.w.sessionSpec(ctx, r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
+		Spec: r.w.sessionSpec(ctx, r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks, Approvals: approvals,
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))

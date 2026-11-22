@@ -376,17 +376,7 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	if err := s.listen(spec, d.adoptedUse(ctx, launchedVersion(spec))); err != nil {
 		return err
 	}
-	records := slices.Clone(from.Hooks)
-	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
-	for _, record := range records {
-		// A clear moves a lane's generation under this process, and no later generation has one.
-		if record.Generation < spec.Generation {
-			continue
-		}
-		event := record.HookEvent
-		event.AtMs = record.LastMs
-		s.takeHook(event)
-	}
+	s.replay(from, spec.Generation)
 	d.keep(h.ID, s, spec)
 	s.follow()
 	switch state.Phase {
@@ -404,6 +394,28 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 		}
 	}
 	return nil
+}
+
+// replay takes the hooks a journal kept of a session, oldest first. A journal merges each hook into one
+// record that names no call, so a record cannot say whether the wait it began still stands: the waits are
+// not replayed, and the approvals the worker still holds open are the ones the session waits on.
+func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
+	records := slices.Clone(from.Hooks)
+	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
+	for _, record := range records {
+		// A clear moves a lane's generation under this process, and no later generation has one.
+		if record.Generation < generation || record.Event == hookNotification || record.Event == eventPermissionRequest {
+			continue
+		}
+		event := record.HookEvent
+		event.AtMs = record.LastMs
+		s.takeHook(event)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, seen := range from.Approvals {
+		s.approvals[seen] = true
+	}
 }
 
 // paneSession is one session in a pane. Everything a worker learns of it comes from its
@@ -438,9 +450,11 @@ type paneSession struct {
 	promptMs int64
 	stopMs   int64
 	// floor is where the worker stopped reading, so a replay does not end a turn twice.
-	floor    int64
-	waiting  bool
-	totalUSD float64
+	floor int64
+	// waiting says a Notification asked for an answer, and waitingMs is when it fired.
+	waiting   bool
+	waitingMs int64
+	totalUSD  float64
 	// approvals names the calls a hook is waiting on, and no key reaches a pane until each ends,
 	// because an Enter on a permission prompt is an answer.
 	approvals map[string]bool
@@ -663,7 +677,7 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case lanes.EventStatusLine:
 		s.takeStatus(event)
 	case hookNotification:
-		s.waiting = event.Detail == notificationNeedsInput
+		s.waiting, s.waitingMs = event.Detail == notificationNeedsInput, event.AtMs
 	case eventPermissionRequest:
 		s.approvals[event.Digest] = true
 	case hookPostToolUse, lanes.EventToolFailed:
@@ -702,6 +716,9 @@ func (s *paneSession) note(event lanes.HookEvent) {
 func (s *paneSession) endTurn(event lanes.HookEvent, status ports.TurnStatus, reason string) {
 	if event.AtMs <= s.stopMs || event.AtMs <= s.floor {
 		s.stopMs = max(s.stopMs, event.AtMs)
+		if s.waiting && s.waitingMs > 0 && event.AtMs >= s.waitingMs {
+			s.waiting = false
+		}
 		return
 	}
 	s.stopMs, s.waiting = event.AtMs, false
