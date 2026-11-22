@@ -95,6 +95,10 @@ type soloOptions struct {
 	forecastTick time.Duration
 	leaseTTL     time.Duration
 	heartbeat    time.Duration
+	// noProbe says this is the daemon `ropeshift init` starts, which the environment tells and no flag does. The
+	// worker of such a daemon qualifies no agent CLI: it probes none, which starts real sessions that spend turns,
+	// and starts no session.
+	noProbe bool
 	// records reads the first project's records, which name the repositories of the daemon's sources: a
 	// source with no checkout kept for it keeps the ID of the record registration would match it to.
 	records func(ctx context.Context, id string) (ledger.Repository, bool, error)
@@ -138,6 +142,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 		fmt.Fprintf(stderr, "ropeshiftd solo: unexpected argument %q\n", flags.Arg(0))
 		return opts, false
 	}
+	opts.noProbe = initMarked()
 	return opts, true
 }
 
@@ -177,6 +182,15 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return exitUsage
 	}
+	// Before the daemon starts anything, so no process it starts, git first and the terminal server last,
+	// holds a descriptor the daemon was started with.
+	keepDescriptorsFromChildren()
+	if opts.noProbe {
+		fmt.Fprintf(stderr, "ropeshiftd solo: %s is set, so this daemon qualifies no agent CLI and starts no session: it is the daemon ropeshift init starts, and it runs no work\n", envInitDaemon)
+		// The mark is this daemon's alone: a process it starts, the terminal server that outlives it included,
+		// would hand it on to what that process starts.
+		_ = os.Unsetenv(envInitDaemon)
+	}
 	paths, err := installationPaths()
 	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd solo: %v\n", err)
@@ -199,6 +213,9 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 }
 
 var errBusy = errors.New("already running for this installation")
+
+// soloShutdownGrace is how long a stopping daemon waits for its server's requests to finish.
+const soloShutdownGrace = 2 * time.Second
 
 // holdInstallation takes the lock that makes this daemon the only one. It is a record
 // lock, which belongs to this process, so the kernel releases it when the process dies
@@ -345,7 +362,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	select {
 	case err = <-serveErr:
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), soloShutdownGrace)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdown)
 		err = nil
@@ -530,8 +547,9 @@ func stopWorker(subject stoppingWorker, socketDone <-chan struct{}, grace time.D
 // closes the journal and the link anyway. Each of them ends with the worker's context, so this is for one
 // that does not: a service manager kills a daemon slow to stop, systemd after 90 seconds by default
 // (https://www.freedesktop.org/software/systemd/man/latest/systemd-system.conf.html), and a kill closes
-// nothing.
-const workerStopGrace = 20 * time.Second
+// nothing. ropeshift init kills the daemon it started 15 seconds after it asked it to stop, so the grace and
+// the server's own wait fit in that time with room to spare.
+const workerStopGrace = 10 * time.Second
 
 // stoppingWorker is what a stopping daemon waits on before it closes its worker's journal and link.
 type stoppingWorker interface {
@@ -746,6 +764,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept *checkouts.File, stderr i
 		StateDir:   paths.StateDir,
 		RunDir:     paths.RunDir,
 		Override:   override,
+		NoProbe:    opts.noProbe,
 		Inventory:  inventory.Git{},
 		// An adopt lane that carries a restructuring reads the layout around its clones again, from this
 		// worker's own checkouts, before it commits the workspace files (FR-ADOPT-14).

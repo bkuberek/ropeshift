@@ -100,7 +100,7 @@ func cliOptions() cli.Options {
 	opts := cli.Options{
 		Session: os.Getenv(authority.EnvMemberToken), Delegate: os.Getenv(authority.EnvDelegateToken), Project: os.Getenv(api.EnvProject), ReadPassphrase: localauth.ReadPassphrase,
 		RepositoryHere: repositoryHere, RepositoryRoot: repositoryRoot, CloneTop: cloneTop, CloneIgnores: cloneIgnores,
-		NewProject: newProject, ReadForgeAccount: readForgeAccount,
+		NewProject: newProject, ReadForgeAccount: readForgeAccount, InitMarked: initMarked(),
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
 		opts.Terminal = os.Stdin
@@ -122,6 +122,7 @@ func cliOptions() cli.Options {
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx) }
 	opts.Worktree = func(ctx context.Context) (lanes.WorktreeReport, error) { return worktreeReport(ctx, paths) }
 	opts.StartDaemon = startDaemonForInit(paths)
+	opts.DaemonLog = paths.InitDaemonLog()
 	opts.StateDir = paths.StateDir
 	return opts
 }

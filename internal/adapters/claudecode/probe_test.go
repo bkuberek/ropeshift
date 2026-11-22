@@ -9,11 +9,13 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -163,6 +165,18 @@ func TestAProbePaneThatDiesEndsTheScreenCheck(t *testing.T) {
 	}
 }
 
+// requireNoTmuxServer fails the test when the terminal's server still runs a moment after a stopped probe returned.
+// The server ends itself with its last pane, and one that outlives the worker keeps every descriptor the worker
+// handed it, so a stop that left the pane leaves the server too.
+func requireNoTmuxServer(t *testing.T, server *tmux.Terminal) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); doubles.TmuxRunning(t, server); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stopped probe left the terminal server running")
+		}
+	}
+}
+
 // stoppingTerminal ends a probe's context once tmux has made the probe's pane, as a worker that stops
 // then does. With cut, the open answers with that end, as a call the stop cut short after tmux made the
 // pane. Without it, the end comes once the pane shows its trust dialog, which takes no interrupt.
@@ -216,8 +230,52 @@ func TestAProbeStoppedAtItsPaneLeavesNoPane(t *testing.T) {
 			if pane, err := server.Pane(context.WithoutCancel(ctx), claudecode.ProbePane); !errors.Is(err, ports.ErrNotFound) {
 				t.Errorf("the stopped probe left its pane: %+v, %v", pane, err)
 			}
+			requireNoTmuxServer(t, server)
 		})
 	}
+}
+
+// stopAtFirstCall ends a probe's context at the first call the probe makes on its terminal, which is the
+// closing of a pane an earlier probe left, and counts the panes the probe then asks to open.
+type stopAtFirstCall struct {
+	ports.Terminal
+	stop   context.CancelFunc
+	opened atomic.Int32
+}
+
+func (s *stopAtFirstCall) Close(ctx context.Context, name string) error {
+	s.stop()
+	return s.Terminal.Close(ctx, name)
+}
+
+func (s *stopAtFirstCall) Open(ctx context.Context, spec ports.PaneSpec) (ports.Pane, error) {
+	s.opened.Add(1)
+	return s.Terminal.Open(ctx, spec)
+}
+
+// A probe that is stopped before it opens its pane opens none, so a stopping worker starts no pane, and with
+// it no session of the agent CLI and no terminal server, that nothing is left to end.
+func TestAProbeStoppedBeforeItsPaneOpensOpensNone(t *testing.T) {
+	doubles.RequireTmux(t)
+	server := doubles.PrivateTmux(t)
+	ctx, stop := context.WithCancel(t.Context())
+	defer stop()
+	terminal := &stopAtFirstCall{Terminal: server, stop: stop}
+	driver, spec, _ := probeRigOn(t, terminal)
+	started := time.Now()
+	if _, err := driver.Probe(ctx, spec); !errors.Is(err, context.Canceled) {
+		t.Errorf("a stopped probe returned %v", err)
+	}
+	if took := time.Since(started); took > 10*time.Second {
+		t.Errorf("the stopped probe took %v to end", took)
+	}
+	if n := terminal.opened.Load(); n != 0 {
+		t.Errorf("the probe opened %d panes after it was stopped", n)
+	}
+	if pane, err := server.Pane(context.WithoutCancel(ctx), claudecode.ProbePane); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("the stopped probe left a pane: %+v, %v", pane, err)
+	}
+	requireNoTmuxServer(t, server)
 }
 
 // A sign-in nobody could read is a subscription, as everywhere else, so the login check runs.

@@ -24,12 +24,22 @@ const EnvProbe = lanes.TagPrefix + "PROBE"
 
 // The probe's bounds. Each wait is short, so a probe ends soon whatever its checks see, and a check
 // whose wait ran out reads unobserved or failed, which keeps its surface off. A test shortens them.
+//
+// A stopping worker ends a probe within a bound of its own, which `ropeshift init`'s daemon must fit in:
+// a session ends within two probeExitWaits and a killWait, and a pane within a probeExitWait and a
+// probeCloseWait. A stop that cancels the probe's context skips the interrupt and the waits before it, and
+// gives a session probeStopGrace after its stdin closed before the kill: the agent CLI runs with the person's
+// own home directory, and a session that is ending may be writing its configuration there. A stopped probe's
+// checks end at once, so its sessions end within probeStopGrace and a killWait, and its pane within a
+// probeCloseWait, together far inside the grace a stopping daemon gives its worker.
 var (
 	probeSocketWait  = 20 * time.Second
 	probeTurnWait    = 2 * time.Minute
 	probeReceiptWait = 20 * time.Second
 	probeHoldWait    = 20 * time.Second
-	probeExitWait    = 10 * time.Second
+	probeExitWait    = 5 * time.Second
+	probeCloseWait   = 5 * time.Second
+	probeStopGrace   = 1500 * time.Millisecond
 	probeScreenWait  = time.Minute
 )
 
@@ -158,7 +168,7 @@ func (p *prober) accept(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	defer s.end()
+	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
 	id, sent, turn := "", false, false
 	if socket != "" {
@@ -200,7 +210,7 @@ func (p *prober) refuse(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	defer s.end()
+	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
 	if !s.private(socket) {
 		return
@@ -247,7 +257,7 @@ func (p *prober) hold(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	defer s.end()
+	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
 	if !s.prompt(ctx) || !s.awaitTurn(ctx) {
 		return
@@ -265,7 +275,7 @@ func (p *prober) hold(ctx context.Context) {
 	held := s.waitFor(ctx, probeHoldWait, func() bool { return s.held(id) })
 	if !held {
 		s.closeInput()
-		s.awaitExit()
+		s.awaitExit(ctx, probeExitWait)
 		held = s.held(id)
 	}
 	p.set(SurfacePeerMessageHold, observed(true, held))
@@ -280,7 +290,7 @@ func (p *prober) budget(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	defer s.end()
+	defer s.end(ctx)
 	if !s.prompt(ctx) || !s.awaitTurn(ctx) {
 		return
 	}
@@ -319,6 +329,10 @@ func (p *prober) screens(ctx context.Context) {
 	// left, before it opens its own.
 	name := probePane
 	_ = terminal.Close(ctx, name)
+	// A probe stopped before this point opens nothing, so nothing is left for the stopping worker to end.
+	if ctx.Err() != nil {
+		return
+	}
 	_, err = terminal.Open(ctx, ports.PaneSpec{
 		Name: name, Dir: dir, Width: paneWidth, Height: paneHeight, Command: []string{p.spec.Binary, lanePaneCommand, launch},
 	})
@@ -366,19 +380,24 @@ func (p *prober) watchPane(ctx context.Context, stop context.CancelFunc, name st
 // outlives the worker, so a pane left on it keeps its session and the server running.
 func (p *prober) closePane(ctx context.Context, name string) {
 	terminal := p.d.terminal
+	// These calls outlive a stop of the probe, so each carries a bound of its own: tmux can answer slowly, and a
+	// stopping worker has a bounded time to end.
 	calls := context.WithoutCancel(ctx)
 	if ctx.Err() == nil {
-		_ = terminal.Signal(calls, name, ports.SignalInterrupt)
-		deadline := time.Now().Add(probeExitWait)
-		for time.Now().Before(deadline) && ctx.Err() == nil {
-			pane, err := terminal.Pane(calls, name)
+		waiting, stopWaiting := context.WithTimeout(calls, probeExitWait)
+		_ = terminal.Signal(waiting, name, ports.SignalInterrupt)
+		for ctx.Err() == nil {
+			pane, err := terminal.Pane(waiting, name)
 			if err != nil || pane.Dead {
 				break
 			}
 			pause(ctx, probePoll)
 		}
+		stopWaiting()
 	}
-	_ = terminal.Close(calls, name)
+	closing, stopClosing := context.WithTimeout(calls, probeCloseWait)
+	defer stopClosing()
+	_ = terminal.Close(closing, name)
 }
 
 // dirs makes the names of one session's working directory and its generated files.
@@ -804,27 +823,49 @@ func (s *probeSession) closeInput() {
 	}
 }
 
-func (s *probeSession) awaitExit() bool {
-	select {
-	case <-s.exited:
-		<-s.read
-		return true
-	case <-time.After(probeExitWait):
-		return false
+// awaitExit waits for the session's process to end and then for its stream to, together for at most limit. It
+// gives up at once when ctx ends. A child of the session can hold the stream's pipe open after the session
+// ended, so the stream's end is no later than the limit either.
+func (s *probeSession) awaitExit(ctx context.Context, limit time.Duration) bool {
+	timeout := time.NewTimer(limit)
+	defer timeout.Stop()
+	for _, ended := range []<-chan struct{}{s.exited, s.read} {
+		select {
+		case <-ended:
+			continue
+		default:
+		}
+		select {
+		case <-ended:
+		case <-ctx.Done():
+			return false
+		case <-timeout.C:
+			return false
+		}
 	}
+	return true
 }
 
-// end closes stdin, which ends a session between turns, and signals only the process it started
-// when that is not enough.
-func (s *probeSession) end() {
+// end closes stdin, which ends a session between turns, and signals only the process it started when that
+// is not enough: an interrupt, then a kill. Each of the first two steps waits at most probeExitWait. A probe
+// whose context ended skips the interrupt and what is left of those waits, because the worker that stopped it
+// has a bounded time to end, and waits probeStopGrace before the kill instead, because a session that is
+// ending may be writing its configuration in the person's own home directory. After the kill it waits
+// killWait for the end, as a stop of a lane's session does.
+func (s *probeSession) end(ctx context.Context) {
 	s.closeInput()
-	if s.awaitExit() {
+	if s.awaitExit(ctx, probeExitWait) {
 		return
 	}
-	_ = s.process.Signal(ports.SignalInterrupt)
-	if s.awaitExit() {
+	if ctx.Err() == nil {
+		_ = s.process.Signal(ports.SignalInterrupt)
+		if s.awaitExit(ctx, probeExitWait) {
+			return
+		}
+	}
+	if ctx.Err() != nil && s.awaitExit(context.WithoutCancel(ctx), probeStopGrace) {
 		return
 	}
 	_ = s.process.Signal(ports.SignalKill)
-	s.awaitExit()
+	s.awaitExit(context.WithoutCancel(ctx), killWait)
 }

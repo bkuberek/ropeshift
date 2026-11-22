@@ -61,6 +61,12 @@ type LaneRuntime struct {
 	Machine ports.Machine
 	// Override carries a real-session suite's guard flags.
 	Override lanes.SessionOverride
+	// NoProbe marks the worker of the daemon `ropeshift init` starts, which runs for the length of one command and is
+	// stopped within seconds. Such a worker never qualifies the agent CLI: it starts no probe, which runs real
+	// sessions that spend turns, advertises the CLI as not qualified, and starts no session of any kind, because a
+	// session runs only on a qualified version (ADR-0040). It takes no work either, so the installation's own daemon
+	// finds the work as it left it.
+	NoProbe bool
 	// Telemetry is where each session's telemetry goes. Empty sends none.
 	Telemetry LaneTelemetry
 	// Inventory reads what each repository holds for a lane whose lease asks for an inventory before it
@@ -777,6 +783,10 @@ func (r *laneRun) recordedWorktree(ctx context.Context) string {
 // session provisions and runs the session, and returns the lane's outcome. The token
 // exists only in the session's environment, and the journal keeps its digest.
 func (r *laneRun) session(ctx context.Context) workorders.Report {
+	// Before anything of the lane is made or waited for, so a lane, an orchestrator, and an assistant are refused alike.
+	if err := r.rt.refuseSessions(); err != nil {
+		return r.refuseStart(err)
+	}
 	if r.orchestrating() && !r.assisting() && !r.awaitWake(ctx) {
 		return failed(workorders.ReasonWorkerRestarted)
 	}

@@ -68,6 +68,11 @@ const (
 	// lane waits live (max_live_wait), after its nudge, and nothing reported. The report's detail says since when, how
 	// many tasks still ran, and the bound that ended the wait.
 	ReasonBackgroundUnreported = "background_unreported"
+	// ReasonCLINotQualified says a session did not start because the worker that was to start it never qualifies the
+	// agent CLI, as the short-lived daemon `ropeshift init` starts does, and a session runs only on a qualified
+	// version. That daemon takes no work, so the reason is a backstop for a session reached anyway. The work did not
+	// run and nothing about it failed, so the report is blocked, and a member or the orchestrator sends it on.
+	ReasonCLINotQualified = "cli_not_qualified"
 )
 
 // CheckResult is one check a lane reports. Criterion names what it speaks for, and a check

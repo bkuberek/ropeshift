@@ -270,7 +270,7 @@ func (w *Worker) manifest(ctx context.Context) ledger.Manifest {
 		w.config.Report(fmt.Errorf("the doctor: %w", err))
 		return base
 	}
-	return manifest
+	return w.config.Lanes.advertised(manifest)
 }
 
 // signInKind says how the driver this epoch advertised is signed in.
@@ -572,7 +572,8 @@ func (w *Worker) uploadHeld(ctx context.Context) error {
 }
 
 // Run keeps the worker converged until the context ends. A failure is reported and
-// retried, because a worker that lost its control plane keeps its lanes running.
+// retried, because a worker that lost its control plane keeps its lanes running. A worker
+// that takes no work registers and opens its epoch, and then waits for the context alone.
 func (w *Worker) Run(ctx context.Context) error {
 	for {
 		err := w.Start(ctx)
@@ -588,6 +589,10 @@ func (w *Worker) Run(ctx context.Context) error {
 			return err
 		}
 		wait(ctx, retryEvery)
+	}
+	if w.takesNoWork() {
+		<-ctx.Done()
+		return ctx.Err()
 	}
 	if err := w.markUnknown(ctx); err != nil {
 		w.config.Report(err)

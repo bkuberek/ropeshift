@@ -254,6 +254,8 @@ func runServer(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return exitUsage
 	}
+	// Before the server starts anything, so no process it starts holds a descriptor it was started with.
+	keepDescriptorsFromChildren()
 	if opts.database == "" {
 		fmt.Fprintf(stderr, "ropeshiftd server: a server needs a database: set --database or %s\n", envDatabase)
 		return exitUsage

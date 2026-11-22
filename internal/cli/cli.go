@@ -85,6 +85,12 @@ type Options struct {
 	Panes Panes
 	// StateDir is the installation's own directory, where a first run writes its sample contract.
 	StateDir string
+	// InitMarked says this process's environment holds the mark of the daemon `ropeshift init` starts, so a daemon
+	// started from it is such a daemon: it qualifies no agent CLI and takes no work. The doctor says so.
+	InitMarked bool
+	// DaemonLog is where the daemon StartDaemon runs writes its output. An init that fails after it started that
+	// daemon says where the log is and keeps it, and one that succeeds removes it.
+	DaemonLog string
 	// InstallService writes the daemon's service definition under a name, with the daemon's own
 	// flags, and starts it. An empty name is the platform's. UninstallService stops that service and
 	// removes its definition. Nil means this platform has no service manager to write for.
@@ -102,6 +108,8 @@ type invocation struct {
 	panes          Panes
 	startDaemon    func(context.Context) (func() error, error)
 	stateDir       string
+	daemonLog      string
+	initMarked     bool
 	install        func(context.Context, string, []string) (Service, error)
 	uninstall      func(context.Context, string) (Service, error)
 	ctx            context.Context
@@ -132,6 +140,8 @@ type invocation struct {
 	command Command
 	// helped says the command printed its help instead of running.
 	helped bool
+	// errorNote is what an error message of this run ends with, such as where a log it kept is.
+	errorNote string
 }
 
 // Run runs one command and returns its exit code. args starts after the program
@@ -140,7 +150,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor, worktree: opts.Worktree, git: opts.Git,
 		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
-		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
+		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, daemonLog: opts.DaemonLog, initMarked: opts.InitMarked, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,
 		cloneTop: opts.CloneTop, cloneIgnores: opts.CloneIgnores, newProjectRun: opts.NewProject, readForgeAccount: opts.ReadForgeAccount,
 	}
@@ -310,7 +320,7 @@ func (c *invocation) failure(err error) int {
 
 // printError prints an error's message as plain text, with no escape sequence and no hidden character.
 func (c *invocation) printError(detail api.ErrorDetail) {
-	detail.Message = ledger.PlainText(detail.Message)
+	detail.Message = ledger.PlainText(detail.Message + c.errorNote)
 	if c.asJSON {
 		_ = json.NewEncoder(c.stderr).Encode(api.ErrorBody{Error: detail})
 		return

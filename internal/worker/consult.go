@@ -362,6 +362,9 @@ func (w *Worker) consultSession(ctx context.Context, run *consultation) ledger.C
 		}
 		return ledger.ConsultationEnd{Outcome: ledger.ConsultationFailed, Detail: fmt.Sprintf(format, args...)}
 	}
+	if err := rt.refuseSessions(); err != nil {
+		return failed("%v", err)
+	}
 	switch {
 	case heldOut(ctx):
 		return failed("the hold on its question ends within %s, too soon to start a session", consultHoldMargin+consultClockSkew)

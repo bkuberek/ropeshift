@@ -37,8 +37,11 @@ const questionIDBytes = 16
 // ServeLanes answers the worker socket until the listener closes. Hooks and
 // `ropeshift mcp` reach the worker here, and each connection is one line and one
 // answer. It stays open while the control plane is away, so a lane can still report. Wait covers each
-// connection it took.
+// connection it took. A worker that takes no work closes the socket at once and answers nothing on it.
 func (w *Worker) ServeLanes(ctx context.Context, listener net.Listener) error {
+	if w.takesNoWork() {
+		return listener.Close()
+	}
 	stop := context.AfterFunc(ctx, func() { _ = listener.Close() })
 	defer stop()
 	for {

@@ -23,6 +23,14 @@ func beganAndCrashed(t *testing.T, kept lanes.ActualState) *laneRig {
 	})
 	t.Cleanup(func() { close(release) })
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Do: func(ports.SessionSpec) { <-release }}, completed(0.01)}))
+	crashBeforeSession(t, r, kept)
+	return r
+}
+
+// crashBeforeSession lays the journal of a rig's lane out as a kill leaves it after the lane's start is journaled
+// and before its session has any effect, with the state the journal kept.
+func crashBeforeSession(t *testing.T, r *laneRig, kept lanes.ActualState) {
+	t.Helper()
 	record := lanes.Record{
 		ID: "lane-1", WorkOrder: r.id, ClaimID: r.grant.ClaimID, Fence: r.grant.Fence, Generation: 1, State: lanes.StateRunning,
 	}
@@ -45,7 +53,6 @@ func beganAndCrashed(t *testing.T, kept lanes.ActualState) *laneRig {
 	if stored.Actual != kept {
 		t.Fatalf("the journal holds %q, and the test means %q", stored.Actual, kept)
 	}
-	return r
 }
 
 // A lane a crash stopped before its session continues on a restart, and must leave the state the
