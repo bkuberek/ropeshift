@@ -144,6 +144,54 @@ func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy
 	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, recorder{actor: by.Actor, unattended: unattended})
 }
 
+// Keep records a decision in force again as the member's, in its place and with nothing else changed: the new decision
+// has the old one's content and replaces it, so the work it reaches stands as it was (FR-QD-8). It is how a member keeps
+// a one-way decision an orchestrator made, which the member did not word and need not restate. The new decision's ID
+// comes from the old one's (questions.KeptDecisionID), so a retry finds the first attempt. Only a member keeps, because
+// it is a person's word that a decision outside the policy stands.
+func (q *Questions) Keep(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (questions.Decision, error) {
+	if !authority.Allowed(actor, authority.ActionDecideUnbound) {
+		return questions.Decision{}, workorders.ErrForbidden
+	}
+	var kept questions.Decision
+	err := q.store.Write(ctx, scope, "decision.keep", func(tx ports.WriteTx) error {
+		keptID := questions.KeptDecisionID(id)
+		found, err := tx.Questions().Decision(keptID)
+		switch {
+		case err == nil && found.Supersedes == id:
+			kept = found
+			return nil
+		case err == nil:
+			return fmt.Errorf("%w: decision %s exists and does not replace %s", questions.ErrInvalid, keptID, id)
+		case !errors.Is(err, ports.ErrNotFound):
+			return err
+		}
+		old, err := tx.Questions().Decision(id)
+		if err != nil {
+			return err
+		}
+		if !old.Status.InForce() {
+			return fmt.Errorf("%w: %s is %s", questions.ErrDecisionEnded, old.ID, old.Status)
+		}
+		record, err := questions.NewDecision(questions.Decision{
+			ID: keptID, Status: old.Status, Statement: old.Statement, Rationale: old.Rationale, Citations: old.Citations,
+			Scope: old.Scope, Reversibility: old.Reversibility, Categories: old.Categories, DecidedBy: actor.ID, Supersedes: old.ID,
+		})
+		if err != nil {
+			return err
+		}
+		if err := checkHeld(tx, record.Scope); err != nil {
+			return err
+		}
+		kept, err = q.decideInTx(tx, record, party{Actor: actor})
+		return err
+	})
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	return kept, nil
+}
+
 // recorder is who records a decision, and whether a member set its worker to unattended and accepted its one-way
 // acknowledgement, which lets an orchestrator decide a one-way choice the policy leaves it.
 type recorder struct {

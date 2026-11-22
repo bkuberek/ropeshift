@@ -110,6 +110,7 @@ func registry() []section {
 			command("decision show", "<id>", "show one decision", (*invocation).decisionShow),
 			command("decision record", "--statement S [flags]", "record a decision", (*invocation).decisionRecord),
 			command("decision overturn", "<id> --statement S [flags]", "reverse a decision, which creates rework", (*invocation).decisionOverturn),
+			command("decision keep", "<id>", "keep a decision as your own, with nothing else changed", (*invocation).decisionKeep),
 			command("category list", "", "list the workspace's categories", (*invocation).categoryList),
 			command("category add", "<name>", "add a category", (*invocation).categoryAdd),
 			command("search", "<words> [--kind K]... [--limit N]", "rank candidates for a question", (*invocation).search),

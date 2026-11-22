@@ -2,11 +2,15 @@ package server_test
 
 import (
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -149,5 +153,98 @@ func TestNeedsYouShowsAnOrchestratorsOneWayDecisionForReview(t *testing.T) {
 	}
 	if left := reviews(t, d); len(left) != 0 {
 		t.Errorf("after Keep and Overturn, Needs you still shows %+v", left)
+	}
+}
+
+// eventReads counts the reads of events a read makes, by the way it makes them.
+type eventReads struct {
+	about  atomic.Int64
+	ofType atomic.Int64
+}
+
+// countingReadTx is a read that counts how it reads events.
+type countingReadTx struct {
+	ports.ReadTx
+	reads *eventReads
+}
+
+func (c countingReadTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
+	c.reads.about.Add(1)
+	return c.ReadTx.EventsAbout(subject)
+}
+
+func (c countingReadTx) EventsOfTypeAbout(eventType, subjectKind string, ids []string) ([]ledger.Event, error) {
+	c.reads.ofType.Add(1)
+	return c.ReadTx.EventsOfTypeAbout(eventType, subjectKind, ids)
+}
+
+// anUnattendedOrchestrator sets the world's worker to unattended, has a member accept its one-way acknowledgement, and
+// returns what records one-way decisions as its orchestrator, each binding a work order of its own so none overlaps
+// another.
+func anUnattendedOrchestrator(t *testing.T, d *apitest.Daemon, w *apitest.World) (orchestrator ledger.Actor, oneWay func(id, statement string) questions.Decision) {
+	t.Helper()
+	ctx := t.Context()
+	if err := d.Client.AcknowledgeRisk(ctx, apitest.WorldWorker, api.AcknowledgeRisk{Digest: authority.RiskDigest()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Client.SetAutonomy(ctx, apitest.WorldWorker, api.SetAutonomy{Level: authority.LevelUnattended}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Client.AcknowledgeOneWay(ctx, apitest.WorldWorker, api.AcknowledgeOneWay{Digest: authority.OneWayDigest()}); err != nil {
+		t.Fatal(err)
+	}
+	return ledger.Actor{Kind: ledger.ActorOrchestrator, ID: apitest.WorldWorker}, func(id, statement string) questions.Decision {
+		w.Running("wo-"+id, statement)
+		return questions.Decision{
+			ID: id, Status: questions.DecisionDecided, Statement: statement, Rationale: "The plan fixes it.", Citations: []string{"PAY-12"},
+			Scope: "wo:wo-" + id, Reversibility: questions.OneWay, Categories: []string{questions.CategoryArchitecture},
+		}
+	}
+}
+
+// TestTheReviewOfOneWayDecisionsReadsTheirRecordingEventsOnce holds the read of the decisions waiting for review to one
+// read of the events that recorded them, however many wait, and to the same item for each as a read of each decision's
+// events gives: who recorded it, which a worker the ledger no longer holds does not change, and when.
+func TestTheReviewOfOneWayDecisionsReadsTheirRecordingEventsOnce(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	d, w, _ := aWorld(t)
+	orchestrator, oneWay := anUnattendedOrchestrator(t, d, w)
+	const waiting = 40
+	for i := range waiting {
+		if _, err := w.Questions.RecordDecision(ctx, apitest.Scope, oneWay(fmt.Sprintf("orchestrator-%d", i), fmt.Sprintf("Decision %d.", i)), orchestrator); err != nil {
+			t.Fatalf("the orchestrator's one-way decision %d: %v", i, err)
+		}
+	}
+	// A member's one-way decision waits for no review, and its event is not the orchestrator's.
+	if _, err := d.Client.RecordDecision(ctx, api.RecordDecision{
+		ID: "member-one-way", Status: questions.DecisionDecided, Statement: "Store money as cents.", Rationale: "Rounding is a bug.",
+		Reversibility: questions.OneWay, Categories: []string{questions.CategoryArchitecture},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reads := &eventReads{}
+	var items []api.NeedItem
+	err := d.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) (err error) {
+		items, err = server.OneWayReviewNeeds(countingReadTx{ReadTx: tx, reads: reads})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != waiting {
+		t.Fatalf("the review holds %d decisions, want the orchestrator's %d", len(items), waiting)
+	}
+	for _, item := range items {
+		if item.OneWayReview == nil || item.Since == 0 || item.OneWayReview.DecidedByName != "solo" {
+			t.Errorf("the review item %+v", item)
+		}
+	}
+	if got := reads.about.Load(); got != 0 {
+		t.Errorf("the review read the events of %d decisions one decision at a time, want none", got)
+	}
+	if got := reads.ofType.Load(); got != 1 {
+		t.Errorf("the review read the recording events %d times, want once", got)
 	}
 }

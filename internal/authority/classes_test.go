@@ -71,6 +71,27 @@ func TestADelegateMayNotDecideAQuestionNow(t *testing.T) {
 	}
 }
 
+// TestOnlyAMemberKeepsADecision holds decision.keep to a member: keeping records a decision as the member's own, which is
+// a person's word that a one-way choice an orchestrator made stands. A delegate's call is refused, not carded, and
+// neither an orchestrator nor a delegate holds the action it needs, while a member does.
+func TestOnlyAMemberKeepsADecision(t *testing.T) {
+	op, ok := authority.OperationOf(authority.OpDecisionKeep)
+	if !ok || op.ID != "decision.keep" || op.Class != authority.ClassMemberOnly {
+		t.Fatalf("decision.keep reads %+v, want it member-only", op)
+	}
+	if len(op.Actions) == 0 {
+		t.Fatal("decision.keep names no action its use case checks")
+	}
+	for _, action := range op.Actions {
+		if authority.Allowed(delegate, action) || authority.Allowed(ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "w1"}, action) {
+			t.Errorf("a delegate or an orchestrator holds %s, which decision.keep needs", action)
+		}
+		if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m1"}, action) {
+			t.Errorf("a member lacks %s, which decision.keep needs", action)
+		}
+	}
+}
+
 // TestOnlyAMemberRetriesOrSkipsARepositoryCreation holds the two operations on a failed repository creation to the
 // member-only class: a delegate's call is refused, not carded, and neither a delegate nor a lane holds what either needs,
 // while a member holds all of it.

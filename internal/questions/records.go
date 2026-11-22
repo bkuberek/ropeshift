@@ -1,6 +1,8 @@
 package questions
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -328,6 +330,17 @@ func CheckDecisionID(id string) error {
 		return fmt.Errorf("%w: a decision's id may not start with %q, which only plan approval names decisions under", ErrInvalid, PlanDecisionPrefix)
 	}
 	return nil
+}
+
+// KeptDecisionID names the decision a member's Keep records in place of another, from that decision's ID, so a second
+// Keep finds the first. An ID whose name would not be an ID gives a digest of it instead, under a prefix the plain form
+// never makes.
+func KeptDecisionID(decision string) string {
+	if named := "kept-" + decision; ledger.PlainID(named) {
+		return named
+	}
+	digest := sha256.Sum256([]byte(decision))
+	return "kept_" + hex.EncodeToString(digest[:])[:40]
 }
 
 // NewDecision validates a draft. A new decision is `decided` or `assumed`, because the other

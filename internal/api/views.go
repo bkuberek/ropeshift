@@ -91,7 +91,7 @@ const (
 )
 
 // What a member can do about an orchestrator's one-way decision. Keep records the same decision as the member's in its
-// place, through `decision record --supersedes`, and Overturn reverses it, through `decision overturn`.
+// place, through `decision keep`, and Overturn reverses it, through `decision overturn`.
 const (
 	ActDecisionKeep     = "decision_keep"
 	ActDecisionOverturn = "decision_overturn"

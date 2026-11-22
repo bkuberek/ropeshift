@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
@@ -39,6 +40,7 @@ var AutonomyChecks = []Check{
 	{"AU20", "an orchestrator's respawn past the day's bound is refused", checkOrchestratorRespawnIsBounded},
 	{"AU21", "a worker reads the bound its level holds it to", checkDesiredCarriesTheBound},
 	{"AU22", "a new window counts what the last one left", checkAWindowCountsWhatTheLastLeft},
+	{"AU23", "a read finds an event of the shared log by its ID, as the write that made it does", checkSharedLogReadsByID},
 }
 
 // subscriptionManifest is a worker on a person's own sign-in.
@@ -818,4 +820,58 @@ func checkManualActsOnNothing(r *Rig) error {
 		return Violatedf("a request at manual: %v", err)
 	}
 	return nil
+}
+
+// checkSharedLogReadsByID holds a read of the shared records to finding one event of their log by its ID, the event a
+// listing of the log holds under that ID and the one a write finds, so a reader that can name an event never lists the
+// log to find it. An ID the log does not hold is not found.
+func checkSharedLogReadsByID(r *Rig) error {
+	a, err := newAutonomyRig(r, subscriptionManifest)
+	if err != nil {
+		return err
+	}
+	if err := a.ops.AcknowledgeOneWay(r.Ctx, r.Scope, a.worker(), authority.OneWayDigest(), theMember); err != nil {
+		return err
+	}
+	id := authority.OneWayEventID(a.worker(), 0)
+	listed, err := r.SharedEvents(a.store)
+	if err != nil {
+		return err
+	}
+	var want *ledger.Event
+	for i := range listed {
+		if listed[i].ID == id {
+			want = &listed[i]
+		}
+	}
+	if want == nil {
+		return Violatedf("the log lists no event %s after an acceptance", id)
+	}
+	err = a.store.Installation(r.Scope).Write(r.Ctx, "find-by-id", func(tx ports.SharedTx) error {
+		written, err := tx.Event(id)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(written, *want) {
+			return Violatedf("a write finds %+v by ID and the log lists %+v", written, *want)
+		}
+		_, err = tx.Append(r.noteDraft(r.ID("note")))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return a.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+		found, err := tx.Event(id)
+		if err != nil {
+			return Violatedf("a read finds no event %s: %v", id, err)
+		}
+		if !reflect.DeepEqual(found, *want) {
+			return Violatedf("a read finds %+v by ID and the log lists %+v", found, *want)
+		}
+		if _, err := tx.Event(authority.OneWayEventID(a.worker(), 1)); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("a read of an ID the log does not hold: %v, want %v", err, ports.ErrNotFound)
+		}
+		return nil
+	})
 }

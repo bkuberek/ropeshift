@@ -57,6 +57,9 @@ type SharedReadTx interface {
 	Revision() (int64, error)
 	// Events returns up to limit events of the installation's log after a revision, in order.
 	Events(after int64, limit int) ([]ledger.Event, error)
+	// Event returns the event of the installation's log with a client-generated ID, or ErrNotFound, as the write
+	// transaction does. It is how a read finds an event whose ID it can name without listing the log.
+	Event(id string) (ledger.Event, error)
 	// Workers reads registered workers, their join grants, autonomy, run windows, and orchestrators.
 	Workers() WorkerReader
 	// Members reads who can sign in and who has.

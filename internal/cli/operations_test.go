@@ -127,6 +127,7 @@ var operations = map[string]string{
 	"POST /v1/decisions":                                 "decision record",
 	"GET /v1/decisions/{id}":                             "decision show",
 	"POST /v1/decisions/{id}/overturn":                   "decision overturn",
+	"POST /v1/decisions/{id}/keep":                       "decision keep",
 	"GET /v1/policies":                                   "policy list",
 	"POST /v1/policies":                                  "policy publish",
 	"GET /v1/policies/{version}":                         "policy show",

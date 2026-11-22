@@ -62,6 +62,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/projects/{project}/batches/{id}/answers": decide,
   "POST /v1/projects/{project}/decisions": { title: "Record decision", at: home },
   "POST /v1/projects/{project}/decisions/{id}/overturn": { title: "Overturn decision: ", at: `${project}/decisions` },
+  "POST /v1/projects/{project}/decisions/{id}/keep": { title: "Keep decision: ", at: home, elsewhere: "needs/OneWayReviewCard.test.tsx" },
   "POST /v1/projects/{project}/approvals/{id}/decide": decide,
   "POST /v1/projects/{project}/approvals/{id}/repositories/{name}/retry": { title: "Retry creating ", at: home, query: "retry creating", elsewhere: "needs/RepositoryCreationCard.test.tsx" },
   "POST /v1/projects/{project}/approvals/{id}/repositories/{name}/skip": { title: "Skip creating ", at: home, query: "skip creating", elsewhere: "needs/RepositoryCreationCard.test.tsx" },

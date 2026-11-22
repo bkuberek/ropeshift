@@ -44,3 +44,7 @@ func WhenConfirmed(t interface{ Cleanup(func()) }, f func(context.Context)) {
 func CardConversation(members ports.MemberReader, threads ports.ConversationReader, card authority.Approval) (*api.CardConversation, error) {
 	return cardConversation(members, threads, card)
 }
+
+// OneWayReviewNeeds reads the one-way decisions of an orchestrator that wait for a member's review, in the read a
+// test gives it.
+func OneWayReviewNeeds(tx ports.ReadTx) ([]api.NeedItem, error) { return oneWayReviewNeeds(tx) }

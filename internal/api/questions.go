@@ -366,6 +366,14 @@ func (c *ProjectClient) OverturnDecision(ctx context.Context, id string, in Over
 	return out, err
 }
 
+// KeepDecision records a decision in force again as the member's, in its place and with nothing else changed, and answers
+// with the decision it recorded. A second call finds the first.
+func (c *ProjectClient) KeepDecision(ctx context.Context, id string) (questions.Decision, error) {
+	var out questions.Decision
+	err := c.do(ctx, http.MethodPost, "/v1/decisions/"+url.PathEscape(id)+"/keep", struct{}{}, &out)
+	return out, err
+}
+
 // Policies lists the versions of the decision policy.
 func (c *ProjectClient) Policies(ctx context.Context) ([]authority.PolicyVersion, error) {
 	var out PolicyList

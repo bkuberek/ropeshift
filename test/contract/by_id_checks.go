@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
 	"reflect"
 	"slices"
@@ -12,13 +13,15 @@ import (
 )
 
 // ByIDChecks hold the reads that name several records by their IDs, so a read of a few records never lists every
-// record of their kind: work orders, plans, and the newest version of contracts. Each returns one record for each ID
-// that names one, by ID, as a read of that one ID returns it, and nothing for an ID the ledger does not hold, however
-// many IDs the read names and however often it names one.
+// record of their kind: work orders, plans, and the newest version of contracts, and the events of one type about
+// each of several subjects. Each returns one record for each ID that names one, by ID, as a read of that one ID
+// returns it, and nothing for an ID the ledger does not hold, however many IDs the read names and however often it
+// names one.
 var ByIDChecks = []Check{
 	{"BI1", "a read of work orders by ID returns each one an ID names, once and by ID, as a read of it alone does", checkWorkOrdersByID},
 	{"BI2", "a read of plans by ID returns each one an ID names, once and by ID, as a read of it alone does", checkPlansByID},
 	{"BI3", "a read of contracts by ID returns the newest version of each one an ID names, once and by ID, as a read of it alone does", checkLatestContractsByID},
+	{"BI4", "a read of the events of one type about subjects of one kind by ID returns the events of each subject an ID names, once and in order, as a read of each subject alone does, and no other event", checkEventsOfTypeAboutByID},
 }
 
 // byIDCount is how many records of one kind a check holds: more than one statement of a read by ID names, so a
@@ -148,4 +151,60 @@ func checkLatestContractsByID(r *Rig) error {
 		},
 		func(tx ports.ReadTx, id string) (planning.Contract, error) { return tx.Planning().LatestContract(id) },
 		func(contract planning.Contract) string { return contract.ID })
+}
+
+// checkEventsOfTypeAboutByID holds subjects of two kinds, each with events of two types and two of the type asked for,
+// so a read that named a subject by its ID alone, or a type by its name alone, would return an event it must not.
+func checkEventsOfTypeAboutByID(r *Rig) error {
+	s := r.Store()
+	held := make([]string, 0, byIDCount)
+	err := s.Write(r.Ctx, r.Scope, "test.events", func(tx ports.WriteTx) error {
+		for range byIDCount {
+			id := r.ID("subject")
+			for _, draft := range []ledger.EventDraft{
+				{Type: "note.added", Subject: ledger.Subject{Kind: "note", ID: id}},
+				{Type: "note.edited", Subject: ledger.Subject{Kind: "note", ID: id}},
+				{Type: "note.added", Subject: ledger.Subject{Kind: "memo", ID: id}},
+				{Type: "note.added", Subject: ledger.Subject{Kind: "note", ID: id}},
+			} {
+				draft.Actor = r.Actor
+				if _, err := tx.Append(draft); err != nil {
+					return err
+				}
+			}
+			held = append(held, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	asked, named := askedIDs(held)
+	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var want []ledger.Event
+		for _, id := range named {
+			about, err := tx.EventsAbout(ledger.Subject{Kind: "note", ID: id})
+			if err != nil {
+				return err
+			}
+			for _, event := range about {
+				if event.Type == "note.added" {
+					want = append(want, event)
+				}
+			}
+		}
+		slices.SortFunc(want, func(a, b ledger.Event) int { return cmp.Compare(a.Rev, b.Rev) })
+		found, err := tx.EventsOfTypeAbout("note.added", "note", asked)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(found, want) {
+			return Violatedf("a read of %d IDs found %d events, want the %d each subject's own read finds, in order", len(asked), len(found), len(want))
+		}
+		none, err := tx.EventsOfTypeAbout("note.added", "note", nil)
+		if err != nil || len(none) != 0 {
+			return Violatedf("a read of no IDs found %v: %v", none, err)
+		}
+		return nil
+	})
 }

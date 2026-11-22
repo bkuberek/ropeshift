@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -473,6 +474,10 @@ func (t *readTx) EventsOfKind(kind string, since int64) ([]ledger.Event, error) 
 	return eventsOfKind(t.session, t.scope, kind, since)
 }
 
+func (t *readTx) EventsOfTypeAbout(eventType, subjectKind string, ids []string) ([]ledger.Event, error) {
+	return eventsOfTypeAbout(t.session, t.scope, eventType, subjectKind, ids)
+}
+
 func eventsAbout(se *session, scope ledger.WorkspaceID, subject ledger.Subject) ([]ledger.Event, error) {
 	return readEvents(se.rows(stmtEventsAbout, params{"workspace_id": string(scope), "subject_kind": subject.Kind, "subject_id": subject.ID}))
 }
@@ -486,6 +491,31 @@ func readEvents(rows *sql.Rows, err error) ([]ledger.Event, error) {
 	if err != nil {
 		return nil, err
 	}
+	return scanLedgerEvents(rows)
+}
+
+// eventsOfTypeAbout reads the events of one type about the subjects of one kind that some IDs name, a slice of IDs at
+// a time (idSlots), and returns them in the order of their revisions.
+func eventsOfTypeAbout(se *session, scope ledger.WorkspaceID, eventType, subjectKind string, ids []string) ([]ledger.Event, error) {
+	var events []ledger.Event
+	for _, slice := range idSlices(ids) {
+		slice["workspace_id"], slice["subject_kind"], slice["type"] = string(scope), subjectKind, eventType
+		rows, err := se.rows(stmtEventsOfTypeAbout, slice)
+		if err != nil {
+			return nil, err
+		}
+		found, err := scanLedgerEvents(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, found...)
+	}
+	slices.SortFunc(events, func(a, b ledger.Event) int { return cmp.Compare(a.Rev, b.Rev) })
+	return events, nil
+}
+
+// scanLedgerEvents reads every event of the rows of a statement and closes them.
+func scanLedgerEvents(rows *sql.Rows) ([]ledger.Event, error) {
 	defer rows.Close()
 	var events []ledger.Event
 	for rows.Next() {
@@ -603,7 +633,12 @@ func (t *writeTx) EventsOfKind(kind string, since int64) ([]ledger.Event, error)
 }
 
 func (t *writeTx) Event(id string) (ledger.Event, error) {
-	row, err := t.row(stmtFindEvent, params{"workspace_id": string(t.scope), "id": id})
+	return findEvent(t.session, t.scope, id)
+}
+
+// findEvent reads the event of a workspace's log with an ID, through the key of its table.
+func findEvent(se *session, scope ledger.WorkspaceID, id string) (ledger.Event, error) {
+	row, err := se.row(stmtFindEvent, params{"workspace_id": string(scope), "id": id})
 	if err != nil {
 		return ledger.Event{}, err
 	}
