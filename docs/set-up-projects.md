@@ -294,7 +294,7 @@ Amounts are US dollars at list price, and 0 means no limit or no warning, except
 
 | Key | What it sets | Default | Range |
 |-----|--------------|---------|-------|
-| `max_live_wait` | The longest a lane waits live with `lane_wait`, or rests on background work its own turn left running. A longer wait parks the lane, and a longer rest ends in a nudge | `"5m"` | 1 minute to 1 hour |
+| `max_live_wait` | The longest a lane waits live with `lane_wait`, rests on background work its own turn left running or on an answer its session refused a nudge for, or stays in a turn it did not start that shows no sign of work. A longer wait parks the lane, a longer rest on background work ends in a nudge, a longer rest on an answer ends the lane `blocked`, and a quiet turn is taken as at rest | `"5m"` | 1 minute to 1 hour |
 | `max_tool_sleep` | The sleep inside one command that rule W1 refuses, and any longer one | `"60s"` | 1 second to 1 hour |
 | `wait_rules_off` | The wait rules to turn off, by ID: `W1`, `W2`, `W3`, or `W4` | `[]` | Those four IDs |
 | `wait_rule_patterns` | Command prefixes a rule also matches, by rule ID | `[]` for each rule | At most 64 per rule, each at most 200 bytes |
