@@ -43,7 +43,7 @@ func (p *prober) keepStream(name string, s *probeSession, surfaces ...lanes.Surf
 func (p *prober) keepScreen(ctx context.Context, pane string) {
 	calls, cancel := context.WithTimeout(context.WithoutCancel(ctx), probeCloseWait)
 	defer cancel()
-	screen, err := p.d.terminal.Capture(calls, pane)
+	screen, err := startCheckScreen(calls, p.d.terminal, pane)
 	if err != nil {
 		return
 	}
