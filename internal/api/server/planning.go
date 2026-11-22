@@ -247,11 +247,40 @@ func fillPlanText(tx ports.ReadTx, view *api.PlanView, wanted int64) error {
 	switch {
 	case err == nil:
 		view.Body, view.BodyCut = version.Body, version.BodyCut
+		return fillVersionContracts(tx, view, version)
 	case !errors.Is(err, ports.ErrNotFound):
 		return err
 	case view.Approval != nil:
 		view.Body, view.BodyCut = view.Approval.Detail.Body, view.Approval.Detail.BodyCut
 	}
+	return nil
+}
+
+// fillVersionContracts replaces the plan's newest contracts with those a version the ledger holds covers, each as that
+// version had it, because a contract the plan changed or added since is not part of the version shown. A version with no
+// records leaves the contracts as they are, and so does the work orders' list, which is the plan's.
+func fillVersionContracts(tx ports.ReadTx, view *api.PlanView, version planning.PlanVersion) error {
+	if len(version.Records) == 0 {
+		return nil
+	}
+	versions, err := tx.Planning().Contracts()
+	if err != nil {
+		return err
+	}
+	held := []planning.Contract{}
+	at := map[string]int{}
+	for _, contract := range versions {
+		if contract.PlanID != view.Plan.ID || !planning.Covers(version.Records, contract.ID, contract.Digest) {
+			continue
+		}
+		if i, seen := at[contract.ID]; seen {
+			held[i] = contract
+			continue
+		}
+		at[contract.ID] = len(held)
+		held = append(held, contract)
+	}
+	view.Contracts = held
 	return nil
 }
 
