@@ -220,9 +220,9 @@ type laneRun struct {
 	// spendCheck carries a hook's word that a tool call is starting to the goroutine that reads this run's stream, which
 	// then holds the lane to its limits as a usage report does. It holds one word, so a burst of calls is one check.
 	spendCheck chan struct{}
-	// backgroundDue carries the end of a rest on background work to the same goroutine, which decides what the lane
-	// does next.
-	backgroundDue chan struct{}
+	// boundDue carries the end of a bounded wait to the same goroutine, which decides what the lane does next: a rest
+	// on background work, or a turn no end was heard for.
+	boundDue chan struct{}
 	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
 	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
 	projectReportedAt  time.Time
@@ -309,8 +309,8 @@ func newOnce() *sync.Once { return &sync.Once{} }
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
 		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(), spendCheck: make(chan struct{}, 1),
-		backgroundDue: make(chan struct{}, 1),
-		state:         newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
+		boundDue: make(chan struct{}, 1),
+		state:    newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
 	}
 }
 
@@ -354,6 +354,11 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 			ended = record.LastMs
 		case hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied, lanes.EventCallDenied:
 			calls = append(calls, record)
+		case lanes.EventUserPromptSubmit, lanes.EventStop, hookStopFailure:
+			// The turn clock reads the newest time of each, which is the record's last.
+			event := record.HookEvent
+			event.AtMs = record.LastMs
+			r.observeReplayedHook(ctx, event)
 		default:
 			r.observeReplayedHook(ctx, record.HookEvent)
 		}
@@ -361,6 +366,7 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 	for _, record := range calls {
 		r.observeReplayedHook(ctx, record.HookEvent)
 	}
+	r.state.resumeRest(r.w.clock.Now())
 	// A prompt newer than the newest turn's end started a turn while no worker listened.
 	if r.state.turnUnended() {
 		r.signal(ctx, lanes.OnTurnStarted)
@@ -721,13 +727,19 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		// Before the stream is read, because a headless turn that failed on the sign-in names no reason.
 		r.w.parkOnSignIn(ctx)
 	}
+	since, _, resting := r.state.backgroundRest()
 	switch {
+	case r.state.current() == lanes.Working && r.state.turnUnended():
+		// A turn a prompt began has no end yet, and may never report one.
+		r.awaitTurnEnd(ctx)
 	case r.state.current() != lanes.Idle:
 	case len(r.blockingQuestions()) != 0:
 		r.awaitAnswer(ctx)
 	case r.planning() && !reported && !r.owesBrief.Load():
 		// A planning lane at rest with nothing to report was waiting for its person, and goes on waiting.
 		r.awaitPerson(ctx)
+	case resting && !reported:
+		r.restOnBackground(ctx, since)
 	}
 	return r.conclude(ctx, r.watch(ctx, events))
 }
@@ -1188,8 +1200,9 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next
-		case <-r.backgroundDue:
+		case <-r.boundDue:
 			r.backgroundBound(ctx)
+			r.turnBound(ctx)
 			continue
 		case <-r.spendCheck:
 			// A tool call is starting, and no cost report may come to show the limit passed: a call that cannot be
@@ -1417,6 +1430,7 @@ func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
 // report waits for its person instead (ADR-0018).
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
 	r.holding = nil
+	r.state.endTurnWait()
 	if r.orchestrating() {
 		r.orchestratorRests(ctx, turn)
 		return
@@ -1489,9 +1503,48 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 }
 
 // holdEnd keeps a turn's end that is older than the session's newest input: the lane works in the turn that input
-// began, and that turn's end is the one to decide.
-func (r *laneRun) holdEnd(_ context.Context, turn *ports.TurnResult) {
+// began, and that turn's end is the one to decide. The wait for it is bounded (awaitTurnEnd).
+func (r *laneRun) holdEnd(ctx context.Context, turn *ports.TurnResult) {
 	r.holding = turn
+	r.awaitTurnEnd(ctx)
+}
+
+// awaitTurnEnd bounds the wait for the end of a turn the worker did not hand: one a prompt began, or one an older end
+// left the lane in. No end comes for a prompt a hook blocked, a turn a person interrupted in a pane, or one that
+// hangs, so once the lane has shown no sign of work for as long as it may wait live (max_live_wait, FR-SPEND-1), the
+// goroutine that reads the stream takes it as at rest. A call at work, a request open, and any progress hold it.
+func (r *laneRun) awaitTurnEnd(ctx context.Context) {
+	since := r.w.clock.Now()
+	r.state.noteTurnWait(since)
+	r.sequence.Go(func() {
+		for ctx.Err() == nil && !r.sessionOver.Load() && !r.fenced.Load() && r.state.waitsOnTurn(since) {
+			if r.state.turnQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
+				r.boundReached()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(superviseEvery):
+			}
+		}
+	})
+}
+
+// turnBound takes a lane as at rest once the turn it waited on has shown no sign of work for the live wait, where the
+// stream is read, and decides that rest as a turn's end: the end it held, or a completed one where it held none.
+func (r *laneRun) turnBound(ctx context.Context) {
+	since, waiting := r.state.turnWait()
+	if !waiting || r.sessionOver.Load() || r.currentFlight() != nil ||
+		!r.state.turnQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
+		return
+	}
+	turn := r.holding
+	if turn == nil {
+		turn = &ports.TurnResult{Status: ports.TurnCompleted}
+	}
+	r.signal(ctx, lanes.OnTurnFinished)
+	r.afterTurn(ctx, turn, false)
 }
 
 // errTurnBegan withholds an input decided at rest from a session whose next turn began before it was sent.
@@ -1544,12 +1597,18 @@ func (r *laneRun) restOnBackground(ctx context.Context, since time.Time) {
 			}
 		}
 		if r.restsOnBackground(ctx, since) {
-			select {
-			case r.backgroundDue <- struct{}{}:
-			default:
-			}
+			r.boundReached()
 		}
 	})
+}
+
+// boundReached hands the end of a bounded wait to the goroutine that reads the stream. It holds one word, which says
+// only that some bound may have passed.
+func (r *laneRun) boundReached() {
+	select {
+	case r.boundDue <- struct{}{}:
+	default:
+	}
 }
 
 // restsOnBackground says the rest that began with the stop the worker heard at since goes on.

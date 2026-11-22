@@ -97,6 +97,12 @@ type laneState struct {
 	// handedMs is the newest turn's end heard when the worker last handed the session input: an end no newer than
 	// it is older than that input.
 	handedMs int64
+	// turnSince is when the lane began to wait for the end of a turn it did not hand, and zero while it waits for
+	// none (awaitTurnEnd).
+	turnSince time.Time
+	// keptBackground and keptStopMs are the rest on background work the journal kept (lanes.Progress.Background).
+	keptBackground int
+	keptStopMs     int64
 	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
 	moves  uint64
 	saving atomic.Bool
@@ -314,6 +320,7 @@ func (s *laneState) keepContext(progress lanes.Progress) {
 	defer s.mu.Unlock()
 	s.context, s.baseline = progress.ContextTokens, progress.BaselineTokens
 	s.compact = compaction{asked: progress.Compactions, pending: progress.CompactPending, seen: progress.CompactSeen}
+	s.keptBackground, s.keptStopMs = progress.Background, progress.BackgroundStopMs
 }
 
 // journalContext writes what keepContext reads.
@@ -322,6 +329,19 @@ func (s *laneState) journalContext(progress *lanes.Progress) {
 	defer s.mu.Unlock()
 	progress.ContextTokens, progress.BaselineTokens = s.context, s.baseline
 	progress.Compactions, progress.CompactPending, progress.CompactSeen = s.compact.asked, s.compact.pending, s.compact.seen
+	if s.background > 0 {
+		progress.Background, progress.BackgroundStopMs = s.background, s.stoppedMs
+	}
+}
+
+// resumeRest rests again on the background work the journal kept, once a replay has read the session's hooks: only
+// while the Stop that left that work is the newest end, and no prompt has come since.
+func (s *laneState) resumeRest(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.keptBackground > 0 && s.keptStopMs == s.endedMs() && s.promptedMs <= s.keptStopMs {
+		s.background, s.backgroundSince = s.keptBackground, now
+	}
 }
 
 // callStarted keeps a call at work. A call a hook refused never ran, and nothing will say it ended.
@@ -579,7 +599,9 @@ func (r *laneRun) observe(ctx context.Context, event lanes.HookEvent, replayed b
 	case lanes.EventUserPromptSubmit:
 		if s.notePrompt(event.AtMs) && !replayed {
 			r.progressed()
-			r.signal(ctx, lanes.OnTurnStarted)
+			if r.signal(ctx, lanes.OnTurnStarted) {
+				r.awaitTurnEnd(ctx)
+			}
 		}
 	case hookStopFailure:
 		s.noteStopFailure(event.AtMs)
@@ -672,6 +694,53 @@ func (s *laneState) turnUnended() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.promptedMs > s.endedMs()
+}
+
+// noteTurnWait begins a wait for the end of a turn the worker did not hand, and endTurnWait ends it.
+func (s *laneState) noteTurnWait(since time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnSince = since
+}
+
+func (s *laneState) endTurnWait() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnSince = time.Time{}
+}
+
+// turnWait reads the wait for a turn's end, and whether there is one.
+func (s *laneState) turnWait() (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnSince, !s.turnSince.IsZero()
+}
+
+// waitsOnTurn says the wait for a turn's end that began at since goes on: no turn's end was decided since, and the
+// lane is still in a turn, or in a request or a compaction inside one.
+func (s *laneState) waitsOnTurn(since time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch s.tracker.State() {
+	case lanes.Working, lanes.NeedsDecision, lanes.Compacting:
+		return s.turnSince.Equal(since)
+	}
+	return false
+}
+
+// turnQuiet says the turn waited on since then has shown no sign of work for bound: the lane works with no call at
+// work and no request open, and its progress has not moved for that long.
+func (s *laneState) turnQuiet(since, now time.Time, bound time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.turnSince.Equal(since) || s.tracker.State() != lanes.Working || len(s.tools) != 0 || s.approvals != 0 {
+		return false
+	}
+	last := since
+	if s.progress.After(last) {
+		last = s.progress
+	}
+	return now.Sub(last) >= bound
 }
 
 // backgroundRest says the session's last turn stopped with its own background work still running, since when,
