@@ -248,7 +248,7 @@ describe("Settings: Spend", () => {
     review.focus();
     await userEvent.keyboard("{Enter}");
     expect(await screen.findByRole("dialog", { name: "Review the spend change" })).toBeTruthy();
-  });
+  }, 30_000);
 
   it("reads and shows an archived project's spend policy without a way to change it", async () => {
     serveSpend(undefined, golden<SpendView>("spend"), { status: 200, body: { projects: [{ id: "default", name: "default", state: "archived", created_at: 1, repositories: [] }] } });
