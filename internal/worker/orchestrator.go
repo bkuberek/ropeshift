@@ -218,7 +218,7 @@ func (r *laneRun) orchestratorRests(ctx context.Context, turn *ports.TurnResult)
 		return
 	}
 	if turn.Status != ports.TurnCompleted {
-		r.noteFailure(ctx, turn.Reason)
+		r.noteStreamFailure(ctx, turn.Reason)
 		return
 	}
 	r.contextAtRest(ctx)

@@ -507,6 +507,10 @@ const Restarted = "Your session ended unexpectedly and was restarted. Continue t
 const AfterCompaction = "Your context was compacted. Go on with this work order from where you stopped, and call " +
 	ToolLaneReport + " when it is done or cannot go on."
 
+// AfterLimit is what a session is told whose turn failed on a usage limit that passed while no worker listened.
+const AfterLimit = "Your last turn stopped at a usage limit, which has passed since. Go on with this work order from " +
+	"where you stopped, and call " + ToolLaneReport + " when it is done or cannot go on."
+
 // RestartPrompt is that, with what the last generation left unread.
 func RestartPrompt(facts ...ledger.MessageFact) string {
 	var out strings.Builder

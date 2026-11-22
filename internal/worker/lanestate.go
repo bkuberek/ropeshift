@@ -92,6 +92,8 @@ type laneState struct {
 	promptedMs int64
 	// refusedUntil is when the wait on a nudge a turn's end could not send runs out, and zero with no such wait.
 	refusedUntil time.Time
+	// limitUnread is the usage limit an adoption found a turn failed on, until that turn's end is read.
+	limitUnread unreadLimit
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -253,7 +255,7 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]string{}, now, now, 0, baseline
 	s.unconfirmed, s.retried, s.baselined, s.stopLeftWork = false, false, false, false
-	s.compact, s.refusedUntil = compaction{}, time.Time{}
+	s.compact, s.refusedUntil, s.limitUnread = compaction{}, time.Time{}, unreadLimit{}
 }
 
 // noteCleared keeps when the clear that began this generation fired.
@@ -574,6 +576,23 @@ func (s *laneState) notePrompt(atMs int64) {
 		return
 	}
 	s.background, s.backgroundSince, s.refusedUntil = 0, time.Time{}, time.Time{}
+	if atMs > s.limitUnread.atMs {
+		s.limitUnread = unreadLimit{}
+	}
+}
+
+// keepUnreadLimit keeps what an adoption found, and a zero one ends it.
+func (s *laneState) keepUnreadLimit(limit unreadLimit) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.limitUnread = limit
+}
+
+// adoptedLimit reads it.
+func (s *laneState) adoptedLimit() unreadLimit {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.limitUnread
 }
 
 // noteRefusal keeps until when a lane waits on the nudge a wait refused, and zero ends that wait.
