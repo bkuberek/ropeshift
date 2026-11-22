@@ -82,6 +82,22 @@ func TestCheckLaneLayerStillRefusesADroppedGate(t *testing.T) {
 	}
 }
 
+// A lane's own layer keeps or lowers the permission mode the layers below it give, in the order from most careful
+// plan, dontAsk, default, acceptEdits, auto, and never raises it.
+func TestCheckLaneLayerHoldsThePermissionMode(t *testing.T) {
+	modes := []string{"plan", "dontAsk", "default", "acceptEdits", "auto", BypassMode}
+	for from, below := range modes {
+		for to, mode := range modes {
+			t.Run(below+" to "+mode, func(t *testing.T) {
+				err := CheckLaneLayer(Profile{Agent: AgentSettings{PermissionMode: below}}, Profile{Agent: AgentSettings{PermissionMode: mode}})
+				if refused := errors.Is(err, ErrBadProfile); refused != (to > from) {
+					t.Errorf("got %v", err)
+				}
+			})
+		}
+	}
+}
+
 // TestARaiseReadsTheClassesAndTheScaleOfEffort holds what counts as a raise of a delegate's lane layer
 // (FR-AUTH-16) where the classes or the efforts do not rank two values one way: a model two classes map to,
 // and a value of no class or of no effort the scale holds.

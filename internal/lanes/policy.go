@@ -872,11 +872,12 @@ func CheckPermissionMode(mode string) error {
 	return nil
 }
 
-// permissionRanks orders the modes by how much runs without asking. Anything else outranks
-// them all, because a mode nobody here knows must not pass as a lower one.
-var permissionRanks = map[string]int{"plan": 0, "default": 1, "acceptEdits": 2, "dontAsk": 3, "auto": 4, "bypassPermissions": 5}
+// permissionRanks orders the modes from most careful to least: plan, which only plans, dontAsk, which refuses what
+// would ask, default, acceptEdits, auto, and the bypass mode. Anything else outranks them all, because a mode nobody
+// here knows must not pass as a lower one.
+var permissionRanks = map[string]int{"plan": 0, "dontAsk": 1, "default": 2, "acceptEdits": 3, "auto": 4, BypassMode: 5}
 
-// RaisesPermission reports a mode that runs more without asking than another.
+// RaisesPermission reports a mode that is less careful than another.
 func RaisesPermission(from, to string) bool {
 	rank, known := permissionRanks[to]
 	if !known {

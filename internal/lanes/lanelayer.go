@@ -44,8 +44,9 @@ func LaneLayerFloors() []LaneLayerFloor {
 
 // CheckLaneLayer holds a lane's own layer to the layers below it: below is the profile those layers give,
 // and profile is the same with the lane's layer over it. The lane's layer changes none of LaneLayerKeys, it
-// keeps every gate below, it raises neither the bound on review rounds nor the ports per lane, and it can
-// lower a cap of the breaker and never raise one, because only a member's reset lets a lane past them
+// keeps every gate below, it keeps or lowers the permission mode, it raises neither the bound on review rounds nor
+// the ports per lane, and it can lower a cap of the breaker and never raise one, because only a member's reset lets
+// a lane past them
 // (ADR-0014). It holds every gate because it holds two profiles, however they were built: MergeLayers joins
 // the layers' gates, so a profile resolved from layers always keeps them, and a lane's layer can only add.
 func CheckLaneLayer(below, profile Profile) error {
@@ -59,6 +60,10 @@ func CheckLaneLayer(below, profile Profile) error {
 	}
 	if gate, dropped := DroppedGate(below.Agent.Gates, profile.Agent.Gates); dropped {
 		return laneLayerRefusal(fmt.Sprintf("drop the gate %q of agent.gates", gate))
+	}
+	// A mode the lane's layer leaves as it is raises nothing, one the layers below left unset included.
+	if was, now := below.Agent.PermissionMode, profile.Agent.PermissionMode; now != was && RaisesPermission(was, now) {
+		return laneLayerRefusal(fmt.Sprintf("raise agent.permission_mode from %q to %q", was, now))
 	}
 	if profile.Agent.Credentials != below.Agent.Credentials {
 		return laneLayerRefusal("change agent.credentials")

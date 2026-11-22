@@ -313,7 +313,7 @@ The profile reads a key whatever its case, under Unicode case folding, so `lane 
 The worker holds a lane's layer to your layer and the repository's whenever it reads the lane's profile, a layer a claim already holds included. It refuses a layer that does any of the following, and the lane does not start:
 
 - Changes `driver`, `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, `worktree.branch_prefix`, `worktree.push_on_stop`, `[agent.classes]`, or `[projects]`, the table of your own layer that names each project's workspace folder on this machine ([the workspace on a machine](project-structure.md#the-workspace-on-a-machine)). A repository's layer is refused the same way.
-- Raises `agent.permission_mode` past yours, or names `bypassPermissions` or a mode ropeshift does not know.
+- Raises `agent.permission_mode` past what your layer and the repository's give, in the order `plan`, `dontAsk`, `default`, `acceptEdits`, `auto`, or names `bypassPermissions` or a mode ropeshift does not know.
 - Raises `review.max_review_rounds`, `resources.ports_per_lane`, `lifecycle.max_generations_per_day`, or `lifecycle.max_restarts` past what your layer and the repository's give, sets `max_generations_per_day` to `0` or less where they set a cap, or shortens `lifecycle.restart_window`.
 - Raises `admission.max_lanes` or `admission.max_lanes_per_sign_in` past yours, sets no cap where you set one or left the recommendation, or changes any other key of `[admission]`.
 - Changes `resources.report_interval`, `disk_free_warn`, `memory_available_warn`, `memory_pressure_warn`, or `cpu_load_warn`, which say how the worker measures.
