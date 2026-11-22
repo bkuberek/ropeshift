@@ -637,6 +637,9 @@ func (r *laneRun) endResult(report workorders.Report) workorders.LaneResult {
 func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located, lease ledger.DesiredLease) (*laneRun, error) {
 	lease.WorkOrder, lease.ClaimID, lease.Fence, lease.Lane = record.WorkOrder, record.ClaimID, record.Fence, record.ID
 	run := w.resumedRun(lease, record)
+	if run.assisting() && record.Progress.Briefed {
+		run.assistant().noteTurn()
+	}
 	run.fenced.Store(w.leaseGone(ctx, record))
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
@@ -1254,7 +1257,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
-		EndCounted: r.endKept,
+		EndCounted: r.endKept, Briefed: r.assisting() && r.assistant().isBriefed(),
 	}
 	r.state.journalContext(&progress)
 	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {

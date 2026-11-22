@@ -72,6 +72,13 @@ func (s *assistantState) noteTurn() {
 	s.briefed = true
 }
 
+// isBriefed says the turn of the first prompt ended.
+func (s *assistantState) isBriefed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.briefed
+}
+
 // assistantOf reads the desired state of the assistant a run serves.
 func (w *Worker) assistantOf(ctx context.Context, lane string) (ledger.DesiredAssistant, bool) {
 	state, err := w.journal.Desired(ctx)

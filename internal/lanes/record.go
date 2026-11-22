@@ -114,6 +114,9 @@ type Progress struct {
 	// EndCounted says a worker counted the turn this generation's session ended in, or may have, as one whose cost
 	// went unreported: Cost holds it, and the telemetry has it.
 	EndCounted bool `json:"end_counted,omitempty"`
+	// Briefed says the turn of an assistant's first prompt ended, so what its session writes from then on is a
+	// reply to a member and not the answer to its brief.
+	Briefed bool `json:"briefed,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

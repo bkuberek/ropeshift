@@ -229,6 +229,7 @@ func (w *Worker) sessionSpec(ctx context.Context, record lanes.Record) ports.Ses
 	return ports.SessionSpec{
 		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.ProcessGeneration(), Dir: dir,
 		ConfigDir: rt.configDir(record.ID), TempDir: rt.tempDir(record.ID), Binary: rt.Binary, Override: rt.Override,
+		Assistant: record.Owner == ownerAssistant,
 	}
 }
 
