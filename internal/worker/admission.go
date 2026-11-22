@@ -66,7 +66,7 @@ func (w *Worker) limits(ctx context.Context, lease ledger.DesiredLease) (user, l
 		return user, user
 	}
 	repository, base := profileLayer(lease, repository)
-	profile, err := rt.Provisioner.Profiles.Load(ctx, repository, base, lease.Overrides)
+	profile, err := leaseProfile(ctx, rt.Provisioner.Profiles, lease, repository, base)
 	if err != nil {
 		return user, user
 	}

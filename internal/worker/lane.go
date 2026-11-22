@@ -172,12 +172,32 @@ func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides st
 	if err != nil || !request.ProfileUnbased {
 		return profile, err
 	}
-	unlayered, err := p.Profiles.Load(ctx, "", "", overrides)
+	return gatesOnly(ctx, p.Profiles, profile, overrides)
+}
+
+// gatesOnly cuts the profile of a lane with no commit its work began from down to the gates of the layer it was read
+// with: it is the profile the layers below the repository's give the lane, with the gates of the profile read at the
+// commit its worktree begins at, which a lane wrote. Every read of such a lane's profile goes through it, a start's
+// (Provisioner.load) and the reads that give an adopted lane its settings and a lease its caps (leaseProfile), so none
+// takes a key of that layer but agent.gates.
+func gatesOnly(ctx context.Context, profiles ports.ProfileSource, layered lanes.Profile, overrides string) (lanes.Profile, error) {
+	profile, err := profiles.Load(ctx, "", "", overrides)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	unlayered.Agent.Gates = profile.Agent.Gates
-	return unlayered, nil
+	profile.Agent.Gates = layered.Agent.Gates
+	return profile, nil
+}
+
+// leaseProfile reads the profile a lease's lane runs under from the repository's layer at base (profileLayer), and for
+// a review with no commit its work began from, takes the gates of that layer alone (gatesOnly). A lane with no
+// repository has no layer to cut down.
+func leaseProfile(ctx context.Context, profiles ports.ProfileSource, lease ledger.DesiredLease, repository, base string) (lanes.Profile, error) {
+	profile, err := profiles.Load(ctx, repository, base, lease.Overrides)
+	if err != nil || repository == "" || !leaseSettingsUnbased(lease) {
+		return profile, err
+	}
+	return gatesOnly(ctx, profiles, profile, lease.Overrides)
 }
 
 // loadLayer is load before a lane with no commit its work began from is cut down to the gates of the layer it read.

@@ -43,7 +43,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 	if r.orchestrating() {
 		repository, base = "", ""
 	}
-	profile, err := r.rt.Provisioner.Profiles.Load(ctx, repository, base, r.lease.Overrides)
+	profile, err := leaseProfile(ctx, r.rt.Provisioner.Profiles, r.lease, repository, base)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
@@ -561,7 +561,7 @@ func (r *laneRun) settingsBase() string { return leaseSettingsBase(r.lease) }
 
 // settingsUnbased says this lane is a review with no commit its settings can be compared with, so its driver reads none
 // of the repository's own files and holds every setting the worktree holds that runs code, and its profile reads the
-// repository's layer at the commit under review for its gates and runs none of its hooks.
+// repository's layer at the commit under review for its gates alone.
 func (r *laneRun) settingsUnbased() bool { return leaseSettingsUnbased(r.lease) }
 
 // leaseSettingsBase is settingsBase for a lease.
@@ -582,8 +582,8 @@ func leaseSettingsUnbased(lease ledger.DesiredLease) bool {
 
 // profileLayer is the repository and the commit a lane's profile reads the repository's layer at: its settings base
 // (leaseSettingsBase), so a layer a lane commits reaches no lane, its review and a lane that continues its branch among
-// them, until it is merged. A review with no base reads it at the commit under review, for what the layer can only
-// narrow; the start runs none of that layer's hooks (Provisioner.load).
+// them, until it is merged. A review with no base reads it at the commit under review, for its gates alone, which can
+// only narrow what the review may do (gatesOnly).
 func profileLayer(lease ledger.DesiredLease, repository string) (string, string) {
 	if leaseSettingsUnbased(lease) {
 		return repository, leaseBegins(lease)
