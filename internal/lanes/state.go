@@ -42,14 +42,17 @@ type Signal string
 // The signals. Each is an observed fact or a worker's own act, and none is a person
 // saying a lane is ready, so no API can reach one.
 const (
-	OnClaimGranted      Signal = "claim_granted"
-	OnResourcesReady    Signal = "resources_ready"
-	OnDriverReady       Signal = "driver_ready"
-	OnResumeNotReady    Signal = "resume_not_ready"
-	OnUnknownScreen     Signal = "unknown_screen"
-	OnActivity          Signal = "activity"
-	OnBriefGrace        Signal = "brief_grace_elapsed"
-	OnTurnFinished      Signal = "turn_finished"
+	OnClaimGranted   Signal = "claim_granted"
+	OnResourcesReady Signal = "resources_ready"
+	OnDriverReady    Signal = "driver_ready"
+	OnResumeNotReady Signal = "resume_not_ready"
+	OnUnknownScreen  Signal = "unknown_screen"
+	OnActivity       Signal = "activity"
+	OnBriefGrace     Signal = "brief_grace_elapsed"
+	OnTurnFinished   Signal = "turn_finished"
+	// OnTurnStarted is a prompt the session submitted that is newer than its newest turn's end: a line a person
+	// typed into its pane, or the report of its own background work. Either starts a turn the worker did not hand.
+	OnTurnStarted       Signal = "turn_started"
 	OnInputHanded       Signal = "input_handed"
 	OnDecisionPending   Signal = "decision_pending"
 	OnDecisionReturned  Signal = "decision_returned"
@@ -89,7 +92,7 @@ const (
 // Signals lists every signal.
 var Signals = []Signal{
 	OnClaimGranted, OnResourcesReady, OnDriverReady, OnResumeNotReady, OnUnknownScreen, OnActivity,
-	OnBriefGrace, OnTurnFinished, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
+	OnBriefGrace, OnTurnFinished, OnTurnStarted, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
 	OnCompactionStarted, OnCompactionFinished, OnFinishedInTurn, OnFinishedAtRest, OnCompactionFailed, OnHandoffThreshold,
 	OnHandoffWritten, OnNextGeneration, OnCannotProceed, OnParkRequested, OnProcessGone, OnWakeFired,
 	OnSessionGone, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnBreakerCooled, OnOutcomeReported, OnStopRequested,
@@ -112,6 +115,7 @@ var transitions = map[edge]ActualState{
 	{Briefing, OnBriefGrace}:            Idle,
 	{Working, OnTurnFinished}:           Idle,
 	{Idle, OnInputHanded}:               Working,
+	{Idle, OnTurnStarted}:               Working,
 	{Working, OnDecisionPending}:        NeedsDecision,
 	{NeedsDecision, OnDecisionReturned}: Working,
 	{NeedsDecision, OnWaitBound}:        Parking,

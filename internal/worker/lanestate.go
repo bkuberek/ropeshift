@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -86,10 +87,15 @@ type laneState struct {
 	// stopLeftWork says the newest Stop left background work and no turn's end has been decided since. A prompt
 	// leaves it: that work can start the next turn before the worker has decided the end of the one that stopped.
 	stopLeftWork bool
-	// stoppedMs and promptedMs are when the newest Stop and prompt fired, by their hooks' clock, because a spooled
-	// hook arrives late or twice.
+	// stoppedMs, failedMs, and promptedMs are when the newest Stop, StopFailure, and prompt fired, by their hooks'
+	// clock, because a spooled hook arrives late or twice. They are the turn clock: a lane works while its newest
+	// prompt is newer than its newest turn's end, whoever started that turn.
 	stoppedMs  int64
+	failedMs   int64
 	promptedMs int64
+	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
+	moves  uint64
+	saving atomic.Bool
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -365,13 +371,13 @@ func (r *laneRun) callRefused(ctx context.Context, lane lanes.Record, digest str
 }
 
 // signal moves the lane, keeps where it stands, so an adopted run goes on from there, and wakes the worker to
-// publish the move.
-func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) {
-	r.signalAt(ctx, 0, signals...)
+// publish the move. It says whether the lane moved.
+func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) bool {
+	return r.signalAt(ctx, 0, signals...)
 }
 
 // signalAt is signal for a hook's signals, which carry the time the hook fired.
-func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Signal) {
+func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Signal) bool {
 	s := r.state
 	s.mu.Lock()
 	moved := false
@@ -381,15 +387,38 @@ func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Sig
 			s.since = r.w.clock.Now()
 		}
 	}
-	state, from := s.tracker.State(), s.tracker.Left()
+	if moved {
+		s.moves++
+	}
 	s.mu.Unlock()
 	if !moved {
-		return
+		return false
 	}
-	if err := r.w.journal.SaveActual(context.WithoutCancel(ctx), r.lease.Lane, state, from); err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-	}
+	r.saveActual(ctx)
 	r.w.laneMoved()
+	return true
+}
+
+// saveActual keeps where the lane stands. A hook's goroutine and the stream's can move the lane at once, so one of
+// them saves at a time, and it saves again until what it saved is the newest move: the journal never ends on an
+// older state than the lane's.
+func (r *laneRun) saveActual(ctx context.Context) {
+	s := r.state
+	for s.saving.CompareAndSwap(false, true) {
+		s.mu.Lock()
+		state, from, moves := s.tracker.State(), s.tracker.Left(), s.moves
+		s.mu.Unlock()
+		if err := r.w.journal.SaveActual(context.WithoutCancel(ctx), r.lease.Lane, state, from); err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		}
+		s.saving.Store(false)
+		s.mu.Lock()
+		newest := s.moves == moves
+		s.mu.Unlock()
+		if newest {
+			return
+		}
+	}
 }
 
 func (r *laneRun) progressed() {
@@ -534,9 +563,12 @@ func (r *laneRun) observe(ctx context.Context, event lanes.HookEvent, replayed b
 	case lanes.EventStop:
 		s.noteStop(event.Background, r.w.clock.Now(), event.AtMs)
 	case lanes.EventUserPromptSubmit:
-		s.notePrompt(event.AtMs)
+		if s.notePrompt(event.AtMs) && !replayed {
+			r.progressed()
+			r.signal(ctx, lanes.OnTurnStarted)
+		}
 	case hookStopFailure:
-		s.noteStopFailure()
+		s.noteStopFailure(event.AtMs)
 		if replayed {
 			return
 		}
@@ -560,23 +592,37 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 	s.background, s.backgroundSince = tasks, at
 }
 
-// notePrompt ends the wait on background work. A prompt older than the newest Stop began the turn that stopped,
-// and ends none.
-func (s *laneState) notePrompt(atMs int64) {
+// notePrompt ends the wait on background work, and says the prompt starts a turn: one newer than the newest
+// turn's end and than every prompt before it, which a person typed or the session's own background work sent. A
+// prompt older than the newest Stop began the turn that stopped, and ends no wait.
+func (s *laneState) notePrompt(atMs int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	starts := atMs > s.promptedMs && atMs > s.endedMs()
 	s.promptedMs = max(s.promptedMs, atMs)
 	if atMs > 0 && atMs < s.stoppedMs {
-		return
+		return starts
 	}
 	s.background, s.backgroundSince = 0, time.Time{}
+	return starts
 }
 
-// noteStopFailure says a failed turn left nothing to wait on.
-func (s *laneState) noteStopFailure() {
+// noteStopFailure says a failed turn left nothing to wait on, and when it ended.
+func (s *laneState) noteStopFailure(atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.background, s.backgroundSince, s.stopLeftWork = 0, time.Time{}, false
+	s.failedMs = max(s.failedMs, atMs)
+}
+
+// endedMs is when the newest turn's end fired, whether it stopped or failed. The caller holds the lock.
+func (s *laneState) endedMs() int64 { return max(s.stoppedMs, s.failedMs) }
+
+// turnUnended says the newest prompt is newer than the newest turn's end, so a turn runs that no end was heard for.
+func (s *laneState) turnUnended() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.promptedMs > s.endedMs()
 }
 
 // takeStopLeftWork says the turn whose end is being decided left background work, and is true for one end.

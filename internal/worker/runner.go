@@ -356,6 +356,10 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 	for _, record := range calls {
 		r.observeReplayedHook(ctx, record.HookEvent)
 	}
+	// A prompt newer than the newest turn's end started a turn while no worker listened.
+	if r.state.turnUnended() {
+		r.signal(ctx, lanes.OnTurnStarted)
+	}
 	switch {
 	case began > ended:
 		r.signal(ctx, lanes.OnCompactionStarted)

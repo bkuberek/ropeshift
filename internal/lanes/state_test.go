@@ -26,6 +26,7 @@ var designEdges = []struct {
 	{lanes.Briefing, lanes.OnBriefGrace, lanes.Idle},
 	{lanes.Working, lanes.OnTurnFinished, lanes.Idle},
 	{lanes.Idle, lanes.OnInputHanded, lanes.Working},
+	{lanes.Idle, lanes.OnTurnStarted, lanes.Working},
 	{lanes.Working, lanes.OnDecisionPending, lanes.NeedsDecision},
 	{lanes.NeedsDecision, lanes.OnDecisionReturned, lanes.Working},
 	{lanes.NeedsDecision, lanes.OnWaitBound, lanes.Parking},
