@@ -29,8 +29,8 @@ func dryRunFlag(set *flag.FlagSet) *bool {
 // dryRunNew prints what a run for the folder would do, with the same text and the same --json document as a run,
 // marked as a dry run. It writes nothing and runs no gh. A request is the first commit and remotes the command line
 // or the answers ask for, and is nil for a plain write. When the request asks for a remote, the dry run asks git
-// which clone holds the folder, as a run does, and refuses with the run's own refusal when the folder makes no
-// repository of its own.
+// which clone holds the folder, as a run does, with no hook and no file system monitor, and refuses as the run does
+// when git is too old or the folder makes no repository of its own.
 func (c *invocation) dryRunNew(shape projectfiles.Shape, folder, project string, data projectfiles.Data, request *ledger.TemplateWriteRequest) int {
 	files, err := projectfiles.Files(shape, data, renderTemplate)
 	if errors.Is(err, projectfiles.ErrInvalid) {
@@ -40,6 +40,9 @@ func (c *invocation) dryRunNew(shape projectfiles.Shape, folder, project string,
 		return c.finish(err, nil, nil)
 	}
 	if request != nil && request.AsksRemote() {
+		if code := c.requireGit(); code != ExitOK {
+			return code
+		}
 		needs, err := c.needsRepositoryAt(request.Path)
 		if err != nil {
 			return c.finish(plainErr(err), nil, nil)

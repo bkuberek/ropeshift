@@ -92,3 +92,43 @@ func TestNewChoosesTheGitCommandsFromTheCloneThatHoldsTheFolder(t *testing.T) {
 		})
 	}
 }
+
+// A clone's own configuration names programs git runs when it reads the clone, and `new` reads a clone it does not
+// trust, in a dry run as in a run. A planted core.fsmonitor never runs, however `new` reads the folder's clone.
+func TestNewRunsNoProgramTheCloneNamesWhenItReadsTheClone(t *testing.T) {
+	repo := gittest.New(t)
+	gitOf(t, repo)
+	repo.Commit("README.md", "a clone\n")
+	ran := filepath.Join(t.TempDir(), "ran")
+	monitor := filepath.Join(t.TempDir(), "monitor.sh")
+	if err := os.WriteFile(monitor, []byte("#!/bin/sh\necho ran >> '"+ran+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo.Git("config", "core.fsmonitor", monitor)
+	repo.Git("status", "--short")
+	if _, err := os.Stat(ran); err != nil {
+		t.Fatalf("the planted program does not run when git reads the clone: %v", err)
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(repo.Dir, "plan")
+	for name, args := range map[string][]string{
+		"a dry run": {"new", "workspace", folder, "--create-remote", "github:acme", "--dry-run", "--json"},
+		"a run":     {"new", "workspace", folder, "--json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.Remove(ran); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			isolate(t)
+			for _, name := range []string{authority.EnvMemberToken, authority.EnvDelegateToken, api.EnvProject} {
+				t.Setenv(name, "")
+			}
+			runMain(append([]string{commandCLI}, args...)...)
+			if _, err := os.Stat(ran); err == nil {
+				t.Error("a program the clone names ran when new read the clone")
+			}
+		})
+	}
+}

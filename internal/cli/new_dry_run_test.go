@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
+	domain "ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -20,12 +21,15 @@ type dryResult struct {
 	Repositories []ledger.RepositoryReport `json:"repositories"`
 }
 
-// dryOptions stand in for a machine where no clone holds the folder, any gh read fails the test, and so does any
-// write of a project.
+// dryOptions stand in for a machine where any git or gh read, and any write of a project, fails the test: a dry run
+// that asks for no remote reads nothing.
 func dryOptions(t *testing.T) cli.Options {
 	t.Helper()
 	return cli.Options{
-		CloneTop: func(context.Context, string) (string, error) { return "", nil },
+		CloneTop: func(context.Context, string) (string, error) {
+			t.Error("a dry run that asks for no remote read the clone that holds the folder")
+			return "", nil
+		},
 		NewProject: func(context.Context, ledger.TemplateWriteRequest, bool) (ledger.TemplateWriteReport, error) {
 			t.Error("a dry run ran a project's write")
 			return ledger.TemplateWriteReport{}, nil
@@ -35,6 +39,15 @@ func dryOptions(t *testing.T) cli.Options {
 			return ledger.ForgeAccountReport{}, nil
 		},
 	}
+}
+
+// dryRemoteOptions are dryOptions for a dry run that asks for a remote, which asks git which clone holds the folder:
+// no clone does.
+func dryRemoteOptions(t *testing.T) cli.Options {
+	t.Helper()
+	opts := dryOptions(t)
+	opts.CloneTop = func(context.Context, string) (string, error) { return "", nil }
+	return opts
 }
 
 func dryJSON(t *testing.T, opts cli.Options, args ...string) dryResult {
@@ -115,7 +128,7 @@ func TestNewDryRunTextSaysNothingWasWritten(t *testing.T) {
 // A remote, a created repository, and a new code repository are planned and not run: no gh, no git, no write.
 func TestNewDryRunPlansTheCommitsAndRemotesWithoutRunningThem(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), "orchid")
-	dry := dryJSON(t, dryOptions(t), "new", "workspace", folder, "--create-remote", "github:acme", "--new-repository", "api", "--public")
+	dry := dryJSON(t, dryRemoteOptions(t), "new", "workspace", folder, "--create-remote", "github:acme", "--new-repository", "api", "--public")
 	requireAbsent(t, folder)
 	if !slices.Contains(dry.Written, "repos/api/AGENTS.md") {
 		t.Errorf("written %v lacks the new repository's files", dry.Written)
@@ -160,7 +173,7 @@ func TestNewDryRunRefusesWhatARealRunRefuses(t *testing.T) {
 // asks for the owner itself.
 func TestNewDryRunAsksItsQuestionsAndPrintsThePlan(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), "orchid")
-	opts := dryOptions(t)
+	opts := dryRemoteOptions(t)
 	opts.Terminal = strings.NewReader("one\ny\n3\nacme\n\n")
 	code, stdout, stderr := runNew(opts, "new", folder, "--dry-run")
 	if code != cli.ExitOK || stderr != "" {
@@ -177,7 +190,7 @@ func TestNewDryRunAsksItsQuestionsAndPrintsThePlan(t *testing.T) {
 // The visibility a person types is read as a real run reads it, whatever its case, and the plan names the lowercase word.
 func TestNewDryRunReadsTheVisibilityAsARunDoes(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), "orchid")
-	opts := dryOptions(t)
+	opts := dryRemoteOptions(t)
 	opts.Terminal = strings.NewReader("one\ny\n3\nacme\nPublic\n")
 	code, stdout, stderr := runNew(opts, "new", folder, "--dry-run")
 	if code != cli.ExitOK || stderr != "" {
@@ -200,7 +213,7 @@ func TestNewDryRunRefusesARemoteForAFolderThatHoldsARepository(t *testing.T) {
 		return runNew(opts, args...)
 	}
 	refusing := func(t *testing.T) cli.Options {
-		opts := dryOptions(t)
+		opts := dryRemoteOptions(t)
 		opts.CloneTop = func(_ context.Context, dir string) (string, error) { return dir, nil }
 		opts.NewProject = func(_ context.Context, request ledger.TemplateWriteRequest, needsRepository bool) (ledger.TemplateWriteReport, error) {
 			report := request.RefuseNoOwnRepository(needsRepository)
@@ -224,4 +237,21 @@ func TestNewDryRunRefusesARemoteForAFolderThatHoldsARepository(t *testing.T) {
 	if err != nil || len(entries) != 0 {
 		t.Errorf("the folder holds %v after the runs (%v)", entries, err)
 	}
+}
+
+// With a git older than the minimum, a dry run that asks for a remote refuses as a run does, in the doctor's words and
+// before it reads git.
+func TestNewDryRunRefusesAGitBelowTheMinimumBeforeItReadsGit(t *testing.T) {
+	old := domain.CheckGit(domain.GitVersion{Major: 2, Minor: 25, Patch: 1}, nil)
+	folder := filepath.Join(t.TempDir(), "orchid")
+	opts := dryOptions(t)
+	opts.Git = func(context.Context) domain.GitReport { return old }
+	for _, extra := range [][]string{{}, {"--dry-run"}} {
+		args := append([]string{"new", "workspace", folder, "--create-remote", "github:acme"}, extra...)
+		code, stdout, stderr := runNew(opts, args...)
+		if want := "ropeshift new workspace: " + old.Problem + "\n"; code != cli.ExitError || stdout != "" || stderr != want {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q, want %d and %q", extra, code, stdout, stderr, cli.ExitError, want)
+		}
+	}
+	requireAbsent(t, folder)
 }
