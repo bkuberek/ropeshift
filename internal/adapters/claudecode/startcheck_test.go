@@ -259,3 +259,38 @@ func TestACanceledCheckStops(t *testing.T) {
 		t.Errorf("check: %v", err)
 	}
 }
+
+// repaintsOnEnd is a pane that takes every key at once and shows none of their effect until it took an End, as one
+// does whose repaint is later than the resend.
+type repaintsOnEnd struct {
+	*fake.Terminal
+	before string
+}
+
+func (p repaintsOnEnd) Capture(ctx context.Context, name string) (string, error) {
+	if !slices.Contains(p.KeysOf(name), "End") {
+		return p.before, nil
+	}
+	return p.Terminal.Capture(ctx, name)
+}
+
+// A slow Down and the End sent again for it can both land, and the focus then still stands on the accept option.
+func TestASlowDownAndItsResentEndBothLandOnAccept(t *testing.T) {
+	trust, accepted, ready := pane(t, "trust-focus-cancel"), pane(t, "trust-focus-accept"), pane(t, "ready")
+	terminal := fake.NewTerminal()
+	terminal.Play(fake.PaneScript{Screen: trust, Moves: map[string]map[string]string{
+		trust:    {"Down": accepted, "End": accepted},
+		accepted: {"Down": trust, "End": accepted, "Enter": ready},
+	}})
+	if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	slow := repaintsOnEnd{Terminal: terminal, before: trust}
+	check := startCheck{mode: checkFresh, timeout: 2 * time.Second, poll: time.Millisecond, settle: time.Millisecond, resend: 20 * time.Millisecond}
+	if err := runStartCheck(t.Context(), slow, "p", check); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if got, want := terminal.KeysOf("p"), []string{"Down", "End", "Enter"}; !slices.Equal(got, want) {
+		t.Errorf("keys %v, want %v", got, want)
+	}
+}

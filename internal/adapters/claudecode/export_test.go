@@ -12,10 +12,11 @@ const KillWait = killWait
 const ProbePane = probePane
 
 // ShortenProbeWaits bounds every wait of a probe to d, so a stand-in that never answers fails a
-// check in a test's time, and returns what restores them.
+// check in a test's time, and returns what restores them. The screen wait is never under 10 s,
+// because the trust dialog alone takes some 2 s of settles and resends.
 func ShortenProbeWaits(d time.Duration) (restore func()) {
 	saved := []time.Duration{probeSocketWait, probeTurnWait, probeReceiptWait, probeHoldWait, probeExitWait, probeCloseWait, probeStopGrace, probeScreenWait}
-	probeSocketWait, probeTurnWait, probeReceiptWait, probeHoldWait, probeExitWait, probeCloseWait, probeStopGrace, probeScreenWait = d, d, d, d, d, d, d, d
+	probeSocketWait, probeTurnWait, probeReceiptWait, probeHoldWait, probeExitWait, probeCloseWait, probeStopGrace, probeScreenWait = d, d, d, d, d, d, d, max(d, 10*time.Second)
 	return func() {
 		probeSocketWait, probeTurnWait, probeReceiptWait, probeHoldWait, probeExitWait, probeCloseWait, probeStopGrace, probeScreenWait =
 			saved[0], saved[1], saved[2], saved[3], saved[4], saved[5], saved[6], saved[7]
