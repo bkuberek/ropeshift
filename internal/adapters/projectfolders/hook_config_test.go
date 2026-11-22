@@ -15,7 +15,7 @@ import (
 func TestFirstCommitDisablesEveryConfiguredHook(t *testing.T) {
 	f, root, _ := folders(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(global, []byte("[hook \"format\"]\n\tcommand = true\n\tevent = pre-commit\n"), 0o600); err != nil {
+	if err := os.WriteFile(global, []byte(identity+"[hook \"format\"]\n\tcommand = true\n\tevent = pre-commit\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	folder := filepath.Join(root, "harbor")

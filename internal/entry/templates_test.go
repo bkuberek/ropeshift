@@ -264,10 +264,23 @@ func TestANewWorkspaceRegistersAndPassesIntake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range []string{"PROJECT := orchid", "\t@$(CLONES); echo \"ropeshift repository add $$* --project $(PROJECT)\"; ropeshift repository add \"$$@\" --project $(PROJECT)"} {
+	// The register recipe is one shell recipe that logs in once when no token is set, then adds and sets, in that order.
+	register := []string{
+		"PROJECT := orchid",
+		"\t@if [ -z \"$$ROPESHIFT_MEMBER_TOKEN\" ]; then session=$$(ropeshift login) || exit 1; eval \"$$session\"; fi; \\",
+		"\t$(CLONES); \\",
+		"\techo \"ropeshift repository add $$* --project $(PROJECT)\"; \\",
+		"\tropeshift repository add \"$$@\" --project $(PROJECT) || exit 1; \\",
+		"\techo \"ropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)\"; \\",
+		"\tropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)",
+	}
+	for _, line := range register {
 		if !strings.Contains(string(makefile), line+"\n") {
 			t.Fatalf("the Makefile does not hold %q", line)
 		}
+	}
+	if !strings.Contains(string(makefile), "register:\n"+strings.Join(register[1:], "\n")+"\n") {
+		t.Errorf("the Makefile's register target does not hold the login, add and set lines together, in that order")
 	}
 	found, _, err := (&checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}).Find(t.Context(), []string{folder}, 1)
 	if err != nil || len(found) != 1 {
