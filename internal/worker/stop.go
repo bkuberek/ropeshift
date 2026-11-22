@@ -90,7 +90,7 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 		return lanes.UnreadGuard(err)
 	}
 	crashpoint.Hit("worker.guard", "surveyed")
-	files := w.laneFiles(ctx, record)
+	files := w.laneFiles(ctx, record, w.leaseFiles(ctx, record))
 	own, left := w.ownChanges(files, found)
 	found = owned(found, own, left)
 	rules := lanes.GuardRules{Fenced: fenced, Push: w.pushesOnStop(ctx) || pushesUnasked()}
@@ -99,6 +99,17 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 		w.config.Report(fmt.Errorf("lane %s: %s: %w", record.ID, step, err))
 		if acts.Detail == "" {
 			acts.Detail = step + ": " + err.Error()
+		}
+	}
+	// A snapshot's parent is the branch's head, so it carries the branch's commits wherever it goes.
+	var refused []string
+	if acts.Plan.Push || acts.Plan.PushSnapshot {
+		base := w.baseOf(ctx, record)
+		check := w.foreignCommits(ctx, record, base, files)
+		if reason := check.refusal(base); reason != "" {
+			refused = check.foreign
+			failed("pushing the branch", errors.New(reason))
+			acts.Plan.Push, acts.Plan.PushSnapshot = false, false
 		}
 	}
 	if acts.Plan.Push {
@@ -129,14 +140,14 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 	if err != nil {
 		failed("reading the worktree again", err)
 		result := lanes.SettleGuard(found, acts)
-		result.Unpushed, result.LeftRef = true, leftRef
+		result.Unpushed, result.LeftRef, result.Refused = true, leftRef, refused
 		result.Left, result.LeftMore = leftOut(own, left, found)
 		return result
 	}
 	ownAfter, leftAfter := w.ownChanges(files, after)
 	result := lanes.SettleGuard(owned(after, ownAfter, leftAfter), acts)
 	result.Left, result.LeftMore = leftOut(ownAfter, leftAfter, after)
-	result.LeftRef = leftRef
+	result.LeftRef, result.Refused = leftRef, refused
 	// Files left out that no ref holds would be lost with the worktree, so it stays.
 	result.Unpushed = result.Unpushed || len(leftAfter) != 0 && !leftSaved
 	return result
@@ -318,7 +329,7 @@ func (w *Worker) reportGuard(ctx context.Context, record lanes.Record, result la
 	}
 	payload, err := json.Marshal(ledger.LaneGuard{
 		UnpushedWork: result.Unpushed, Ref: result.Ref, Commit: result.Commit, Detail: result.Detail,
-		LeftOut: result.Left, LeftOutMore: result.LeftMore, LeftRef: result.LeftRef,
+		LeftOut: result.Left, LeftOutMore: result.LeftMore, LeftRef: result.LeftRef, Refused: result.Refused,
 	})
 	if err != nil {
 		return err

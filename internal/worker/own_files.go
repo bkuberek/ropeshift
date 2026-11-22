@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -116,9 +118,18 @@ func (r *laneRun) leaveUnread(ctx context.Context) {
 	}
 }
 
-// laneFiles reads what the journal holds of a lane's own files, from the digest of each of its generations. A
-// generation with no digest started no session, and one the journal cannot read leaves the writes unknown.
-func (w *Worker) laneFiles(ctx context.Context, record lanes.Record) lanes.LaneFiles {
+// laneFiles reads what the journal holds of a lane's own files, from the digest of each of its generations, and the
+// paths the orchestrator decided its repository keeps. A generation with no digest started no session, and one the
+// journal cannot read leaves the writes unknown.
+func (w *Worker) laneFiles(ctx context.Context, record lanes.Record, decided *ledger.DesiredFiles) lanes.LaneFiles {
+	files := w.digestFiles(ctx, record)
+	if decided != nil {
+		files.Kept = decided.Keep
+	}
+	return files
+}
+
+func (w *Worker) digestFiles(ctx context.Context, record lanes.Record) lanes.LaneFiles {
 	var records []lanes.DigestRecord
 	for generation := int64(firstGeneration); generation <= record.Generation; generation++ {
 		kept, err := w.journal.Digest(ctx, record.ID, generation)
@@ -160,4 +171,166 @@ func owned(found lanes.WorktreeFindings, own, left []string) lanes.WorktreeFindi
 	}
 	found.DirtyPaths = own
 	return found
+}
+
+// leaseFiles is what the orchestrator decided of paths in a lane's repository, as the lease its claim holds says, and
+// nil once no lease names the claim.
+func (w *Worker) leaseFiles(ctx context.Context, record lanes.Record) *ledger.DesiredFiles {
+	state, err := w.desired(ctx)
+	if err != nil || leaseless(record.Owner) {
+		return nil
+	}
+	for _, lease := range state.Leases {
+		if lease.ClaimID == record.ClaimID {
+			return lease.Files
+		}
+	}
+	return nil
+}
+
+// commitCheck is what the worker made of a lane's commits before a push (FR-LANE-20): what they hold that is neither
+// the lane's own nor a path its repository keeps, and, when it could not read them, why and what ends that.
+type commitCheck struct {
+	foreign          []string
+	unchecked, until string
+}
+
+// refusal is the reason a push is refused, and empty when it is not. Reset advice names the base, so a check with
+// none gives none.
+func (c commitCheck) refusal(base string) string {
+	switch {
+	case len(c.foreign) == 0:
+		return ""
+	case c.unchecked != "":
+		return lanes.UncheckedCommits(c.unchecked, c.until, c.foreign)
+	}
+	return lanes.ForeignCommits(base, c.foreign)
+}
+
+// staleCheck is a check that could not read the commits: what an earlier check refused stands, less each path the
+// orchestrator decided since is part of the project, until a check can read them.
+func staleCheck(record lanes.Record, files lanes.LaneFiles, unchecked, until string) commitCheck {
+	return commitCheck{foreign: files.Unkept(record.Guard.Refused), unchecked: unchecked, until: until}
+}
+
+// foreignCommits checks what the lane's commits beyond base hold that is neither its own nor a path its repository
+// keeps (FR-LANE-20). The worker reads them before every push it makes or lets a lane ask for. With no base, a store
+// that lists no commits, or a worktree it cannot read, it cannot tell (staleCheck).
+func (w *Worker) foreignCommits(ctx context.Context, record lanes.Record, base string, files lanes.LaneFiles) commitCheck {
+	trees, listed := w.config.Lanes.Provisioner.Worktrees.(ports.FileCommits)
+	switch {
+	case !listed:
+		return staleCheck(record, files, "this worker's worktrees list no commits", "a worker that lists them runs the lane")
+	case base == "":
+		return staleCheck(record, files, "no claim names the commit the lane's branch began at", "a claim names it")
+	case record.Worktree == "":
+		return staleCheck(record, files, "the lane has no worktree to read them in", "the lane has one")
+	}
+	commits, err := trees.Commits(ctx, record.Worktree, base)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: reading its commits before a push: %w", record.ID, err))
+		return staleCheck(record, files, "reading them failed: "+err.Error(), "the worker can read the lane's worktree")
+	}
+	return commitCheck{foreign: notTheLanes(commits, files)}
+}
+
+// notTheLanes is what the commits changed that is neither the lane's own nor a path its repository keeps, at most
+// maxLeftOut paths of it.
+func notTheLanes(commits []ports.Commit, files lanes.LaneFiles) []string {
+	var paths []string
+	for _, commit := range commits {
+		paths = append(paths, commit.Files...)
+	}
+	_, foreign := files.Split(paths)
+	if len(foreign) > maxLeftOut {
+		foreign = foreign[:maxLeftOut]
+	}
+	return foreign
+}
+
+// refusedPush is the reason the worker refuses a push of a lane's branch, and empty when its commits hold only what
+// is the lane's own.
+func (w *Worker) refusedPush(ctx context.Context, record lanes.Record) string {
+	base := w.baseOf(ctx, record)
+	return w.foreignCommits(ctx, record, base, w.laneFiles(ctx, record, w.leaseFiles(ctx, record))).refusal(base)
+}
+
+// ignoreDecided adds each path the orchestrator decided to ignore in this lane's repository to its .gitignore,
+// before the lane's first session starts, in a commit of that file alone (FR-LANE-20). A line the file holds
+// already is not added again, so a start a crash repeats commits nothing twice. A lane that writes no branch of its
+// own, and a later generation, whose worktree holds the session's work, add nothing.
+func (r *laneRun) ignoreDecided(ctx context.Context, worktree string) {
+	decided := r.lease.Files
+	if decided == nil || len(decided.Ignore) == 0 || r.reviewing() || r.orchestrating() || r.assisting() ||
+		r.currentGeneration() != firstGeneration || r.resumeFrom != "" {
+		return
+	}
+	trees, offered := r.rt.Provisioner.Worktrees.(ports.FileCommits)
+	if !offered {
+		return
+	}
+	lines := make([]string, 0, len(decided.Ignore))
+	for _, path := range decided.Ignore {
+		if line, ok := r.ignoreLine(ctx, trees, worktree, path); ok {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	file := ports.TreeFile{Path: planning.GitignorePath, Lines: lines}
+	if _, err := trees.CommitFiles(ctx, worktree, []ports.TreeFile{file}, lanes.IgnoreCommitSubject); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: ignoring the paths the orchestrator decided: %w", r.lease.Lane, err))
+	}
+}
+
+// ignoreLine is the .gitignore line for a path the orchestrator decided to ignore, and false for a path the worker
+// keeps out of the file: one no line can name alone, a .gitignore, and one the branch tracks or holds tracked files
+// under. A survey reads no ignored file, so a new file there would never read as a change, and a discard of the
+// worktree would lose it. A worktree it cannot read keeps the path out too.
+func (r *laneRun) ignoreLine(ctx context.Context, trees ports.FileCommits, worktree, path string) (string, bool) {
+	line, ok := lanes.IgnoreLine(path)
+	if !ok {
+		r.w.config.Report(fmt.Errorf("lane %s: no .gitignore line ignores %q alone", r.lease.Lane, path))
+		return "", false
+	}
+	tracked, err := trees.Tracks(ctx, worktree, path)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %q stays out of the .gitignore: reading what the branch tracks: %w", r.lease.Lane, path, err))
+		return "", false
+	}
+	if tracked {
+		r.w.config.Report(fmt.Errorf("lane %s: %q stays out of the .gitignore: the branch tracks files there", r.lease.Lane, path))
+		return "", false
+	}
+	return line, true
+}
+
+// refusedPublish is the reason the worker refuses to push a branch for its pull request, read against the lane that
+// made it, and empty when the branch is not that lane's or holds only its own files. A lane this worker's journal
+// does not hold is not read. The commits are read in the checkout the push is sent from, which holds the branch
+// whether or not the lane's worktree is still there, and a checkout that cannot be read refuses the push, saying why.
+func (w *Worker) refusedPublish(ctx context.Context, request ledger.DesiredForge, checkout string) string {
+	if request.Lane == "" {
+		return ""
+	}
+	record, err := w.journal.Lane(ctx, request.Lane)
+	if err != nil || record.Branch != request.Branch {
+		return ""
+	}
+	files := w.laneFiles(ctx, record, request.Files)
+	branches, listed := w.config.Lanes.Provisioner.Worktrees.(ports.FileCommits)
+	switch {
+	case !listed:
+		return staleCheck(record, files, "this worker's worktrees list no commits", "a worker that lists them publishes it").refusal("")
+	case request.BaseCommit == "":
+		return staleCheck(record, files, "no claim names the commit the lane's branch began at", "a claim names it").refusal("")
+	}
+	commits, err := branches.BranchChanges(ctx, checkout, request.BaseCommit, request.Branch)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: reading its branch before a publish: %w", record.ID, err))
+		return lanes.UncheckedCommits("reading the branch in the checkout it is pushed from failed: "+err.Error(),
+			"the worker can read the branch there", nil)
+	}
+	return commitCheck{foreign: notTheLanes(commits, files)}.refusal(request.BaseCommit)
 }

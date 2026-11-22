@@ -85,6 +85,8 @@ type GuardResult struct {
 	Left     []string `json:"left_out,omitempty"`
 	LeftMore int64    `json:"left_out_more,omitempty"`
 	LeftRef  string   `json:"left_ref,omitempty"`
+	// Refused names what the branch's commits hold that is not the lane's own, for which nothing was pushed.
+	Refused []string `json:"push_refused,omitempty"`
 }
 
 // SettleGuard decides from a second reading, and not from whether an act returned, so a

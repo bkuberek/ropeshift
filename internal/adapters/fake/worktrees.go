@@ -66,6 +66,9 @@ type Worktrees struct {
 	trees    map[string][]string
 	// hold makes each survey wait while it is set.
 	hold *surveyHold
+	// onBranch is the commits CommitFiles made on each branch, and branchFail what makes BranchChanges fail.
+	onBranch   map[string][]ports.Commit
+	branchFail error
 }
 
 // NewWorktrees returns an empty store.
@@ -554,6 +557,12 @@ func (w *Worktrees) CommitFiles(_ context.Context, path string, files []ports.Tr
 	w.grown++
 	commit := ports.Commit{Hash: fmt.Sprintf("file-commit-%d", w.grown), Subject: subject, Files: changed}
 	w.fileCommits[path] = append([]ports.Commit{commit}, w.fileCommits[path]...)
+	if branch := w.byPath[path].Branch; branch != "" {
+		if w.onBranch == nil {
+			w.onBranch = map[string][]ports.Commit{}
+		}
+		w.onBranch[branch] = append([]ports.Commit{commit}, w.onBranch[branch]...)
+	}
 	return commit, nil
 }
 
@@ -625,6 +634,36 @@ func (w *Worktrees) Commits(_ context.Context, path, _ string) ([]ports.Commit, 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.fileCommits[path]), nil
+}
+
+// BranchChanges lists the commits CommitFiles made on a branch, newest first, wherever its worktree is now.
+func (w *Worktrees) BranchChanges(_ context.Context, _, _, branch string) ([]ports.Commit, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.branchFail != nil {
+		return nil, w.branchFail
+	}
+	return slices.Clone(w.onBranch[branch]), nil
+}
+
+// FailBranchChanges makes every BranchChanges fail with err, until it is given nil.
+func (w *Worktrees) FailBranchChanges(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.branchFail = err
+}
+
+// Tracks says the worktree holds a file at name, or under it when it names a folder, by CommitFiles or SeedFile.
+func (w *Worktrees) Tracks(_ context.Context, path, name string) (bool, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	folder := strings.TrimSuffix(name, "/") + "/"
+	for file := range w.held[path] {
+		if file == name || strings.HasPrefix(file, folder) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 var (

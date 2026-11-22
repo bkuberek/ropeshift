@@ -3,6 +3,8 @@ package lanes
 import (
 	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/questions"
 )
 
 // LaneFiles is what a worker knows of the files a lane's own session made (FR-LANE-20). A lane commits,
@@ -25,19 +27,96 @@ type LaneFiles struct {
 	// lane wrote would lose its work.
 	Written    []string
 	AllWritten bool
+	// Kept are the paths the orchestrator decided are part of the project in this lane's repository, each a file or
+	// a folder that ends in `/`. A change at or under one is the lane's own, whoever made it.
+	Kept []string
 }
 
 // Split divides a survey's changes, one file each, into the lane's own and the rest, each sorted. A file is
 // compared whole with what the reading holds, so a new file in a folder that was there before is the lane's own.
 func (f LaneFiles) Split(changes []string) (own, left []string) {
 	for _, change := range changes {
-		if !f.Began || !f.AllWritten || !slices.Contains(f.Before, change) || slices.Contains(f.Written, change) {
+		if !f.Began || !f.AllWritten || !slices.Contains(f.Before, change) || slices.Contains(f.Written, change) ||
+			atOrUnder(f.Kept, change) {
 			own = append(own, change)
 			continue
 		}
 		left = append(left, change)
 	}
 	return sortedSet(own), sortedSet(left)
+}
+
+// atOrUnder says a path is one of the paths, or lies in one of them that is a folder.
+func atOrUnder(paths []string, change string) bool {
+	for _, held := range paths {
+		if held == change || strings.HasSuffix(held, "/") && strings.HasPrefix(change, held) {
+			return true
+		}
+	}
+	return false
+}
+
+// IgnoreCommitSubject is the subject of the commit a worker makes on a lane's branch, before its session starts,
+// that adds the paths the orchestrator decided to ignore to the repository's .gitignore.
+const IgnoreCommitSubject = "chore: ignore files that are not part of the project"
+
+// IgnoreLine is the .gitignore line that ignores one path a lane left out and nothing else: anchored at the
+// repository's top, with each character git would read as a pattern taken literally, and a trailing space kept. A
+// path no one line can name, which holds a line break or a NUL, and a .gitignore, which ignoring would hide from git,
+// have none.
+func IgnoreLine(path string) (string, bool) {
+	if !questions.IgnorablePath(path) {
+		return "", false
+	}
+	var line strings.Builder
+	line.WriteByte('/')
+	for _, c := range path {
+		if strings.ContainsRune(`\*?[`, c) {
+			line.WriteByte('\\')
+		}
+		line.WriteRune(c)
+	}
+	text := line.String()
+	if trimmed := strings.TrimRight(text, " "); trimmed != text {
+		text = trimmed + strings.Repeat("\\ ", len(text)-len(trimmed))
+	}
+	return text, true
+}
+
+// ForeignCommits is what a lane, and a member, are told of a push the worker refused (FR-LANE-20): the paths the
+// branch's commits beyond its base hold that the lane's session did not make, and how the lane takes them out. Only a
+// known base is named as one to reset to.
+func ForeignCommits(base string, paths []string) string {
+	fix := "Take them out of the commits"
+	if base != "" {
+		fix += ", such as with git reset --soft " + base + " and new commits that name only your own files"
+	}
+	return "ropeshift policy: this lane's commits hold files its session did not create or edit: " + strings.Join(paths, ", ") +
+		". Nothing was pushed. " + fix + ", then push again. The orchestrator decides whether each belongs to the project."
+}
+
+// UncheckedCommits is what a lane, and a member, are told of a push the worker refused because it could not read the
+// branch's commits (FR-LANE-20): why it cannot check, the paths an earlier check found that are still not the lane's
+// own, and what ends the refusal.
+func UncheckedCommits(reason, until string, paths []string) string {
+	text := "ropeshift policy: cannot check this lane's commits: " + reason + ". Nothing was pushed. "
+	if len(paths) == 0 {
+		return text + "This holds until " + until + "."
+	}
+	return text + "An earlier check found files its session did not create or edit: " + strings.Join(paths, ", ") +
+		". This holds until " + until + ", or until the orchestrator decides each belongs to the project."
+}
+
+// Unkept is what of the paths lies at or under no path the project keeps: what a refusal read earlier still holds
+// against the lane once the orchestrator decided more of its repository's paths.
+func (f LaneFiles) Unkept(paths []string) []string {
+	var unkept []string
+	for _, path := range paths {
+		if !atOrUnder(f.Kept, path) {
+			unkept = append(unkept, path)
+		}
+	}
+	return unkept
 }
 
 // CollapseLeft is a report's view of the files left out: each file in a folder git tracks nothing in, and that holds

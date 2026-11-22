@@ -252,6 +252,13 @@ func (d *DelegatedLayer) WithheldFrom(protocol int) bool {
 }
 
 // DesiredLease is one lease this worker should act on.
+// DesiredFiles is what the orchestrator decided of paths lanes left out in one repository (FR-LANE-20), each path as
+// a lane reported it: Ignore for its .gitignore, and Keep as part of the project.
+type DesiredFiles struct {
+	Ignore []string `json:"ignore,omitempty"`
+	Keep   []string `json:"keep,omitempty"`
+}
+
 type DesiredLease struct {
 	// Project is the project the work order belongs to. Empty names the plane's only project.
 	Project   string `json:"project,omitempty"`
@@ -328,6 +335,9 @@ type DesiredLease struct {
 	ParkWanted string `json:"park_wanted,omitempty"`
 	// Kind says what this work produces, which decides what its lane is told.
 	Kind string `json:"kind,omitempty"`
+	// Files is what the orchestrator decided of paths lanes left out in the lane's repository, and nil when it
+	// decided none.
+	Files *DesiredFiles `json:"files,omitempty"`
 	// Review is what a `contract_review` lane reads.
 	Review *DesiredReview `json:"review,omitempty"`
 	// Attempt is the work a `review` lane judges.

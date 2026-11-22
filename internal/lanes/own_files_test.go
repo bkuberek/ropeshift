@@ -3,6 +3,7 @@ package lanes
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -217,5 +218,64 @@ func TestALeftOutReportNamesAWhollyUntrackedFolderOnce(t *testing.T) {
 		if got := CollapseLeft(tt.left, tt.own, tt.folders); !slices.Equal(got, tt.want) {
 			t.Errorf("%s: %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+// TestAPathTheProjectKeepsIsTheLanesOwn is a path the orchestrator decided is part of the project: a later lane
+// in the repository saves it and commits it as its own.
+func TestAPathTheProjectKeepsIsTheLanesOwn(t *testing.T) {
+	t.Parallel()
+	files := LaneFiles{Before: []string{".atl/registry.md", ".cache/index"}, Began: true, AllWritten: true, Kept: []string{".atl/"}}
+	own, left := files.Split([]string{".atl/registry.md", ".cache/index"})
+	if !slices.Equal(own, []string{".atl/registry.md"}) || !slices.Equal(left, []string{".cache/index"}) {
+		t.Errorf("own %q, left %q", own, left)
+	}
+}
+
+func TestAnIgnoreLineNamesThePathAndNothingElse(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]string{
+		".atl/": "/.atl/", "build/out.log": "/build/out.log", "a*b?[c]": `/a\*b\?\[c]`, "trailing ": `/trailing\ `, `back\slash`: `/back\\slash`,
+	} {
+		if got, ok := IgnoreLine(path); !ok || got != want {
+			t.Errorf("%q ignores as %q (%v), want %q", path, got, ok, want)
+		}
+	}
+}
+
+// TestNoIgnoreLineNamesAnUnsafePathOrAGitignore is a path that would be more than one line, such as one whose line
+// break would add `*` to the .gitignore, one a NUL cuts short, and a .gitignore, which ignoring would hide from git.
+func TestNoIgnoreLineNamesAnUnsafePathOrAGitignore(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"x\n*", "x\r*", "x\x00y", "", ".gitignore", "app/.gitignore", ".gitignore/"} {
+		if line, ok := IgnoreLine(path); ok || line != "" {
+			t.Errorf("%q ignores as %q", path, line)
+		}
+	}
+}
+
+// TestAPushRefusalAdvisesAResetOnlyToAKnownBase names the base a lane resets to only when the worker knows it, and a
+// refusal it could not check says why, what ends it, and what an earlier check found.
+func TestAPushRefusalAdvisesAResetOnlyToAKnownBase(t *testing.T) {
+	t.Parallel()
+	if text := ForeignCommits("b4se", []string{".atl/registry.md"}); !strings.Contains(text, "git reset --soft b4se") {
+		t.Errorf("with a base: %q", text)
+	}
+	if text := ForeignCommits("", []string{".atl/registry.md"}); strings.Contains(text, "git reset") || !strings.Contains(text, ".atl/registry.md") {
+		t.Errorf("with no base: %q", text)
+	}
+	text := UncheckedCommits("no claim names the base", "a claim names it", []string{".atl/registry.md"})
+	if !strings.Contains(text, "cannot check this lane's commits: no claim names the base") || !strings.Contains(text, "holds until a claim names it") ||
+		!strings.Contains(text, ".atl/registry.md") || strings.Contains(text, "git reset") {
+		t.Errorf("unchecked: %q", text)
+	}
+}
+
+// TestAnEarlierRefusalLosesWhatTheProjectKeeps reads an earlier refusal again against the paths decided since.
+func TestAnEarlierRefusalLosesWhatTheProjectKeeps(t *testing.T) {
+	t.Parallel()
+	files := LaneFiles{Kept: []string{".atl/", "Makefile"}}
+	if got := files.Unkept([]string{".atl/registry.md", "Makefile", ".cache/index"}); !slices.Equal(got, []string{".cache/index"}) {
+		t.Errorf("still refused %q", got)
 	}
 }

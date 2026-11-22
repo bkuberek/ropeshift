@@ -4,31 +4,141 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 )
 
-// The two answers to a path a lane left out (FR-LANE-20).
+// The choices a decision on a path a lane left out makes (FR-LANE-20): the project keeps the path, so a later lane
+// commits it, or it ignores it, so a later lane adds it to the repository's .gitignore.
 const (
-	LeftFileCommit = "Commit it: it is part of the project, and a later lane commits it"
-	LeftFileIgnore = "Ignore it: add it to the repository's .gitignore"
+	LeftFileKeep   = "keep"
+	LeftFileIgnore = "ignore"
+)
+
+// The words around a left-out path in its question, which ReadLeftFile reads back. The path is quoted, so no name
+// can hold them.
+const (
+	leftFileOpening    = "Is "
+	leftFileRepository = " part of the project in repository "
+	leftFileClosing    = "? "
 )
 
 // leftFileIDDigest is how much of a digest a left-out path's question ID keeps.
 const leftFileIDDigest = 16
+
+// LeftFileIDPrefix begins the ID of every left-out path's question, which only the control plane gives one when a
+// worker reports the path. An asker that names an ID that begins with it is refused (CheckAskedID), so a question in
+// the files category that a lane or a member asks reads as no left-out path's, and decides nothing a worker acts on.
+const LeftFileIDPrefix = "files-"
+
+// CheckAskedID refuses the ID an asker gives a question when it begins as a left-out path's question's does.
+func CheckAskedID(id string) error {
+	if strings.HasPrefix(id, LeftFileIDPrefix) {
+		return fmt.Errorf("%w: a question ID that begins %q is one only the control plane gives", ErrInvalid, LeftFileIDPrefix)
+	}
+	return nil
+}
+
+// SafeLeftPath says a path can stand for itself in a left-out path's question, a report, and a .gitignore line: it
+// names something, and holds no line break and no NUL, which would make it more than one line or cut it short.
+func SafeLeftPath(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "\n\r\x00")
+}
+
+// IgnorablePath says a .gitignore line may name a left-out path: it is safe, and it is no .gitignore, because ignoring
+// one hides from git the file that says what git ignores.
+func IgnorablePath(name string) bool {
+	folder := strings.TrimSuffix(name, "/")
+	return SafeLeftPath(name) && folder[strings.LastIndex(folder, "/")+1:] != ".gitignore"
+}
+
+// LeftFileCommitOption is the answer that keeps a path in the project.
+func LeftFileCommitOption(path string) string {
+	return "Commit " + strconv.Quote(path) + ": it is part of the project, and a later lane commits it"
+}
+
+// LeftFileIgnoreOption is the answer that adds a path to the repository's .gitignore.
+func LeftFileIgnoreOption(path string) string {
+	return "Ignore " + strconv.Quote(path) + ": a later lane adds it to the repository's .gitignore"
+}
 
 // LeftFile is the question a path raises when a lane left it out of its commits because its session did not create
 // or edit it. The orchestrator decides it, and no member is asked. Its text names only the repository and the path,
 // so the same path in the same repository is the same question: one still open takes no second, and one answered
 // is answered from the record, so a path is decided once.
 func LeftFile(id, repository, path string) (Question, error) {
-	text := fmt.Sprintf("Is %q part of the project in repository %s? A lane left it out of its commits, because its "+
-		"session did not create or edit it. If it belongs to the project, a later lane commits it. If not, the "+
-		"repository's .gitignore gets an entry for it. Decide it with the scope repo:%s, so this path is not asked "+
-		"about again.", path, repository, repository)
-	return New(Question{ID: id, Text: text, Categories: []string{CategoryFiles}, Options: []string{LeftFileCommit, LeftFileIgnore}})
+	if !SafeLeftPath(path) {
+		return Question{}, fmt.Errorf("%w: a left-out path names something and holds no line break or NUL: %q", ErrInvalid, path)
+	}
+	text := leftFileOpening + strconv.Quote(path) + leftFileRepository + repository + leftFileClosing +
+		"A lane left it out of its commits, because its session did not create or edit it. Decide it with one of the " +
+		"options as the statement: the next lane in the repository acts on it."
+	return New(Question{
+		ID: id, Text: text, Categories: []string{CategoryFiles},
+		Options: []string{LeftFileCommitOption(path), LeftFileIgnoreOption(path)},
+	})
 }
 
 // LeftFileID names the question one report raises for one path, so the same report read twice names the same one.
 func LeftFileID(report, path string) string {
 	sum := sha256.Sum256([]byte(report + "\x00" + path))
-	return "files-" + hex.EncodeToString(sum[:])[:leftFileIDDigest]
+	return LeftFileIDPrefix + hex.EncodeToString(sum[:])[:leftFileIDDigest]
+}
+
+// ReadLeftFile reads the repository and the path a left-out path's question names, and says whether it is one: its
+// ID is one only the control plane gives, it is in the files category, and the path it names is safe.
+func ReadLeftFile(q Question) (repository, path string, ok bool) {
+	if !strings.HasPrefix(q.ID, LeftFileIDPrefix) || !slices.Contains(q.Categories, CategoryFiles) {
+		return "", "", false
+	}
+	rest, opened := strings.CutPrefix(q.Text, leftFileOpening)
+	quoted, err := strconv.QuotedPrefix(rest)
+	if !opened || err != nil {
+		return "", "", false
+	}
+	path, err = strconv.Unquote(quoted)
+	rest, named := strings.CutPrefix(rest[len(quoted):], leftFileRepository)
+	repository, _, closed := strings.Cut(rest, leftFileClosing)
+	if err != nil || !named || !closed || !SafeLeftPath(path) || repository == "" {
+		return "", "", false
+	}
+	return repository, path, true
+}
+
+// LeftFileChoice reads what a statement decides of a left-out path's question: LeftFileKeep, LeftFileIgnore, or
+// nothing for a statement that is neither option.
+func LeftFileChoice(q Question, statement string) (string, bool) {
+	_, path, ok := ReadLeftFile(q)
+	switch {
+	case !ok:
+		return "", false
+	case strings.TrimSpace(statement) == LeftFileCommitOption(path):
+		return LeftFileKeep, true
+	case strings.TrimSpace(statement) == LeftFileIgnoreOption(path):
+		return LeftFileIgnore, true
+	}
+	return "", false
+}
+
+// CheckLeftFileRuling holds a ruling on a left-out path's question to one a worker acts on: its statement is one of
+// the question's options, a .gitignore is never ignored, and a ruling that names no scope takes the repository's. Any
+// other question passes.
+func CheckLeftFileRuling(q Question, record *Decision) error {
+	repository, path, ok := ReadLeftFile(q)
+	if !ok {
+		return nil
+	}
+	choice, chosen := LeftFileChoice(q, record.Statement)
+	if !chosen {
+		return fmt.Errorf("%w: a decision on %s states one of its options: %q or %q", ErrInvalid, path,
+			LeftFileCommitOption(path), LeftFileIgnoreOption(path))
+	}
+	if choice == LeftFileIgnore && !IgnorablePath(path) {
+		return fmt.Errorf("%w: %s is a .gitignore, which a .gitignore never ignores", ErrInvalid, path)
+	}
+	if record.Scope == "" {
+		record.Scope = Scope{ScopeRepository, repository}.String()
+	}
+	return nil
 }

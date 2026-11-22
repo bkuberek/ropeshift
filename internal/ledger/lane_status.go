@@ -97,6 +97,9 @@ type LaneGuard struct {
 	LeftOutMore int64    `json:"left_out_more,omitempty"`
 	LeftRef     string   `json:"left_ref,omitempty"`
 	Unasked     []string `json:"unasked,omitempty"`
+	// Refused names each path the lane's commits hold that its session did not make, for which the worker refused
+	// to push the branch.
+	Refused []string `json:"push_refused,omitempty"`
 }
 
 // StateEnded is a lane's last state, which the ledger records for itself.
