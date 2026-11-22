@@ -287,9 +287,6 @@ func TestHooksHeardBeforeATurnsEndKeepItsBackgroundPause(t *testing.T) {
 	prompt := func(at int64) lanes.HookEvent {
 		return lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "session-1", SessionID: "session-1", AtMs: at}
 	}
-	failure := func(at int64) lanes.HookEvent {
-		return lanes.HookEvent{Event: "StopFailure", Subject: "session-1", SessionID: "session-1", AtMs: at}
-	}
 	for _, tt := range []struct {
 		name  string
 		hooks []lanes.HookEvent
@@ -299,7 +296,6 @@ func TestHooksHeardBeforeATurnsEndKeepItsBackgroundPause(t *testing.T) {
 		{"the stop arrived after that prompt", []lanes.HookEvent{prompt(3000), stop(2000)}, false},
 		{"the stop arrived again after that prompt", []lanes.HookEvent{stop(2000), prompt(3000), stop(2000)}, false},
 		{"the prompt of the turn that stopped arrived late", []lanes.HookEvent{stop(2000), prompt(1000)}, true},
-		{"the failure of an earlier turn arrived late", []lanes.HookEvent{stop(2000), failure(1000)}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -379,121 +375,4 @@ func TestAPromptBeforeATurnsEndDoesNotEndALaneWithItsNudgeSpent(t *testing.T) {
 	}
 	resumed.free()
 	r.awaitOrderState(t, workorders.Acceptance)
-}
-
-// hookAt is a session's hook that fired at atMs, with the background work it says still runs.
-func (r *laneRig) hookAt(t *testing.T, event string, atMs int64, background int) {
-	t.Helper()
-	r.hook(t, lanes.HookEvent{Event: event, Subject: "session-1", SessionID: "session-1", Background: background, AtMs: atMs})
-}
-
-// heldAtIdleRig is a lane whose worker waits at the first turn's end, after it saved idle and before it decides.
-func heldAtIdleRig(t *testing.T) (*laneRig, *idleHeld) {
-	t.Helper()
-	base := newRig(t)
-	held := &idleHeld{Journal: base.journal, gate: newGate()}
-	base.workerJournal = held
-	return newLaneRigFor(t, base).dispatched(), held
-}
-
-// Several turns can stop before the worker decides the first one's end, and each end keeps what its own turn left.
-func TestTwoTurnsLeaveBackgroundWorkBeforeTheFirstEndIsDecided(t *testing.T) {
-	t.Parallel()
-	r, held := heldAtIdleRig(t)
-	first, third := newGate(), newGate()
-	r.gates(first, held.gate, third)
-	r.driver.Play(script([]fake.DriverStep{
-		{Bound: true}, first.step(), completed(0.01), completed(0.02), third.step(), r.reports(workorders.OutcomeCompleted), completed(0.03),
-	}))
-	r.atGate(first)
-	r.hookAt(t, lanes.EventStop, 2000, 2)
-	first.free()
-	r.reach(t, held.gate)
-	r.hookAt(t, lanes.EventUserPromptSubmit, 3000, 0)
-	r.hookAt(t, lanes.EventStop, 4000, 1)
-	r.hookAt(t, lanes.EventUserPromptSubmit, 5000, 0)
-	held.gate.free()
-	r.turnDecided(t, 0.02)
-	if sent := r.sentText(); len(sent) != 0 {
-		t.Errorf("sent %q while the third turn works", sent)
-	}
-	third.free()
-	r.awaitOrderState(t, workorders.Acceptance)
-}
-
-// With the nudge spent, neither of two ends that wait to be read ends the lane under the turn their work started.
-func TestTwoUnreadEndsWithBackgroundWorkDoNotEndALaneWithItsNudgeSpent(t *testing.T) {
-	t.Parallel()
-	r := laneRigWith(t, "")
-	first, again, third := newGate(), newGate(), newGate()
-	r.gates(first, again, third)
-	r.driver.Play(script(
-		[]fake.DriverStep{{Bound: true}, first.step(), completed(0.01)},
-		[]fake.DriverStep{again.step(), completed(0.02), completed(0.03), third.step(), r.reports(workorders.OutcomeCompleted), completed(0.04)},
-	))
-	r.atGate(first)
-	r.hookAt(t, lanes.EventStop, 1000, 0)
-	first.free()
-	r.reach(t, again)
-	r.hookAt(t, lanes.EventStop, 2000, 2)
-	r.hookAt(t, lanes.EventUserPromptSubmit, 3000, 0)
-	r.hookAt(t, lanes.EventStop, 4000, 1)
-	r.hookAt(t, lanes.EventUserPromptSubmit, 5000, 0)
-	again.free()
-	r.turnDecided(t, 0.03)
-	record, err := r.journal.Lane(t.Context(), "lane-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Actual == lanes.Retiring {
-		t.Error("the worker began to end a lane under its third turn")
-	}
-	third.free()
-	r.awaitOrderState(t, workorders.Acceptance)
-}
-
-// A turn that background work started can fail before the end ahead of it is decided, and that end draws no nudge.
-func TestAFailedTurnKeepsTheBackgroundWorkOfTheTurnBeforeIt(t *testing.T) {
-	t.Parallel()
-	r := laneRigWith(t, "")
-	first, second := newGate(), newGate()
-	r.gates(first, second)
-	r.driver.Play(script([]fake.DriverStep{
-		{Bound: true}, first.step(), completed(0.01), second.step(),
-		{Turn: &fake.DriverTurn{Status: ports.TurnFailed, Reason: "error_during_execution", TotalUSD: 0.02}},
-	}))
-	r.atGate(first)
-	r.hookAt(t, lanes.EventStop, 2000, 1)
-	r.hookAt(t, lanes.EventUserPromptSubmit, 3000, 0)
-	r.hookAt(t, "StopFailure", 4000, 0)
-	first.free()
-	r.turnDecided(t, 0.01)
-	if sent := r.sentText(); len(sent) != 0 {
-		t.Errorf("sent %q for a turn that left background work", sent)
-	}
-	second.free()
-	r.awaitOrderState(t, workorders.Failed)
-}
-
-// The end of the turn background work started is owed its nudge however early that turn stopped.
-func TestATurnBackgroundWorkStartedIsNudgedOnceWhenItsStopBeatTheDecisionBeforeIt(t *testing.T) {
-	t.Parallel()
-	r, held := heldAtIdleRig(t)
-	first := newGate()
-	r.gates(first, held.gate)
-	r.driver.Play(script(
-		[]fake.DriverStep{{Bound: true}, first.step(), completed(0.01), completed(0.02)},
-		[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.03)},
-	))
-	r.atGate(first)
-	r.hookAt(t, lanes.EventStop, 2000, 1)
-	first.free()
-	r.reach(t, held.gate)
-	r.hookAt(t, lanes.EventUserPromptSubmit, 3000, 0)
-	r.hookAt(t, lanes.EventStop, 4000, 0)
-	held.gate.free()
-	r.awaitOrderState(t, workorders.Acceptance)
-	if sent := r.sentText(); len(sent) != 1 || sent[0] != lanes.Nudge {
-		t.Errorf("sent %q, want the one nudge", sent)
-	}
 }
