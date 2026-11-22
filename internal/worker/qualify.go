@@ -131,7 +131,7 @@ func (w *Worker) qualify(ctx context.Context) error {
 	if capabilities.Version == "" {
 		return errNoVersion
 	}
-	checks := w.config.Lanes.Driver.ProbeChecks(w.signInKind())
+	checks := w.config.Lanes.Driver.ProbeChecks(w.probeSignIn(capabilities.Version))
 	w.qualLock.Lock()
 	if w.probe != nil || !w.probeDueLocked(capabilities.Version, checks, w.clock.Now()) {
 		w.qualLock.Unlock()
@@ -157,6 +157,22 @@ func (w *Worker) qualify(ctx context.Context) error {
 	}
 	w.probes.Go(func() { w.runProbe(life, p) })
 	return nil
+}
+
+// probeSignIn is the kind of sign-in a probe of this version is judged and run for. A sign-in that could not be read
+// reads as none, which a probe takes for a subscription, so while it is unread the kind the result in force for this
+// version was probed on stands in: a failed read neither probes the version again nor replaces the result with one
+// probed on another kind.
+func (w *Worker) probeSignIn(version string) string {
+	if kind := w.signInKind(); kind != "" {
+		return kind
+	}
+	w.qualLock.Lock()
+	defer w.qualLock.Unlock()
+	if w.qual.Holds(version) {
+		return w.qual.SignIn
+	}
+	return ""
 }
 
 // probeDueLocked says a probe of the installed version is due. A result that holds for the version and passed every
@@ -224,7 +240,7 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	rt := w.config.Lanes
 	spec := ports.ProbeSpec{
 		Dir: filepath.Join(rt.StateDir, "probe"), TempDir: rt.probeTempDir(), EvidenceDir: filepath.Join(rt.StateDir, evidenceDirName), Model: probeModel,
-		Binary: rt.Binary, SignIn: w.signInKind(), Override: rt.Override,
+		Binary: rt.Binary, SignIn: w.probeSignIn(p.version), Override: rt.Override,
 	}
 	checks := rt.Driver.ProbeChecks(spec.SignIn)
 	q, err := rt.Driver.Probe(ctx, spec)

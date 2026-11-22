@@ -463,6 +463,74 @@ func TestAProbeThatCannotRunKeepsTheResultInForce(t *testing.T) {
 	}
 }
 
+// login stands for a check a probe runs on every sign-in but an API key.
+const login lanes.Surface = "login"
+
+// TestAnUnreadSignInKeepsTheResultInForce is a worker on an API key that starts after a read of its sign-in failed: the
+// kind is unread, which a probe would take for a subscription and ask the login of, so the worker goes on with the
+// kind the held result was probed on, probes nothing, and leaves that result as it was.
+func TestAnUnreadSignInKeepsTheResultInForce(t *testing.T) {
+	t.Parallel()
+	first := newLaneRigOn(t, func(driver *fake.AgentDriver) { driver.SetSubscriptionChecks(login) })
+	first.subject.Wait()
+	held := first.driver.Qualified()
+	if held.SignIn != ports.SignInAPIKey || !held.PassedAll(first.driver.ProbeChecks(ports.SignInAPIKey)) {
+		t.Fatalf("the first probe left the driver %+v", held)
+	}
+	driver := fake.NewAgentDriver()
+	driver.SetSubscriptionChecks(login)
+	driver.SetSignIn("")
+	first.clock.Advance(restartedAfter)
+	second := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
+	if err := second.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second.Wait()
+	for range 3 {
+		first.clock.Advance(25 * time.Hour)
+		if _, err := second.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		second.Wait()
+	}
+	if n := len(driver.Probes()); n != 0 {
+		t.Fatalf("%d probes of a result with every check passed, because the sign-in was unread", n)
+	}
+	if q := driver.Qualified(); !reflect.DeepEqual(q, held) {
+		t.Errorf("the driver holds %+v, want %+v", q, held)
+	}
+	if got := first.qualifications(); len(got) != 1 {
+		t.Errorf("recorded %+v", got)
+	}
+}
+
+// TestAProbeRunsOnTheKindTheHeldResultWasProbedOnWhenTheSignInIsUnread is a probe that falls due while the sign-in
+// reads unread: it runs for the sign-in the result in force was probed on, and not as a subscription.
+func TestAProbeRunsOnTheKindTheHeldResultWasProbedOnWhenTheSignInIsUnread(t *testing.T) {
+	t.Parallel()
+	first := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", true)
+		driver.SetSubscriptionChecks(login)
+	})
+	first.subject.Wait()
+	driver := fake.NewAgentDriver()
+	driver.SetSubscriptionChecks(login)
+	driver.SetSignIn("")
+	first.clock.Advance(restartedAfter)
+	second := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
+	if err := second.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second.Wait()
+	probes := driver.Probes()
+	if len(probes) != 1 || probes[0].SignIn != ports.SignInAPIKey {
+		t.Fatalf("probes %+v, want one on the sign-in %q", probes, ports.SignInAPIKey)
+	}
+	if q := driver.Qualified(); q.SignIn != ports.SignInAPIKey || !q.PassedAll(driver.ProbeChecks(ports.SignInAPIKey)) {
+		t.Errorf("the probe left the driver %+v", q)
+	}
+}
+
 // TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory names where a probe leaves what it saw of a check: the
 // worker's own state directory, beside the probe's working directory and not within it, which the probe clears.
 func TestAProbeKeepsItsEvidenceInTheWorkersStateDirectory(t *testing.T) {
