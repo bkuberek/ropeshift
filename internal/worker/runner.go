@@ -158,10 +158,11 @@ type laneRun struct {
 	bound  bool
 	nudged atomic.Bool
 	// endHeld says the turn's end being read is older than the session's newest input, so it ends no turn the lane is
-	// in, and holding is the newest such end since a turn's end was decided. The goroutine that reads the stream
-	// alone touches either.
+	// in, holding is the newest such end since a turn's end was decided, and endMs is when the end being decided fired,
+	// by its hook's clock, and zero when nothing places it. The goroutine that reads the stream alone touches them.
 	endHeld bool
 	holding *ports.TurnResult
+	endMs   int64
 	cursor  int64
 	decided *workorders.Report
 	cost    lanes.CostMeter
@@ -1230,7 +1231,8 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		// hooks that say when the turn ended and whether a prompt came after it.
 		if event.Kind == ports.EventTurnEnded {
 			r.w.drainBeforeActing(ctx)
-			r.endHeld = r.state.olderThanInput(r.state.placeEnd(event.Turn))
+			r.endMs = r.state.placeEnd(event.Turn)
+			r.endHeld = r.state.olderThanInput(r.endMs)
 		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
 		r.foldEvent(ctx, event)
@@ -1440,7 +1442,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		return
 	}
 	// Read again here: a prompt or the worker's own input since the end was read began a turn this end does not end.
-	if r.state.current() == lanes.Working {
+	if r.state.current() == lanes.Working || r.takeTurnBegun(ctx) {
 		r.holdEnd(ctx, turn)
 		return
 	}
@@ -1506,6 +1508,17 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 	r.nudgeOrEnd(ctx, lanes.Nudge, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome}, true)
 }
 
+// takeTurnBegun moves a lane that reads at rest into the turn a prompt newer than the end being decided began, and says
+// whether there was one. Such a prompt can land after that end was placed and before the lane left the turn the end
+// closed, where its start moved nothing.
+func (r *laneRun) takeTurnBegun(ctx context.Context) bool {
+	if !r.state.atRest() || !r.state.olderThanInput(r.endMs) {
+		return false
+	}
+	r.signal(ctx, lanes.OnTurnStarted)
+	return true
+}
+
 // holdEnd keeps a turn's end that is older than the session's newest input: the lane works in the turn that input
 // began, and that turn's end is the one to decide. The wait for it is bounded (awaitTurnEnd).
 func (r *laneRun) holdEnd(ctx context.Context, turn *ports.TurnResult) {
@@ -1547,6 +1560,8 @@ func (r *laneRun) turnBound(ctx context.Context) {
 	if turn == nil {
 		turn = &ports.TurnResult{Status: ports.TurnCompleted}
 	}
+	// The bound decides the rest, and no end of a hook stands for it.
+	r.endMs = 0
 	r.signal(ctx, lanes.OnTurnFinished)
 	r.afterTurn(ctx, turn, false)
 }
@@ -1562,7 +1577,7 @@ var errTurnBegan = errors.New("a turn began before it was sent")
 func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders.Report, refusalWaits bool) {
 	if r.nudged.CompareAndSwap(false, true) {
 		ran, err := r.w.bracket(ctx, r.nudgeEffect(ctx), func() error {
-			if !r.state.atRest() {
+			if !r.state.atRest() || r.state.olderThanInput(r.endMs) {
 				return fmt.Errorf("%s: %w", lanes.DetailWithheld, errTurnBegan)
 			}
 			_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: text})
@@ -1581,6 +1596,9 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 			r.nudged.Store(false)
 		}
 		if errors.Is(err, errTurnBegan) {
+			if r.takeTurnBegun(ctx) {
+				r.awaitTurnEnd(ctx)
+			}
 			return
 		}
 		if refused && refusalWaits {
@@ -1589,6 +1607,10 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 		}
 	}
 	if !r.state.atRest() {
+		return
+	}
+	if r.takeTurnBegun(ctx) {
+		r.awaitTurnEnd(ctx)
 		return
 	}
 	r.decided = &report

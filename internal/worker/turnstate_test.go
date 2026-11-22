@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -331,4 +332,58 @@ func TestAHookOfTheSameMillisecondIsNewerThanTheOneHeardBeforeIt(t *testing.T) {
 		}
 		r.awaitOrderState(t, workorders.Acceptance)
 	})
+}
+
+// workingHeld holds the first save of a working lane once armed, so a test acts while the worker decides a turn's end
+// it has already placed.
+type workingHeld struct {
+	ports.Journal
+	armed atomic.Bool
+	gate  *gate
+	once  sync.Once
+}
+
+func (j *workingHeld) SaveActual(ctx context.Context, lane string, state, from lanes.ActualState) error {
+	if state == lanes.Working && j.armed.Load() {
+		j.once.Do(func() {
+			close(j.gate.reached)
+			<-j.gate.release
+		})
+	}
+	return j.Journal.SaveActual(ctx, lane, state, from)
+}
+
+// A prompt can land after the worker placed a turn's end and before the lane left that turn, where its start moves
+// nothing: here the worker is closing the request the turn left open. The turn the prompt began is still the lane's,
+// so the end before it draws no nudge.
+func TestAPromptWhileATurnsEndIsDecidedDrawsNoNudge(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	held := &workingHeld{Journal: base.journal, gate: newGate()}
+	base.workerJournal = held
+	r := newLaneRigFor(t, base)
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", approvalProfile)
+	r.dispatched()
+	stopped, returned := newGate(), newGate()
+	r.gates(stopped, held.gate, returned)
+	r.driver.Play(script(
+		[]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01), returned.step(), r.reports(workorders.OutcomeCompleted), completed(0.02)},
+	))
+	r.atGate(stopped)
+	r.subject.HoldApprovalLoop("lane-1")
+	r.look(t, gatedCall, "call-1", false)
+	r.eventually("a lane that waits", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.NeedsDecision) })
+	at := time.Now().UnixMilli()
+	r.stopAt(t, at, 0)
+	held.armed.Store(true)
+	stopped.free()
+	r.reach(t, held.gate)
+	r.promptAt(t, at+1)
+	held.gate.free()
+	r.turnDecided(t, 0.01)
+	if sent := r.sentText(); len(sent) != 0 {
+		t.Errorf("sent %q to a lane whose next turn began while its end was decided", sent)
+	}
+	returned.free()
+	r.awaitOrderState(t, workorders.Acceptance)
 }
