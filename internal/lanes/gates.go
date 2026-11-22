@@ -55,19 +55,21 @@ func (p DenyPolicy) Asks(call ToolCall) (string, bool) {
 	return "", false
 }
 
-// MayPush says a shell call is a push or could be one, which is what the worker reads a lane's commits for before it
-// lets the call ask anyone (FR-LANE-20).
+// MayPush says a shell call is a push, or is one this cannot read that shows a push: it names one, or gives git a
+// subcommand only a shell knows. The worker reads a lane's commits for such a call before it lets it ask anyone
+// (FR-LANE-20). Any other command this cannot read, such as `$LINT run`, asks with no such check, because a refusal
+// for a lane's commits says nothing to a command that is no push.
 func MayPush(tool, command string) bool {
 	switch {
 	case !RunsShell(tool):
 		return false
 	case tool == toolPowerShell:
-		return true
+		return showsPush(command)
 	case Pushes(command):
 		return true
 	}
 	read := readShellGates(command, nil)
-	return read.pushed || read.unread
+	return read.pushed || read.mayPush || (read.unread && showsPush(command))
 }
 
 // Defers says a hook may end the turn on a gated call. The agent CLI honors a deferral only in a `-p` run, and only

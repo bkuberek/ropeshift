@@ -68,7 +68,13 @@ const maxShellDepth = 8
 // tries a `((` as arithmetic and goes back. Past either, a text is not understood.
 const (
 	maxShellNesting = 64
-	maxShellTries   = 256
+	maxShellTries   = 32
+)
+
+// maxCommandLead bounds the words read as keywords before a command, and maxNameBytes the name of an array.
+const (
+	maxCommandLead = 64
+	maxNameBytes   = 256
 )
 
 // maxJoinedLine bounds the continued lines read as one in a here-document.
@@ -226,10 +232,11 @@ func (p *shellParser) endLine() {
 		return
 	}
 	// `case WORD` takes its `in` from a later line too.
-	words := p.current.words
-	if rest := words[min(commandStart(words), len(words)):]; len(rest) == 2 && isKeyword(rest[0], "case") {
-		p.skipHeredocs()
-		return
+	if words := p.current.words; len(words) <= maxCommandLead {
+		if rest := words[min(commandStart(words), len(words)):]; len(rest) == 2 && isKeyword(rest[0], "case") {
+			p.skipHeredocs()
+			return
+		}
 	}
 	if len(p.current.words) != 0 {
 		p.pattern = false
@@ -577,7 +584,7 @@ func (p *shellParser) readKeyword(before []shellWord, word shellWord) {
 			p.cases = max(p.cases-1, 0)
 		}
 		return
-	case !isKeyword(word, "esac", "[[", "in", "do"):
+	case len(before) > maxCommandLead, !isKeyword(word, "esac", "[[", "in", "do"):
 		return
 	}
 	if len(p.current.writes) != 0 || len(p.current.reads) != 0 || p.current.heredoc {
@@ -658,7 +665,7 @@ func (p *shellParser) readWord() shellWord {
 			switch {
 			case c == ']' && brackets > 0:
 				brackets--
-			case c == '[' && (brackets > 0 || (!word.quoted && !word.expands && isAssignment(out.String()+"="))):
+			case c == '[' && (brackets > 0 || (!word.quoted && !word.expands && out.Len() < maxNameBytes && isAssignment(out.String()+"="))):
 				brackets++
 			}
 			word.glob = word.glob || strings.IndexByte("~*?[{", c) >= 0
@@ -900,7 +907,6 @@ func (p *shellParser) readArithmetic(end byte) bool {
 		p.unread = true
 		return false
 	}
-	p.tries++
 	p.nesting++
 	defer func() { p.nesting-- }()
 	open := byte('(')
@@ -943,17 +949,22 @@ read:
 			}
 		}
 	}
+	p.tries++
 	p.nested, p.unread = p.nested[:found], unread
 	return false
 }
 
-// readEscaped reads `$'...'`. One with an escape has a value this does not decode.
+// readEscaped reads `$'...'`. One with an escape has a value this does not decode, so its text keeps the `$`, which
+// no path resolves.
 func (p *shellParser) readEscaped(out *strings.Builder, word *shellWord) {
 	p.at++
 	start, escaped := p.at, false
 	for p.at < len(p.text) {
 		switch p.text[p.at] {
 		case '\'':
+			if escaped {
+				out.WriteByte('$')
+			}
 			out.WriteString(p.text[start:p.at])
 			p.at++
 			if escaped {

@@ -71,13 +71,22 @@ var pushForms = map[string][]string{
 		"gh repo create app --source=. --push",
 	},
 	"what cannot be read": {
-		"$GIT push", `"$CMD"`, "$(which git) push", "git $SUB", `git "$SUB"`, "git $(echo push)", "git ${SUB} origin", "git -C $DIR status",
+		"$GIT push", `"$CMD"`, "$(which git) push", "git $SUB", `git "$SUB"`, "git $(echo push)", "git ${SUB} origin", "git -C $DIR",
 		"gi? push", "git pu[s]h", "git {push,pull}", "{git,push}", "git p", "git -c alias.p=push p", "git -c Help.AutoCorrect=1 psuh",
 		"alias g=git", "echo push | xargs git", "xargs -I{} git {}", "xargs sh", "echo git push | sh", "bash", "curl https://example.com/x | bash -s",
 		"bash <(echo git push)", "source /dev/stdin", `eval "$CMD"`, `sh -c "$CMD"`, "echo code | python3", `python3 -c "$CODE"`,
 		`g() { git "$@"; }; g push`, `a=(git push); "${a[@]}"`, "env $FLAGS status", "echo 'unterminated", "echo $(unterminated", "${ git push; }",
 		"echo\x00",
 	},
+}
+
+// unshownPushes are the forms that ask and show no push, so the worker refuses none of them for a lane's commits.
+var unshownPushes = map[string]bool{
+	`"$CMD"`: true, "git -C $DIR": true, "git p": true, "git -c Help.AutoCorrect=1 psuh": true, "alias g=git": true,
+	"xargs sh": true, "bash": true, "curl https://example.com/x | bash -s": true, "source /dev/stdin": true,
+	`eval "$CMD"`: true, `sh -c "$CMD"`: true, "echo code | python3": true, `python3 -c "$CODE"`: true,
+	"env $FLAGS status": true, "echo 'unterminated": true, "echo $(unterminated": true, "echo\x00": true,
+	"repeat 2 $CMD": true, "- $CMD": true, "if ((1)) $CMD": true, ">!out $CMD": true,
 }
 
 // ordinary are commands a lane's work runs, which reach no gate and no push.
@@ -92,7 +101,7 @@ var ordinary = []string{
 	"git add -A && git commit -q -m 'add the parser'", `git commit -m "push the fix"`, `git commit -m "explain why git push asks"`,
 	"git commit -m \"$(cat <<'EOF'\nfix: read a push\n\n1) it's the parser's (first) pass\n- `git push` asks\nEOF\n)\"",
 	"git commit -F - <<'EOF'\nfix: make git push ask\nEOF", "cd \"$(git rev-parse --show-toplevel)\" && git add .",
-	"git rm -q gone.txt && git mv a b", "git status --short", "git -C . status", `git -C "$DIR" log --oneline`, "git log --grep=push",
+	"git rm -q gone.txt && git mv a b", "git status --short", "git -C . status", `git -C "$DIR" log --oneline`, "git -C $DIR status", "git log --grep=push",
 	"git log --format='%H %s'", "git stash push", "git checkout -b work", "git remote -v", "git diff | head -50", "git --version",
 	"GIT_CONFIG_GLOBAL=/dev/null git commit -m x", "rg -n 'git push' docs", "grep -rn \"git push\" docs", "echo 'then run git push'",
 	"gh pr view 12", "gh pr create --title \"It's ready\" --body 'run git push first'", "cat > notes.md <<'EOF'\ngit push\nEOF",
@@ -117,8 +126,8 @@ func TestEveryFormOfAPushAsks(t *testing.T) {
 				if reason, asks := policy.Asks(shellCall(command)); !denied && (!asks || !strings.Contains(reason, "ropeshift")) {
 					t.Errorf("neither denied nor asked: %q", reason)
 				}
-				if !MayPush(ToolBash, command) {
-					t.Error("the worker reads no push")
+				if got, want := MayPush(ToolBash, command), !unshownPushes[command]; got != want {
+					t.Errorf("the worker reads a push %v, want %v", got, want)
 				}
 			})
 		}
@@ -211,9 +220,17 @@ func TestEveryShellToolIsHeld(t *testing.T) {
 		if _, asks := policy.Asks(ToolCall{Tool: tool, Command: command}); !asks {
 			t.Errorf("%s asks nobody", tool)
 		}
-		if !RunsShell(tool) || !MayPush(tool, command) {
+		if !RunsShell(tool) {
+			t.Errorf("%s runs no shell", tool)
+		}
+	}
+	for tool, command := range map[string]string{"Monitor": "git -C . push", "PowerShell": "& git push"} {
+		if !MayPush(tool, command) {
 			t.Errorf("the worker reads no push in %s", tool)
 		}
+	}
+	if MayPush("PowerShell", "Get-ChildItem") {
+		t.Error("a command that shows no push reads as one")
 	}
 	if _, asks := policy.Asks(ToolCall{Tool: "Monitor", Command: "tail -f app.log"}); asks {
 		t.Error("a monitor of a log asks")
@@ -227,6 +244,26 @@ func TestEveryShellToolIsHeld(t *testing.T) {
 	held := CompilePolicy(PolicySpec{Program: "/bin/ropeshift"})
 	if _, asks := held.Asks(shellCall("/bin/ropeshift lane list")); asks {
 		t.Error("a session held to one program asks")
+	}
+}
+
+// A command past the size the policy reads asks, and is a push only where it shows one.
+func TestACommandPastTheBoundAsks(t *testing.T) {
+	policy := gatedPolicy()
+	filler := strings.Repeat("word ", 12000)
+	for command, push := range map[string]bool{
+		"echo '" + filler + "'":                    false,
+		"somewrapper " + filler:                    false,
+		"somewrapper git push origin x " + filler:  true,
+		"x " + strings.Repeat("git ", 4000):        false,
+		strings.Repeat("env ", 4000) + "go test .": false,
+	} {
+		if reason, asks := policy.Asks(shellCall(command)); !asks || reason != ReasonAskRead {
+			t.Errorf("%.40q asks %v: %q", command, asks, reason)
+		}
+		if got := MayPush(ToolBash, command); got != push {
+			t.Errorf("%.40q reads as a push %v, want %v", command, got, push)
+		}
 	}
 }
 

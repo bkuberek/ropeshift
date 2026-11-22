@@ -246,7 +246,7 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 		return reasonProgram(p.Program), true
 	}
 	switch call.Tool {
-	case ToolBash:
+	case ToolBash, toolMonitor:
 		var seen gitSeen
 		if reason, denied := p.decideShell(call.Command, call.Cwd, 0, &seen); denied {
 			return reason, true
@@ -261,7 +261,7 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 		if wait, waits := p.WaitDenial(call); waits {
 			return wait.Reason, true
 		}
-	case toolMonitor, toolPowerShell:
+	case toolPowerShell:
 		if reason, _, denied := p.decidePushes(call.Command); denied {
 			return reason, true
 		}
@@ -377,9 +377,6 @@ func globPrefix(pattern string) (string, bool) {
 	return head[:slash], true
 }
 
-// commandWrappers run the command that follows them.
-var commandWrappers = []string{"command", "builtin", "exec", "env", "nice", "nohup", "time", "sudo", "doas", "xargs", "timeout"}
-
 // shellKeywords lead a command inside a compound one.
 var shellKeywords = []string{"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}", "fi", "done"}
 
@@ -389,6 +386,10 @@ var shells = []string{"sh", "bash", "zsh", "dash", "ksh"}
 // Pushes says a shell command runs git push where the policy's own reading of commands finds one, however deep it
 // stands. MayPush also takes the forms past that reading, and what cannot be read.
 func Pushes(command string) bool {
+	// The worker reads this for any call. Past the bound, MayPush and Asks take the command as unread.
+	if len(command) > maxGateBytes {
+		return false
+	}
 	var seen gitSeen
 	_, _ = DenyPolicy{}.decideShell(command, "", 0, &seen)
 	return seen.pushes
@@ -481,16 +482,39 @@ func stripLeaders(words []shellWord) []shellWord {
 		switch {
 		case slices.Contains(shellKeywords, first.text), isAssignment(first.text):
 			words = words[1:]
-		case slices.Contains(commandWrappers, path.Base(first.text)):
-			words = words[1:]
-			for len(words) != 0 && (strings.HasPrefix(words[0].text, "-") || isAssignment(words[0].text)) {
-				words = words[1:]
-			}
 		default:
-			return words
+			wrapper, wraps := gateWrappers[path.Base(first.text)]
+			if !wraps {
+				return words
+			}
+			words = stripWrapper(wrapper, words[1:])
 		}
 	}
 	return nil
+}
+
+// stripWrapper takes away a wrapper's own words: its options with the words they take, assignments, and the
+// operands that stand before its command, such as timeout's duration.
+func stripWrapper(wrapper gateWrapper, words []shellWord) []shellWord {
+	operands, options := wrapper.operands, true
+	for len(words) != 0 {
+		text := words[0].text
+		switch {
+		case options && text == "--":
+			options = false
+		case options && strings.HasPrefix(text, "-"):
+			if _, _, takes := readOption(text, wrapper.valued); takes && len(words) > 1 {
+				words = words[1:]
+			}
+		case isAssignment(text):
+		case operands > 0:
+			operands--
+		default:
+			return words
+		}
+		words = words[1:]
+	}
+	return words
 }
 
 func isAssignment(text string) bool {
@@ -800,7 +824,7 @@ func sedTargets(args []shellWord) []shellWord {
 }
 
 // quietDevices take a write and keep nothing.
-var quietDevices = []string{"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", processPath}
+var quietDevices = []string{"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 
 // resolve turns a word into a path with no `..`, as far as text can. Only the variables a
 // policy knows read as paths, and anything else is not known.
@@ -835,7 +859,8 @@ func (p DenyPolicy) inside(word shellWord, at string) bool {
 	if !ok {
 		return false
 	}
-	if slices.Contains(quietDevices, resolved) {
+	// The path of a process substitution is a pipe. Written out, it is whatever the descriptor holds.
+	if slices.Contains(quietDevices, resolved) || (word.process && resolved == processPath) {
 		return true
 	}
 	for _, root := range p.Roots {

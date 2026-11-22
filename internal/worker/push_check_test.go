@@ -74,6 +74,18 @@ func TestEveryFormOfAPushIsChecked(t *testing.T) {
 	g.free()
 }
 
+// TestAnUnreadableCommandThatShowsNoPushAsks keeps FR-LANE-20's refusal to what shows a push: a command the policy
+// cannot read asks a member, whatever the lane's commits hold.
+func TestAnUnreadableCommandThatShowsNoPushAsks(t *testing.T) {
+	t.Parallel()
+	r, g := staleLane(t, func(*laneRig) {})
+	reply := r.look(t, `{"command":"$LINT run"}`, "c-unread", false)
+	if reply.Approval == nil || reply.Approval.Decision != lanes.ApprovalWaiting {
+		t.Errorf("an unreadable command was answered %+v", reply.Approval)
+	}
+	g.free()
+}
+
 // TestAStaleRefusalOfAPathTheProjectKeepsEnds reads an earlier refusal against the paths the orchestrator decided
 // since: a path it decided is part of the project no longer holds the push back.
 func TestAStaleRefusalOfAPathTheProjectKeepsEnds(t *testing.T) {

@@ -209,7 +209,7 @@ The lane's rules and hook hold these in every permission mode:
 - A push asks a member, however the command writes it: with git's own options, behind a wrapper such as `env`, by the program's path, or inside `sh -c`. A force push, and a push that names the default branch or a branch the lane continues, are refused.
 - A command that moves a branch the lane continues is refused where it names that branch.
 - An action your profile gates asks a member, and a gated shell command asks in each of the forms a push does.
-- A shell command that could be a push or a gated command and that the hook cannot read asks too, such as `$CMD`, `git` with a subcommand that could be an alias, or a script piped into `sh`.
+- A shell command that could be a push or a gated command and that the hook cannot read asks too, such as `$CMD`, `git` with a subcommand that could be an alias, or a script piped into `sh`, and so does one too long for the hook to read. An expansion in an option's value, an assignment, or a wrapper's operand reads as the one word it is written as.
 
 In `dontAsk`, the agent CLI refuses what would ask, and no request reaches a member ([dontAsk](https://code.claude.com/docs/en/permission-modes#allow-only-pre-approved-tools-with-dontask-mode)).
 
