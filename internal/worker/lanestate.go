@@ -492,7 +492,8 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 
 // observeReplayedHook reads a hook a journal kept while no worker listened. It happened before this worker
 // started, so it says nothing of the sign-in or the model's reach now: a failure that was a usage limit then
-// would otherwise start a new limit at every restart.
+// would otherwise start a new limit at every restart. One no run has heard is noted as it arrives
+// (noteUnheard).
 func (r *laneRun) observeReplayedHook(ctx context.Context, event lanes.HookEvent) {
 	r.observe(ctx, event, true)
 }

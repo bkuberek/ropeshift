@@ -710,6 +710,10 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	}
 	r.resumeParking(ctx)
 	r.resumeHandoff(ctx)
+	if !reported {
+		// Before the stream is read, because a headless turn that failed on the sign-in names no reason.
+		r.w.parkOnSignIn(ctx)
+	}
 	switch {
 	case r.state.current() != lanes.Idle:
 	case len(r.blockingQuestions()) != 0:
@@ -1480,14 +1484,14 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 			r.signal(ctx, lanes.OnInputHanded)
 			return
 		}
-	}
-	r.decided = &report
-	r.signal(ctx, lanes.OnOutcomeReported)
-	r.stop(ctx, ports.StopAtRest)
 		// A session that may wait on an answer is not done, and a wait nobody is sure of ends no lane.
 		if errors.Is(err, ports.ErrAwaitingAnswer) {
 			return
 		}
+	}
+	r.decided = &report
+	r.signal(ctx, lanes.OnOutcomeReported)
+	r.stop(ctx, ports.StopAtRest)
 }
 
 // restOnBackground holds a lane at rest on its own background work until the longest it may wait live has passed
