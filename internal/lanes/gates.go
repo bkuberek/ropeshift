@@ -91,7 +91,13 @@ func (p DenyPolicy) Defers(call ToolCall) bool {
 		case gate.CommandPrefix == "", call.Command == gate.CommandPrefix:
 			return true
 		}
-		return !gate.Exact && strings.HasPrefix(call.Command, gate.CommandPrefix+" ")
+		switch {
+		case gate.Exact:
+			return false
+		case gate.Bounded:
+			return strings.HasPrefix(call.Command, gate.CommandPrefix+" ")
+		}
+		return strings.HasPrefix(call.Command, gate.CommandPrefix)
 	})
 }
 

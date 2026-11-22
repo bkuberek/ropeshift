@@ -385,6 +385,8 @@ type GateRule struct {
 	CommandPrefix string `json:"command_prefix,omitempty"`
 	// Exact says the rule's command ends with no wildcard, so the agent CLI matches that command and no longer one.
 	Exact bool `json:"exact,omitempty"`
+	// Bounded says the rule's wildcard was ` *` or `:*`, which ends the prefix at a word, and not a bare `*`, which matches any continuation.
+	Bounded bool `json:"bounded,omitempty"`
 }
 
 // Gated says a call starts as a gate does. It reads a command only as written: Asks reads the other forms.
@@ -408,7 +410,10 @@ func ReadGate(rule string) GateRule {
 	command := strings.TrimSuffix(rest, ")")
 	body := command
 	for _, suffix := range []string{":*", " *", "*"} {
-		body = strings.TrimSuffix(body, suffix)
+		if trimmed := strings.TrimSuffix(body, suffix); trimmed != body {
+			body, gate.Bounded = trimmed, suffix != "*"
+			break
+		}
 	}
 	gate.CommandPrefix, gate.Exact = body, body != "" && body == command
 	return gate
