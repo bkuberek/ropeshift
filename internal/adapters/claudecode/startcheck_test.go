@@ -98,16 +98,24 @@ func TestStartCheck(t *testing.T) {
 	// repainted is a later frame of the same dialog, which a pane shows while the key it took is still
 	// being answered.
 	repainted := accepted + "\n Checking this folder.\n"
+	// The dialog's focus wraps on an arrow, so a second Down takes it back to `No, exit`, and End does not move past
+	// the last option.
 	moves := map[string]map[string]string{
-		trust:    {"Down": accepted},
-		accepted: {"Enter": ready, "Up": trust},
+		trust:    {"Down": accepted, "End": accepted},
+		accepted: {"Enter": ready, "Up": trust, "Down": trust},
 	}
+	flippedMoves := map[string]map[string]string{flipped: {"Up": accepted, "Home": accepted}, accepted: {"Enter": ready}}
+	// middle is a dialog whose accept option is not at an edge, where a repeated key has no absolute target.
+	middle := strings.Join([]string{" Accessing workspace:", "", " ❯ No, exit", "   Yes, I trust this folder", "   Tell me more", ""}, "\n")
 	tests := []struct {
 		name   string
 		script fake.PaneScript
 		mode   checkMode
 		// timeout is how long the check runs, and is longer where a key's effect is late.
 		timeout time.Duration
+		// settle is how long a frame stands before a key, and resend how long before a navigation key is repeated. A
+		// case that sets no resend never reaches one.
+		settle, resend time.Duration
 		// keys is every key the pane must take, in order.
 		keys []string
 		want error
@@ -119,8 +127,38 @@ func TestStartCheck(t *testing.T) {
 			mode: checkFresh, keys: []string{"Down", "Enter"},
 		},
 		{
-			name: "a dialog that takes no key is not pressed again", mode: checkFresh,
-			script: fake.PaneScript{Screen: trust, Moves: moves, Refused: 1}, keys: []string{"Down"}, want: ports.ErrUnknownScreen,
+			name: "a dropped Down is followed by End, which cannot wrap", mode: checkFresh, timeout: 2 * time.Second, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: trust, Moves: moves, Refused: 1}, keys: []string{"Down", "End", "Enter"},
+		},
+		{
+			name: "a dropped Up is followed by Home, which cannot wrap", mode: checkFresh, timeout: 2 * time.Second, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: flipped, Moves: flippedMoves, Refused: 1}, keys: []string{"Up", "Home", "Enter"},
+		},
+		{
+			name: "every key dropped until the dialog listens is sent again", mode: checkFresh, timeout: 2 * time.Second, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: trust, Moves: moves, Refused: 3}, keys: []string{"Down", "End", "End", "End", "Enter"},
+		},
+		{
+			name: "a key is not repeated where the accept option is not at an edge", mode: checkFresh, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: middle, Refused: 1}, keys: []string{"Down"}, want: ports.ErrUnknownScreen,
+		},
+		{
+			name: "a focus the dialog undoes as it settles takes no Enter until it stands", mode: checkFresh, timeout: 3 * time.Second,
+			settle: 100 * time.Millisecond, script: fake.PaneScript{Screen: trust, Moves: moves, Undone: 3}, keys: []string{"Down", "End", "Enter"},
+		},
+		{
+			name: "a key that moved to a screen the check does not know is not repeated", mode: checkFresh, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: trust, Moves: map[string]map[string]string{trust: {"Down": pane(t, "mode-acceptance")}}},
+			keys:   []string{"Down"}, want: ports.ErrUnknownScreen,
+		},
+		{
+			name: "an Enter the dialog refused as it put the focus back is never sent again", mode: checkFresh, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}, trust: {"Down": accepted, "End": accepted}}},
+			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen,
+		},
+		{
+			name: "an Enter that changes nothing is not sent again once keys repeat", mode: checkFresh, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrUnknownScreen,
 		},
 		{
 			name: "a late repaint is waited out before the next key", mode: checkFresh, timeout: 2 * time.Second,
@@ -161,7 +199,7 @@ func TestStartCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 			timeout := cmp.Or(tt.timeout, 80*time.Millisecond)
-			err := runStartCheck(t.Context(), terminal, "p", startCheck{mode: tt.mode, timeout: timeout, poll: time.Millisecond, settle: time.Millisecond})
+			err := runStartCheck(t.Context(), terminal, "p", startCheck{mode: tt.mode, timeout: timeout, poll: time.Millisecond, settle: cmp.Or(tt.settle, time.Millisecond), resend: cmp.Or(tt.resend, time.Minute)})
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("check: %v, want %v", err, tt.want)
 			}
@@ -219,5 +257,40 @@ func TestACanceledCheckStops(t *testing.T) {
 	err := runStartCheck(ctx, terminal, "p", startCheck{mode: checkFresh, timeout: time.Minute, poll: time.Millisecond, settle: time.Millisecond})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("check: %v", err)
+	}
+}
+
+// repaintsOnEnd is a pane that takes every key at once and shows none of their effect until it took an End, as one
+// does whose repaint is later than the resend.
+type repaintsOnEnd struct {
+	*fake.Terminal
+	before string
+}
+
+func (p repaintsOnEnd) Capture(ctx context.Context, name string) (string, error) {
+	if !slices.Contains(p.KeysOf(name), "End") {
+		return p.before, nil
+	}
+	return p.Terminal.Capture(ctx, name)
+}
+
+// A slow Down and the End sent again for it can both land, and the focus then still stands on the accept option.
+func TestASlowDownAndItsResentEndBothLandOnAccept(t *testing.T) {
+	trust, accepted, ready := pane(t, "trust-focus-cancel"), pane(t, "trust-focus-accept"), pane(t, "ready")
+	terminal := fake.NewTerminal()
+	terminal.Play(fake.PaneScript{Screen: trust, Moves: map[string]map[string]string{
+		trust:    {"Down": accepted, "End": accepted},
+		accepted: {"Down": trust, "End": accepted, "Enter": ready},
+	}})
+	if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	slow := repaintsOnEnd{Terminal: terminal, before: trust}
+	check := startCheck{mode: checkFresh, timeout: 2 * time.Second, poll: time.Millisecond, settle: time.Millisecond, resend: 20 * time.Millisecond}
+	if err := runStartCheck(t.Context(), slow, "p", check); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if got, want := terminal.KeysOf("p"), []string{"Down", "End", "Enter"}; !slices.Equal(got, want) {
+		t.Errorf("keys %v, want %v", got, want)
 	}
 }

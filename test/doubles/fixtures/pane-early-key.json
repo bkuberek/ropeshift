@@ -1,0 +1,8 @@
+{
+  "source": "Claude Code 2.1.329: a trust dialog that keeps no key sent before it settles, held longer here than the 150 ms that build takes",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true, "trust_settle_ms": 1500},
+  "turns": [
+    [{"status": {"context_window": {"current_usage": {"input_tokens": 3, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 900}}, "cost": {"total_cost_usd": 0.1}}}]
+  ]
+}

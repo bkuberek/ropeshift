@@ -29,9 +29,13 @@ const (
 	defaultReadyTimeout = 60 * time.Second
 	// checkPoll is the wait between reads of a screen still painting.
 	checkPoll = 200 * time.Millisecond
-	// checkSettle is the least wait after a key before the screen is read again, so a read
+	// checkSettle is how long a frame stands before a key goes to it, longer than the 150 ms a trust dialog of
+	// 2.1.329 takes to settle, and the least wait after a key before the screen is read again, so a read
 	// is not of the moment the key arrived. The screen changing says a key took effect.
 	checkSettle = 500 * time.Millisecond
+	// checkResend is how long the trust dialog may show the frame a navigation key answered before the check takes
+	// the key for dropped and sends one that is safe beside it.
+	checkResend = 2 * time.Second
 	// panePoll is how often a pane is read for its end. A pane has no stream to close.
 	panePoll = 250 * time.Millisecond
 	// compactPause lets the CLI take typed text as typing before Enter submits it. The
@@ -275,7 +279,7 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 
 // passCheck is everything between an opened pane and a briefed session.
 func (s *paneSession) passCheck(ctx context.Context, spec ports.SessionSpec, state paneState) error {
-	check := startCheck{mode: state.Mode, timeout: state.Timeout, poll: checkPoll, settle: checkSettle}
+	check := startCheck{mode: state.Mode, timeout: state.Timeout, poll: checkPoll, settle: checkSettle, resend: checkResend}
 	started := time.Now()
 	if err := runStartCheck(ctx, s.terminal, s.name, check); err != nil {
 		if keepErr := keepScreen(ctx, s.terminal, s.name, spec); keepErr != nil {

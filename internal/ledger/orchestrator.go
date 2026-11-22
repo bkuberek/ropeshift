@@ -15,8 +15,8 @@ const (
 
 // The orchestrator's events.
 const (
-	// EventOrchestratorDesired records what was asked of an orchestrator. A member stops it, starts one it stopped,
-	// and resets its breaker. The system asks for a worker's own, in the worker's session or in the transaction that
+	// EventOrchestratorDesired records what was asked of an orchestrator. A member stops it, starts one it stopped or
+	// whose run ended, and resets its breaker. The system asks for a worker's own, in the worker's session or in the transaction that
 	// stores the first passphrase, and only once a member exists: the first passphrase needs no session, which is safe
 	// only while no agent runs before it exists.
 	EventOrchestratorDesired = "orchestrator.desired"
@@ -53,6 +53,9 @@ type Orchestrator struct {
 
 // Tripped says its breaker stopped it, and only a person may reset that.
 func (o Orchestrator) Tripped() bool { return o.Actual == "tripped" }
+
+// Ended says its run is over. A journal keeps a lane that ended, so only another run takes its place.
+func (o Orchestrator) Ended() bool { return o.Actual == StateEnded }
 
 // Stalled says its session shows no progress. Nothing supervises an orchestrator but a person.
 func (o Orchestrator) Stalled() bool { return slices.Contains(o.Conditions, "stalled") }

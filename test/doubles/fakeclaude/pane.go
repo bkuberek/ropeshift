@@ -25,6 +25,9 @@ type paneScript struct {
 	// it, before the session trusts the directory and paints the next screen, as a slow repaint
 	// does. A check that reads the old frame as a dialog still waiting answers it a second time.
 	TrustRepaintMs int `json:"trust_repaint_ms,omitempty"`
+	// TrustSettleMs is how long after it first paints the dialog keeps no key, as 2.1.329 does: that build puts the
+	// focus back on `No, exit` as the dialog settles, so a key sent earlier has no lasting effect.
+	TrustSettleMs int `json:"trust_settle_ms,omitempty"`
 	// Stuck draws this and never reaches a prompt.
 	Stuck string `json:"stuck,omitempty"`
 	// ExitOnStart ends the process before a prompt, with this code.
@@ -80,6 +83,8 @@ const (
 const (
 	keyUp    = "<up>"
 	keyDown  = "<down>"
+	keyHome  = "<home>"
+	keyEnd   = "<end>"
 	keyEnter = "<enter>"
 )
 
@@ -157,6 +162,22 @@ func readKeys(keys chan<- string) {
 				keys <- keyUp
 			case 'B':
 				keys <- keyDown
+			case 'H':
+				keys <- keyHome
+			case 'F':
+				keys <- keyEnd
+			case '1', '4':
+				// A terminal writes Home as `ESC [ 1 ~` and End as `ESC [ 4 ~`.
+				if last, err := reader.ReadByte(); err != nil {
+					close(keys)
+					return
+				} else if last == '~' {
+					key := keyHome
+					if arrow == '4' {
+						key = keyEnd
+					}
+					keys <- key
+				}
 			}
 		default:
 			keys <- string(first)
@@ -170,7 +191,7 @@ func trustMark() string {
 }
 
 // askTrust is the dialog as the build shows it: the focus starts on the wrong answer, so
-// a bare Enter ends the process, and a test can see that it did.
+// a bare Enter ends the process, and a test can see that it did. An arrow wraps, and Home and End do not.
 func (s *session) askTrust(keys <-chan string) {
 	if _, err := os.Stat(trustMark()); err == nil {
 		return
@@ -184,11 +205,18 @@ func (s *session) askTrust(keys <-chan string) {
 		}
 	}
 	show()
+	settled := time.Now().Add(time.Duration(s.script.Pane.TrustSettleMs) * time.Millisecond)
 	for key := range keys {
+		if time.Now().Before(settled) {
+			witness("keys", "dropped "+key)
+			continue
+		}
 		switch key {
-		case keyDown:
+		case keyDown, keyUp:
+			accept = !accept
+		case keyEnd:
 			accept = true
-		case keyUp:
+		case keyHome:
 			accept = false
 		case keyEnter:
 			witness("keys", "trust "+key)

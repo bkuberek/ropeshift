@@ -17,6 +17,10 @@ func dropped(surface string) bool { return slices.Contains(drops, surface) }
 // isProbe reports a probe's session.
 func isProbe() bool { return os.Getenv(probeMark) == "1" }
 
+// probeTrustSettleMs is how long a probe's trust dialog keeps no key. 2.1.329's keeps none for 150 ms, and the stand-in's
+// is longer than a start check's wait between reads, so a key sent on the first read of the dialog always falls in it.
+const probeTrustSettleMs = 400
+
 // probeScript is what a probe's session does, whatever the fixture's lanes do: each turn has an init,
 // a rate limit notice with a window's figure, a `command_lifecycle`, and a result, as 2.1.316 showed
 // them in the qualification matrix. A pane shows the trust dialog of a new directory and then the
@@ -61,7 +65,7 @@ func probeScript(script fixture) fixture {
 	turn = append(turn, step{Emit: result})
 	script.Turns = [][]step{turn, turn, turn, turn}
 	script.ResumeTurns, script.Lanes, script.Inbound, script.StopText = nil, nil, "", ""
-	script.Pane = paneScript{Trust: true}
+	script.Pane = paneScript{Trust: true, TrustSettleMs: probeTrustSettleMs}
 	if dropped("start_screens") {
 		script.Pane = paneScript{Stuck: "A screen no qualification has seen\n"}
 	}

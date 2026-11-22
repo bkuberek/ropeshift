@@ -201,6 +201,31 @@ func TestPaneStartConfirmsTrustOnceWhenTheScreenRepaintsSlowly(t *testing.T) {
 	}
 }
 
+// The dialog keeps no key sent before it settles, so the check repeats its navigation and only that: each repeat is
+// End, which cannot wrap back to `No, exit`, and one Enter follows.
+func TestPaneStartAnswersATrustDialogThatDropsAnEarlyKey(t *testing.T) {
+	r := newPaneRig(t, "pane-early-key")
+	s := r.start()
+	if bound := s.until(ports.EventSessionBound); bound.SessionID == "" {
+		t.Errorf("bound %+v", bound)
+	}
+	if turn := s.until(ports.EventTurnEnded).Turn; turn.Status != ports.TurnCompleted {
+		t.Errorf("turn %+v", turn)
+	}
+	got := r.log("keys")
+	if len(got) < 3 || got[0] != "dropped <down>" || !slices.Equal(got[len(got)-2:], []string{"trust <end>", "trust <enter>"}) {
+		t.Fatalf("keys %v", got)
+	}
+	for _, key := range got[:len(got)-1] {
+		if strings.HasSuffix(key, "<enter>") || (key != got[0] && strings.HasSuffix(key, "<down>")) {
+			t.Errorf("a key that is not safe to repeat went again: %v", got)
+		}
+	}
+	if bare := r.log("bare-enter"); len(bare) != 0 {
+		t.Errorf("a bare Enter reached the dialog: %v", bare)
+	}
+}
+
 // SessionStart fires with no prompt, so a worker must not read it as a brief that arrived:
 // the first event of a session in a pane comes with its first prompt.
 func TestPaneSessionStartIsNoEvidenceOfABrief(t *testing.T) {

@@ -1,7 +1,7 @@
 import { useContext, useId } from "react";
 
 import { cancelScheduledStart, scheduleOrchestrator, startOrchestrator } from "../api/client";
-import type { OrchestratorHold, ScheduledStart, WorkerLine } from "../api/types";
+import type { Orchestrator, OrchestratorHold, ScheduledStart, WorkerLine } from "../api/types";
 import { usePageActions } from "../app/pageActions";
 import { useAct } from "../needs/useAct";
 import { useClock, ViewTime } from "../parts/parts";
@@ -90,9 +90,15 @@ const holdWords: Record<string, string> = {
 
 const nameOf = (line: WorkerLine) => line.worker.name || line.worker.id;
 
+// startChanged says a start's answer differs from the orchestrator the line showed: it was not asked to run, or the
+// start made a run or reset the breaker. The server answers a start that changes nothing as it answers any other.
+const startChanged = (before: Orchestrator | undefined, after: Orchestrator) =>
+  before?.desired_state !== "running" || after.run !== before.run || after.resets !== before.resets;
+
 // OrchestratorStart is the control that starts a worker's orchestrator, with what keeps it from starting beside it: an
 // offline worker, a tripped breaker, which Reset clears, or a sign-in at its usage limit, where Start schedules the start
-// for the reset. A start scheduled for the reset says when, and Cancel ends it.
+// for the reset. A start scheduled for the reset says when, and Cancel ends it. An orchestrator whose run ended while
+// a member wanted it starts its next run now, at a limit too, and a start that changed nothing reports no success.
 export function OrchestratorStart({ line, after }: { line: WorkerLine; after: () => Promise<void> }) {
   const { act, busy, failure } = useAct(after);
   const toast = useToast();
@@ -102,21 +108,40 @@ export function OrchestratorStart({ line, after }: { line: WorkerLine; after: ()
   const hold = line.orchestrator_hold;
   const start = line.scheduled_start;
   const limited = hold?.reason === "usage_limit";
-  // An orchestrator already asked to run starts once the limit resets, so there is nothing to schedule.
-  const asked = limited && !start && line.orchestrator?.desired_state === "running";
-  const run = () =>
-    void act(() => (limited ? scheduleOrchestrator(line.worker.id) : startOrchestrator(line.worker.id))).then((done) => {
-      if (done) {
-        toast("success", limited ? `${name} starts its orchestrator at the reset.` : `Asked ${name} to run its orchestrator.`);
+  const wanted = line.orchestrator?.desired_state === "running";
+  // Nothing schedules a start of an orchestrator asked to run. A run that ended waits for no reset, so Start makes
+  // the next run, which waits the limit out. Any other starts once the limit resets, so there is nothing to press.
+  const ended = wanted && line.orchestrator?.actual_state === "ended";
+  const asked = limited && !start && wanted && !ended;
+  const schedules = limited && !ended;
+  const run = () => {
+    let changed = true;
+    const before = line.orchestrator;
+    const change = async () => {
+      if (schedules) {
+        await scheduleOrchestrator(line.worker.id);
+        return;
       }
+      changed = startChanged(before, (await startOrchestrator(line.worker.id)) as Orchestrator);
+    };
+    void act(change).then((done) => {
+      if (!done) {
+        return;
+      }
+      if (!changed) {
+        toast("neutral", `The orchestrator on ${name} was already asked to run, so Start changed nothing.`);
+        return;
+      }
+      toast("success", schedules ? `${name} starts its orchestrator at the reset.` : `Asked ${name} to run its orchestrator.`);
     });
+  };
   const cancel = () =>
     void act(() => cancelScheduledStart(line.worker.id)).then((done) => {
       if (done) {
         toast("success", `Canceled the start scheduled on ${name}.`);
       }
     });
-  const label = start ? `Cancel the scheduled start on ${name}` : hold?.reason === "tripped" ? `Reset the orchestrator on ${name}` : limited ? `Start at reset on ${name}` : `Start orchestrator on ${name}`;
+  const label = start ? `Cancel the scheduled start on ${name}` : hold?.reason === "tripped" ? `Reset the orchestrator on ${name}` : schedules ? `Start at reset on ${name}` : `Start orchestrator on ${name}`;
   // The palette takes the keyboard to the button and does nothing more: a start runs a session a person pays for, and
   // a cancel gives up a start a member asked for, so a person presses the button.
   usePageActions(asked ? [] : [{ key: `action:orchestrator-start:${line.worker.id}`, group: "Actions", id: line.worker.id, title: label, icon: start ? "x" : "play", keywords: "orchestrator start reset", run: () => document.getElementById(id)?.focus() }]);
@@ -138,7 +163,7 @@ export function OrchestratorStart({ line, after }: { line: WorkerLine; after: ()
           </Button>
         ) : (
           <Button id={id} small icon="play" loading={busy} disabled={busy} aria-label={label} onClick={run}>
-            {hold?.reason === "tripped" ? "Reset" : limited ? "Start at reset" : "Start orchestrator"}
+            {hold?.reason === "tripped" ? "Reset" : schedules ? "Start at reset" : "Start orchestrator"}
           </Button>
         )}
       </div>

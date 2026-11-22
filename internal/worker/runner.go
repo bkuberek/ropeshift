@@ -573,9 +573,6 @@ func (r *laneRun) begin(ctx context.Context) error {
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
 	}
-	if r.orchestrating() {
-		r.loadProfile(ctx)
-	}
 	return r.proceed(ctx)
 }
 
@@ -587,7 +584,14 @@ func (r *laneRun) begin(ctx context.Context) error {
 // between that journaled start and this signal leaves a lane in `pending`, and a lane a restart
 // continues from there would hear every later signal from a state with no edge for it. The
 // signal moves nothing from any other state.
+//
+// An orchestrator's profile loads here for the same reason: it waits for a wake before it prepares a
+// session, and its wake bounds come from that profile, so a run a restart continues would hear no
+// message until something gave it them.
 func (r *laneRun) proceed(ctx context.Context) error {
+	if r.orchestrating() {
+		r.loadProfile(ctx)
+	}
 	r.signal(ctx, lanes.OnClaimGranted)
 	return r.conclude(ctx, r.session(ctx))
 }

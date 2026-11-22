@@ -36,7 +36,7 @@ func (s *laneState) breaker() lanes.Breaker {
 func (r *laneRun) loadProfile(ctx context.Context) {
 	repository, err := r.repository(ctx)
 	if err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		r.profileUnread(err)
 		return
 	}
 	repository, base := profileLayer(r.lease, repository)
@@ -45,7 +45,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 	}
 	profile, err := leaseProfile(ctx, r.rt.Provisioner.Profiles, r.lease, repository, base)
 	if err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		r.profileUnread(err)
 		return
 	}
 	r.state.thresholds(profile, r.role())
@@ -59,6 +59,17 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		r.gates = slices.Clone(profile.Agent.Gates)
 	}
 	r.handleLock.Unlock()
+}
+
+// profileUnread reports a profile this run could not read. An orchestrator then wakes on the default bounds:
+// with none it would never read a wake, and would hold each message unread. A session it starts on that wake
+// reads the profile again, and one that still cannot be read ends the run saying why.
+func (r *laneRun) profileUnread(err error) {
+	if r.orchestrating() && !r.assisting() {
+		r.state.defaultWakeBounds()
+		err = fmt.Errorf("reading its profile, so it wakes on the default bounds: %w", err)
+	}
+	r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 }
 
 // mayRestart says a generation ended in a way a new one could mend: it crashed, nothing

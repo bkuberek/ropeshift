@@ -1,0 +1,98 @@
+package control_test
+
+import (
+	"encoding/json"
+	"sync"
+	"testing"
+
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
+)
+
+// saysOfRun uploads the worker's word on a run of its orchestrator.
+func (r *planeRig) saysOfRun(seq int64, lane, kind string, payload any) {
+	r.t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	reply, err := r.plane.Upload(r.t.Context(), ledger.UploadBatch{Auth: r.auth, Epoch: r.epoch, Events: []ledger.UploadEvent{{
+		Epoch: r.epoch, Seq: seq, Type: kind, Lane: lane, Generation: 1, Payload: raw, OccurredAt: seq,
+	}}})
+	if err != nil || len(reply.Rejected) != 0 {
+		r.t.Fatalf("upload %s: %+v, %v", kind, reply, err)
+	}
+}
+
+// endedRun starts the orchestrator and has its worker end that run.
+func (r *planeRig) endedRun() ledger.Orchestrator {
+	r.t.Helper()
+	row, err := r.plane.SetOrchestrator(r.t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	r.saysOfRun(1, row.Lane(), ledger.UploadLaneEnded, workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen}})
+	row, err = r.plane.Orchestrator(r.t.Context(), "worker-1")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return row
+}
+
+// A member's start of a run that ended makes the next run, once however many starts race, and a start of that live run
+// asks for nothing new.
+func TestAStartOfAnEndedOrchestratorMakesOneNextRun(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	if row := r.endedRun(); row.Desired != ledger.OrchestratorRunning || row.Run != 1 || row.Actual != "ended" {
+		t.Fatalf("the ended run reads %+v", row)
+	}
+	var starts sync.WaitGroup
+	failures := make(chan error, 8)
+	for range 8 {
+		starts.Go(func() {
+			if _, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember); err != nil {
+				failures <- err
+			}
+		})
+	}
+	starts.Wait()
+	close(failures)
+	for err := range failures {
+		t.Error(err)
+	}
+	row, err := r.plane.Orchestrator(t.Context(), "worker-1")
+	if err != nil || row.Run != 2 || row.Actual != "" || row.Resets != 0 {
+		t.Fatalf("8 starts of an ended run left %+v, %v, want run 2 and nothing said of it", row, err)
+	}
+	if desired := r.desired(); desired.Orchestrator == nil || desired.Orchestrator.Lane != row.Lane() {
+		t.Errorf("the worker is asked for %+v, want lane %s", desired.Orchestrator, row.Lane())
+	}
+	for seq, state := range []string{"provisioning", "idle", "backoff"} {
+		r.saysOfRun(int64(seq+2), row.Lane(), ledger.UploadLaneStatus, ledger.LaneStatus{ActualState: state})
+		if again, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember); err != nil || again.Run != 2 {
+			t.Errorf("a start of a run that reads %s left %+v, %v", state, again, err)
+		}
+	}
+}
+
+// A member's stop of an ended orchestrator stands across the worker's next session, until a member starts it again.
+func TestAStopOfAnEndedOrchestratorStands(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	enrollMember(t, r)
+	r.endedRun()
+	if _, err := r.plane.SetOrchestrator(ctx, "worker-1", ledger.OrchestratorStopped, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	starting := control.NewPlane(r.state, r.state.Installation, "pa", control.WorkerOptions{StartsOrchestrator: true}, nil)
+	if _, err := starting.OpenSession(ctx, ledger.SessionRequest{Auth: r.auth, Protocol: ledger.ProtocolVersion, Manifest: apiKeyManifest}); err != nil {
+		t.Fatal(err)
+	}
+	if row, err := starting.Orchestrator(ctx, "worker-1"); err != nil || row.Desired != ledger.OrchestratorStopped || row.Run != 1 {
+		t.Fatalf("a stopped orchestrator came back: %+v, %v", row, err)
+	}
+	if row, err := starting.SetOrchestrator(ctx, "worker-1", ledger.OrchestratorRunning, projectMember); err != nil || row.Run != 2 {
+		t.Errorf("a start after the stop left %+v, %v", row, err)
+	}
+}
