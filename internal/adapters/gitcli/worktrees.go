@@ -211,6 +211,9 @@ func (w Worktrees) create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 			args = append(args, "-b", spec.Branch, "--", spec.Path, base)
 		}
 	}
+	// The add checks the tree out, and a repository's post-checkout hook, which a lane may have written, would run
+	// outside the lane's gates.
+	repository.Config = NoHooks()
 	if err := repository.changeWorktrees(ctx, args...); err != nil {
 		return ports.Worktree{}, err
 	}

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // ErrNoRevision means a ref or path does not exist in the repository.
@@ -30,24 +32,37 @@ type Git struct {
 	Config [][2]string
 }
 
+// inheritedLocationEntry reports an environment entry that points at another repository or index.
+func inheritedLocationEntry(entry string) bool {
+	for _, prefix := range inheritedLocation {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // inheritedLocation lists what would point a command at another repository, or at
 // another index, when the daemon started inside a git hook.
 var inheritedLocation = []string{
 	"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_COMMON_DIR=", "GIT_OBJECT_DIRECTORY=", "GIT_PREFIX=",
 }
 
+// environment is what a command runs with: the caller's Env, or the process's own, less the variables that
+// would point it at another repository and the secrets of the daemon (lanes.DaemonSecret). Everything else
+// stays, because git, ssh and a credential helper read PATH, HOME, SSH_AUTH_SOCK and the like.
 func (g Git) environment() []string {
-	base := g.Env
-	if base == nil {
-		for _, entry := range os.Environ() {
-			inherited := false
-			for _, prefix := range inheritedLocation {
-				inherited = inherited || strings.HasPrefix(entry, prefix)
-			}
-			if !inherited {
-				base = append(base, entry)
-			}
+	source := g.Env
+	if source == nil {
+		source = os.Environ()
+	}
+	base := make([]string, 0, len(source)+8)
+	for _, entry := range source {
+		name, _, _ := strings.Cut(entry, "=")
+		if lanes.DaemonSecret(name) || (g.Env == nil && inheritedLocationEntry(entry)) {
+			continue
 		}
+		base = append(base, entry)
 	}
 	// A command never waits on a prompt, because a daemon has no terminal.
 	env := append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)

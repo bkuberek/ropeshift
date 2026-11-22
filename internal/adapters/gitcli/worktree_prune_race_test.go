@@ -68,15 +68,16 @@ func TestACreateSurvivesAPruneOutsideTheLock(t *testing.T) {
 	}
 }
 
-// loseFirstRegistration installs a post-checkout hook that, in the first worktree add that runs it, removes
+// loseFirstRegistration installs a checkout filter that, in the first worktree add that runs it, removes
 // the new registration's gitdir file and then runs `git worktree prune` outside the adapter's lock, which
 // removes the rest. That is the state a prune in another process leaves when it removes a registration
 // file by file while the add is still writing it: the add succeeds, and the worktree's .git file points
-// at no registration. It returns the worktree environment that arms the hook, and a check that it ran.
+// at no registration. It returns the worktree environment that arms the filter, and a check that it ran.
 func loseFirstRegistration(t *testing.T, repo *gittest.Repo) (env []string, fired func() bool) {
 	t.Helper()
 	mark := filepath.Join(t.TempDir(), "fired")
-	writePostCheckout(t, repo, `#!/bin/sh
+	writeCheckoutProbe(t, repo, `#!/bin/sh
+cat
 [ -e "$LOSE_REGISTRATION_MARK" ] && exit 0
 : > "$LOSE_REGISTRATION_MARK"
 rm -f "$(git rev-parse --path-format=absolute --git-dir)/gitdir"
@@ -88,27 +89,29 @@ git --git-dir="$(git rev-parse --path-format=absolute --git-common-dir)" worktre
 	}
 }
 
-// countAdds installs a post-checkout hook that counts the worktree adds that succeed, and returns the
+// countAdds installs a checkout filter that counts the worktree adds that succeed, and returns the
 // worktree environment that arms it, and the count.
 func countAdds(t *testing.T, repo *gittest.Repo) (env []string, adds func() int) {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "adds")
-	writePostCheckout(t, repo, "#!/bin/sh\necho >> \"$COUNT_ADDS_FILE\"\n")
+	writeCheckoutProbe(t, repo, "#!/bin/sh\ncat\necho >> \"$COUNT_ADDS_FILE\"\n")
 	return append(repo.Env(), "COUNT_ADDS_FILE="+file), func() int {
 		data, _ := os.ReadFile(file)
 		return strings.Count(string(data), "\n")
 	}
 }
 
-func writePostCheckout(t *testing.T, repo *gittest.Repo, script string) {
+// writeCheckoutProbe makes README.txt pass through a smudge filter that runs this script, so the script runs
+// once in every checkout of a worktree add. A repository's hooks do not run in a worktree add, so a filter is
+// what a test uses to run code inside one. The script passes its input through with cat.
+func writeCheckoutProbe(t *testing.T, repo *gittest.Repo, script string) {
 	t.Helper()
-	hooks := filepath.Join(repo.Dir, ".git", "hooks")
-	if err := os.MkdirAll(hooks, 0o700); err != nil {
+	path := filepath.Join(t.TempDir(), "probe.sh")
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(hooks, "post-checkout"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	repo.Commit(".gitattributes", "README.txt filter=probe\n")
+	repo.Git("config", "filter.probe.smudge", path)
 }
 
 // From git 2.48, `worktree.useRelativePaths` writes a registration's links as relative paths, and `git
