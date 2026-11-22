@@ -72,6 +72,13 @@ func (s *assistantState) noteTurn() {
 	s.briefed = true
 }
 
+// newGeneration says the next turn to end is the first prompt's again.
+func (s *assistantState) newGeneration() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.briefed = false
+}
+
 // isBriefed says the turn of the first prompt ended.
 func (s *assistantState) isBriefed() bool {
 	s.mu.Lock()

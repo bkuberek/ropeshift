@@ -637,7 +637,8 @@ func (r *laneRun) endResult(report workorders.Report) workorders.LaneResult {
 func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located, lease ledger.DesiredLease) (*laneRun, error) {
 	lease.WorkOrder, lease.ClaimID, lease.Fence, lease.Lane = record.WorkOrder, record.ClaimID, record.Fence, record.ID
 	run := w.resumedRun(lease, record)
-	if run.assisting() && record.Progress.Briefed {
+	// A cursor moves only when a turn ends, so it says the same in a journal kept before Briefed was.
+	if run.assisting() && (record.Progress.Briefed || record.Progress.Cursor > 0) {
 		run.assistant().noteTurn()
 	}
 	run.fenced.Store(w.leaseGone(ctx, record))
