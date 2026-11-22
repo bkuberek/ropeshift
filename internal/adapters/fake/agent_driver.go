@@ -421,8 +421,8 @@ func (d *AgentDriver) surfacesOfLocked(version string) (degraded bool, injection
 }
 
 // Probe returns what a probe of the installed version observes: its peer channel as the script sets
-// it, and degraded as SetVersion says. A held probe waits for its release, and FailProbe makes it
-// fail.
+// it, which fails when SetVersion says degraded. A held probe waits for its release, and FailProbe
+// makes it fail.
 func (d *AgentDriver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualification, error) {
 	d.mu.Lock()
 	d.probes = append(d.probes, spec)
@@ -441,7 +441,7 @@ func (d *AgentDriver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qu
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	result := lanes.CheckPassed
-	if d.noPeerChannel {
+	if d.noPeerChannel || d.degraded {
 		result = lanes.CheckFailed
 	}
 	return lanes.Qualification{

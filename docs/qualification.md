@@ -21,7 +21,7 @@ Each surface has one check and one use. A surface whose check failed, or could n
 
 The start check answers the trust dialog with the key its focus calls for, and reads the screen again only once it shows a different frame, so a pane that repaints slowly is never answered twice. It sends Enter once. A key the pane never took, or an Enter that was lost, ends the check at its timeout. A fresh start then parks the lane on the screen it stopped on, for a person, and a resume falls back to a new generation.
 
-A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, `max_budget_usd`, and `stream_usage` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription.
+A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, `max_budget_usd`, and `stream_usage` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription. A check a probe does not run, the login check on an API key and the screen check on a worker with no terminal, is not part of its result.
 
 ## Where results come from
 
@@ -29,7 +29,7 @@ The release ships a matrix in the binary, built from `internal/adapters/claudeco
 
 The matrix qualifies Claude Code 2.1.316, 2.1.317, and 2.1.319, each with every surface above passed, except `max_budget_usd` and `stream_usage`, which the release's qualification has not observed, so a version runs with no budget cap until a worker's own probe passes the first, and a worker's own probe is what says whether the second holds on that machine. `make qualify` runs the production probe on the installed CLI and ends with that version's row for the matrix. It starts real sessions, so a maintainer runs it by hand and never in continuous integration.
 
-A running worker does not rely on the matrix alone, because the settings and plugins on a machine are part of what must work. The worker reads the installed version when it starts, once a minute while it runs, and before each lane's process. On a version this worker has not probed, it starts a probe on that machine in the background, with no lane asking, and runs its checks at once:
+A running worker does not rely on the matrix alone, because the settings and plugins on a machine are part of what must work. The worker reads the installed version when it starts, once a minute while it runs, and before each lane's process. On a version this worker has not probed, or whose last result has a check that did not pass and whose [wait](#probing-a-version-again) is over, it starts a probe on that machine in the background, with no lane asking, and runs its checks at once:
 
 - three short headless sessions, under `accept`, `refuse`, and `hold`, with at most one turn each, apart from a second turn when the first message is never taken;
 - one headless session with a budget cap of a hundredth of a cent, whose one turn the client ends at the cap when the flag works, which costs a fraction of a cent;
@@ -38,6 +38,16 @@ A running worker does not rely on the matrix alone, because the settings and plu
 Each of them starts with a lane's isolation: `--setting-sources project`, `--strict-mcp-config` with the probe's own MCP configuration, and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` ([your own agent CLI setup](authorization.md#your-own-agent-cli-setup)). So what the probe qualifies is what a lane runs, and a piece of the member's own setup that reaches a probe session reached it past the same flags, as a leak would reach a lane.
 
 No lane waits for the probe. A lane that starts while it runs starts at once, on documented surfaces, because no probe's result names its version yet, so it runs in `degraded_mode`. While the probe runs, a lane whose process runs on the version carries the check, which `ropeshift lane show`, the lane page, and Planning say in words: `Checking Claude Code <version>`, that the lane runs on documented surfaces until the check passes, and that a respawn then picks up the qualified surfaces. The probe's end clears it. A worker that has probed no version before is the one exception: its driver answers from the shipped matrix, so a version the matrix holds runs on the surfaces the matrix passed, the lane is not degraded, and its check says `Checking Claude Code <version>: this lane runs on the surfaces this release qualified for <version> until the check ends`. One probe runs at a time, and every lane on the version shares it. The result is kept in the worker's journal, recorded in the ledger as `worker.driver_qualified`, and handed to the driver, and from then on it decides that version's surfaces for each process that starts. A probe that cannot run leaves every surface unobserved, so the version runs degraded.
+
+## Probing a version again
+
+A result in which every check passed holds for its version until the version changes. Any other result is probed again: one with a check that failed, one with a check no session reached, and one a probe that could not run left, which holds no check. The worker probes such a version once when it starts, and then while it runs, on a backoff.
+
+The wait after a probe is 1 hour, and doubles with each later probe of the same version, to 2, 4, 8, and 16 hours, and no more than 24 hours after that. It runs from the end of the probe, and the worker's clock reads it.
+
+A probe in which every check passed ends the wait, and a probe of a version the last probe did not name starts it at 1 hour. A probe that ends in any other way starts the wait too: one that could not run, one whose result could not be kept, and one that ended because the version moved under it. So no version is probed in a loop, and no look at the version, whether the worker's own each minute or a lane's before its process, starts a probe before its wait is over. A worker that restarts probes such a version once as it starts.
+
+While the probe runs, the last result stays in force: the driver keeps it, a lane's status reads it, and no lane waits. One probe runs at a time, for the version and for every lane on it.
 
 ## When the CLI updates itself
 

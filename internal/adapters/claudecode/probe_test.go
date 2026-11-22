@@ -134,16 +134,30 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 	}
 }
 
-// A login check made on an API key cannot read a subscription's login, so it stays unobserved.
-func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
+// A login check made on an API key cannot read a subscription's login, so the probe does not run it and its result
+// holds no login check.
+func TestAProbeOnAnAPIKeyLeavesTheLoginOut(t *testing.T) {
 	driver, spec, _ := probeRig(t)
 	spec.SignIn = ports.SignInAPIKey
 	q, err := driver.Probe(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.Checks[claudecode.SurfacePrintKeepsLogin] != lanes.CheckUnobserved || q.Degraded {
+	if _, ran := q.Checks[claudecode.SurfacePrintKeepsLogin]; ran || q.Degraded || !q.AllPassed() {
 		t.Errorf("qualification %+v", q)
+	}
+}
+
+// A probe that has no terminal runs no screen check, so its result holds none, and the version is not left with a
+// check that could never pass.
+func TestAProbeWithNoTerminalLeavesTheScreensOut(t *testing.T) {
+	driver, spec, _ := probeRigOn(t, nil)
+	q, err := driver.Probe(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ran := q.Checks[claudecode.SurfaceStartScreens]; ran || q.Degraded || !q.AllPassed() {
+		t.Errorf("a probe with no terminal holds %+v", q)
 	}
 }
 

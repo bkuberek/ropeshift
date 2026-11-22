@@ -120,6 +120,14 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	if after, err := d.version(ctx, spec.Env); err != nil || after != version {
 		return lanes.Qualification{}, fmt.Errorf("%w: from %s", ErrVersionMoved, version)
 	}
+	// A check this probe did not run is no result of it: on an API key the login is not read, and with no terminal no
+	// screen is.
+	if spec.SignIn == ports.SignInAPIKey {
+		delete(q.Checks, SurfacePrintKeepsLogin)
+	}
+	if d.terminal == nil {
+		delete(q.Checks, SurfaceStartScreens)
+	}
 	return judged(q, d.terminal != nil), nil
 }
 

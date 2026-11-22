@@ -57,6 +57,21 @@ func (q Qualification) Holds(installed string) bool {
 	return q.Source == QualifiedByProbe && q.For(installed)
 }
 
+// AllPassed reports a result in which every check passed, which holds for its version for good. A result that
+// holds no check, as a probe that could not run leaves, is not one, and neither is one with a check that failed or
+// that no session reached.
+func (q Qualification) AllPassed() bool {
+	if len(q.Checks) == 0 {
+		return false
+	}
+	for _, result := range q.Checks {
+		if result != CheckPassed {
+			return false
+		}
+	}
+	return true
+}
+
 // Check reports a qualification a worker could have sent: a driver, a version, a probe as its
 // source, and only the three results.
 func (q Qualification) Check() error {

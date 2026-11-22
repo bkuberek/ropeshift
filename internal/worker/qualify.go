@@ -22,6 +22,10 @@ const (
 	// versionCheckEvery is how often a running worker reads the installed version, so a CLI that
 	// updated itself is probed before a lane asks.
 	versionCheckEvery = time.Minute
+	// requalifyFirst is how long after a probe of a version whose result has a check that did not pass the next probe of
+	// it waits, and each wait after that doubles, up to requalifyCap. Each probe spends real CLI sessions.
+	requalifyFirst = time.Hour
+	requalifyCap   = 24 * time.Hour
 )
 
 // errNoVersion is a driver that reports no installed version.
@@ -32,8 +36,17 @@ type probeRun struct {
 	version string
 }
 
+// probeBackoff is the last probe of one version that ended, whatever it ended with, and when the next may start. A
+// worker keeps one: a probe of another version, or one with every check passed, starts it over.
+type probeBackoff struct {
+	version string
+	wait    time.Duration
+	next    time.Time
+}
+
 // loadQualification hands the driver what this worker's last probe observed, so a restart on the
-// same version starts work with no second probe, and a version that moved since reads unqualified.
+// same version starts work on that result, and a version that moved since reads unqualified. A result with every
+// check passed holds, and any other is probed again as the worker starts.
 func (w *Worker) loadQualification(ctx context.Context) error {
 	if w.config.Lanes == nil {
 		return nil
@@ -52,9 +65,8 @@ func (w *Worker) loadQualification(ctx context.Context) error {
 	return nil
 }
 
-// lookAtVersion reads the installed version and starts its probe when no probe's result holds for it,
-// with no lane asking (FR-DRV-2). A version nobody can read is the doctor's to report, and the next
-// look reads it again.
+// lookAtVersion reads the installed version and starts its probe when it is due, with no lane asking (FR-DRV-2). A
+// version nobody can read is the doctor's to report, and the next look reads it again.
 func (w *Worker) lookAtVersion(ctx context.Context) {
 	if w.config.Lanes == nil {
 		return
@@ -86,10 +98,10 @@ func (w *Worker) qualifyLane(ctx context.Context, lease ledger.DesiredLease) {
 	}
 }
 
-// qualify starts the probe of the installed version when no probe's result holds for it and no probe
-// runs. One probe runs at a time, and a probe of another version that ends leaves the next look to
-// start this one. No result holds for an empty version, so a driver that read none is not probed:
-// each probe would end only for the next to start. A worker told not to probe starts none.
+// qualify starts the probe of the installed version when one is due and no probe runs (probeDueLocked). One probe
+// runs at a time, and a probe of another version that ends leaves the next look to start this one. No result holds
+// for an empty version, so a driver that read none is not probed: each probe would end only for the next to start. A
+// worker told not to probe starts none.
 func (w *Worker) qualify(ctx context.Context) error {
 	if w.config.Lanes.NoProbe {
 		return nil
@@ -103,7 +115,7 @@ func (w *Worker) qualify(ctx context.Context) error {
 	}
 	w.qualLock.Lock()
 	defer w.qualLock.Unlock()
-	if w.qual.Holds(capabilities.Version) || w.probe != nil {
+	if w.probe != nil || !w.probeDueLocked(capabilities.Version, w.clock.Now()) {
 		return nil
 	}
 	life := w.life
@@ -114,6 +126,32 @@ func (w *Worker) qualify(ctx context.Context) error {
 	w.probe = p
 	w.probes.Go(func() { w.runProbe(life, p) })
 	return nil
+}
+
+// probeDueLocked says a probe of the installed version is due. A result with every check passed that holds for
+// the version is never probed again. Any other version is, unless the last probe of it ended less than its wait ago,
+// whether it left a result with a check that did not pass, left none because it could not run or its result could not
+// be kept, or ended because the version moved under it. So no path probes a version in a loop.
+func (w *Worker) probeDueLocked(version string, now time.Time) bool {
+	if w.qual.Holds(version) && w.qual.AllPassed() {
+		return false
+	}
+	return w.backoff.version != version || !now.Before(w.backoff.next)
+}
+
+// noteProbeLocked starts the wait after a probe of a version that has ended. A probe that ended with every check
+// passed and kept ends the backoff, and any other starts it at requalifyFirst for a version the last probe did not
+// name, or doubles it, up to requalifyCap.
+func (w *Worker) noteProbeLocked(version string, passed bool) {
+	if passed {
+		w.backoff = probeBackoff{}
+		return
+	}
+	wait := requalifyFirst
+	if w.backoff.version == version {
+		wait = min(2*w.backoff.wait, requalifyCap)
+	}
+	w.backoff = probeBackoff{version: version, wait: wait, next: w.clock.Now().Add(wait)}
 }
 
 // handOverLocked hands the driver the last probe's result. The driver qualifies the version that result
@@ -127,16 +165,17 @@ func (w *Worker) handOverLocked() {
 }
 
 // runProbe runs one probe and keeps its result: in the journal with the event that records it, and
-// in the driver, which from then on qualifies that version alone. A probe that could not run leaves
-// every surface unobserved, so the version runs degraded.
+// in the driver, which from then on qualifies that version alone. While it runs the last result stays in force. A
+// probe that could not run leaves every surface unobserved, so the version runs degraded.
 func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	// A probe's end moves the status of every lane on its version, so the loop publishes at once. A probe
 	// that ends with no result of its own, because the version moved under it, leaves the driver what the
-	// worker holds.
-	ownResult := false
+	// worker holds. Whatever it ends with, the wait before the next probe of the version starts.
+	ownResult, passed := false, false
 	defer func() {
 		w.qualLock.Lock()
 		w.probe = nil
+		w.noteProbeLocked(p.version, passed)
 		if !ownResult {
 			// Hands the driver the last result the worker holds, which names no version this probe checked.
 			w.handOverLocked()
@@ -166,7 +205,8 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 		w.config.Report(fmt.Errorf("keeping the probe of %s: %w", q.Version, err))
 		return
 	}
-	ownResult = true
+	// A result for a version other than the one this probe was started for leaves that version to be probed again.
+	ownResult, passed = true, q.AllPassed() && q.Version == p.version
 }
 
 // keepQualification stores a result and its event in one write, then hands it to the driver, so the
