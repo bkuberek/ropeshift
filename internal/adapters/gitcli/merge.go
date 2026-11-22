@@ -341,7 +341,7 @@ func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, tr
 		return ran{}, err
 	}
 	for _, commit := range strings.Fields(commits) {
-		picked, err := in.run(ctx, "cherry-pick", "--allow-empty", "--keep-redundant-commits", commit)
+		picked, err := in.run(ctx, "cherry-pick", "--allow-empty", "--keep-redundant-commits", "--cleanup=verbatim", commit)
 		if err != nil || picked.code != 0 {
 			return picked, err
 		}
