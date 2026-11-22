@@ -65,9 +65,12 @@ func TestADialogAskedDuringAnAdoptionReachesTheDriver(t *testing.T) {
 		name    string
 		after   string
 		afterMs int64
+		first   bool
 		told    []string
 	}{
 		{name: "still open", told: []string{"PermissionRequest"}},
+		{name: "its turn's Stop came first", after: "Stop", afterMs: 20, first: true, told: []string{"Stop"}},
+		{name: "its turn's StopFailure came first", after: "StopFailure", afterMs: 20, first: true, told: []string{"StopFailure"}},
 		{name: "its call ended", after: "PostToolUse", afterMs: 20},
 		{name: "its turn ended", after: "Stop", afterMs: 20, told: []string{"Stop"}},
 		{name: "its turn failed", after: "StopFailure", afterMs: 20, told: []string{"StopFailure"}},
@@ -82,9 +85,13 @@ func TestADialogAskedDuringAnAdoptionReachesTheDriver(t *testing.T) {
 			w.adoptedAt(t, lanes.Working, lanes.Idle)
 			w.holdsToken(t)
 			w.config.Driver = &adoptingDriver{AgentDriver: w.driver, during: func() {
+				after := lanes.HookEvent{Event: test.after, Subject: "s", Digest: "seen-1", AtMs: test.afterMs}
+				if test.first {
+					w.hookOnSocket(t, after)
+				}
 				w.hookOnSocket(t, lanes.HookEvent{Event: "PermissionRequest", Subject: "s", Digest: "seen-1", AtMs: 10})
-				if test.after != "" {
-					w.hookOnSocket(t, lanes.HookEvent{Event: test.after, Subject: "s", Digest: "seen-1", AtMs: test.afterMs})
+				if test.after != "" && !test.first {
+					w.hookOnSocket(t, after)
 				}
 			}}
 			w.passesOnceAdopted(t)
@@ -98,6 +105,51 @@ func TestADialogAskedDuringAnAdoptionReachesTheDriver(t *testing.T) {
 			}
 			if !slices.Equal(told, want) {
 				t.Errorf("the driver was told %q, want %q", told, want)
+			}
+		})
+	}
+}
+
+// A Notification of a dialog that arrives once a run exists and before the driver holds its session still reaches the
+// driver, or a key typed after the adoption would answer the dialog. A prompt reaches it too, which answers such a
+// dialog, and an end the run kept closes a dialog older than it, whichever arrived first.
+func TestADialogsNotificationDuringAnAdoptionReachesTheDriver(t *testing.T) {
+	t.Parallel()
+	dialog := lanes.HookEvent{Event: "Notification", Subject: "s", Detail: lanes.NotificationPermission, AtMs: 10}
+	tests := []struct {
+		name  string
+		hooks []lanes.HookEvent
+		told  []string
+	}{
+		{"still open", []lanes.HookEvent{dialog}, []string{"Notification"}},
+		{"an elicitation", []lanes.HookEvent{{Event: "Notification", Subject: "s", Detail: lanes.NotificationElicitation, AtMs: 10}}, []string{"Notification"}},
+		{"a prompt after it", []lanes.HookEvent{dialog, {Event: lanes.EventUserPromptSubmit, Subject: "s", AtMs: 20}}, []string{"Notification", lanes.EventUserPromptSubmit}},
+		{"its turn ended", []lanes.HookEvent{dialog, {Event: "Stop", Subject: "s", AtMs: 20}}, []string{"Stop"}},
+		{"its turn's Stop came first", []lanes.HookEvent{{Event: "Stop", Subject: "s", AtMs: 20}, dialog}, []string{"Stop"}},
+		{"a Notification of no dialog", []lanes.HookEvent{{Event: "Notification", Subject: "s", Detail: "idle_prompt", AtMs: 10}}, nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorldRig(t)
+			w.desire("lane-1")
+			w.adoptedAt(t, lanes.Working, lanes.Idle)
+			w.holdsToken(t)
+			w.config.Driver = &adoptingDriver{AgentDriver: w.driver, during: func() {
+				for _, hook := range test.hooks {
+					w.hookOnSocket(t, hook)
+				}
+			}}
+			w.passesOnceAdopted(t)
+			for end := time.Now().Add(2 * time.Second); len(w.driver.Hooks()) < len(test.told) && time.Now().Before(end); {
+				time.Sleep(time.Millisecond)
+			}
+			var told []string
+			for _, event := range w.driver.Hooks() {
+				told = append(told, event.Event)
+			}
+			if !slices.Equal(told, test.told) {
+				t.Errorf("the driver was told %q, want %q", told, test.told)
 			}
 		})
 	}

@@ -110,3 +110,34 @@ func TestTheStartOfATurnHoldsTheKeys(t *testing.T) {
 	s.now = func() time.Time { return now.Add(dialogNotice) }
 	typesFreely(t, s)
 }
+
+// A prompt's hook can reach a pane twice, from an adoption that kept it and from the session it adopted, and it began
+// one turn.
+func TestARepeatedPromptIsTakenOnce(t *testing.T) {
+	t.Parallel()
+	s := replayedPane(t, 0)
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: 120})
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: 120})
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: 115})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	admitted := 0
+	for _, event := range s.queue {
+		if event.Kind == ports.EventInputAdmitted {
+			admitted++
+		}
+	}
+	if admitted != 1 {
+		t.Errorf("one prompt was admitted %d times", admitted)
+	}
+}
+
+// A prompt answers a dialog older than it, and a late prompt's hook leaves a newer dialog standing.
+func TestALatePromptLeavesANewerDialog(t *testing.T) {
+	t.Parallel()
+	s, terminal := dialogPane(t)
+	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationPermission, AtMs: 130})
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: 120})
+	refusesInput(t, s)
+	noKeyReached(t, s, terminal)
+}

@@ -712,10 +712,19 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case hookSessionStart:
 		s.note(event)
 	case hookUserPromptSubmit:
+		// A prompt no newer than the newest began a turn already taken: a hook can reach a pane twice, from a spool or
+		// from an adoption that kept it.
+		repeated := event.AtMs > 0 && event.AtMs <= s.promptMs
 		s.promptMs = max(s.promptMs, event.AtMs)
-		s.waiting = false
+		// A prompt answers a dialog older than it, and a late prompt's hook leaves a newer one.
+		if event.AtMs == 0 || event.AtMs > s.waitingMs {
+			s.waiting = false
+		}
 		s.tookLine()
 		s.note(event)
+		if repeated {
+			return
+		}
 		s.push(ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.seen.SessionID, ModelResolved: s.seen.ModelResolved})
 		s.push(ports.DriverEvent{Kind: ports.EventInputAdmitted})
 	case hookStop:
