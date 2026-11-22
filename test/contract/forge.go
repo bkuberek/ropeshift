@@ -219,7 +219,7 @@ func checkPRRequiredChecks(t *testing.T, ctx context.Context, rig ForgeRig) {
 
 func mergePR(t *testing.T, ctx context.Context, rig ForgeRig, number int64, head string, method ledger.MergeMethod) ledger.MergeResult {
 	t.Helper()
-	result, err := rig.Forge.Merge(ctx, ports.PullRequestRef{Repo: rig.Repo, Number: number}, head, method, "wo-1")
+	result, err := rig.Forge.Merge(ctx, ports.PullRequestRef{Repo: rig.Repo, Number: number}, head, method)
 	if err != nil {
 		t.Fatal(err)
 	}

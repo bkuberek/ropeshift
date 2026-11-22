@@ -343,12 +343,11 @@ func remoteHead(state ghstate.State, branch string) string {
 // moved past --match-head-commit, a merge that conflicts, a branch behind its base, and a base whose
 // protection refuses it. A merged pull request merges nothing again, and says so with success, as gh does.
 func prMerge(dir string, args []string) {
-	var repo, match, body string
+	var repo, match string
 	var merge, squash, rebase bool
 	_, positional := parse("pr merge", args, func(fs *flag.FlagSet) {
 		fs.StringVar(&repo, "repo", "", "")
 		fs.StringVar(&match, "match-head-commit", "", "")
-		fs.StringVar(&body, "body", "", "")
 		fs.BoolVar(&merge, "merge", false, "")
 		fs.BoolVar(&squash, "squash", false, "")
 		fs.BoolVar(&rebase, "rebase", false, "")
@@ -392,7 +391,7 @@ func prMerge(dir string, args []string) {
 			refusal = fmt.Sprintf("X Pull request %s#%d is not mergeable: %s.", repo, target.Number, reason)
 			return nil
 		}
-		commit, err := mergeOnRemote(*s, *target, head, method, body)
+		commit, err := mergeOnRemote(*s, *target, head, method)
 		if errors.Is(err, errConflict) {
 			refusal = fmt.Sprintf("X Pull request %s#%d is not mergeable: %s.", repo, target.Number, notMergeable["DIRTY"])
 			return nil
@@ -561,8 +560,8 @@ func mergeTree(bare, base, head string) (string, bool, error) {
 
 // mergeOnRemote lands head on the base branch of the remote with the method: a merge commit with both
 // parents, or for a squash or a rebase one commit on the base's tip, as the forge would. The base moves only
-// from the tip the merge read. A squash is titled by the pull request and carries --body as its body, as GitHub's is.
-func mergeOnRemote(state ghstate.State, pr ghstate.PullRequest, head, method, body string) (string, error) {
+// from the tip the merge read.
+func mergeOnRemote(state ghstate.State, pr ghstate.PullRequest, head, method string) (string, error) {
 	bare, err := remotePath(state)
 	if err != nil {
 		return "", err
@@ -583,14 +582,7 @@ func mergeOnRemote(state ghstate.State, pr ghstate.PullRequest, head, method, bo
 	if method == "merge" {
 		args = append(args, "-p", head)
 	}
-	subject := fmt.Sprintf("Merge pull request #%d from %s", pr.Number, pr.Branch)
-	if method == "squash" {
-		subject = fmt.Sprintf("%s (#%d)", cmpOr(pr.Title, pr.Branch), pr.Number)
-	}
-	args = append(args, "-m", subject)
-	if method == "squash" && body != "" {
-		args = append(args, "-m", body)
-	}
+	args = append(args, "-m", fmt.Sprintf("Merge pull request #%d from %s", pr.Number, pr.Branch))
 	cmd := exec.Command("git", args...)
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=GitHub", "GIT_AUTHOR_EMAIL=noreply@github.invalid", "GIT_COMMITTER_NAME=GitHub", "GIT_COMMITTER_EMAIL=noreply@github.invalid")
 	made, err := cmd.Output()

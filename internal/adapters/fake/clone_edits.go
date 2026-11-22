@@ -96,7 +96,7 @@ func (c *CloneEdits) Landed() []ledger.Landed {
 func (c *CloneEdits) Diverged(_ context.Context, clone, branch, _ string, landed ledger.Landed, _ int) (ledger.Divergence, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.landed = append(c.landed, ledger.Landed{Commits: slices.Clone(landed.Commits), Ranges: slices.Clone(landed.Ranges)})
+	c.landed = append(c.landed, ledger.Landed{Commits: slices.Clone(landed.Commits), Ranges: slices.Clone(landed.Ranges), Unranged: slices.Clone(landed.Unranged)})
 	if err := c.unreadable[path.Clean(clone)+"\x00"+branch]; err != nil {
 		return ledger.Divergence{}, fmt.Errorf("reading %s in %s: %w", branch, clone, err)
 	}

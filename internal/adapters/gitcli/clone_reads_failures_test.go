@@ -125,6 +125,75 @@ func TestAPathThatHoldsANewlineIsHashedOnItsOwn(t *testing.T) {
 	}
 }
 
+// A path beneath a directory that is a link is read as gone, whatever the link points at: what lies outside the clone is
+// never opened, hashed, or listed, for a file, a file named with a line break, a link, and a submodule alike. A link that
+// is the path itself still reads as its link text.
+func TestAPathBeneathALinkedDirectoryIsReadAsGone(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("a.md", "a\n")
+	outside := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(outside, name)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outside, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("secret.md", "a file outside the clone\n")
+	write("new\nline.md", "a file with a line break in its name\n")
+	if err := os.Symlink("secret.md", filepath.Join(outside, "inner-link")); err != nil {
+		t.Fatal(err)
+	}
+	inner := gittest.NewIn(t, filepath.Join(outside, "submodule-root"))
+	inner.Commit("inner.md", "inner\n")
+	if err := os.Rename(inner.Dir, filepath.Join(outside, "subrepo")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(repo.Dir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo.Dir, "deep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(repo.Dir, "deep", "linked2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a.md", filepath.Join(repo.Dir, "leaf-link")); err != nil {
+		t.Fatal(err)
+	}
+	beneath := []string{"linked/secret.md", "linked/new\nline.md", "linked/inner-link", "linked/subrepo", "linked/subrepo/", "deep/linked2/secret.md"}
+	runs := gittest.RecordGit(t)
+	got, err := gitcli.Worktrees{Env: repo.Env()}.Contents(t.Context(), repo.Dir, append(slices.Clone(beneath), "a.md", "leaf-link", "linked"))
+	if err != nil {
+		t.Fatalf("contents: %v", err)
+	}
+	for _, path := range beneath {
+		if got[path] != "" {
+			t.Errorf("%q beneath a linked directory reads as %q, want gone", path, got[path])
+		}
+	}
+	for _, link := range []string{"leaf-link", "linked"} {
+		if want := blobOf(t, repo, link); got[link] != want {
+			t.Errorf("the link %s reads %q, want the blob of its link text %s", link, got[link], want)
+		}
+	}
+	if want := blobOf(t, repo, "a.md"); got["a.md"] != want {
+		t.Errorf("a.md reads as %q, want %s", got["a.md"], want)
+	}
+	for _, run := range runs("hash-object") {
+		if strings.Contains(run, "linked") {
+			t.Errorf("git hashed a path beneath a link: %q", run)
+		}
+	}
+	for _, run := range runs("--literal-pathspecs") {
+		if strings.Contains(run, "linked") {
+			t.Errorf("git listed a path beneath a link: %q", run)
+		}
+	}
+}
+
 // pathOf puts a git on PATH that answers the commands whose first argument match as a script says, and runs the real one
 // for the rest. The command a read runs is found on this process's PATH.
 func pathOf(t *testing.T, answer string) {

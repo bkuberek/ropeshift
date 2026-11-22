@@ -189,8 +189,11 @@ func laneRef(ctx context.Context, git Git, ref, shown string) (string, error) {
 // remote's copy of baseBranch as the last fetch left it, or the clone's own branch in a clone with no remote, and it is
 // never fetched. The base's side counts only the commits on its first-parent line that are no merge, that carry no
 // trailer of a merge of ropeshift, and that landed names as neither a commit of landed work nor one of a range of it, so
-// neither the work ropeshift or the forge merged nor what a merge brought in reads as a person's. Each listing is read NUL-separated and stops once
-// limit paths of its side are kept. Only a ref or a fork point git says is missing is ErrNotFound.
+// neither the work ropeshift or the forge merged nor what a merge brought in reads as a person's. A range is read only
+// when its first end is an ancestor of its last. The divergence says Unranged when a commit landed names as the merge
+// commit of a pull request with no range, or whose range is not read, is one of the base's commits since the fork. Each
+// listing is read NUL-separated and stops once limit paths of its side are kept. Only a ref or a fork point git says is
+// missing is ErrNotFound.
 func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch string, landed ledger.Landed, limit int) (ledger.Divergence, error) {
 	for _, name := range []string{branch, baseBranch} {
 		if err := ledger.CheckStoredBranch(name); err != nil {
@@ -255,9 +258,23 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 		commits, out.Cut = commits[:editsCommits], true
 	}
 	ends := slices.Clone(commits)
+	unranged := slices.Clone(landed.Unranged)
 	for _, span := range landed.Ranges {
-		// A range counts only when it ends at a commit this side lists, and only when the clone holds both its ends.
+		// A range counts only when it ends at a commit this side lists.
 		if !ledger.CommitHash(span.Before) || !ledger.CommitHash(span.After) || !slices.Contains(ends, span.After) {
+			continue
+		}
+		// A rebase's range begins at an ancestor of where it ends. One that does not, or whose first end the clone does not
+		// hold, is no range, and the merge it came from is one with no range.
+		ancestor, err := git.run(ctx, "merge-base", "--is-ancestor", span.Before, span.After)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			return ledger.Divergence{}, err
+		}
+		if ancestor.code != 0 || span.Before == span.After {
+			unranged = append(unranged, span.After)
 			continue
 		}
 		inside, err := git.run(ctx, "--no-optional-locks", "rev-list", "--first-parent", "--max-count="+strconv.Itoa(editsCommits), "--end-of-options", span.After, "^"+span.Before)
@@ -274,6 +291,7 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 		commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(members, commit) })
 	}
 	commits = slices.DeleteFunc(commits, func(commit string) bool { return slices.Contains(landed.Commits, commit) })
+	out.Unranged = slices.ContainsFunc(unranged, func(commit string) bool { return slices.Contains(ends, commit) })
 	if len(commits) > 0 {
 		names, err := git.Feed(ctx, []byte(strings.Join(commits, "\n")+"\n"), "--no-optional-locks", "log", "--no-walk=unsorted", "--stdin", "--no-renames", "--format=", "--name-only", "-z")
 		if err != nil {
@@ -295,14 +313,18 @@ const unstorable = "unstorable"
 // Contents reads what each path in the clone would be stored as, with no filter run and no object written, and empty for
 // a path whose file is gone. A file is its blob. A symlink is the blob of its link text, as git stores it, and what it
 // points at is never opened. A submodule is the commit the index records for it. A pipe, a socket, a device, or any other
-// directory is never opened. A file whose name holds a line break or begins with a quote is hashed on its own, because
-// git reads a list of names a line each.
+// directory is never opened. A path beneath a directory that is a link, which leads out of the clone, reads as gone, and
+// so does a path that does not lie within the clone. A file whose name holds a line break or begins with a quote is
+// hashed on its own, because git reads a list of names a line each.
 func (w Worktrees) Contents(ctx context.Context, clone string, paths []string) (map[string]string, error) {
 	out := make(map[string]string, len(paths))
 	git := w.cloneGit(clone)
 	var listed, directories []string
 	for _, path := range paths {
 		out[path] = ""
+		if !withinClone(clone, path) {
+			continue
+		}
 		full := filepath.Join(clone, filepath.FromSlash(path))
 		info, err := os.Lstat(full)
 		switch {
@@ -354,6 +376,26 @@ func (w Worktrees) Contents(ctx context.Context, clone string, paths []string) (
 		}
 	}
 	return out, nil
+}
+
+// withinClone says a path lies within the clone by its own components: it is a local path, and no directory above it
+// below the clone's top is a link or anything but a directory. The last component is the path's own, which a read of it
+// looks at without following. A parent that is missing leaves the path gone.
+func withinClone(clone, path string) bool {
+	slashed := strings.TrimSuffix(path, "/")
+	if !filepath.IsLocal(filepath.FromSlash(slashed)) {
+		return false
+	}
+	parts := strings.Split(slashed, "/")
+	dir := clone
+	for _, part := range parts[:len(parts)-1] {
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 // recordedSubmodules reads the commit the index records for each of the paths that is a submodule.

@@ -2,6 +2,7 @@ package gitcli_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -212,6 +213,86 @@ func TestARebaseCarriesTheTrailersOnEveryCommit(t *testing.T) {
 	tip := r.remoteMain()
 	if again := r.merge(ledger.MergeRebase); again.Outcome != ledger.MergeMerged || again.MergeCommit != result.MergeCommit || r.remoteMain() != tip {
 		t.Errorf("a repeat came to %+v, and the remote holds %s, not %s", again, r.remoteMain(), tip)
+	}
+}
+
+// laneWithVerbatim adds a commit to the lane's branch for each message, stored as given: a commit's message is written
+// with no clean-up, so the whitespace a person typed is what the lane holds. The last commit is the reviewed commit.
+func (r *mergeRig) laneWithVerbatim(messages ...string) {
+	r.t.Helper()
+	r.repo.Git("switch", "--quiet", laneBranch)
+	for i, message := range messages {
+		name := "verbatim-" + strconv.Itoa(i) + ".txt"
+		if err := os.WriteFile(filepath.Join(r.repo.Dir, name), []byte("step\n"), 0o600); err != nil {
+			r.t.Fatal(err)
+		}
+		file := filepath.Join(r.t.TempDir(), "message")
+		if err := os.WriteFile(file, []byte(message), 0o600); err != nil {
+			r.t.Fatal(err)
+		}
+		r.repo.Git("add", "--", name)
+		r.repo.Git("commit", "--quiet", "--cleanup=verbatim", "-F", file)
+	}
+	r.head = r.repo.Git("rev-parse", "HEAD")
+	r.repo.Git("switch", "--quiet", "main")
+}
+
+// messageOf is the message of a commit in the remote, byte for byte: what follows the headers of the commit object.
+func (r *mergeRig) messageOf(commit string) string {
+	r.t.Helper()
+	cmd := exec.Command("git", "--git-dir", r.bare, "cat-file", "commit", commit)
+	cmd.Env = r.repo.Env()
+	raw, err := cmd.Output()
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	_, message, _ := strings.Cut(string(raw), "\n\n")
+	return message
+}
+
+// A rebase keeps each commit's message as its author wrote it: hard-break spaces at the end of a line, blank lines in a
+// row, and tabs stay as they were, and only the trailers are added after the message.
+func TestARebaseKeepsEachMessageByteForByte(t *testing.T) {
+	r := newMergeRig(t, true)
+	first := "first step  \n\nA hard break  \nstays here,\ttabs too,\n\n\nand two blank lines stay.\n"
+	second := "second step\n\nSigned-off-by: A Person <person@example.invalid>\nReviewed-by:   Another <other@example.invalid>  \n"
+	r.laneWithVerbatim(first, second)
+	moved := r.remoteMain()
+	result := r.merge(ledger.MergeRebase)
+	landed := r.landedSince(moved, result.MergeCommit)
+	if result.Outcome != ledger.MergeMerged || len(landed) != 3 {
+		t.Fatalf("rebase %+v landed %v", result, landed)
+	}
+	trailers := ledger.MergeTrailers("wo-1", r.head)
+	if got, want := r.messageOf(landed[1]), strings.TrimRight(first, "\n")+"\n\n"+trailers; got != want {
+		t.Errorf("the first step reads\n%q\nwant\n%q", got, want)
+	}
+	if got, want := r.messageOf(landed[2]), second+trailers; got != want {
+		t.Errorf("the second step reads\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A message too long for one argument of a command is replayed as it is: the message goes to git on its standard input.
+func TestARebaseReplaysAMessageOf140Kilobytes(t *testing.T) {
+	r := newMergeRig(t, true)
+	big := "a long step\n\n" + strings.Repeat(strings.Repeat("x", 99)+"  \n", 1450)
+	if len(big) < 140_000 {
+		t.Fatalf("the message is %d bytes", len(big))
+	}
+	r.laneWithVerbatim(big)
+	moved := r.remoteMain()
+	result, err := r.merger.MergeBranch(t.Context(), r.repo.Dir, ports.BranchMerge{
+		Branch: laneBranch, Base: "main", Commit: r.head, Method: ledger.MergeRebase, WorkOrder: "wo-1", Title: "Add the lane's line",
+	})
+	if err != nil || result.Outcome != ledger.MergeMerged {
+		t.Fatalf("rebase %+v: %v", result, err)
+	}
+	landed := r.landedSince(moved, result.MergeCommit)
+	if len(landed) != 2 {
+		t.Fatalf("rebase landed %v", landed)
+	}
+	if got, want := r.messageOf(landed[1]), strings.TrimRight(big, "\n")+"\n\n"+ledger.MergeTrailers("wo-1", r.head); got != want {
+		t.Errorf("the replayed message is %d bytes and differs from the %d it was", len(got), len(want))
 	}
 }
 

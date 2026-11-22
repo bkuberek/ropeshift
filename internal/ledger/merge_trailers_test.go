@@ -24,6 +24,8 @@ func TestTrailersJoinAMessageAfterABlankLineOrTheBlockItEndsIn(t *testing.T) {
 		{"a folded trailer", "Add the step\n\nCo-Debugged-by: A\n  and B\n", "Add the step\n\nCo-Debugged-by: A\n  and B\n" + trailers},
 		{"trailers already there", "Add the step\n\n" + trailers, "Add the step\n\n" + trailers},
 		{"one of them already there", "Add the step\n\nRopeshift-Work-Order: wo-1\n", "Add the step\n\nRopeshift-Work-Order: wo-1\nRopeshift-Reviewed-Commit: abc\n"},
+		{"hard-break spaces at the end of the message", "Add the step\n\nTwo  \nlines  \n", "Add the step\n\nTwo  \nlines  \n\n" + trailers},
+		{"blank lines and tabs inside the message", "Add the step\t\n\n\nBody.\n\n\nMore.\n", "Add the step\t\n\n\nBody.\n\n\nMore.\n\n" + trailers},
 		{"no message", "", trailers},
 	}
 	for _, tt := range tests {

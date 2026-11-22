@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/gittest"
 )
@@ -95,10 +96,48 @@ func commitOn(t *testing.T, repo *gittest.Repo, name, content, message string) s
 	return repo.Git("rev-parse", "HEAD")
 }
 
-// In a repository that squashes or rebases, a work order the forge landed is no person's push, and a person's own push
-// still is: a squash names the work order in its trailers, and a rebase's commits are named by the range the ledger
-// recorded for the merge, on real git from end to end.
-func TestAForgeLandedWorkOrderIsNoConflictAndAPersonsPushIs(t *testing.T) {
+// workPersonMergesOnTheForge takes a work order to a pull request a person merges on the forge, and returns its lane. The
+// lane finishes at head and the pull request opens at it, the review passes, and the worker's read of the merge is the
+// ledger's mergedOnForge: the work ends with the merge commit the forge gave and with no range recorded.
+func workPersonMergesOnTheForge(t *testing.T, d *apitest.Daemon, w *apitest.World, id, head, mergeCommit string) {
+	t.Helper()
+	lane := w.Running(id, "Landed on the forge")
+	branch := "lane/lane-" + id
+	lane.Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Checks: []workorders.CheckResult{{Name: "go test", Passed: true, Criterion: "c1"}}},
+		Branch: branch, Head: head,
+	})
+	open := ledger.PullRequest{
+		Number: 7, URL: "https://forge.example/acme/app/pull/7", State: ledger.PullRequestOpen, Base: "main", Branch: branch, HeadCommit: head, Mergeable: "MERGEABLE",
+	}
+	if err := d.Store.Write(t.Context(), apitest.Scope, "test.pull_request", func(tx ports.WriteTx) error {
+		if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{PullRequest: open, WorkOrder: id, Repository: "repository-1", Worker: apitest.WorldWorker}); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "test.pull_request", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}, Subject: ledger.Subject{Kind: "work_order", ID: id}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.Reviewed(id, workorders.CriterionVerdict{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It works.", Citations: []string{"guide.md:1"}})
+	merged := open
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, mergeCommit, "2026-11-20T10:00:00Z"
+	lane.Upload(ledger.UploadPullRequestRead, ledger.PullRequestReport{WorkOrder: id, PullRequest: merged})
+	var order workorders.WorkOrder
+	if err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) (err error) {
+		order, err = tx.WorkOrders().Get(id)
+		return err
+	}); err != nil || order.State != workorders.Done {
+		t.Fatalf("the work order the person merged on the forge reads %s, want done: %v", order.State, err)
+	}
+}
+
+// A work order a person merged on the forge lands commits with no trailer and with no range the ledger recorded, and its
+// commits are no person's push: a squash is the one commit the pull request's merge commit names, and a rebase writes
+// each of the pull request's commits. A person's own push still is a conflict once the lane's branch holds the base the
+// merge landed in, on real git from end to end. While a rebase the ledger recorded no range for sits between the lane's
+// branch and the base, the base's side is not shown, as nothing tells its commits from a person's.
+func TestAWorkOrderAPersonMergedOnTheForgeIsNoConflictAndAPersonsPushLaterIs(t *testing.T) {
 	t.Parallel()
 	for _, method := range []ledger.MergeMethod{ledger.MergeSquash, ledger.MergeRebase} {
 		t.Run(string(method), func(t *testing.T) {
@@ -112,7 +151,9 @@ func TestAForgeLandedWorkOrderIsNoConflictAndAPersonsPushIs(t *testing.T) {
 			d := apitest.StartWith(t, apitest.Options{Starts: starts, LaneBranchPrefix: "lane/", OutsideEdits: control.NewOutsideEdits(starts, git, "lane/")})
 			w := apitest.NewWorld(t, d)
 			w.Repository("repository-1", ledger.PersonMerges)
-			if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", control.RepositoryChange{MergeMethod: &method}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
+			target, binding := ledger.ReviewOnPullRequest, "github.com/acme/app"
+			change := control.RepositoryChange{MergeMethod: &method, ReviewTarget: &target, ForgeBinding: &binding}
+			if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", change, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
 				t.Fatal(err)
 			}
 			w.Running("wo-1", "Retry within a budget")
@@ -122,56 +163,112 @@ func TestAForgeLandedWorkOrderIsNoConflictAndAPersonsPushIs(t *testing.T) {
 			lane.Commit("docs/guide.md", "the guide, as the lane wrote it\n")
 			lane.Commit("docs/other.md", "other, as the lane wrote it\n")
 
-			// Another work order lands on the forge in two commits that touch the same files.
-			w.Created("wo-landed", "Landed on the forge")
-			var span *ledger.LandedRange
-			before := origin.Git("rev-parse", "HEAD")
+			// Another work order's pull request lands on the forge, changing the same two files, and a person merges it.
 			switch method {
 			case ledger.MergeSquash:
-				trailers := ledger.MergeTrailers("wo-landed", strings.Repeat("c", 40))
-				commitOn(t, origin, "docs/guide.md", "the guide, squashed on the forge\n", "Change the guide and the rest (#7)\n\n"+trailers)
+				commitOn(t, origin, "docs/guide.md", "the guide, squashed on the forge\n", "Change the guide and the rest (#7)")
 			case ledger.MergeRebase:
 				commitOn(t, origin, "docs/guide.md", "the guide, rebased on the forge\n", "change the guide")
 				commitOn(t, origin, "docs/other.md", "other, rebased on the forge\n", "change the rest")
-				span = &ledger.LandedRange{Before: before, After: origin.Git("rev-parse", "HEAD")}
 			}
-			if span != nil {
-				if err := d.Store.Write(t.Context(), apitest.Scope, "test.merged", func(tx ports.WriteTx) error {
-					if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
-						WorkOrder: "wo-landed", Repository: "repository-1", Worker: apitest.WorldWorker,
-						PullRequest: ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, Base: "main", Branch: "lane/x", HeadCommit: strings.Repeat("c", 40), MergeCommit: span.After, MergedAt: "2026-11-20T10:00:00Z"},
-					}); err != nil {
-						return err
-					}
-					data := `{"landed":{"before":"` + span.Before + `","after":"` + span.After + `"}}`
-					_, err := tx.Append(ledger.EventDraft{
-						Type: ledger.EventIntegrationMerged, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"},
-						Subject: ledger.Subject{Kind: ledger.SubjectIntegration, ID: "wo-landed"}, Data: []byte(data),
-					})
-					return err
-				}); err != nil {
-					t.Fatal(err)
-				}
-			}
+			workPersonMergesOnTheForge(t, d, w, "wo-landed", strings.Repeat("c", 40), origin.Git("rev-parse", "HEAD"))
 			clone.Git("fetch", "--quiet", "origin")
 			if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			if got := conflictItems(t, d); len(got) != 0 {
-				t.Fatalf("work the forge landed by %s reads as a person's push: %+v", method, got[0].Conflict.Paths)
+				t.Fatalf("work a person merged on the forge by %s reads as a person's push: %+v", method, got[0].Conflict.Paths)
 			}
 
-			// A person pushes to the same file.
+			// A person pushes to the guide. Beside a squash it is a conflict at once; a rebase the ledger recorded no range for
+			// hides the base's side while it stays between the lane's branch and the base.
 			commitOn(t, origin, "docs/guide.md", "the guide, as a person wrote it\n", "a person's change")
 			clone.Git("fetch", "--quiet", "origin")
 			if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			items := conflictItems(t, d)
-			if len(items) != 1 || len(items[0].Conflict.Paths) != 1 || items[0].Conflict.Paths[0] != (api.ConflictPathView{Path: "docs/guide.md", Person: ledger.PersonPushed}) {
-				t.Fatalf("a person's push to a repository that rewrites commits reads %+v", items)
+			if method == ledger.MergeSquash && (len(items) != 1 || len(items[0].Conflict.Paths) != 1 || items[0].Conflict.Paths[0].Path != "docs/guide.md") {
+				t.Fatalf("a person's push to a repository that squashes reads %+v", items)
+			}
+			if method == ledger.MergeRebase && len(items) != 0 {
+				t.Fatalf("the base's side shows beside a rebase the ledger recorded no range for: %+v", items[0].Conflict.Paths)
+			}
+
+			// The lane's branch takes the base, and the person pushes again: nothing the ledger cannot name lies between them.
+			lane.Git("merge", "--quiet", "-s", "ours", "--no-edit", "origin/main")
+			commitOn(t, origin, "docs/other.md", "other, as a person wrote it\n", "another change of a person's")
+			clone.Git("fetch", "--quiet", "origin")
+			if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			items = conflictItems(t, d)
+			if len(items) != 1 || len(items[0].Conflict.Paths) != 1 || items[0].Conflict.Paths[0] != (api.ConflictPathView{Path: "docs/other.md", Person: ledger.PersonPushed}) {
+				t.Fatalf("a person's push after the lane took the base reads %+v", items)
 			}
 		})
+	}
+}
+
+// A rebase a worker made records the range it wrote, so its commits are no person's push whatever stands beside them,
+// and a person's own push is still a conflict, on real git from end to end.
+func TestARangeAWorkerRecordedLeavesItsCommitsOutOfAPersonsPushes(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("docs/guide.md", "the guide\n")
+	origin.Commit("docs/other.md", "other\n")
+	clone := origin.Clone("registered")
+	git := gitcli.Worktrees{Env: clone.Env()}
+	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return clone.Dir, nil }}
+	d := apitest.StartWith(t, apitest.Options{Starts: starts, LaneBranchPrefix: "lane/", OutsideEdits: control.NewOutsideEdits(starts, git, "lane/")})
+	w := apitest.NewWorld(t, d)
+	w.Repository("repository-1", ledger.PersonMerges)
+	rebase := ledger.MergeRebase
+	if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", control.RepositoryChange{MergeMethod: &rebase}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	w.Running("wo-1", "Retry within a budget")
+	worktree := filepath.Join(t.TempDir(), "lane")
+	clone.Git("worktree", "add", "--quiet", "-b", "lane/lane-wo-1", worktree, "origin/main")
+	lane := &gittest.Repo{T: t, Dir: worktree, Home: clone.Home}
+	lane.Commit("docs/guide.md", "the guide, as the lane wrote it\n")
+	lane.Commit("docs/other.md", "other, as the lane wrote it\n")
+
+	w.Created("wo-landed", "Rebased on the forge")
+	before := origin.Git("rev-parse", "HEAD")
+	commitOn(t, origin, "docs/guide.md", "the guide, rebased on the forge\n", "change the guide")
+	after := commitOn(t, origin, "docs/other.md", "other, rebased on the forge\n", "change the rest")
+	if err := d.Store.Write(t.Context(), apitest.Scope, "test.merged", func(tx ports.WriteTx) error {
+		if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
+			WorkOrder: "wo-landed", Repository: "repository-1", Worker: apitest.WorldWorker,
+			PullRequest: ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, Base: "main", Branch: "lane/x", HeadCommit: strings.Repeat("c", 40), MergeCommit: after, MergedAt: "2026-11-20T10:00:00Z"},
+		}); err != nil {
+			return err
+		}
+		data := `{"landed":{"before":"` + before + `","after":"` + after + `"}}`
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventIntegrationMerged, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"},
+			Subject: ledger.Subject{Kind: ledger.SubjectIntegration, ID: "wo-landed"}, Data: []byte(data),
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clone.Git("fetch", "--quiet", "origin")
+	if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := conflictItems(t, d); len(got) != 0 {
+		t.Fatalf("work a worker rebased reads as a person's push: %+v", got[0].Conflict.Paths)
+	}
+	commitOn(t, origin, "docs/guide.md", "the guide, as a person wrote it\n", "a person's change")
+	clone.Git("fetch", "--quiet", "origin")
+	if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	items := conflictItems(t, d)
+	if len(items) != 1 || len(items[0].Conflict.Paths) != 1 || items[0].Conflict.Paths[0] != (api.ConflictPathView{Path: "docs/guide.md", Person: ledger.PersonPushed}) {
+		t.Fatalf("a person's push beside a range a worker recorded reads %+v", items)
 	}
 }
 

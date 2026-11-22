@@ -664,8 +664,8 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 	default:
 		return fmt.Errorf("%w: a merge came to %q", workorders.ErrInvalid, result.Outcome)
 	}
-	// A range is kept only when both its ends are commit IDs.
-	if _, ok := result.Landed(); !ok {
+	// A range is kept only for a rebase, when both its ends are commit IDs and it ends at the merge commit the merge made.
+	if span, ok := result.Landed(); !ok || request.Method != ledger.MergeRebase || span.After != result.MergeCommit {
 		result.BaseBefore, result.BaseAfter = "", ""
 	}
 	if _, err := tx.Forge().FinishMerge(request.ID, request.Attempt, tx.Now(), result.Outcome, result.Detail); err != nil {

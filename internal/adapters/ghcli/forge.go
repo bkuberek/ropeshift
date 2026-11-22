@@ -401,13 +401,13 @@ var methodFlags = map[ledger.MergeMethod]string{ledger.MergeCommit: "--merge", l
 
 // Merge reads the pull request's merge state, and runs `gh pr merge <number> --match-head-commit <head>`
 // with the method's flag only when it is open at that head and merges cleanly, then reads it again to say
-// what the merge came to (https://cli.github.com/manual/gh_pr_merge). A squash passes the trailers that name the work
-// order and the reviewed commit as the commit's body with --body. A rebase writes commits no trailer can mark, so it
-// reads the base's tip before it runs and reports it with the tip after, which the result names as BaseBefore and
-// BaseAfter. It never passes --admin, --auto, or --delete-branch. A pull request merged at that head is a merge an
-// earlier attempt made, and merges nothing again. What gh refuses is a refusal with what it said; a gh that cannot
-// run, or a read that fails, is an error, which a later attempt asks again.
-func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod, workOrder string) (ledger.MergeResult, error) {
+// what the merge came to (https://cli.github.com/manual/gh_pr_merge). It passes no message, so the forge writes the
+// commit's own. A rebase writes commits no trailer can mark, so it reads the base's tip before it runs and reports it
+// with the tip after, which the result names as BaseBefore and BaseAfter. It never passes --admin, --auto, or
+// --delete-branch. A pull request merged at that head is a merge an earlier attempt made, and merges nothing again.
+// What gh refuses is a refusal with what it said; a gh that cannot run, or a read that fails, is an error, which a
+// later attempt asks again.
+func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error) {
 	flag, ok := methodFlags[method]
 	if !ok {
 		return ledger.MergeResult{}, fmt.Errorf("no forge merges with the method %q", method)
@@ -425,11 +425,7 @@ func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string,
 			return ledger.MergeResult{}, err
 		}
 	}
-	args := []string{"pr", "merge", strconv.FormatInt(ref.Number, 10), "--repo", ref.Repo.Binding.String(), "--match-head-commit", head, flag}
-	if method == ledger.MergeSquash && workOrder != "" {
-		args = append(args, "--body", strings.TrimRight(ledger.MergeTrailers(workOrder, head), "\n"))
-	}
-	_, merged := f.run(ctx, ref.Repo.Dir, args...)
+	_, merged := f.run(ctx, ref.Repo.Dir, "pr", "merge", strconv.FormatInt(ref.Number, 10), "--repo", ref.Repo.Binding.String(), "--match-head-commit", head, flag)
 	var refused *ghError
 	if merged != nil && !errors.As(merged, &refused) {
 		return ledger.MergeResult{}, merged

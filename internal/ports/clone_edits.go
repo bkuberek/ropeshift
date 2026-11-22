@@ -18,7 +18,9 @@ type CloneEdits interface {
 	// fetch left it, or the clone's own branch when it has no remote, and its side leaves out every merge and every
 	// commit a merge of ropeshift made.
 	// Commits the ledger records as landed work, and the commits of each range it records as landed, are no person's
-	// either. A range whose ends the clone does not hold leaves out nothing.
+	// either. A range whose ends the clone does not hold, or whose first end is no ancestor of its last, leaves out nothing
+	// and counts as none. The divergence says Unranged when a commit Landed names as the merge commit of a pull request
+	// with no range, or whose range is no usable one, lies on the base's side.
 	// Only a ref git says is missing, or two that share no history, is ErrNotFound; any other failure is an error.
 	Diverged(ctx context.Context, clone, branch, baseBranch string, landed ledger.Landed, limit int) (ledger.Divergence, error)
 	// Contents reads the blob each path's file in the clone would be stored as, with no filter run and no object

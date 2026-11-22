@@ -239,7 +239,7 @@ func TestARangeTheLedgerRecordsIsGivenAsLandedWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	landed := edits.Landed()
-	if len(landed) == 0 || !slices.Equal(landed[len(landed)-1].Ranges, []ledger.LandedRange{{Before: before, After: after}}) {
+	if len(landed) == 0 || !slices.Equal(landed[len(landed)-1].Ranges, []ledger.LandedRange{{Before: before, After: after}}) || len(landed[len(landed)-1].Unranged) != 0 {
 		t.Errorf("the read of the lane's branch was given %+v as landed work", landed)
 	}
 }
@@ -270,6 +270,43 @@ func TestACommitTheForgeLandedIsGivenAsLandedWork(t *testing.T) {
 	landed := edits.Landed()
 	if len(landed) == 0 || !slices.Contains(landed[len(landed)-1].Commits, "squash-of-7") || !slices.Contains(landed[len(landed)-1].Commits, "head-of-7") {
 		t.Errorf("the read of the lane's branch was given %v as landed work", landed)
+	}
+	if last := landed[len(landed)-1]; !slices.Equal(last.Unranged, []string{"squash-of-7"}) || len(last.Ranges) != 0 {
+		t.Errorf("a merge that recorded no range was given as %+v", last)
+	}
+}
+
+// A merged pull request with no usable range hides the base's side of a conflict in a repository that rebases, where its
+// commits carry no trailer and no commit of its own names them. Any other method names the commits of a merge, so the base's
+// side stays.
+func TestAMergeWithNoRangeHidesThePushedSideOnlyBesideARebase(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		method ledger.MergeMethod
+		shown  bool
+	}{{ledger.MergeRebase, false}, {ledger.MergeSquash, true}, {ledger.MergeCommit, true}} {
+		t.Run(string(tt.method), func(t *testing.T) {
+			t.Parallel()
+			d, _, edits := conflictWorld(t)
+			method := tt.method
+			if _, err := control.NewRepositories(d.Store).Change(t.Context(), apitest.Scope, "repository-1", control.RepositoryChange{MergeMethod: &method}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
+				t.Fatal(err)
+			}
+			edits.Diverge("/srv/repository-1", "lane/lane-wo-1", ledger.Divergence{
+				Fork: "fork", Base: "origin/main", Lane: []string{"docs/guide.md", "plans/lane.md", "plans/plan.md"}, Pushed: []string{"docs/guide.md", "docs/other.md"}, Unranged: true,
+			})
+			if _, err := d.Client.OutsideEdits(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			items := conflictItems(t, d)
+			if len(items) != 1 {
+				t.Fatalf("Needs you holds %+v", items)
+			}
+			pushed := slices.ContainsFunc(items[0].Conflict.Paths, func(path api.ConflictPathView) bool { return path.Person == ledger.PersonPushed })
+			if pushed != tt.shown {
+				t.Errorf("with a merge with no range, a %s repository shows the base's side: %v, want %v (%+v)", tt.method, pushed, tt.shown, items[0].Conflict.Paths)
+			}
+		})
 	}
 }
 

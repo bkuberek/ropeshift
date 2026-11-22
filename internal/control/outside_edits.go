@@ -163,7 +163,8 @@ type ledgerFacts struct {
 	planning     string
 	lanes        []openLane
 	// landed are the commits the ledger records as the forge's merge of a work order, each merged pull request's head, and
-	// the ranges a merge recorded as the commits it wrote, which carry no trailer of ropeshift's and are no person's push.
+	// the ranges a merge recorded as the commits it wrote, which carry no trailer of ropeshift's and are no person's push,
+	// and the merge commit of each merged pull request that recorded no range.
 	landed ledger.Landed
 }
 
@@ -216,6 +217,10 @@ func readFacts(tx ports.ReadTx, prefix string) (ledgerFacts, error) {
 			return facts, err
 		}
 		facts.landed.Ranges = append(facts.landed.Ranges, spans...)
+		// A merge made on the forge by a person, or one whose range was not kept, has none.
+		if !slices.ContainsFunc(spans, func(span ledger.LandedRange) bool { return span.After == pull.MergeCommit }) {
+			facts.landed.Unranged = append(facts.landed.Unranged, pull.MergeCommit)
+		}
 	}
 	return facts, nil
 }
@@ -393,7 +398,10 @@ func (o *OutsideEdits) Read(ctx context.Context, store ports.Store, scope ledger
 
 // conflictsIn finds each open lane of a repository whose branch in the clone changed a path the person changed too.
 // The base's side leaves out the commits that carry a trailer of ropeshift's, those the ledger names as landed, and
-// those in a range it records as landed, so the work that ropeshift or the forge merged, by any method, is no person's.
+// those in a range it records as landed, so the work that ropeshift or the forge merged is no person's. A rebase on the
+// forge that a person merged records no range, and the commits it wrote carry no trailer, so in a repository whose merge
+// method is rebase the base's side is not shown while the merge commit of such a pull request lies between the lane's
+// branch and the base.
 // The clone's side is settled once the lane's branch holds the branch the person's files are committed on, which
 // EditsBranch names. A lane whose branch the clone really does not hold, as one on another machine's worker, has none.
 // A lane git could not read is marked unread, so the conflict an earlier reading found stays. Only a reading the control
@@ -425,7 +433,11 @@ func (o *OutsideEdits) conflictOf(ctx context.Context, project string, clone Clo
 	if err != nil {
 		return Conflict{}, false, err
 	}
-	paths := ledger.ConflictPaths(divergence.Lane, clone.Edits.Edits, divergence.Pushed)
+	pushed := divergence.Pushed
+	if clone.Repository.MergeMethod == ledger.MergeRebase && divergence.Unranged {
+		pushed = nil
+	}
+	paths := ledger.ConflictPaths(divergence.Lane, clone.Edits.Edits, pushed)
 	var local []string
 	for _, path := range paths {
 		if path.Person != ledger.PersonPushed {

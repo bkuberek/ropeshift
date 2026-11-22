@@ -19,9 +19,10 @@ func MergeTrailers(workOrder, reviewed string) string {
 }
 
 // WithTrailers appends trailers to a commit message. They follow a blank line, or join the trailer block the message
-// already ends in, and a line the block already holds is not added again. The result ends in a newline.
+// already ends in, and a line the block already holds is not added again. The message is kept as it is, spaces and
+// blank lines included, except for the blank lines that end it. The result ends in a newline.
 func WithTrailers(message, trailers string) string {
-	message = strings.TrimRight(message, " \t\r\n")
+	message = trimBlankEnd(message)
 	wanted := strings.Split(strings.TrimRight(trailers, "\n"), "\n")
 	if message == "" {
 		return strings.Join(wanted, "\n") + "\n"
@@ -64,4 +65,14 @@ func trailerBlock(lines []string) bool {
 		}
 	}
 	return true
+}
+
+// trimBlankEnd takes the lines off the end of a message that hold nothing but white space, and keeps the white space of
+// the last line that holds something.
+func trimBlankEnd(message string) string {
+	lines := strings.Split(message, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
 }

@@ -33,6 +33,8 @@ type Landed struct {
 	Commits []string
 	// Ranges are the commits a merge wrote on the base's first-parent line with no trailer of ropeshift's.
 	Ranges []LandedRange
+	// Unranged are the merge commits of pull requests the ledger records as merged with no range recorded for them.
+	Unranged []string
 }
 
 // Divergence is what a lane's branch and the base it began from each changed since they last shared a commit.
@@ -47,6 +49,10 @@ type Divergence struct {
 	Pushed []string `json:"pushed"`
 	// Cut says git listed more paths of a side than a read keeps.
 	Cut bool `json:"cut,omitempty"`
+	// Unranged says a commit that Landed names as the merge commit of a pull request with no usable range lies on the
+	// base's side, so the commits of that merge that no trailer, landed commit, or range names may be there. A range is
+	// usable when its first end is an ancestor of its last.
+	Unranged bool `json:"unranged,omitempty"`
 }
 
 // ConflictPaths are the paths a lane changed that the person changed too, in their clone or in pushes to the base, in

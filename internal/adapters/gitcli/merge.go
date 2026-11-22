@@ -48,10 +48,18 @@ type ran struct {
 // run runs one command and keeps a non-zero exit as a result, because a merge reads how git refused. Only a
 // git that could not run is an error.
 func (g Git) run(ctx context.Context, args ...string) (ran, error) {
+	return g.runFed(ctx, nil, args...)
+}
+
+// runFed is run with input on the command's standard input.
+func (g Git) runFed(ctx context.Context, input []byte, args ...string) (ran, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	hookless := g
 	hookless.Config = append(slices.Clone(g.Config), noHooks...)
 	cmd.Dir, cmd.Env = g.Dir, hookless.environment()
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -282,15 +290,31 @@ func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, tr
 		if err != nil || picked.code != 0 {
 			return picked, err
 		}
-		message, err := in.must(ctx, "log", "-1", "--format=%B")
+		message, err := commitMessage(ctx, in, "HEAD")
 		if err != nil {
 			return ran{}, err
 		}
-		if _, err := in.must(ctx, "commit", "--amend", "--allow-empty", "-m", ledger.WithTrailers(message, trailers)); err != nil {
+		// The message goes in on the standard input and is kept as it is, so no argument is too long for it and no
+		// clean-up of git's takes the spaces or the blank lines a person wrote out of it.
+		amended, err := in.runFed(ctx, []byte(ledger.WithTrailers(message, trailers)), "commit", "--amend", "--allow-empty", "--cleanup=verbatim", "-F", "-")
+		if err != nil {
 			return ran{}, err
+		}
+		if amended.code != 0 {
+			return ran{}, fmt.Errorf("git commit --amend: exit %d: %s", amended.code, amended.stderr)
 		}
 	}
 	return ran{}, nil
+}
+
+// commitMessage reads a commit's message byte for byte: what follows the headers of the commit object.
+func commitMessage(ctx context.Context, git Git, commit string) (string, error) {
+	raw, err := git.Output(ctx, "cat-file", "commit", commit)
+	if err != nil {
+		return "", err
+	}
+	_, message, _ := strings.Cut(string(raw), "\n\n")
+	return message, nil
 }
 
 // publish lands the merge on the base: a push to the remote that never forces and runs no hook, where a
