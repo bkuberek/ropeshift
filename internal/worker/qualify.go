@@ -119,9 +119,14 @@ func (w *Worker) qualifyLane(ctx context.Context, lease ledger.DesiredLease) {
 // qualify starts the probe of the installed version when one is due and no probe runs (probeDueLocked). One probe
 // runs at a time, and a probe of another version that ends leaves the next look to start this one. No result holds
 // for an empty version, so a driver that read none is not probed: each probe would end only for the next to start. A
-// worker told not to probe starts none.
+// worker told not to probe starts none, and none starts while the sign-in is at a usage limit or signed out.
 func (w *Worker) qualify(ctx context.Context) error {
 	if w.config.Lanes.NoProbe {
+		return nil
+	}
+	// A probe's sessions would meet the limit or the sign-in that is out, and its failed or unobserved checks would
+	// replace passes. The first look after it ends probes.
+	if sign := w.signIn(); sign.Limited || sign.SignedOut {
 		return nil
 	}
 	capabilities, err := w.config.Lanes.Driver.Capabilities(ctx)
