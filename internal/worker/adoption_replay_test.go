@@ -121,7 +121,7 @@ func TestAFailureSpooledWhileDownIsNoted(t *testing.T) {
 			w.desire("lane-1")
 			w.adoptedAt(t, lanes.Working, lanes.Idle)
 			w.holdsToken(t)
-			w.spooledWhileDown(t, lanes.HookEvent{Event: "StopFailure", Detail: detail, AtMs: 10})
+			w.spooledWhileDown(t, lanes.HookEvent{Event: "StopFailure", Detail: detail, AtMs: w.clock.Now().UnixMilli()})
 			state, err := w.journal.SignIn(t.Context())
 			if err != nil || state.Limited != (detail == lanes.FailureUsageLimit) || state.SignedOut != (detail == lanes.FailureSignIn) {
 				t.Fatalf("a failure spooled while down left the sign-in %+v (%v)", state, err)
