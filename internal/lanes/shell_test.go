@@ -1,31 +1,42 @@
 package lanes
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
-// Before a command, a shell reads `name[` on to its `]`, so the parser stops there. A run of such words is
-// read in time that grows with their number, not with its square.
+// Before a command, a shell reads `name[` on to its `]`, so the parser stops there. A run of such words is read in time
+// that grows with their number, not with its square. The text grows sixteen-fold, so a linear parse takes about sixteen times
+// as long and a quadratic one about two hundred and fifty-six, and a bound of sixty-four stands between them with room for the
+// slow runs a collection or a loaded machine makes: only the fastest run of a size counts, and the large size, whose runs are
+// the long ones, is tried until one is within the bound.
 func TestOpenBracketWordsParseInLinearTime(t *testing.T) {
-	best := func(size int) time.Duration {
+	const small, large, bound = 16 << 10, 256 << 10, 64
+	timed := func(size int) time.Duration {
 		text := strings.Repeat("a=[ ", size/4)
-		fastest := time.Duration(1<<63 - 1)
-		// The fastest of several runs leaves out the ones a collection or a busy machine slowed, which the race detector makes
-		// more of.
-		for range 9 {
-			start := time.Now()
-			parseShell(text)
-			fastest = min(fastest, time.Since(start))
+		runtime.GC()
+		start := time.Now()
+		parseShell(text)
+		return time.Since(start)
+	}
+	fastest := time.Duration(1<<63 - 1)
+	for range 15 {
+		fastest = min(fastest, timed(small))
+	}
+	// A quadratic parse takes minutes of the large size, so the tries end after twenty seconds.
+	ends, slowest := time.Now().Add(20*time.Second), time.Duration(0)
+	best := time.Duration(1<<63 - 1)
+	for tries := 0; tries < 15 && time.Now().Before(ends); tries++ {
+		took := timed(large)
+		best, slowest = min(best, took), max(slowest, took)
+		if best < bound*fastest {
+			return
 		}
-		return fastest
 	}
-	small, large := best(16<<10), best(64<<10)
-	// Four times the text takes about four times as long when the reading is linear, and about sixteen when it is not.
-	if large >= 8*small {
-		t.Errorf("64 KiB of open brackets took %v, and 16 KiB took %v: that is %.1f times as long", large, small, float64(large)/float64(small))
-	}
+	t.Errorf("%d KiB of open brackets took at best %v, and %d KiB took at best %v: that is %.0f times as long, where a linear parse takes about %d and a quadratic about %d",
+		large>>10, best, small>>10, fastest, float64(best)/float64(fastest), large/small, (large/small)*(large/small))
 }
 
 // A subscript before the command is unread where every word before it is an assignment or a keyword, in each
