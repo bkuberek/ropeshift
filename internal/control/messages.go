@@ -45,6 +45,24 @@ func NewMessages(store ports.Store, windows messages.Windows) *Messages {
 // Send records a message for a lane. The client generates its ID, so a retry reads what the
 // first attempt wrote. A zero generation is the lane's current one.
 func (m *Messages) Send(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error) {
+	// An answer is the decision of the question it answers, so the answer to the question sends it (RecordAnswer), and
+	// no sender states one in a message of its own: a lane reads an answer as in force.
+	if draft.Kind == messages.KindAnswer {
+		return messages.Message{}, refuseWith(messages.ErrInvalid, "A message of kind answer is made by the answer to a question: answer the question with question answer.")
+	}
+	return m.send(ctx, scope, draft, actor)
+}
+
+// RecordAnswer records the message that carries the answer to a question to the lane that asked it. No route, tool, or
+// command calls it: an answer reaches a lane through the answer to its question, and Send refuses the kind.
+func (m *Messages) RecordAnswer(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error) {
+	if draft.Kind != messages.KindAnswer {
+		return messages.Message{}, refuseWith(messages.ErrInvalid, "RecordAnswer records a message of kind answer.")
+	}
+	return m.send(ctx, scope, draft, actor)
+}
+
+func (m *Messages) send(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error) {
 	if !authority.Allowed(actor, authority.ActionSendMessage) {
 		return messages.Message{}, workorders.ErrForbidden
 	}

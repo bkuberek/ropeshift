@@ -30,7 +30,11 @@ func (r *laneRig) send(t *testing.T, id string, kind messages.Kind, change func(
 	if change != nil {
 		change(&draft)
 	}
-	m, err := control.NewMessages(r.store, nil).Send(t.Context(), scope, draft, member)
+	send := control.NewMessages(r.store, nil).Send
+	if kind == messages.KindAnswer {
+		send = control.NewMessages(r.store, nil).RecordAnswer
+	}
+	m, err := send(t.Context(), scope, draft, member)
 	if err != nil {
 		t.Fatal(err)
 	}

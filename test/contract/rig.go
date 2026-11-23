@@ -158,6 +158,7 @@ type Ops interface {
 	ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) ([]string, error)
 	ContinueLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor) (int64, error)
 	Send(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error)
+	RecordAnswer(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error)
 	ReadMessage(ctx context.Context, scope ledger.WorkspaceID, id string) (messages.Message, error)
 	LaneMessages(ctx context.Context, scope ledger.WorkspaceID, lane string) ([]messages.Message, error)
 	ExpireMessages(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)

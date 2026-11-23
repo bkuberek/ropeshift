@@ -49,6 +49,9 @@ func (s *statusRig) sendTo(lane string, kind messages.Kind, change func(*message
 	if change != nil {
 		change(&draft)
 	}
+	if kind == messages.KindAnswer {
+		return s.r.NewOps(s.store).RecordAnswer(s.r.Ctx, s.r.Scope, draft, s.r.Actor)
+	}
 	return s.r.NewOps(s.store).Send(s.r.Ctx, s.r.Scope, draft, s.r.Actor)
 }
 
