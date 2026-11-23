@@ -715,6 +715,13 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	r.tellUntold(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
+		if errors.Is(err, ports.ErrUnknownScreen) && r.orchestrating() && !r.assisting() {
+			// A pane adopted in its start check that fails the check is a failed start, which restarts as it does
+			// in session.
+			report := workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen, Detail: failureDetail(err)}
+			r.startFailed()
+			return r.conclude(ctx, report)
+		}
 		return r.unread(ctx)
 	}
 	if !hooksRead || !approvalsRead {
