@@ -265,6 +265,11 @@ type LaneView struct {
 	Archived bool `json:"archived,omitempty"`
 	// ConditionNotes holds the sentence of each condition the lane carries that has one, as the server words it.
 	ConditionNotes map[string]string `json:"condition_notes,omitempty"`
+	// Agent is the roster agent the lane runs as, which its latest claim pinned.
+	Agent string `json:"agent,omitempty"`
+	// AgentNote says why a woken lane resumed as another agent than its earlier claim pinned: it names both agents and why
+	// the first no longer fit. It is read from the event of the lane's latest claim when the lane is read.
+	AgentNote string `json:"agent_note,omitempty"`
 	// BaseRef and BaseCommit are where the lane's branch began, which review diffs against and
 	// integration targets (FR-BASE-4).
 	BaseRef    string `json:"base_ref,omitempty"`

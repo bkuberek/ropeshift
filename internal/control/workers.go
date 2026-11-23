@@ -1419,6 +1419,23 @@ func (w *Workers) Lane(ctx context.Context, id string) (ledger.LaneView, error) 
 	return out, err
 }
 
+// repinNote is why a woken lane runs as another agent than its earlier claim pinned, in the words the event of the lane's
+// latest claim holds, and empty when that claim kept its agent. It is read when the lane is, from the event, so the lane
+// keeps no copy of it.
+func repinNote(tx ports.ReadTx, claim workorders.Claim) (string, error) {
+	granted, err := tx.EventsOfTypeAbout(workorders.EventType(workorders.TriggerClaimGranted), workorders.SubjectKind, []string{claim.WorkOrder})
+	if err != nil {
+		return "", err
+	}
+	for i := len(granted) - 1; i >= 0; i-- {
+		var change workorders.Change
+		if json.Unmarshal(granted[i].Data, &change) == nil && change.ClaimID == claim.ID {
+			return change.Reason, nil
+		}
+	}
+	return "", nil
+}
+
 // view labels a status. A heartbeat writes nothing about a lane, so what confirms a value
 // is the lease it renews: the one write a heartbeat makes, from the worker that reported
 // this value, in the epoch it reported it. The ledger is the source of a lane's end, so
@@ -1448,6 +1465,10 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 		view.BaseRef, view.BaseCommit = claim.BaseRef, claim.BaseCommit
 		view.ContinuesRef, view.ContinuesCommit = claim.ContinuesRef, claim.ContinuesCommit
 		view.Reads = claim.Reads
+		view.Agent = claim.Agent
+		if view.AgentNote, err = repinNote(tx, claim); err != nil {
+			return view, err
+		}
 	case !errors.Is(err, ports.ErrNotFound):
 		return view, err
 	}

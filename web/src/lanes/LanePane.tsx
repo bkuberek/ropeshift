@@ -895,6 +895,12 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                   {lane.model_reach ? <Fact name="Model">{words(lane.model_reach)}</Fact> : null}
                   {lane.ledger_reach ? <Fact name="Ledger">{words(lane.ledger_reach)}</Fact> : null}
                   <Fact name="Generation">{lane.generation}</Fact>
+                  {lane.agent ? (
+                    <Fact name="Agent" mono>
+                      {lane.agent}
+                    </Fact>
+                  ) : null}
+                  {lane.agent_note ? <Fact name="Agent changed">{lane.agent_note}</Fact> : null}
                   <Fact name="Worker">{lane.worker_id ? <Id value={lane.worker_id} /> : <Absent>none yet</Absent>}</Fact>
                   <Fact name="Target">
                     <TargetChip kind="lane" small>

@@ -389,6 +389,50 @@ describe("a lane's facts", () => {
     expect(within(state).getByText(checkingWords).className).toContain("checking");
   });
 
+  it("name the agent the lane runs as, and say nothing of a change when its claim kept it", async () => {
+    const shown = "lane-wo-effect";
+    serveViews((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/shop-floor") {
+        const floor = golden<ShopFloor>("shop-floor");
+        const row = floor.lanes.find((line) => line.id === shown);
+        if (!row) {
+          throw new Error(`the golden holds no lane ${shown}`);
+        }
+        row.agent = "heavy-implementation";
+        delete row.agent_note;
+        return { status: 200, body: floor };
+      }
+      return undefined;
+    });
+    openPage(`/lane?id=${shown}`);
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    const agent = (await within(facts).findByText("Agent")).closest(".kv-row") as HTMLElement;
+    expect(within(agent).getByText("heavy-implementation")).toBeTruthy();
+    expect(within(facts).queryByText("Agent changed")).toBeNull();
+  });
+
+  it("say why a woken lane runs as another agent than its earlier claim pinned, in the server's words", async () => {
+    const shown = "lane-wo-effect";
+    const note = 'the lane resumes as agent "implementation" in place of "reasoning", which no longer fits this work: agent "reasoning" denies the shell';
+    serveViews((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/shop-floor") {
+        const floor = golden<ShopFloor>("shop-floor");
+        const row = floor.lanes.find((line) => line.id === shown);
+        if (!row) {
+          throw new Error(`the golden holds no lane ${shown}`);
+        }
+        row.agent = "implementation";
+        row.agent_note = note;
+        return { status: 200, body: floor };
+      }
+      return undefined;
+    });
+    openPage(`/lane?id=${shown}`);
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    const changed = (await within(facts).findByText("Agent changed")).closest(".kv-row") as HTMLElement;
+    expect(within(changed).getByText(note)).toBeTruthy();
+  });
+
   it("say beside Degraded mode, in a sentence the chip points to, when the lane restarts on qualified surfaces", async () => {
     const shown = "lane-wo-effect";
     serveViews((call) => {
