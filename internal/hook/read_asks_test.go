@@ -173,3 +173,33 @@ func TestALanesReadOfItsOwnSavedToolOutputAsksNothing(t *testing.T) {
 		t.Errorf("a call that names no transcript answered %q, want ask", got)
 	}
 }
+
+// The ordinary reads of a lane ask nothing, and a call that makes a link asks, as the hook reads them from the policy
+// file the worker wrote.
+func TestTheHookLeavesOrdinaryReadsAloneAndAsksForALink(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree := filepath.Join(base, "lane")
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := policyFile(t, lanes.CompilePolicy(lanes.PolicySpec{Worktree: worktree, Home: "/home/person", AskReadRoots: []string{worktree}, GitListingsInside: true}))
+	for command, want := range map[string]string{
+		"git ls-files | xargs wc -l":                "",
+		"rg -l TODO | xargs sed -n 1p":              "",
+		"for f in *.go; do head -5 \"$f\"; done":    "",
+		"F=go.mod; cat $F":                          "",
+		"ln -s /etc e && cat e/passwd":              "ask",
+		"find -L . -type f | xargs cat":             "ask",
+		"perl -ne print /etc/passwd":                "ask",
+		"F=$(echo x); cat $F":                       "ask",
+		"git ls-files | xargs -a /etc/list cat":     "ask",
+		"for f in /etc/*.conf; do cat \"$f\"; done": "ask",
+	} {
+		if got := decideAs(t, path, worktree, "Bash", "", map[string]string{"command": command}); got != want {
+			t.Errorf("%q answered %q, want %q", command, got, want)
+		}
+	}
+}

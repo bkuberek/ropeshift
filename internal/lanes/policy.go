@@ -130,6 +130,8 @@ type PolicySpec struct {
 	ReadRoots []string
 	// AskReadRoots, when set, are the only directories the session reads with no prompt: a read anywhere else asks.
 	AskReadRoots []string
+	// GitListingsInside says no link in the worktree leads out of it (DenyPolicy.GitListingsInside).
+	GitListingsInside bool
 	// Program, when set, is the one program the session may run in a shell, and Commands are the only
 	// commands of it the session may run, by name.
 	Program  string
@@ -186,7 +188,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		Waits:    waits,
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
-		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots), AskReadRoots: slices.Clone(spec.AskReadRoots),
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots), AskReadRoots: slices.Clone(spec.AskReadRoots), GitListingsInside: spec.GitListingsInside,
 		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
 		RefusedFlags: slices.Clone(spec.RefusedFlags),
 	}
@@ -440,10 +442,12 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 		}
 	}
 	at := cwd
-	for _, command := range commands {
+	vars := shellVars{}
+	for ci, command := range commands {
 		if len(p.AskReadRoots) != 0 {
+			vars.note(command)
 			for _, target := range command.reads {
-				seen.reads = seen.reads || p.readsOutside(target, at)
+				seen.reads = seen.reads || p.readsOutside(target, at, vars)
 			}
 		}
 		if len(p.Roots) != 0 {
@@ -490,9 +494,11 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				}
 			default:
 				if len(p.AskReadRoots) != 0 {
-					leaders := command.words[:len(command.words)-len(words)]
-					viaXargs := slices.ContainsFunc(leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" })
-					seen.reads = seen.reads || p.programReadsOutside(name, words[1:], at, command, viaXargs)
+					in := readContext{leaders: command.words[:len(command.words)-len(words)], vars: vars}
+					if ci > 0 && command.piped {
+						in.previous = &commands[ci-1]
+					}
+					seen.reads = seen.reads || p.programReadsOutside(name, words[1:], at, command, in)
 				}
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {

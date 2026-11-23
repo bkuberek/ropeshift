@@ -167,3 +167,127 @@ func TestAnAssistantsReadsStayDenied(t *testing.T) {
 		t.Errorf("asks %q", reason)
 	}
 }
+
+// A shell call that runs ln asks, because a link made in the call leads where the rest of the call reads, and the file
+// behind it does not exist when the hook decides.
+func TestACallThatMakesALinkAsks(t *testing.T) {
+	policy := laneReadPolicy()
+	for _, command := range []string{
+		"ln -s /etc e && cat e/passwd", "ln -s ../x y", "ln a b", "command ln -s /etc e", "env ln -s /etc e", "sh -c 'ln -s /etc e'",
+		"sudo ln -sf /etc e", "echo hi; ln -s /etc e",
+	} {
+		if reason, asks := policy.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); !asks {
+			t.Errorf("%q asks nothing (%q)", command, reason)
+		}
+	}
+	if _, asks := policy.Asks(ToolCall{Tool: "Bash", Command: "echo ln -s a b", Cwd: "/work/lane-1"}); asks {
+		t.Error("a word that is no command asks")
+	}
+}
+
+// The operands after the code an interpreter is given inline are the files it reads with -n and -p, so they read as paths.
+func TestTheFilesAnInlineScriptReadsAreReadPaths(t *testing.T) {
+	policy := laneReadPolicy()
+	tests := []struct {
+		command string
+		asks    bool
+	}{
+		{"perl -ne print /etc/passwd", true},
+		{"perl -pe 's/a/b/' /etc/hosts", true},
+		{"ruby -ne 'puts $_' /etc/hosts", true},
+		{"perl -e 'print 1' ~/.ssh/config", true},
+		{"awk 'END{print NR}' /etc/passwd", true},
+		{"awk -F: '{print $1}' /etc/passwd", true},
+		{"perl -ne print main.go", false},
+		{"perl -ne print /work/lane-1/main.go", false},
+		{"ruby -ne 'puts $_' internal/a.rb internal/b.rb", false},
+		{"awk 'END{print NR}' main.go", false},
+	}
+	for _, tt := range tests {
+		if _, asks := policy.Asks(ToolCall{Tool: "Bash", Command: tt.command, Cwd: "/work/lane-1"}); asks != tt.asks {
+			t.Errorf("%q: asks = %v, want %v", tt.command, asks, tt.asks)
+		}
+	}
+}
+
+// What an agent runs all day asks nothing when it reads inside: a pipe into xargs from a listing rooted inside that
+// lists no link, a loop over words that name inside, and a variable assigned a static word. Each near miss still asks.
+func TestOrdinaryReadsInsideAskNothing(t *testing.T) {
+	inside := CompilePolicy(PolicySpec{
+		Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1", "/work/lane-1.reads/api"}, GitListingsInside: true,
+	})
+	linked := CompilePolicy(PolicySpec{Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1"}})
+	tests := []struct {
+		name    string
+		command string
+		asks    bool
+	}{
+		{"a git listing into a reader", "git ls-files | xargs wc -l", false},
+		{"a git listing into a reader behind options", "git ls-files | xargs -n 1 wc -l", false},
+		{"a git diff listing", "git diff --name-only | xargs head -5", false},
+		{"a git grep listing", "git grep -l TODO | xargs sed -n 1p", false},
+		{"a search listing into sed", "rg -l X | xargs sed -n 1p", false},
+		{"a search listing of the files", "rg --files | xargs wc -l", false},
+		{"a search listing rooted inside", "rg -l X internal | xargs cat", false},
+		{"a find of files", "find . -type f -name '*.go' | xargs grep -l foo", false},
+		{"a find of files rooted in a subfolder", "find internal -name '*.go' -type f | xargs wc -l", false},
+		{"a find of files rooted in a read-only tree", "find /work/lane-1.reads/api -type f | xargs wc -l", false},
+		{"an fd of files", "fd -t f | xargs wc -l", false},
+		{"an fd of files with a long option", "fd --type f go | xargs wc -l", false},
+		{"a null separated listing", "find . -type f -print0 | xargs -0 wc -l", false},
+		{"a loop over a glob", "for f in *.go; do head -5 \"$f\"; done", false},
+		{"a loop over words", "for f in main.go go.mod; do cat \"$f\"; done", false},
+		{"a loop over a glob in a folder", "for f in internal/*.go; do wc -l $f; done", false},
+		{"a variable with a static word", "F=go.mod; cat $F", false},
+		{"a variable with a static word in a path", "D=internal; ls $D/lanes", false},
+		{"a variable in braces", "F=go.mod; cat \"${F}\"", false},
+
+		{"a find that follows links", "find -L . -type f | xargs cat", true},
+		{"a find that follows links by name", "find . -type f -follow | xargs cat", true},
+		{"a find of every entry, links included", "find . -name '*.go' | xargs grep -l foo", true},
+		{"a find rooted outside", "find /etc -type f | xargs cat", true},
+		{"an fd that follows links", "fd -L -t f | xargs cat", true},
+		{"an fd of every entry", "fd go | xargs cat", true},
+		{"an fd rooted outside", "fd -t f . /etc | xargs cat", true},
+		{"an rg that follows links", "rg -L -l X | xargs cat", true},
+		{"an rg that follows links by name", "rg --follow --files | xargs cat", true},
+		{"an rg rooted outside", "rg -l X /var | xargs cat", true},
+		{"an rg listing no files", "rg X | xargs cat", true},
+		{"an argument file", "git ls-files | xargs -a /etc/list wc -l", true},
+		{"an argument file by name", "rg -l X | xargs --arg-file=list cat", true},
+		{"a reader that names a file outside", "git ls-files | xargs cat /etc/passwd", true},
+		{"a reader with a variable operand", "git ls-files | xargs cat $F", true},
+		{"a git listing in another repository", "git -C /other ls-files | xargs cat", true},
+		{"a git listing in another git directory", "git --git-dir=/other/.git ls-files | xargs cat", true},
+		{"a git command that lists nothing", "git log --name-only | xargs cat", true},
+		{"a listing that is no listing", "echo /etc/passwd | xargs cat", true},
+		{"a listing two commands back", "git ls-files | sort | xargs cat", true},
+		{"no listing at all", "xargs cat < files", true},
+		{"a loop over words outside", "for f in /etc/passwd /etc/hosts; do cat \"$f\"; done", true},
+		{"a loop with one word outside", "for f in main.go /etc/hosts; do head \"$f\"; done", true},
+		{"a loop over a glob outside", "for f in /etc/*.conf; do cat \"$f\"; done", true},
+		{"a loop over words a shell makes", "for f in $(ls /etc); do cat \"$f\"; done", true},
+		{"a loop whose variable is another's", "for f in a b; do cat \"$g\"; done", true},
+		{"a variable a substitution assigns", "F=$(echo x); cat $F", true},
+		{"a variable a variable assigns", "F=$G; cat $F", true},
+		{"a variable assigned a path outside", "F=/etc/passwd; cat $F", true},
+		{"a variable assigned later", "cat $F; F=go.mod", true},
+		{"a variable assigned in an earlier call", "cat $F", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if reason, asks := inside.Asks(ToolCall{Tool: "Bash", Command: tt.command, Cwd: "/work/lane-1"}); asks != tt.asks {
+				t.Errorf("%q: asks = %v (%q), want %v", tt.command, asks, reason, tt.asks)
+			}
+		})
+	}
+	// A worktree with a link that leads out may hold it in a git listing, so no git listing is taken as inside.
+	for _, command := range []string{"git ls-files | xargs wc -l", "git diff --name-only | xargs head", "git grep -l TODO | xargs sed -n 1p"} {
+		if _, asks := linked.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); !asks {
+			t.Errorf("%q asks nothing in a worktree with a link that leads out", command)
+		}
+	}
+	if _, asks := linked.Asks(ToolCall{Tool: "Bash", Command: "rg --files | xargs wc -l", Cwd: "/work/lane-1"}); asks {
+		t.Error("a listing that skips links asks in a worktree with a link that leads out")
+	}
+}
