@@ -76,12 +76,22 @@ type permissions struct {
 // bypassOff is the value that turns the bypass mode off.
 const bypassOff = "disable"
 
+// sandbox keeps the CLI from approving a command because it runs sandboxed. It documents that approval as held back
+// by a content-scoped ask rule and by nothing a hook answers ([auto-allow]), so it could run a push or a gated command
+// the hook asks for. The key turns no sandbox on or off.
+//
+// [auto-allow]: https://code.claude.com/docs/en/sandboxing#auto-allow-mode
+type sandbox struct {
+	AutoAllowBashIfSandboxed bool `json:"autoAllowBashIfSandboxed"`
+}
+
 // settingsFile is what a generation's `--settings` holds. It holds no secret, because
 // a hook failure returns the command line to the model.
 type settingsFile struct {
 	Hooks        map[string][]hookGroup `json:"hooks,omitempty"`
 	Permissions  permissions            `json:"permissions"`
 	APIKeyHelper string                 `json:"apiKeyHelper,omitempty"`
+	Sandbox      sandbox                `json:"sandbox"`
 	// AutoContinueAtUsageLimit is false, because the worker owns the wait: a session that sat out a
 	// limit in its own process would hold it, and continue with nobody deciding.
 	AutoContinueAtUsageLimit bool `json:"autoContinueAtUsageLimit"`
@@ -164,9 +174,11 @@ func readRootsOf(spec ports.SessionSpec) []string {
 	return roots
 }
 
-// pushRules ask before every push on a lane that writes, in every mode, because an ask rule beats an allow
-// rule and holds where nothing else would ask (FR-LANE-19). A push the rule does not match, such as
-// `git -C . push`, is allowed by no rule either, so it asks in any mode that asks.
+// pushRules ask before a push written as `git push` on a lane that writes, in every mode, because an ask rule beats
+// an allow rule and holds where nothing else would ask. A rule matches a command as written ([permissions]), so the
+// hook asks for a push in every other form, such as `git -C . push` (lanes.DenyPolicy.Asks, FR-LANE-19).
+//
+// [permissions]: https://code.claude.com/docs/en/permissions#bash-rule-limits
 var pushRules = []string{"Bash(git push *)"}
 
 // patternCharacters make a path in a rule a pattern, which could reach past the path it names.

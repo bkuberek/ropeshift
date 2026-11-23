@@ -147,7 +147,8 @@ func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy
 // Keep records a decision in force again as the member's, in its place and with nothing else changed: the new decision
 // has the old one's content and replaces it, so the work it reaches stands as it was (FR-QD-8). It is how a member keeps
 // a one-way decision an orchestrator made, which the member did not word and need not restate. The new decision's ID
-// comes from the old one's (questions.KeptDecisionID), so a retry finds the first attempt. Only a member keeps, because
+// comes from the old one's (questions.KeptDecisionID), so a retry finds the first attempt while that decision stands, and
+// a Keep after the kept decision ended is refused as any Keep of a decision that ended is. Only a member keeps, because
 // it is a person's word that a decision outside the policy stands.
 func (q *Questions) Keep(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (questions.Decision, error) {
 	if !authority.Allowed(actor, authority.ActionDecideUnbound) {
@@ -158,6 +159,8 @@ func (q *Questions) Keep(ctx context.Context, scope ledger.WorkspaceID, id strin
 		keptID := questions.KeptDecisionID(id)
 		found, err := tx.Questions().Decision(keptID)
 		switch {
+		case err == nil && found.Supersedes == id && !found.Status.InForce():
+			return fmt.Errorf("%w: %s is %s", questions.ErrDecisionEnded, found.ID, found.Status)
 		case err == nil && found.Supersedes == id:
 			kept = found
 			return nil
@@ -176,6 +179,7 @@ func (q *Questions) Keep(ctx context.Context, scope ledger.WorkspaceID, id strin
 		record, err := questions.NewDecision(questions.Decision{
 			ID: keptID, Status: old.Status, Statement: old.Statement, Rationale: old.Rationale, Citations: old.Citations,
 			Scope: old.Scope, Reversibility: old.Reversibility, Categories: old.Categories, DecidedBy: actor.ID, Supersedes: old.ID,
+			QuestionID: old.QuestionID,
 		})
 		if err != nil {
 			return err

@@ -118,9 +118,11 @@ type PolicySpec struct {
 	OwnTools string
 	// Ground is what a session that lost its place is told of its work.
 	Ground Grounding
-	// ApprovalWaitMs bounds a hook that waits on a decision, and Gates are what it defers.
+	// ApprovalWaitMs bounds a hook that waits on a decision, and Gates are what it asks for or defers.
 	ApprovalWaitMs int64
 	Gates          []GateRule
+	// GatesAskOnly makes a gated call ask and never defer.
+	GatesAskOnly bool
 	// ReadOnly makes a lane that reads and reports: it edits no file with a tool, and writes no commit
 	// and no ref.
 	ReadOnly bool
@@ -182,7 +184,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		Waits:    waits,
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
-		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots),
 		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
 		RefusedFlags: slices.Clone(spec.RefusedFlags),
 	}
@@ -244,16 +246,24 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 		return reasonProgram(p.Program), true
 	}
 	switch call.Tool {
-	case ToolBash:
+	case ToolBash, toolMonitor:
 		var seen gitSeen
 		if reason, denied := p.decideShell(call.Command, call.Cwd, 0, &seen); denied {
 			return reason, true
 		}
-		if seen.pushes && seen.commits {
+		reason, pushes, denied := p.decidePushes(call.Command)
+		if denied {
+			return reason, true
+		}
+		if (seen.pushes || pushes) && seen.commits {
 			return ReasonPushApart, true
 		}
 		if wait, waits := p.WaitDenial(call); waits {
 			return wait.Reason, true
+		}
+	case toolPowerShell:
+		if reason, _, denied := p.decidePushes(call.Command); denied {
+			return reason, true
 		}
 	case toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit:
 		if len(p.Roots) != 0 && !p.inside(shellWord{text: call.Path}, call.Cwd) {
@@ -367,18 +377,19 @@ func globPrefix(pattern string) (string, bool) {
 	return head[:slash], true
 }
 
-// commandWrappers run the command that follows them.
-var commandWrappers = []string{"command", "builtin", "exec", "env", "nice", "nohup", "time", "sudo", "doas", "xargs", "timeout"}
-
 // shellKeywords lead a command inside a compound one.
 var shellKeywords = []string{"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}", "fi", "done"}
 
 // shells take a command as an argument.
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh"}
 
-// Pushes says a shell command runs git push, however deep it stands, which is what the worker reads a lane's
-// commits for before it lets the push ask anyone (FR-LANE-20).
+// Pushes says a shell command runs git push where the policy's own reading of commands finds one, however deep it
+// stands. MayPush also takes the forms past that reading, and what cannot be read.
 func Pushes(command string) bool {
+	// The worker reads this for any call. Past the bound, MayPush and Asks take the command as unread.
+	if len(command) > maxGateBytes {
+		return false
+	}
 	var seen gitSeen
 	_, _ = DenyPolicy{}.decideShell(command, "", 0, &seen)
 	return seen.pushes
@@ -411,37 +422,40 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				}
 			}
 		}
-		words := stripLeaders(command.words)
-		if len(words) == 0 {
-			continue
+		for _, inner := range command.processes {
+			if reason, denied := p.decideShell(inner, at, depth+1, seen); denied {
+				return reason, true
+			}
 		}
-		name := path.Base(words[0].text)
-		switch {
-		case name == "cd":
-			at = p.moved(words[1:], at)
-		case name == "git":
-			leaders := command.words[:len(command.words)-len(words)]
-			if reason, denied := p.decideGit(leaders, words[1:], at, seen); denied {
-				return reason, true
-			}
-		case name == "eval":
-			if reason, denied := p.decideShell(joinWords(words[1:]), at, depth+1, seen); denied {
-				return reason, true
-			}
-		case slices.Contains(shells, name):
-			if inner, ok := shellArgument(words[1:]); ok {
-				if reason, denied := p.decideShell(inner, at, depth+1, seen); denied {
+		for _, words := range leaderReadings(command.words) {
+			name := path.Base(words[0].text)
+			switch {
+			case name == "cd":
+				at = p.moved(words[1:], at)
+			case name == "git":
+				leaders := command.words[:len(command.words)-len(words)]
+				if reason, denied := p.decideGit(leaders, words[1:], at, seen); denied {
 					return reason, true
 				}
-			}
-		default:
-			if len(p.Roots) != 0 {
-				for _, target := range writeTargets(name, words[1:]) {
-					if !p.inside(target, at) {
-						return ReasonOutside, true
+			case name == "eval":
+				if reason, denied := p.decideShell(joinWords(words[1:]), at, depth+1, seen); denied {
+					return reason, true
+				}
+			case slices.Contains(shells, name):
+				for _, inner := range shellArguments(words[1:]) {
+					if reason, denied := p.decideShell(inner, at, depth+1, seen); denied {
+						return reason, true
 					}
-					if slices.Contains(filePrograms, name) && p.throughLink(target, at) {
-						return ReasonLink, true
+				}
+			default:
+				if len(p.Roots) != 0 {
+					for _, target := range writeTargets(name, words[1:]) {
+						if !p.inside(target, at) {
+							return ReasonOutside, true
+						}
+						if slices.Contains(filePrograms, name) && p.throughLink(target, at) {
+							return ReasonLink, true
+						}
 					}
 				}
 			}
@@ -466,7 +480,28 @@ func stripLeaders(words []shellWord) []shellWord {
 		switch {
 		case slices.Contains(shellKeywords, first.text), isAssignment(first.text):
 			words = words[1:]
-		case slices.Contains(commandWrappers, path.Base(first.text)):
+		default:
+			wrapper, wraps := gateWrappers[path.Base(first.text)]
+			if !wraps {
+				return words
+			}
+			words = stripWrapper(wrapper, words[1:])
+		}
+	}
+	return nil
+}
+
+// optionWrappers are the wrappers whose options alone stripOptions takes away.
+var optionWrappers = []string{"command", "builtin", "exec", "env", "nice", "nohup", "time", "sudo", "doas", "xargs", "timeout"}
+
+// stripOptions is stripLeaders, taking no word as a wrapper option's value or as an operand.
+func stripOptions(words []shellWord) []shellWord {
+	for len(words) != 0 {
+		first := words[0]
+		switch {
+		case slices.Contains(shellKeywords, first.text), isAssignment(first.text):
+			words = words[1:]
+		case slices.Contains(optionWrappers, path.Base(first.text)):
 			words = words[1:]
 			for len(words) != 0 && (strings.HasPrefix(words[0].text, "-") || isAssignment(words[0].text)) {
 				words = words[1:]
@@ -476,6 +511,44 @@ func stripLeaders(words []shellWord) []shellWord {
 		}
 	}
 	return nil
+}
+
+// leaderReadings are the commands words may run. An option such as `sudo -h`, `env -P`, or `env -S` takes a value
+// on one system or in one form and none in another, so a hold reads the words both ways.
+func leaderReadings(words []shellWord) [][]shellWord {
+	var out [][]shellWord
+	valued, plain := stripLeaders(words), stripOptions(words)
+	if len(valued) != 0 {
+		out = append(out, valued)
+	}
+	if len(plain) != 0 && len(plain) != len(valued) {
+		out = append(out, plain)
+	}
+	return out
+}
+
+// stripWrapper takes away a wrapper's own words: its options with the words they take, assignments, and the
+// operands that stand before its command, such as timeout's duration.
+func stripWrapper(wrapper gateWrapper, words []shellWord) []shellWord {
+	operands, options := wrapper.operands, true
+	for len(words) != 0 {
+		text := words[0].text
+		switch {
+		case options && text == "--":
+			options = false
+		case options && strings.HasPrefix(text, "-"):
+			if _, _, takes := readOption(text, wrapper.valued); takes && !words[0].expands && len(words) > 1 {
+				words = words[1:]
+			}
+		case isAssignment(text):
+		case operands > 0:
+			operands--
+		default:
+			return words
+		}
+		words = words[1:]
+	}
+	return words
 }
 
 func isAssignment(text string) bool {
@@ -491,17 +564,51 @@ func isAssignment(text string) bool {
 	return name[0] < '0' || name[0] > '9'
 }
 
-// shellArgument finds the text of `sh -c`, in any bundle of flags that holds `c`.
-func shellArgument(words []shellWord) (string, bool) {
+// shellArguments find the text of `sh -c`, in any bundle of flags that holds `c`: the word after that bundle, and
+// the first word after every option and the operands of `o` and `O`, as the gate reader takes them. Shells differ on
+// an option written against its letter, so a hold reads both.
+func shellArguments(words []shellWord) []string {
+	var texts []string
 	for i, word := range words {
 		if !strings.HasPrefix(word.text, "-") || strings.HasPrefix(word.text, "--") {
-			return "", false
+			break
 		}
 		if strings.Contains(word.text, "c") && i+1 < len(words) {
-			return words[i+1].text, true
+			texts = append(texts, words[i+1].text)
+			break
 		}
 	}
-	return "", false
+	coded, at := false, 0
+options:
+	for at < len(words) {
+		text := words[at].text
+		switch {
+		case text == "-" || text == "--":
+			at++
+			break options
+		case !strings.HasPrefix(text, "-") && !strings.HasPrefix(text, "+"):
+			break options
+		}
+		at++
+		if strings.HasPrefix(text, "--") {
+			if text == "--rcfile" || text == "--init-file" {
+				at++
+			}
+			continue
+		}
+		for _, letter := range text[1:] {
+			switch letter {
+			case 'c':
+				coded = coded || text[0] == '-'
+			case 'o', 'O':
+				at++
+			}
+		}
+	}
+	if coded && at < len(words) && !slices.Contains(texts, words[at].text) {
+		texts = append(texts, words[at].text)
+	}
+	return texts
 }
 
 // moved follows a `cd`. A directory the policy cannot read leaves it not knowing where it
@@ -648,10 +755,11 @@ func (p DenyPolicy) namesKept(subcommand string, args []shellWord) bool {
 }
 
 // pushOptionsWithValue are the options of `git push` that take the next word.
-var pushOptionsWithValue = []string{"-o", "--push-option", "--repo", "--receive-pack", "--exec", "--signed"}
+var pushOptionsWithValue = []string{"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
+// isForceOption reads a forcing option, also cut short as git takes a long option.
 func isForceOption(text string) bool {
-	if text == "--force" || text == "--force-if-includes" || strings.HasPrefix(text, "--force-with-lease") {
+	if strings.HasPrefix(text, "--forc") {
 		return true
 	}
 	return strings.HasPrefix(text, "-") && !strings.HasPrefix(text, "--") && strings.Contains(text, "f")
@@ -667,7 +775,7 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		switch {
 		case isForceOption(text):
 			return ReasonForcePush, true
-		case text == "--all" || text == "--mirror" || text == "--branches":
+		case pushesEverything(text):
 			everything = true
 		case slices.Contains(pushOptionsWithValue, text):
 			i++
@@ -690,7 +798,7 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		if _, after, found := strings.Cut(refspec, ":"); found {
 			destination = after
 		}
-		destination = strings.TrimPrefix(destination, "refs/heads/")
+		destination = strings.TrimPrefix(strings.TrimPrefix(destination, "refs/"), "heads/")
 		if slices.Contains(p.DefaultBranches, destination) {
 			return ReasonDefaultBranch, true
 		}
@@ -699,6 +807,13 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// pushesEverything reads an option that pushes every branch, also cut short as far as it stays the one option.
+func pushesEverything(text string) bool {
+	return (len(text) >= len("--al") && strings.HasPrefix("--all", text)) ||
+		(len(text) >= len("--m") && strings.HasPrefix("--mirror", text)) ||
+		(len(text) >= len("--b") && strings.HasPrefix("--branches", text))
 }
 
 // writeRule says which operands of a program it writes.
@@ -812,7 +927,8 @@ func (p DenyPolicy) inside(word shellWord, at string) bool {
 	if !ok {
 		return false
 	}
-	if slices.Contains(quietDevices, resolved) {
+	// The path of a process substitution is a pipe. Written out, it is whatever the descriptor holds.
+	if slices.Contains(quietDevices, resolved) || (word.process && resolved == processPath) {
 		return true
 	}
 	for _, root := range p.Roots {
@@ -872,11 +988,12 @@ func CheckPermissionMode(mode string) error {
 	return nil
 }
 
-// permissionRanks orders the modes by how much runs without asking. Anything else outranks
-// them all, because a mode nobody here knows must not pass as a lower one.
-var permissionRanks = map[string]int{"plan": 0, "default": 1, "acceptEdits": 2, "dontAsk": 3, "auto": 4, "bypassPermissions": 5}
+// permissionRanks orders the modes from most careful to least: plan, which only plans, dontAsk, which refuses what
+// would ask, default, acceptEdits, auto, and the bypass mode. Anything else outranks them all, because a mode nobody
+// here knows must not pass as a lower one.
+var permissionRanks = map[string]int{"plan": 0, "dontAsk": 1, "default": 2, "acceptEdits": 3, "auto": 4, BypassMode: 5}
 
-// RaisesPermission reports a mode that runs more without asking than another.
+// RaisesPermission reports a mode that is less careful than another.
 func RaisesPermission(from, to string) bool {
 	rank, known := permissionRanks[to]
 	if !known {

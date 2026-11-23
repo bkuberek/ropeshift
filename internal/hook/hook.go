@@ -265,6 +265,7 @@ const (
 	callPassed verdict = iota
 	questionDeferred
 	callDenied
+	callAsked
 )
 
 // nameCall gives an event the digest of its call, which is all a hook forwards of its input outside
@@ -359,7 +360,7 @@ func waitOf(policy lanes.DenyPolicy, read bool) time.Duration {
 // person. A pane's policy defers nothing.
 func deferred(policy lanes.DenyPolicy, call requestedCall) bool {
 	read, err := authority.ReadToolCall(call.Tool, call.Input)
-	return err == nil && policy.Gated(lanes.ToolCall{Tool: call.Tool, Command: read.Command})
+	return err == nil && policy.Defers(lanes.ToolCall{Tool: call.Tool, Command: read.Command})
 }
 
 func newCallID() string {
@@ -380,8 +381,8 @@ func answerPermission(stdout io.Writer, decision, reason string) {
 }
 
 // deferGated ends a turn on a call a person must approve, once a request stands for it, so a lane
-// parks with no process waiting. A worker that does not answer in time leaves the call to
-// PermissionRequest, which waits, so this can make a lane slower and never let a call through.
+// parks with no process waiting. A worker that does not answer in time leaves the call to ask, and
+// PermissionRequest waits on it, so this can make a lane slower and never let a call through.
 func deferGated(cfg config, input []byte) (verdict, []byte) {
 	var call requestedCall
 	if cfg.socket == "" || json.Unmarshal(input, &call) != nil {
@@ -474,8 +475,13 @@ func decideRule(cfg config, input []byte, rule *string) (verdict, []byte) {
 		}
 		return callDenied, denial(reason)
 	}
-	if policy.Gated(tool) {
-		return deferGated(cfg, input)
+	if policy.Defers(tool) {
+		if made, answer := deferGated(cfg, input); len(answer) != 0 {
+			return made, answer
+		}
+	}
+	if reason, asks := policy.Asks(tool); asks {
+		return callAsked, asking(reason)
 	}
 	return callPassed, nil
 }
@@ -507,6 +513,14 @@ func attached(marker string) bool {
 func denial(reason string) []byte {
 	return encode(map[string]string{
 		"hookEventName": eventPreToolUse, "permissionDecision": "deny", "permissionDecisionReason": reason,
+	})
+}
+
+// asking is a PreToolUse answer that puts a call to a person whatever the permission mode, so it reaches
+// PermissionRequest, where the worker takes it. It grants nothing: a deny rule still refuses the call.
+func asking(reason string) []byte {
+	return encode(map[string]string{
+		"hookEventName": eventPreToolUse, "permissionDecision": "ask", "permissionDecisionReason": reason,
 	})
 }
 

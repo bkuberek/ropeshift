@@ -160,7 +160,7 @@ A lane reads the built-in layer, then your profile over it, then the repository'
 | `[worktree] root` | Yours | Where lane worktrees go. `ropeshift init --worktree-root` writes it when it writes the file ([where lanes work](set-up-projects.md#where-lanes-work)) |
 | `[worktree] push_on_stop` | Yours | Whether a lane's branch is pushed to its remote when the lane stops, off by default |
 | `[agent.classes]` | Yours | The model each capability class of the roster runs on, which Driver preview reads |
-| `[agent] model`, `permission_mode`, and `gates` | Either | The model of a lane that runs as no roster agent, the agent's permission mode, and the actions that always ask a person ([what a lane does without asking](onboarding.md#what-a-lane-does-without-asking)) |
+| `[agent] model`, `permission_mode`, and `gates` | Either | The model of a lane that runs as no roster agent, the agent's permission mode, `auto` by default, and the actions that ask a person ([what a lane does without asking](onboarding.md#what-a-lane-does-without-asking)) |
 | `[review] max_review_rounds` | Either, usually the repository's | How many times the review judges one work order before work it still fails waits for you, 3 by default |
 | `[admission]` estimates and reserves | Yours | What one lane takes, from which the worker recommends a lane cap ([how many lanes run at once](onboarding.md#how-many-lanes-run-at-once)). The caps themselves are also in Settings |
 | `[resources]` thresholds | Yours | How often the worker measures, and where a measure warns ([what the worker measures](onboarding.md#what-the-worker-measures)) |

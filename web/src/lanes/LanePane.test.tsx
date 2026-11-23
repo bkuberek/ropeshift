@@ -133,12 +133,12 @@ describe("a lane's pane", () => {
     const field = screen.getByRole("textbox", { name: "Type into the session" });
     await user.click(field);
     const keys = screen.getByRole("group", { name: "Press a key" });
-    const row = ["Esc", "Tab", "Shift-Tab", "Enter", "Ctrl-C", "Ctrl-O", "Up", "Down", "Left", "Right"];
+    const row = ["Esc", "Tab", "Shift-Tab", "Enter", "Ctrl-C", "Ctrl-D", "Ctrl-O", "Up", "Down", "Left", "Right"];
     for (const key of row) {
       await user.click(within(keys).getByRole("button", { name: key }));
       expect(document.activeElement).toBe(field);
     }
-    const sent = ["Escape", "Tab", "Shift-Tab", "Enter", "Ctrl-C", "Ctrl-O", "Up", "Down", "Left", "Right"];
+    const sent = ["Escape", "Tab", "Shift-Tab", "Enter", "Ctrl-C", "Ctrl-D", "Ctrl-O", "Up", "Down", "Left", "Right"];
     await waitFor(() => expect(chordsOf(typed)).toEqual(sent));
   });
 
@@ -233,6 +233,43 @@ describe("a lane's pane that holds the keys", () => {
     expect(document.activeElement).toBe(held);
     await waitFor(() => expect(chordsOf(typed)).toEqual(["Tab", "Shift-Tab", "Escape", "Ctrl-o", "Ctrl-x", "Ctrl-s", "y", "?"]));
     expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
+  });
+
+  const clipboard = (text: string) => ({ clipboardData: { getData: (type: string) => (type === "text/plain" ? text : "") } });
+
+  it("types a paste into the session as one line, and presses no Enter", async () => {
+    const { typed, held } = await captured();
+    fireEvent.paste(held, clipboard("git status\n"));
+    await waitFor(() => expect(typed.map((sent) => sent.body)).toEqual([{ text: "git status", enter: false }]));
+  });
+
+  it("leaves Ctrl-Shift-V to the browser, which pastes, and still sends Ctrl-V as a key", async () => {
+    const { typed, held } = await captured();
+    expect(fireEvent.keyDown(held, { key: "V", code: "KeyV", ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(held, { key: "v", ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(held, { key: "v", code: "KeyV", ctrlKey: true })).toBe(false);
+    await waitFor(() => expect(chordsOf(typed)).toEqual(["Ctrl-v"]));
+  });
+
+  it("sends nothing for a paste of several lines, and says so until the next input", async () => {
+    const { typed, held, user } = await captured();
+    fireEvent.paste(held, clipboard("one\ntwo"));
+    expect((await screen.findByRole("alert")).textContent).toBe("A paste into the session is one line. Nothing was sent.");
+    fireEvent.paste(held, clipboard("one\r\ntwo\r\n"));
+    fireEvent.paste(held, clipboard("\n"));
+    expect(typed).toEqual([]);
+    await user.keyboard("y");
+    await waitFor(() => expect(chordsOf(typed)).toEqual(["y"]));
+    expect(screen.queryByText("A paste into the session is one line. Nothing was sent.")).toBeNull();
+  });
+
+  it("takes no paste while the page holds the keys", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "a screen");
+    const log = screen.getByRole("log", named);
+    expect(fireEvent.paste(log, clipboard("git status"))).toBe(true);
+    expect(typed).toEqual([]);
   });
 
   it("gives the keys back on Ctrl-], with focus left on the screen, so Tab moves on from there", async () => {

@@ -284,13 +284,13 @@ func TestTheCommandsRegisterWhatEachShapeWrote(t *testing.T) {
 		want         []string
 	}{
 		{"a workspace with repositories and no commit", projectfiles.Workspace, two, true, append(git(projectfiles.Workspace, two),
-			"make -C /work/orchid setup", "ropeshift project create orchid", "make -C /work/orchid register")},
+			"make -C /work/orchid setup", login, "ropeshift project create orchid", "make -C /work/orchid register")},
 		{"a workspace with no repositories in a clone", projectfiles.Workspace, nil, false, []string{
-			"ropeshift project create orchid", "make -C /work/orchid register"}},
+			login, "ropeshift project create orchid", "make -C /work/orchid register"}},
 		{"a monorepo with no commit", projectfiles.Monorepo, nil, true, append(git(projectfiles.Monorepo, nil),
-			"ropeshift project create orchid", "ropeshift repository add /work/orchid --project orchid")},
+			login, "ropeshift project create orchid", "ropeshift repository add /work/orchid --project orchid")},
 		{"a monorepo in a clone", projectfiles.Monorepo, nil, false, []string{
-			"ropeshift project create orchid", "ropeshift repository add /work/orchid --project orchid"}},
+			login, "ropeshift project create orchid", "ropeshift repository add /work/orchid --project orchid"}},
 		{"a repository with no commit", projectfiles.Repository, nil, true, append(git(projectfiles.Repository, nil),
 			"ropeshift repository add /work/orchid --project orchid")},
 		{"a repository in a clone", projectfiles.Repository, nil, false, []string{
@@ -313,6 +313,7 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 		`git -C '/work/it'\''s mine' init`,
 		addOf(`'/work/it'\''s mine'`, shapePaths(projectfiles.Monorepo, nil)...),
 		`git -C '/work/it'\''s mine' commit -m "chore: start it-s-mine"`,
+		login,
 		"ropeshift project create it-s-mine",
 		`ropeshift repository add '/work/it'\''s mine' --project it-s-mine`,
 	}
@@ -323,6 +324,10 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 		t.Errorf("a path a shell would expand: %v", got)
 	}
 }
+
+// login is the command that opens one session for the commands after it, so a project is made and registered with one
+// passphrase.
+const login = `eval "$(ropeshift login)"`
 
 // addOf is the command that adds the files at paths in the folder: the paths git would add, which are those it does not
 // ignore, read as files and never as pathspecs.
@@ -351,6 +356,7 @@ func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
 		"git -C /work/orchid init",
 		addOf("/work/orchid", "AGENTS.md", "plan/goal.md"),
 		`git -C /work/orchid commit -m "chore: start orchid"`,
+		login,
 		"ropeshift project create orchid",
 		"ropeshift repository add /work/orchid --project orchid",
 	}

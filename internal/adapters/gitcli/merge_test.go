@@ -251,12 +251,14 @@ func (r *mergeRig) messageOf(commit string) string {
 }
 
 // A rebase keeps each commit's message as its author wrote it: hard-break spaces at the end of a line, blank lines in a
-// row, and tabs stay as they were, and only the trailers are added after the message.
+// row, tabs, and a line that starts with a hash stay as they were, whatever commit.cleanup says, and only the trailers
+// are added after the message.
 func TestARebaseKeepsEachMessageByteForByte(t *testing.T) {
 	r := newMergeRig(t, true)
-	first := "first step  \n\nA hard break  \nstays here,\ttabs too,\n\n\nand two blank lines stay.\n"
+	first := "first step  \n\nA hard break  \nstays here,\ttabs too,\n\n\n# a line of the message, not a comment  \nand two blank lines stay.\n"
 	second := "second step\n\nSigned-off-by: A Person <person@example.invalid>\nReviewed-by:   Another <other@example.invalid>  \n"
 	r.laneWithVerbatim(first, second)
+	r.repo.Git("config", "commit.cleanup", "strip")
 	moved := r.remoteMain()
 	result := r.merge(ledger.MergeRebase)
 	landed := r.landedSince(moved, result.MergeCommit)

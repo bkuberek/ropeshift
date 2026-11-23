@@ -168,8 +168,12 @@ func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachReposito
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "repository\nadd\n.\nrepos/api\nrepos/group/deep\n--project\nshop\n--\n"; !strings.HasPrefix(string(calls), want) {
-		t.Errorf("make register ran %q, want it to start with %q", calls, want)
+	// It logs in once first, then adds each clone by its path, then sets the workspace as the planning repository.
+	want := "login\n--\n" +
+		"repository\nadd\n.\nrepos/api\nrepos/group/deep\n--project\nshop\n--\n" +
+		"repository\nset\n" + filepath.Base(workspace.Dir) + "\n--planning\n--project\nshop\n--\n"
+	if string(calls) != want {
+		t.Errorf("make register ran %q, want %q", calls, want)
 	}
 	if status := run("status"); !strings.Contains(status, "api: ## ") || !strings.Contains(status, "deep: ## ") || strings.Contains(status, "missing") {
 		t.Errorf("make status printed no api: ## and deep: ## , or reads a clone as missing:\n%s", status)

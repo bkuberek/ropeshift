@@ -86,13 +86,19 @@ hooks:
 	  printf '#!/bin/sh\nexec ./scripts/check\n' > "$$hook" && chmod +x "$$hook" && echo "$$name: installed"; \
 	done
 
-# Registration needs a member's session, so ropeshift asks for the passphrase on the terminal. The
-# workspace needs at least one commit first, because a repository's identity is read from its history.
+# Registration needs a member's session. With no ROPESHIFT_MEMBER_TOKEN in the shell, make register asks for the
+# passphrase once, on the terminal, and runs both commands under that session. The session is neither printed nor
+# written to a file, and it ends with the recipe. The workspace needs at least one commit first, because a repository's
+# identity is read from its history.
 register-check:
 	@$(CLONES); echo "ropeshift repository add $$* --project $(PROJECT) --dry-run"; ropeshift repository add "$$@" --project $(PROJECT) --dry-run
 
 register:
-	@$(CLONES); echo "ropeshift repository add $$* --project $(PROJECT)"; ropeshift repository add "$$@" --project $(PROJECT)
+	@if [ -z "$$ROPESHIFT_MEMBER_TOKEN" ]; then session=$$(ropeshift login) || exit 1; eval "$$session"; fi; \
+	$(CLONES); \
+	echo "ropeshift repository add $$* --project $(PROJECT)"; \
+	ropeshift repository add "$$@" --project $(PROJECT) || exit 1; \
+	echo "ropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)"; \
 	ropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)
 
 # Ropeshift never deletes a branch. After ropeshift lane archive <lane>, delete a merged branch with

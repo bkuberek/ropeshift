@@ -114,12 +114,12 @@ func checkWebhookURL(url string) error {
 	if !secure {
 		var plain bool
 		if rest, plain = strings.CutPrefix(url, "http://"); !plain {
-			return fmt.Errorf("%w: a webhook is https", ErrBadNotifyPolicy)
+			return fmt.Errorf("%w: webhook_url starts with https://, or with http:// for a loopback address", ErrBadNotifyPolicy)
 		}
 	}
 	host, _, _ := strings.Cut(rest, "/")
 	if host == "" || strings.ContainsAny(url, "@?# \t\r\n") {
-		return fmt.Errorf("%w: a webhook address holds a host and a path and nothing else", ErrBadNotifyPolicy)
+		return fmt.Errorf("%w: webhook_url holds a host and a path only, because an address ends up in logs: remove any user (@), query (?), fragment (#), or space. A webhook that takes its key in the query is not supported", ErrBadNotifyPolicy)
 	}
 	name, _, _ := strings.Cut(strings.TrimPrefix(host, "[::1]"), ":")
 	if !secure && name != "127.0.0.1" && name != "localhost" && name != "" {

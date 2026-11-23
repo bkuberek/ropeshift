@@ -262,7 +262,11 @@ func fakeRopeshift(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	record := filepath.Join(dir, "calls")
-	script := "#!/bin/sh\nfor argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> " + record + "\nprintf -- '--\\n' >> " + record + "\n"
+	// Each call is recorded with the session token it ran under, in a file beside it. login prints a session for eval, as
+	// the command does, and fails when the test sets FAKE_LOGIN_FAILS.
+	script := "#!/bin/sh\nfor argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> " + record + "\nprintf -- '--\\n' >> " + record + "\n" +
+		"printf '%s\\n' \"${ROPESHIFT_MEMBER_TOKEN:-none}\" >> " + record + ".tokens\n" +
+		"if [ \"$1\" = login ]; then [ -z \"$FAKE_LOGIN_FAILS\" ] || exit 8; echo 'export ROPESHIFT_MEMBER_TOKEN=session-token'; fi\n"
 	if err := os.WriteFile(filepath.Join(dir, "ropeshift"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -303,15 +307,15 @@ func TestMakeRegisterRegistersEachListedCloneByItsOwnPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	path, record := fakeRopeshift(t)
-	run := func(target string, skipping ...string) string {
+	// session is the environment of the make that follows: the member's token, empty by default, and whether login fails.
+	session := []string{"ROPESHIFT_MEMBER_TOKEN="}
+	run := func(target string) string {
 		t.Helper()
-		cmd := exec.Command("make", append([]string{"--no-print-directory", "-C", workspace.Dir, target}, skipping...)...)
-		cmd.Env = append(remote.Env(), "PATH="+path)
-		out, err := cmd.CombinedOutput()
+		out, err := runMake(workspace.Dir, target, append(append(remote.Env(), "PATH="+path), session...))
 		if err != nil {
 			t.Fatalf("make %s: %v\n%s", target, err, out)
 		}
-		return string(out)
+		return out
 	}
 	// The clones exist except the entry named absent, and a stray clone sits in the folder of clones with no entry.
 	for _, clone := range []string{"repos/api", "repos/group/deep", "services/a.b/elsewhere", "repos/stray"} {
@@ -337,19 +341,67 @@ func TestMakeRegisterRegistersEachListedCloneByItsOwnPath(t *testing.T) {
 		}
 		return out
 	}
+	tokens := func() []string {
+		t.Helper()
+		raw, err := os.ReadFile(record + ".tokens")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	}
+	forget := func() {
+		t.Helper()
+		for _, file := range []string{record, record + ".tokens"} {
+			if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+		}
+	}
 	if out := run("register"); !strings.Contains(out, "absent: no clone, skipped") {
 		t.Errorf("make register says nothing of the entry with no clone:\n%s", out)
 	}
 	want := []string{"repository", "add", ".", "repos/api", "repos/group/deep", "services/a.b/elsewhere", "--project", "orchid"}
+	set := []string{"repository", "set", filepath.Base(workspace.Dir), "--planning", "--project", "orchid"}
+	// With no session in the shell, make register signs in once, and the two commands after it run under that session.
 	got := calls()
-	if len(got) != 2 || !slices.Equal(got[0], want) || !slices.Equal(got[1], []string{"repository", "set", filepath.Base(workspace.Dir), "--planning", "--project", "orchid"}) {
-		t.Errorf("make register ran %q, want %q and then repository set", got, want)
+	if len(got) != 3 || !slices.Equal(got[0], []string{"login"}) || !slices.Equal(got[1], want) || !slices.Equal(got[2], set) {
+		t.Errorf("make register ran %q, want one login, then %q, then repository set", got, want)
 	}
-	if err := os.Remove(record); err != nil {
-		t.Fatal(err)
+	if got := tokens(); !slices.Equal(got, []string{"none", "session-token", "session-token"}) {
+		t.Errorf("make register ran its commands under the tokens %q, want the session login printed for the two after it", got)
 	}
+	// With a session, it asks for none.
+	forget()
+	session = []string{"ROPESHIFT_MEMBER_TOKEN=held"}
+	run("register")
+	if got := calls(); len(got) != 2 || !slices.Equal(got[0], want) || !slices.Equal(got[1], set) {
+		t.Errorf("make register with a session ran %q, want %q and then repository set, and no login", got, want)
+	}
+	if got := tokens(); !slices.Equal(got, []string{"held", "held"}) {
+		t.Errorf("make register with a session ran under the tokens %q", got)
+	}
+	// A login that fails runs nothing after it.
+	forget()
+	session = []string{"ROPESHIFT_MEMBER_TOKEN=", "FAKE_LOGIN_FAILS=1"}
+	if out, err := runMake(workspace.Dir, "register", append(append(remote.Env(), "PATH="+path), session...)); err == nil {
+		t.Errorf("make register succeeded after a login that failed:\n%s", out)
+	}
+	if got := calls(); len(got) != 1 || !slices.Equal(got[0], []string{"login"}) {
+		t.Errorf("make register after a failed login ran %q, want the login alone", got)
+	}
+	// register-check reads and registers nothing, and asks for no session of its own.
+	forget()
+	session = []string{"ROPESHIFT_MEMBER_TOKEN="}
 	run("register-check")
 	if got := calls(); len(got) != 1 || !slices.Equal(got[0], append(slices.Clone(want), "--dry-run")) {
 		t.Errorf("make register-check ran %q, want %q", got, append(slices.Clone(want), "--dry-run"))
 	}
+}
+
+// runMake runs a target of the Makefile in a folder with an environment, and returns what it printed.
+func runMake(dir, target string, env []string) (string, error) {
+	cmd := exec.Command("make", "--no-print-directory", "-C", dir, target)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }

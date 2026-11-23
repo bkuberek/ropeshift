@@ -58,7 +58,7 @@ func (w *Worker) takeApproval(ctx context.Context, lane lanes.Record, request la
 	}
 	// A push of commits that hold another's files is answered before it asks anyone, while the lane can still fix
 	// its commits (FR-LANE-20).
-	if call.Tool == lanes.ToolBash && lanes.Pushes(call.Command) {
+	if lanes.MayPush(call.Tool, call.Command) {
 		if reason := w.refusedPush(ctx, lane); reason != "" {
 			run.callRefused(ctx, lane, call.Digest)
 			return answer(lanes.ApprovalDeny, reason, "")
@@ -383,7 +383,8 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 }
 
 // gated says a call is a gate: one this lane's profile gates, or a push, each of which asks in every mode (FR-LANE-19)
-// and which a member approves one call at a time. A shell command is a gate when any command in it is one.
+// and which a member approves one call at a time. A shell command is a gate when any command in it is one, or when
+// the hook asks for it as one.
 func (r *laneRun) gated(call authority.ToolCall) bool {
 	r.handleLock.Lock()
 	rules := r.gates
@@ -393,10 +394,14 @@ func (r *laneRun) gated(call authority.ToolCall) bool {
 		gates = append(gates, lanes.ReadGate(rule))
 	}
 	command := strings.TrimSpace(call.Command)
-	if (lanes.DenyPolicy{Gates: gates}).Gated(lanes.ToolCall{Tool: call.Tool, Command: command}) {
+	policy := lanes.DenyPolicy{Gates: gates}
+	if policy.Gated(lanes.ToolCall{Tool: call.Tool, Command: command}) {
 		return true
 	}
-	return call.Tool == lanes.ToolBash && shellGated(command, gates)
+	if _, asks := policy.Asks(lanes.ToolCall{Tool: call.Tool, Command: call.Command}); asks {
+		return true
+	}
+	return lanes.RunsShell(call.Tool) && command != "" && shellGated(command, gates)
 }
 
 // shellGated says a shell command is a gate: one of its commands is a push or a call a gate names, whatever stands

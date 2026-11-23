@@ -226,6 +226,12 @@ func TestPermissionRaises(t *testing.T) {
 		{"down from auto", "auto", "default", false},
 		{"up to bypass", "auto", "bypassPermissions", true},
 		{"a mode nobody knows", "default", "everything", true},
+		{"up from dontAsk to default", "dontAsk", "default", true},
+		{"up from dontAsk to accept edits", "dontAsk", "acceptEdits", true},
+		{"up from dontAsk to auto", "dontAsk", "auto", true},
+		{"up from plan to dontAsk", "plan", "dontAsk", true},
+		{"down from default to dontAsk", "default", "dontAsk", false},
+		{"down from accept edits to dontAsk", "acceptEdits", "dontAsk", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
