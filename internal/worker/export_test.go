@@ -2,10 +2,14 @@ package worker
 
 import (
 	"context"
+	"slices"
 	"sync"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // DigestSoFar is the digest a lane's run holds open for its generation, and false while the run has folded
@@ -75,6 +79,43 @@ func (w *Worker) WakeWaiting() int {
 func (w *Worker) HoldingForAnswer(lane string) bool {
 	run := w.runOf(lane)
 	return run != nil && run.waiting.Load()
+}
+
+// LaneBounds is the stall bound and the gates a lane's run holds, and false for a lane this worker does not run.
+func (w *Worker) LaneBounds(lane string) (stall time.Duration, gates []string, ok bool) {
+	run := w.runOf(lane)
+	if run == nil {
+		return 0, nil, false
+	}
+	run.state.mu.Lock()
+	stall = run.state.stallAfter
+	run.state.mu.Unlock()
+	run.handleLock.Lock()
+	defer run.handleLock.Unlock()
+	return stall, slices.Clone(run.gates), true
+}
+
+// LaneWaitUntil is when the wait a lane's run holds as declared ends, and the zero time for none.
+func (w *Worker) LaneWaitUntil(lane string) time.Time {
+	run := w.runOf(lane)
+	if run == nil {
+		return time.Time{}
+	}
+	run.state.mu.Lock()
+	defer run.state.mu.Unlock()
+	return run.state.waitUntil
+}
+
+// RebuiltRunCools says whether the run a restarted worker rebuilds from an orchestrator's journal record reads that
+// orchestrator's tripped breaker as cooled.
+func (w *Worker) RebuiltRunCools(ctx context.Context, lane string) (bool, error) {
+	record, err := w.journal.Lane(ctx, lane)
+	if err != nil {
+		return false, err
+	}
+	run := w.resumedRun(ledger.DesiredLease{Lane: lane, State: string(workorders.Claimed)}, record)
+	run.loadProfile(ctx)
+	return (&breakerCooling{run: run}).cooled(ctx), nil
 }
 
 // Running says a lane's run is still in this worker's hands. The run leaves them as its goroutine ends.

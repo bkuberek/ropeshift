@@ -101,11 +101,17 @@ func Unprobed(driver, version, signIn string, surfaces []Surface) Qualification 
 }
 
 // ProbeAttempt is the last probe a worker began, which outlives its process, so a worker that restarts does not begin
-// another at once. It holds a version and a time, and nothing of a session or an account.
+// another at once, and the wait its version's probes have grown to. It holds a version and times, and nothing of a
+// session or an account.
 type ProbeAttempt struct {
 	Version string
 	// BeganAt is when the probe began, before it started its first session.
 	BeganAt time.Time
+	// Wait is how long the backoff after the probes of Version had grown to when the attempt was last kept, and Next is
+	// when that wait ends. Both are zero when no wait stands. A worker that restarts reads them, so a version that keeps
+	// failing is probed again after its wait, and not after the restart delay.
+	Wait time.Duration
+	Next time.Time
 }
 
 // QualificationKey names a worker's driver, the way a sign-in is named (D10).

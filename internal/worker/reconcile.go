@@ -418,6 +418,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.briefCleared(ctx)
 	w.respawnLanes(ctx)
 	w.tendSignIn(ctx)
+	w.tendProfiles(ctx)
 	w.deliverMessages(ctx)
 	w.parkOnPolicy(ctx)
 	w.parkOnWaits(ctx)

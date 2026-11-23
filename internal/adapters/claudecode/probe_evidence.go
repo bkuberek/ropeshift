@@ -51,17 +51,33 @@ func (p *prober) keepScreen(ctx context.Context, pane string) {
 	p.keep(evidence{file: "screens.screen", surfaces: []lanes.Surface{SurfaceStartScreens}, body: body[:min(len(body), evidenceLimit)], cut: len(body) > evidenceLimit})
 }
 
+// evidenceRootIsOurs says the evidence root is one a probe may keep files in and remove them from: none is set, or it is
+// a directory, or it is not there yet. A root that is a link leads out of the directory the worker owns, and nothing
+// here follows it.
+func evidenceRootIsOurs(root string) bool {
+	if root == "" {
+		return false
+	}
+	info, err := os.Lstat(root)
+	return err == nil && info.IsDir() || os.IsNotExist(err)
+}
+
+// clearEvidence removes what an earlier probe kept for this driver, as a probe begins, so a probe that ends with no
+// result, by an error, a timeout, or a version that moved, leaves no evidence that would read as its own. writeEvidence
+// replaces it again when a probe has a result.
+func clearEvidence(root string) {
+	if evidenceRootIsOurs(root) {
+		_ = os.RemoveAll(filepath.Join(root, DriverName))
+	}
+}
+
 // writeEvidence replaces the driver's evidence with this probe's: the sessions that ran a check, of the checks the
 // probe runs, that failed or that no session reached, and nothing else of the probe. A probe that passed every check leaves none. Files are
 // private to the person the worker runs as, and none is longer than evidenceLimit. A write that fails leaves what it
 // could not write unkept, and never changes the probe's result.
 func (p *prober) writeEvidence(q lanes.Qualification, checks []lanes.Surface) {
 	root := p.spec.EvidenceDir
-	if root == "" {
-		return
-	}
-	// A root that is a link leads out of the directory the worker owns, and nothing here follows it.
-	if info, err := os.Lstat(root); err == nil && !info.IsDir() || err != nil && !os.IsNotExist(err) {
+	if !evidenceRootIsOurs(root) {
 		return
 	}
 	dir := filepath.Join(root, DriverName)

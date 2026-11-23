@@ -82,6 +82,10 @@ func (r *laneRun) cleared(ctx context.Context, session string, atMs int64) {
 	// reads nothing of the last.
 	r.state.noteCleared(atMs)
 	r.state.newGeneration(r.w.clock.Now(), 0)
+	// The turn that follows is the re-brief's, whose answer no member reads, as the first generation's is.
+	if r.assisting() {
+		r.assistant().newGeneration()
+	}
 	r.handleLock.Lock()
 	r.generation, r.instruction = stored.Generation, ""
 	r.handleLock.Unlock()

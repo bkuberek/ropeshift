@@ -165,16 +165,16 @@ func unqualified(version string) lanes.Qualification {
 	return q
 }
 
-// judged sets Degraded: a surface this driver relies on did not pass. The login check counts
+// judged sets Degraded: a surface this driver relies on did not pass. The login check and the windows count
 // wherever a probe ran on anything but an API key, because a sign-in nobody could read is a
-// subscription, and the screens count only for a driver with a terminal.
+// subscription and the figures belong to a subscription, and the screens count only for a driver with a terminal.
 func judged(q lanes.Qualification, interactive bool) lanes.Qualification {
 	q.Degraded = false
 	for _, surface := range Surfaces {
 		switch {
 		case isNoted(surface):
 			continue
-		case surface == SurfacePrintKeepsLogin && q.Source == lanes.QualifiedByProbe && q.SignIn == ports.SignInAPIKey:
+		case (surface == SurfacePrintKeepsLogin || surface == SurfaceUnifiedWindows) && q.Source == lanes.QualifiedByProbe && q.SignIn == ports.SignInAPIKey:
 			continue
 		case surface == SurfaceStartScreens && !interactive:
 			continue
@@ -187,13 +187,13 @@ func judged(q lanes.Qualification, interactive bool) lanes.Qualification {
 }
 
 // ProbeChecks lists the checks a probe runs for a worker on this sign-in: every surface of the matrix, less the login
-// on an API key, which cannot read a subscription's login, and the screens when the driver has no terminal. A result
-// holds for its version only if it passed every one of them.
+// and the windows on an API key, which cannot read a subscription's login or its window figures, and the screens when
+// the driver has no terminal. A result holds for its version only if it passed every one of them.
 func (d *Driver) ProbeChecks(signIn string) []lanes.Surface {
 	out := make([]lanes.Surface, 0, len(Surfaces))
 	for _, surface := range Surfaces {
 		switch {
-		case surface == SurfacePrintKeepsLogin && signIn == ports.SignInAPIKey:
+		case (surface == SurfacePrintKeepsLogin || surface == SurfaceUnifiedWindows) && signIn == ports.SignInAPIKey:
 		case surface == SurfaceStartScreens && d.terminal == nil:
 		default:
 			out = append(out, surface)

@@ -1,6 +1,7 @@
 package claudecode_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -124,6 +125,65 @@ func TestAProbeReplacesTheEvidenceOfTheOneBeforeIt(t *testing.T) {
 			t.Errorf("after a probe that drops %q the evidence is %v, want %v", tt.drop, got, tt.want)
 		}
 	}
+}
+
+// A probe that ends with no result leaves no evidence of the probe before it, which would read as its own: the evidence is
+// cleared when a probe begins, so an error, a timeout, or a version that moved leaves none, and a root that is a link is
+// left alone.
+func TestAProbeThatCouldNotFinishLeavesNoOlderEvidence(t *testing.T) {
+	failures := map[string]func(t *testing.T, spec *ports.ProbeSpec) context.Context{
+		"a probe that ended in a timeout": func(t *testing.T, _ *ports.ProbeSpec) context.Context {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			return ctx
+		},
+		"a probe that found no CLI": func(t *testing.T, spec *ports.ProbeSpec) context.Context {
+			spec.Env = []string{"PATH=" + t.TempDir(), "HOME=" + t.TempDir()}
+			return t.Context()
+		},
+	}
+	for name, fail := range failures {
+		t.Run(name, func(t *testing.T) {
+			driver, spec, _ := probeRig(t, "max_budget_usd")
+			spec.EvidenceDir = filepath.Join(t.TempDir(), "evidence")
+			if _, err := driver.Probe(t.Context(), spec); err != nil {
+				t.Fatal(err)
+			}
+			if got := names(evidenceOf(t, spec.EvidenceDir)); !slices.Equal(got, []string{"budget.stream"}) {
+				t.Fatalf("the first probe kept %v", got)
+			}
+			ctx := fail(t, &spec)
+			if _, err := driver.Probe(ctx, spec); err == nil {
+				t.Fatal("a probe that could not finish returned a result")
+			}
+			if got := names(evidenceOf(t, spec.EvidenceDir)); len(got) != 0 {
+				t.Errorf("a probe that ended with no result left the evidence of the one before it: %v", got)
+			}
+		})
+	}
+	t.Run("a root that is a link", func(t *testing.T) {
+		driver, spec, _ := probeRig(t)
+		elsewhere := t.TempDir()
+		dir := filepath.Join(elsewhere, claudecode.DriverName)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "keep"), []byte("not the probe's"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		spec.EvidenceDir = filepath.Join(t.TempDir(), "evidence")
+		if err := os.Symlink(elsewhere, spec.EvidenceDir); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := driver.Probe(ctx, spec); err == nil {
+			t.Fatal("a probe that could not finish returned a result")
+		}
+		if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 || entries[0].Name() != "keep" {
+			t.Errorf("the probe changed what its link led to: %v, %v", entries, err)
+		}
+	})
 }
 
 // What a probe keeps is what a session showed, and never what it was given: not the environment, not the

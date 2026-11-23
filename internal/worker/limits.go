@@ -124,9 +124,14 @@ func (r *laneRun) noteUsage(ctx context.Context, heard lanes.UsageReading) {
 // noteFailure reads what a failed turn or a retry says of a sign-in, and says whether it did. A
 // category nobody named is a lane's own.
 func (r *laneRun) noteFailure(ctx context.Context, category string) bool {
+	return r.noteFailureAt(ctx, category, 0)
+}
+
+// noteFailureAt is noteFailure for a failure that fired at a time the hook named, in milliseconds, where zero is now.
+func (r *laneRun) noteFailureAt(ctx context.Context, category string, atMs int64) bool {
 	switch category {
 	case lanes.FailureUsageLimit:
-		r.reachedLimit(ctx)
+		r.reachedLimitAt(ctx, atMs)
 	case lanes.FailureSignIn:
 		r.signedOut(ctx)
 	default:
@@ -159,7 +164,7 @@ func (w *Worker) noteUnheard(ctx context.Context, event lanes.HookEvent) error {
 		return err
 	}
 	run := w.resumedRun(ledger.DesiredLease{Project: record.Project, Lane: record.ID}, record)
-	run.noteFailure(ctx, event.Detail)
+	run.noteFailureAt(ctx, event.Detail, event.AtMs)
 	return nil
 }
 
@@ -176,16 +181,36 @@ func (r *laneRun) noteRetry(ctx context.Context, event ports.DriverEvent) {
 // reset to go by, this lane is the one that tries again. A probe that finds the limit still there
 // waits longer.
 func (r *laneRun) reachedLimit(ctx context.Context) {
+	r.reachedLimitAt(ctx, 0)
+}
+
+// reachedLimitAt is reachedLimit for a limit found at a time the hook that said so named, where zero is now. The wait
+// counts from that time, never from one past now. A limit whose wait already ended parks nothing: it ends at once, as
+// the lane's own probe would have ended it.
+func (r *laneRun) reachedLimitAt(ctx context.Context, atMs int64) {
 	lane, generation, now := r.lease.Lane, r.currentGeneration(), r.w.clock.Now().UnixMilli()
+	at := now
+	if atMs > 0 {
+		at = min(atMs, now)
+	}
 	base := r.state.usageBackoff()
+	over := false
 	err := r.w.moveSignIn(ctx, func(state *lanes.SignInState) ([]ledger.UploadEvent, bool) {
-		return nil, state.Reach(lane, generation, now, base)
+		changed := state.Reach(lane, generation, at, base)
+		over = changed && ((state.ResetAtMs != 0 && now >= state.ResetAtMs) || (state.ResetAtMs == 0 && now >= state.ProbeAtMs))
+		return nil, changed
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", lane, err))
 		return
 	}
 	crashpoint.Hit("worker.limit", "noted")
+	if over {
+		if err := r.w.endLimit(ctx); err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", lane, err))
+		}
+		return
+	}
 	r.w.parkOnSignIn(ctx)
 }
 

@@ -149,6 +149,9 @@ type laneRun struct {
 	maxReviewRounds int64
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
 	gates []string
+	// profileRetryAt is when this run reads its profile again, in Unix milliseconds of the worker's clock, because the
+	// last read failed, and zero when none waits. The handle's lock guards it.
+	profileRetryAt int64
 
 	// untold is what a driver may have missed while an adoption runs, and nil once it ended (tellDriver).
 	// untoldLock guards it.
@@ -331,6 +334,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.worktree = record.Worktree
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.packRead, run.process = record.Progress.Pack, record.Process
+	run.model, run.resolved = record.Progress.Model, record.Progress.ModelResolved
 	run.handled = record.RespawnsSeen
 	run.waitParkAt = record.WaitParkAt
 	run.owesBrief.Store(record.Progress.OwesBrief)
@@ -712,6 +716,13 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	r.tellUntold(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
+		if errors.Is(err, ports.ErrUnknownScreen) && r.orchestrating() && !r.assisting() {
+			// A pane adopted in its start check that fails the check is a failed start, which restarts as it does
+			// in session.
+			report := workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen, Detail: failureDetail(err)}
+			r.startFailed()
+			return r.conclude(ctx, report)
+		}
 		return r.unread(ctx)
 	}
 	if !hooksRead || !approvalsRead {
@@ -1369,7 +1380,8 @@ func (r *laneRun) expireToken(ctx context.Context) {
 // saveProgress keeps how far this run read, so a kill costs at most one redelivered
 // turn, and a redelivered turn is dropped by its position. The generation is read before anything
 // else, so what a clear overtakes is refused: everything here that a clear resets may already be of
-// the generation before it.
+// the generation before it. A worker that stops between a lane's move and this save still keeps it, because the next
+// worker goes on from the journal alone, so the write is not part of what the stop cancels, as the move's own is not.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	generation := r.currentGeneration()
 	// The digest is kept first, so it holds every event up to the position the progress names.
@@ -1379,9 +1391,10 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
 		EndCounted: r.endKept, Briefed: r.assisting() && r.assistant().isBriefed(),
+		Model: r.model, ModelResolved: r.resolvedModel(),
 	}
 	r.state.journalContext(&progress)
-	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {
+	if _, err := r.w.journal.SaveProgress(context.WithoutCancel(ctx), r.lease.Lane, generation, progress); err != nil {
 		r.w.config.Report(err)
 	}
 }

@@ -53,7 +53,11 @@ type laneState struct {
 	unconfirmed bool
 	retried     bool
 	degraded    bool
-	unpushed    bool
+	// probeDegraded says the newest result of a probe for this process's own version found a check that did not
+	// pass. It stands until a later result for that version says otherwise, and a probe of another version leaves it,
+	// because the process keeps the surfaces it started on.
+	probeDegraded bool
+	unpushed      bool
 	// policy is what a role's lane is held to, and baselined says this generation's baseline went
 	// on its way to the ledger.
 	policy     lanes.ContextPolicy
@@ -69,6 +73,8 @@ type laneState struct {
 	briefGrace time.Duration
 	waitUntil  time.Time
 	limits     lanes.Breaker
+	// limitsRead says a profile set limits, so a profile that could not be read has not stood in for them.
+	limitsRead bool
 	// handoffLimit is how long an agent has to write its part of a handoff, and
 	// handoffDegraded says the last handoff has only the worker's part. That stays until a
 	// later handoff has both, because it is what this generation was told.
@@ -88,8 +94,9 @@ type laneState struct {
 	// stoppedMs, failedMs, and promptedMs are when the newest Stop, StopFailure, and prompt fired, by their hooks'
 	// clock, because a spooled hook arrives late or twice. They are the turn clock: a lane works while its newest
 	// prompt is newer than its newest turn's end, whoever started that turn. A hook's time has the millisecond as its
-	// grain, so a prompt and an end can share one, and then the one heard last is the newer: promptLast says the
-	// newest prompt was heard after an end of its millisecond.
+	// grain, so a prompt and an end can share one, and a turn cannot end in the millisecond it began: the end is the
+	// turn before's, whichever was heard first, and the prompt is the newer. promptLast says no end of a later
+	// millisecond than the newest prompt's has been heard, so an end of that millisecond is older than the prompt.
 	stoppedMs  int64
 	failedMs   int64
 	promptedMs int64
@@ -122,6 +129,9 @@ type laneState struct {
 	// approvalLimit is how long a call waits on a decision, and approvals how many it has open.
 	approvalLimit time.Duration
 	approvals     int
+	// approvalsSeq counts the notes of approvals, so a read of the journal's requests that a live hook's note overtook
+	// does not put its older count back (noteApprovalsSince).
+	approvalsSeq uint64
 	// wakeDebounce and wakeFloor batch an orchestrator's wakes.
 	wakeDebounce time.Duration
 	wakeFloor    time.Duration
@@ -172,6 +182,7 @@ func (s *laneState) thresholds(profile lanes.Profile, role string) {
 	s.limits = lanes.Breaker{
 		MaxRestarts: profile.Lifecycle.MaxRestarts, Window: window, MaxPerDay: profile.Lifecycle.MaxGenerationsPerDay, Backoff: backoff,
 	}
+	s.limitsRead = true
 	s.handoffLimit, _ = time.ParseDuration(profile.Lifecycle.HandoffTimeout)
 	s.askLimit, _ = time.ParseDuration(profile.Lifecycle.AskWait)
 	s.usageBase, _ = time.ParseDuration(profile.Lifecycle.UsageBackoff)
@@ -186,6 +197,16 @@ func (s *laneState) defaultWakeBounds() {
 	defer s.mu.Unlock()
 	if s.wakeFloor == 0 {
 		s.wakeDebounce, s.wakeFloor = lanes.WakeBounds(lanes.LifecycleSettings{})
+	}
+}
+
+// defaultBreaker restarts an orchestrator whose profile could not be read on the default limits, so its first failed
+// start is a crash the breaker counts and not the end of its run. Limits a profile set stay.
+func (s *laneState) defaultBreaker() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.limitsRead {
+		s.limits = lanes.DefaultBreaker()
 	}
 }
 
@@ -337,6 +358,10 @@ func (s *laneState) keepContext(progress lanes.Progress) {
 	s.context, s.baseline = progress.ContextTokens, progress.BaselineTokens
 	s.compact = compaction{asked: progress.Compactions, pending: progress.CompactPending, seen: progress.CompactSeen}
 	s.keptBackground, s.keptStopMs = progress.Background, progress.BackgroundStopMs
+	if progress.WaitUntilMs != 0 {
+		s.waitUntil = time.UnixMilli(progress.WaitUntilMs)
+	}
+	s.dayCapped = progress.DayCapped
 }
 
 // journalContext writes what keepContext reads.
@@ -348,6 +373,10 @@ func (s *laneState) journalContext(progress *lanes.Progress) {
 	if s.background > 0 {
 		progress.Background, progress.BackgroundStopMs = s.background, s.stoppedMs
 	}
+	if !s.waitUntil.IsZero() {
+		progress.WaitUntilMs = s.waitUntil.UnixMilli()
+	}
+	progress.DayCapped = s.dayCapped
 }
 
 // resumeRest rests again on the background work the journal kept, once a replay has read the session's hooks: only
@@ -563,9 +592,27 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 	}
 }
 
+// clockSkewMs is how far past the worker's clock a hook's time may stand before it cannot be a time on this machine.
+const clockSkewMs = 1000
+
+// clampToClock takes each time of the turn clock past now as now. The clock that stamps a hook is this machine's, so
+// no hook fires after now, and a time kept past it was kept before the wall clock stepped back. Left as it is, it
+// leaves every later Stop and prompt no newer than it, until the clock catches up.
+func (s *laneState) clampToClock(nowMs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, kept := range []*int64{&s.stoppedMs, &s.failedMs, &s.promptedMs, &s.handedMs} {
+		if *kept > nowMs+clockSkewMs {
+			*kept = nowMs
+		}
+	}
+}
+
 // observeHook turns one hook event into what it says about the lane. A tool call that has
-// started and not finished is a wait, not a stall.
+// started and not finished is a wait, not a stall. A time kept past the clock is read as now first, because the wall
+// clock may have stepped back (clampToClock).
 func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
+	r.state.clampToClock(r.w.clock.Now().UnixMilli())
 	r.observe(ctx, event, false)
 }
 
@@ -650,14 +697,14 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 
 // notePrompt ends the wait on background work, and says the prompt starts a turn: one newer than the newest
 // turn's end and than every prompt before it, which a person typed or the session's own background work sent. A
-// prompt of the newest end's millisecond was heard after that end, so it is the newer. A prompt older than the newest
-// Stop began the turn that stopped, and ends no wait.
+// turn cannot end in the millisecond it began, so a prompt of the newest end's millisecond is the newer. A prompt older
+// than the newest Stop began the turn that stopped, and ends no wait.
 func (s *laneState) notePrompt(atMs int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	starts := atMs > s.promptedMs && atMs >= s.endedMs()
 	if atMs > s.promptedMs {
-		s.promptedMs, s.promptLast = atMs, atMs == s.endedMs()
+		s.promptedMs, s.promptLast = atMs, true
 	}
 	if starts {
 		s.refusedSince = time.Time{}
@@ -681,10 +728,11 @@ func (s *laneState) noteStopFailure(atMs int64) {
 	}
 }
 
-// endHeard keeps the order of an end heard in the newest prompt's millisecond: it came after that prompt, so it is
-// the newer. The caller holds the lock.
+// endHeard ends the hold of the newest prompt's millisecond once an end of a later one is heard. An end of that
+// millisecond itself ends no turn the prompt began, because a turn cannot end in the millisecond it began. The caller
+// holds the lock.
 func (s *laneState) endHeard(atMs int64) {
-	if atMs >= s.promptedMs {
+	if atMs > s.promptedMs {
 		s.promptLast = false
 	}
 }
@@ -717,8 +765,8 @@ func (s *laneState) placeEnd(turn *ports.TurnResult) int64 {
 }
 
 // olderThanInput says a turn's end that fired at atMs is older than the session's newest prompt, a prompt of its
-// millisecond heard after it included, or than input the worker handed once that end was heard: a turn runs that the
-// end does not end.
+// millisecond included because a turn cannot end in the millisecond it began, or than input the worker handed once
+// that end was heard: a turn runs that the end does not end.
 func (s *laneState) olderThanInput(atMs int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -852,15 +900,18 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 			liveness, awaitsPerson = observation.Liveness, observation.AwaitsPerson
 		}
 	}
-	// The process uses the surfaces it started with, so the condition it launched with stands, and a
-	// probe's result for its version can add to it and never clears it. While the probe runs, the lane
-	// names it.
+	// The process uses the surfaces it started with, so the condition it launched with stands. A probe's result for
+	// its version adds to it, a later result for that version replaces what an earlier one added, and a probe of
+	// another version changes nothing. While the probe runs, the lane names it.
 	version, surfaces := r.runVersion()
 	check, held, holds := r.w.qualificationOf(version, surfaces)
 	s := r.state
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	degraded := s.degraded || (holds && held.Degraded)
+	if holds {
+		s.probeDegraded = held.Degraded
+	}
+	degraded := s.degraded || s.probeDegraded
 	now := r.w.clock.Now()
 	state := s.tracker.State()
 	facts := lanes.Facts{

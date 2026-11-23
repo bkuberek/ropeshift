@@ -83,3 +83,35 @@ func TestJournalKeepsWhenTheLastProbeBegan(t *testing.T) {
 		t.Errorf("a later attempt reads %+v, %v, want %+v", got, err, next)
 	}
 }
+
+// TestJournalKeepsTheBackoffOfTheLastProbe is what a restarted worker reads to hold a failing version back for the wait
+// its probes had grown to, and not for the restart delay alone: the wait and when it ends go with the attempt, none is
+// zero, and each later attempt replaces them.
+func TestJournalKeepsTheBackoffOfTheLastProbe(t *testing.T) {
+	t.Parallel()
+	j := openTestJournal(t)
+	ctx := t.Context()
+	began := time.UnixMilli(1_700_000_000_123)
+	first := lanes.ProbeAttempt{Version: "2.1.317", BeganAt: began}
+	if err := j.SaveProbeAttempt(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := j.ProbeAttempt(ctx); err != nil || got.Wait != 0 || !got.Next.IsZero() {
+		t.Fatalf("an attempt kept with no backoff reads %+v, %v", got, err)
+	}
+	waiting := lanes.ProbeAttempt{Version: "2.1.317", BeganAt: began, Wait: 4 * time.Hour, Next: began.Add(4*time.Hour + 90*time.Second)}
+	if err := j.SaveProbeAttempt(ctx, waiting); err != nil {
+		t.Fatal(err)
+	}
+	got, err := j.ProbeAttempt(ctx)
+	if err != nil || got.Version != waiting.Version || !got.BeganAt.Equal(waiting.BeganAt) || got.Wait != waiting.Wait || !got.Next.Equal(waiting.Next) {
+		t.Fatalf("the journal reads %+v, %v, want %+v", got, err, waiting)
+	}
+	later := lanes.ProbeAttempt{Version: "2.1.318", BeganAt: began.Add(time.Hour)}
+	if err := j.SaveProbeAttempt(ctx, later); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = j.ProbeAttempt(ctx); err != nil || got.Version != later.Version || got.Wait != 0 || !got.Next.IsZero() {
+		t.Errorf("a later attempt with no backoff reads %+v, %v, want none of the earlier one", got, err)
+	}
+}

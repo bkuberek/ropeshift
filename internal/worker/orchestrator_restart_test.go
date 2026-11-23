@@ -103,8 +103,9 @@ func TestAMessageWakesAnOrchestratorThatWaitedThroughARestart(t *testing.T) {
 	o.awaitMessage(t, state, messages.HandedOff)
 }
 
-// A profile the worker cannot read leaves an orchestrator no bounds on its wakes. The worker reports that and wakes
-// it on the default bounds, so the run meets the failure and ends saying so, and never waits in silence.
+// A profile the worker cannot read leaves an orchestrator no bounds on its wakes and no limits on its restarts. The
+// worker reports that, wakes it on the default bounds, and restarts it on the default limits, so the run meets the
+// failure as a failed start that goes to backoff, and never waits in silence.
 func TestAnOrchestratorWhoseProfileCannotBeReadStillWakes(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
@@ -129,12 +130,9 @@ func TestAnOrchestratorWhoseProfileCannotBeReadStillWakes(t *testing.T) {
 			o.awaitNoted(t, 1)
 			o.awaitMessage(t, state, messages.AtWorker)
 			o.clock.Advance(31 * time.Second)
-			deadline := time.Now().Add(20 * time.Second)
-			for o.row(t).Actual != "ended" && time.Now().Before(deadline) {
-				o.tick(t)
-			}
-			if row := o.row(t); row.Actual != "ended" {
-				t.Fatalf("the run waits on a profile nobody can read: %+v", row)
+			o.await(t, "backoff after the failed start", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+			if row := o.row(t); row.Ended() {
+				t.Fatalf("the run ended on a profile nobody can read: %+v", row)
 			}
 			if !slices.ContainsFunc(o.problems(), func(err error) bool { return strings.Contains(err.Error(), "profile") }) {
 				t.Errorf("the worker reported %v", o.problems())

@@ -122,6 +122,16 @@ type Progress struct {
 	// that takes the lane over rests on that work from these, unless a hook came after that Stop.
 	Background       int   `json:"background,omitempty"`
 	BackgroundStopMs int64 `json:"background_stop_ms,omitempty"`
+	// WaitUntilMs is when the wait the lane declared ends, in Unix milliseconds, and zero for none, so a worker that takes
+	// the lane over does not read it as stalled inside that wait.
+	WaitUntilMs int64 `json:"wait_until_ms,omitempty"`
+	// DayCapped says the breaker's last verdict found the lane's day full, which holds until a member resets it, however
+	// many workers the lane outlives (ADR-0014).
+	DayCapped bool `json:"day_capped,omitempty"`
+	// Model is the model the lane asked its session for, and ModelResolved the one the session said it runs, so a clear
+	// or a handoff in a run a restart took over records the model its generation started on.
+	Model         string `json:"model,omitempty"`
+	ModelResolved string `json:"model_resolved,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

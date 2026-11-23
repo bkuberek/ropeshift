@@ -149,8 +149,35 @@ func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
 	}
 }
 
-// A probe runs every surface of the matrix, except the login where the sign-in is an API key and the screens where the
-// driver has no terminal, and a result holds only when it passed all of those.
+// Window utilization on a `rate_limit_event` belongs to a subscription, so an API key's probe does not ask for it: the
+// check stays unobserved whether the stream carries the figures or not, and the result is no worse for it.
+func TestAProbeOnAnAPIKeyLeavesTheWindowsUnobserved(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		drops []string
+	}{
+		{name: "a stream that carries the windows"},
+		{name: "a stream that drops them", drops: []string{"unified_windows"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			driver, spec, _ := probeRig(t, tt.drops...)
+			spec.SignIn = ports.SignInAPIKey
+			q, err := driver.Probe(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := q.Checks[claudecode.SurfaceUnifiedWindows]; got != lanes.CheckUnobserved {
+				t.Errorf("an API key's probe reads the windows as %s, want unobserved", got)
+			}
+			if q.Degraded || !q.PassedAll(driver.ProbeChecks(ports.SignInAPIKey)) {
+				t.Errorf("qualification %+v", q)
+			}
+		})
+	}
+}
+
+// A probe runs every surface of the matrix, except the login and the windows where the sign-in is an API key and the
+// screens where the driver has no terminal, and a result holds only when it passed all of those.
 func TestAProbeRunsEveryCheckItCanObserve(t *testing.T) {
 	t.Parallel()
 	headless := claudecode.New(osexec.Runner{}, claudecode.Options{})
@@ -163,9 +190,11 @@ func TestAProbeRunsEveryCheckItCanObserve(t *testing.T) {
 	}{
 		{"a subscription with a terminal", withTerminal, ports.SignInSubscription, nil},
 		{"an unknown sign-in with a terminal", withTerminal, "", nil},
-		{"an API key with a terminal", withTerminal, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin}},
+		{"an API key with a terminal", withTerminal, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceUnifiedWindows}},
 		{"a subscription with no terminal", headless, ports.SignInSubscription, []lanes.Surface{claudecode.SurfaceStartScreens}},
-		{"an API key with no terminal", headless, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceStartScreens}},
+		{"an API key with no terminal", headless, ports.SignInAPIKey, []lanes.Surface{
+			claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceUnifiedWindows, claudecode.SurfaceStartScreens,
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -452,6 +481,49 @@ func TestAProbeStartsNoSessionTheDesignRefuses(t *testing.T) {
 	}
 	if capped != 1 {
 		t.Errorf("%d probe sessions started with a budget cap, and the budget check's is the only one", capped)
+	}
+}
+
+// The budget check pays for a session on each probe, and a version whose flag does not bound a turn fails it each time
+// while the check gates only a backstop. A probe of a version whose last result failed it does not run it again, and its
+// result reads failed as before; a failure of another version's result says nothing of this one.
+func TestAFailedBudgetCheckIsNotRunAgainForItsVersion(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		version string
+		capped  int
+	}{
+		{name: "a result for the version", version: "2.1.399", capped: 0},
+		{name: "a result for another version", version: "2.1.398", capped: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			driver, spec, path := probeRig(t)
+			held := lanes.Qualification{
+				Driver: claudecode.DriverName, Version: tt.version, Source: lanes.QualifiedByProbe,
+				Checks: map[lanes.Surface]lanes.CheckResult{claudecode.SurfaceMaxBudget: lanes.CheckFailed},
+			}
+			driver.Qualify(held)
+			q, err := driver.Probe(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			capped := 0
+			for _, seen := range doubles.ProbesSeenBy(t, doubles.BinDir(path)) {
+				if slices.Contains(seen.Args, "--max-budget-usd") {
+					capped++
+				}
+			}
+			if capped != tt.capped {
+				t.Errorf("%d probe sessions started with a budget cap, want %d", capped, tt.capped)
+			}
+			want := lanes.CheckPassed
+			if tt.capped == 0 {
+				want = lanes.CheckFailed
+			}
+			if got := q.Checks[claudecode.SurfaceMaxBudget]; got != want {
+				t.Errorf("the budget check reads %s, want %s", got, want)
+			}
+		})
 	}
 }
 

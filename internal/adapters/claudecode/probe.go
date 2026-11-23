@@ -98,6 +98,8 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 		}
 		defer os.RemoveAll(dir)
 	}
+	// The evidence of the probe before this one goes the same way, so one that ends with no result leaves none.
+	clearEvidence(spec.EvidenceDir)
 	binary, err := findBinary(spec.Env)
 	if err != nil {
 		return lanes.Qualification{}, err
@@ -109,8 +111,20 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	q := unqualified(version)
 	q.Source, q.SignIn = lanes.QualifiedByProbe, spec.SignIn
 	p := &prober{d: d, spec: spec, binary: binary, checks: q.Checks}
+	// The budget check pays for a session on each probe, and a version whose flag does not bound a turn fails it each
+	// time while the check only gates a backstop. A result a probe already kept for this version that failed it is the
+	// answer, so the check is not run again.
+	d.mu.Lock()
+	held := d.current
+	d.mu.Unlock()
+	run := []func(context.Context){p.accept, p.refuse, p.hold, p.screens}
+	if held.Source == lanes.QualifiedByProbe && held.For(version) && held.Checks[SurfaceMaxBudget] == lanes.CheckFailed {
+		q.Checks[SurfaceMaxBudget] = lanes.CheckFailed
+	} else {
+		run = append(run, p.budget)
+	}
 	var checks sync.WaitGroup
-	for _, check := range []func(context.Context){p.accept, p.refuse, p.hold, p.budget, p.screens} {
+	for _, check := range run {
 		checks.Go(func() { check(ctx) })
 	}
 	checks.Wait()
@@ -197,12 +211,12 @@ func (p *prober) accept(ctx context.Context) {
 	admitted := s.spooled(hookUserPromptSubmit) && s.replayed(id)
 	p.set(SurfaceSocketLine, observed(sent && turn, sent && admitted))
 	p.set(SurfaceSocketDir, observed(socket != "", s.private(socket)))
-	p.set(SurfaceUnifiedWindows, observed(hasLimit, windows))
 	p.set(SurfaceCommandLifecycle, observed(turn, s.saw("command_lifecycle")))
 	p.set(SurfaceStreamUsage, observed(turn, s.streamUsage()))
 	// A sign-in nobody could read is a subscription, as it is everywhere else, so only an API key's
-	// probe leaves the login unchecked.
+	// probe leaves the login and the windows unchecked: both belong to a subscription.
 	if p.spec.SignIn != ports.SignInAPIKey {
+		p.set(SurfaceUnifiedWindows, observed(hasLimit, windows))
 		login := init.APIKeySource == "none" && init.MessagingSocket != "" && hasLimit
 		p.set(SurfacePrintKeepsLogin, observed(hasInit, login))
 	}
