@@ -447,6 +447,10 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 						return reason, true
 					}
 				}
+			case slices.Contains(textRunners, name):
+				if reason, denied := p.decideTextRunner(name, words[1:], at, depth, seen); denied {
+					return reason, true
+				}
 			default:
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {
@@ -462,6 +466,45 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 		}
 	}
 	return "", false
+}
+
+// decideTextRunner reads what a program that hands its words to a shell runs: each argument that holds a byte
+// a shell reads is a command line, as the gate reader takes it. Parallel also builds a command from the words
+// that follow its options, up to the first of its inputs. A parallel with only options runs the lines it
+// reads, which no hold can read, so a lane that only reads and a lane that writes are both refused it.
+func (p DenyPolicy) decideTextRunner(name string, args []shellWord, at string, depth int, seen *gitSeen) (string, bool) {
+	for _, word := range args {
+		if !strings.ContainsAny(word.text, shellSpecial) {
+			continue
+		}
+		if reason, denied := p.decideShell(word.text, at, depth+1, seen); denied {
+			return reason, true
+		}
+	}
+	if name != "parallel" {
+		return "", false
+	}
+	command := slices.IndexFunc(args, func(word shellWord) bool { return !strings.HasPrefix(word.text, "-") })
+	if command < 0 {
+		if p.readOnly() {
+			return ReasonReadOnly, true
+		}
+		return ReasonOutside, true
+	}
+	words := args[command:]
+	// ::: and :::: both begin with the first, and each opens the inputs.
+	if inputs := slices.IndexFunc(words, func(word shellWord) bool { return strings.HasPrefix(word.text, ":::") }); inputs >= 0 {
+		words = words[:inputs]
+	}
+	if len(words) == 0 {
+		return "", false
+	}
+	return p.decideShell(joinWords(words), at, depth+1, seen)
+}
+
+// readOnly says the policy is a lane's that only reads, which denies a git subcommand with ReasonReadOnly.
+func (p DenyPolicy) readOnly() bool {
+	return slices.ContainsFunc(p.Deny, func(rule DenyRule) bool { return rule.Reason == ReasonReadOnly })
 }
 
 func joinWords(words []shellWord) string {
