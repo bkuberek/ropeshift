@@ -565,6 +565,10 @@ type AgentDriver interface {
 	Find(ctx context.Context, spec SessionSpec) (Located, error)
 	// Adopt takes over a session Find located, so Events reads it from from.Cursor.
 	Adopt(ctx context.Context, h SessionHandle, from AdoptFrom) error
+	// Reread hands a session Adopt took over what its journal holds, read again after a read at the adoption failed:
+	// the hooks, which it takes as Adopt would have, and the approvals still open. The wait the failed read left for a
+	// call nobody could name (UnnamedCall) gives way to what they show.
+	Reread(ctx context.Context, h SessionHandle, from AdoptFrom) error
 	// Events streams normalized events. The channel closes after EventSessionEnded.
 	Events(ctx context.Context, h SessionHandle) (<-chan DriverEvent, error)
 	// TakeHook hands a driver what a session's hook reported. The event names its lane

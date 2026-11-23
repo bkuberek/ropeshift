@@ -144,6 +144,57 @@ func TestAReplayHoldsTheKeysFromACallItCouldNotRead(t *testing.T) {
 	refusesInput(t, s)
 }
 
+// What a worker could not read at the adoption, it reads again: once the journal shows nothing open, the keys go to the
+// pane again, so an idle orchestrator's wake reaches it. A journal that shows a dialog still open keeps them held.
+func TestAReadAgainEndsTheHoldOfACallItCouldNotRead(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		from  ports.AdoptFrom
+		holds bool
+	}{
+		{"a turn that ended", ports.AdoptFrom{Hooks: []lanes.HookRecord{hookAt(hookStop, 110, "")}}, false},
+		{"a dialog a turn's end closed", ports.AdoptFrom{Hooks: []lanes.HookRecord{hookAt(eventPermissionRequest, 100, ""), hookAt(hookStop, 110, "")}}, false},
+		{"a dialog nothing closed", ports.AdoptFrom{Hooks: []lanes.HookRecord{hookAt(hookStop, 110, ""), hookAt(eventPermissionRequest, 120, "")}}, true},
+		{"an approval still open", ports.AdoptFrom{Hooks: []lanes.HookRecord{hookAt(hookStop, 110, "")}, Approvals: []string{"seen-1"}}, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, 110)
+			s.replay(ports.AdoptFrom{Approvals: []string{""}}, 1)
+			refusesInput(t, s)
+			s.reread(test.from, 1)
+			if test.holds {
+				refusesInput(t, s)
+				return
+			}
+			typesFreely(t, s)
+		})
+	}
+}
+
+// A clear starts a session at its prompt, where no dialog is open, so no wait older than it outlasts it: the hold of a
+// call a worker could not read, and a Notification's.
+func TestAClearEndsTheWaitsBeforeIt(t *testing.T) {
+	t.Parallel()
+	for name, hold := range map[string]func(*paneSession){
+		"a call a worker could not read": func(s *paneSession) { s.replay(ports.AdoptFrom{Approvals: []string{""}}, 1) },
+		"a dialog a Notification told of": func(s *paneSession) {
+			s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationNeedsInput, AtMs: 120})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, 110)
+			hold(s)
+			refusesInput(t, s)
+			s.takeHook(lanes.HookEvent{Event: hookSessionStart, Detail: lanes.SourceClear, SessionID: "after-clear", AtMs: 130})
+			typesFreely(t, s)
+		})
+	}
+}
+
 // A turn that ended asks nothing, whatever request the worker still holds of it, so its end draws a nudge
 // the pane takes and the lane does not end blocked.
 func TestAReplayRestoresNoApprovalOfATurnThatEnded(t *testing.T) {

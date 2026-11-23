@@ -209,13 +209,15 @@ func TestReplayHoldsAnOrchestrator(t *testing.T) {
 	r.orchestratorUpload(t,
 		ledger.UploadEvent{Type: ledger.UploadLaneStatus, Lane: row.Lane(), Generation: 1, Payload: status(t, "working")},
 		ledger.UploadEvent{Type: ledger.UploadGenerationStarted, Lane: row.Lane(), Generation: 2},
-		ledger.UploadEvent{Type: ledger.UploadLaneEnded, Lane: row.Lane(), Generation: 2},
+		ledger.UploadEvent{Type: ledger.UploadLaneEnded, Lane: row.Lane(), Generation: 2, Payload: ended(t, workorders.Report{
+			Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonSpawnFailed, Detail: "the pane did not open",
+		})},
 	)
 	want, err := r.plane.Orchestrator(t.Context(), worker)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want.Actual != "ended" || want.Generation != 2 {
+	if want.Actual != "ended" || want.Generation != 2 || want.EndReason != workorders.ReasonSpawnFailed || want.EndDetail != "the pane did not open" {
 		t.Fatalf("row %+v", want)
 	}
 	replayed, err := ledger.ReplayOrchestrators(r.orchestratorEvents(t))
@@ -225,6 +227,16 @@ func TestReplayHoldsAnOrchestrator(t *testing.T) {
 	if got := replayed[want.ID]; !reflect.DeepEqual(got, want) {
 		t.Errorf("replay %+v, projection %+v", got, want)
 	}
+}
+
+// ended is the payload of a run's end that carries report.
+func ended(t *testing.T, report workorders.Report) []byte {
+	t.Helper()
+	raw, err := json.Marshal(workorders.LaneResult{Report: report})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func (r *laneRig) digest(t *testing.T) []ledger.WakeItem {

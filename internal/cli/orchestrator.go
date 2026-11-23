@@ -14,6 +14,9 @@ func orchestratorLine(row api.Orchestrator) string {
 		actual = "no status yet"
 	}
 	line := fmt.Sprintf("%s on %s: asked to be %s, reads %s, generation %d\n", row.ID, row.WorkerID, row.Desired, actual, row.Generation)
+	if ended := endWords(row.Orchestrator); row.Ended() && ended != "" {
+		line += "ended: " + ended + "\n"
+	}
 	if row.Hold != nil {
 		line += "held: " + holdWords(*row.Hold) + "\n"
 	}
@@ -21,6 +24,17 @@ func orchestratorLine(row api.Orchestrator) string {
 		line += "scheduled: " + scheduledWords(*row.Scheduled) + "\n"
 	}
 	return line
+}
+
+// endWords says why an orchestrator's run ended: the reason its worker gave, and the cause beside it.
+func endWords(row ledger.Orchestrator) string {
+	switch {
+	case row.EndReason != "" && row.EndDetail != "":
+		return row.EndReason + ": " + row.EndDetail
+	case row.EndDetail != "":
+		return row.EndDetail
+	}
+	return row.EndReason
 }
 
 // holdWords says what keeps an orchestrator from starting or running.

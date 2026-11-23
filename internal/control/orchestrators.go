@@ -171,6 +171,7 @@ func setOrchestratorIn(tx ports.SharedTx, worker, desired string, actor ledger.A
 func nextRun(current ledger.Orchestrator) ledger.Orchestrator {
 	current.Run, current.Desired = max(current.Run+1, firstRun), ledger.OrchestratorRunning
 	current.Actual, current.Generation, current.Conditions, current.ReportedAt, current.Settings = "", 0, nil, 0, nil
+	current.EndReason, current.EndDetail = "", ""
 	return current
 }
 
@@ -217,7 +218,16 @@ func orchestratorUpload(tx ports.SharedTx, worker, id string, e ledger.UploadEve
 		}
 		report.Actual, report.Conditions = status.ActualState, status.Conditions
 	case ledger.UploadLaneEnded:
-		report.Actual = "ended"
+		report.Actual = ledger.StateEnded
+		if len(e.Payload) != 0 {
+			var result workorders.LaneResult
+			if err := json.Unmarshal(e.Payload, &result); err != nil {
+				return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+			}
+			// The cause can carry what a terminal or a process printed, and every member reads it, so it is kept as plain
+			// text with no credential, as a lane's is.
+			report.Reason, report.Detail = ledger.SanitizeCIText(result.Reason), ledger.SanitizeCIText(result.Detail)
+		}
 	case ledger.UploadGenerationBound:
 		var binding workorders.GenerationBinding
 		if err := json.Unmarshal(e.Payload, &binding); err != nil {

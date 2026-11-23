@@ -1162,6 +1162,23 @@ func (d *Driver) TakeHook(_ context.Context, event lanes.HookEvent) {
 	}
 }
 
+// Reread hands an adopted session in a pane what its journal holds, read again after a read at the adoption failed
+// (ports.AgentDriver). A session with a stream reads its own record of what happened, and keys reach it through no
+// dialog, so it takes only the socket a hook named.
+func (d *Driver) Reread(_ context.Context, h ports.SessionHandle, from ports.AdoptFrom) error {
+	live, err := d.session(h)
+	if err != nil {
+		return err
+	}
+	switch s := live.(type) {
+	case *paneSession:
+		s.reread(from, from.Spec.Generation)
+	case *session:
+		s.keepSocket(from.Hooks)
+	}
+	return nil
+}
+
 func hookSessionID(event lanes.HookEvent) string {
 	return fmt.Sprintf("%s/%d", event.Lane, event.Generation)
 }

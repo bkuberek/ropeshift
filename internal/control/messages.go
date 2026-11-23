@@ -118,7 +118,8 @@ func (m *Messages) serves(ctx context.Context, scope ledger.WorkspaceID, worker 
 
 // sendToOrchestrator records a member's message to the orchestrator of a worker that serves the project.
 // It reaches the orchestrator as an item of its next wake, and is refused while the orchestrator is not
-// running, because nothing would read it.
+// running, because nothing would read it: one stopped, one whose breaker tripped, and one whose run ended, which
+// no worker runs again until a member starts the next.
 func sendToOrchestrator(tx ports.WriteTx, draft messages.Draft, serving bool, windows messages.Windows, actor ledger.Actor) (messages.Message, error) {
 	worker, err := tx.Workers().Find(draft.To.Worker)
 	if errors.Is(err, ports.ErrNotFound) {
@@ -134,7 +135,7 @@ func sendToOrchestrator(tx ports.WriteTx, draft messages.Draft, serving bool, wi
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return messages.Message{}, err
 	}
-	if err != nil || orchestrator.Desired != ledger.OrchestratorRunning || orchestrator.Tripped() {
+	if err != nil || orchestrator.Desired != ledger.OrchestratorRunning || orchestrator.Tripped() || orchestrator.Ended() {
 		return messages.Message{}, refuseWith(messages.ErrNotRunning, "The orchestrator on %s is not running. Start it from Workers.", worker.Name)
 	}
 	if draft.To.Generation == 0 {

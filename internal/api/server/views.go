@@ -369,7 +369,8 @@ func dispatchedAt(tx ports.ReadTx, order workorders.WorkOrder, claim workorders.
 
 // stuckOrchestrators finds the sessions a member asked for that stopped working. An orchestrator has no
 // work order and no lane row, and nothing supervises it but a person, so one that stopped would
-// otherwise go unseen while the ladder it works waits.
+// otherwise go unseen while the ladder it works waits. A run that ended is one no worker runs again, so
+// it waits for a member's start, with why it ended.
 func stuckOrchestrators(tx ports.ReadTx, add func(string, int64, api.WorkNeed)) error {
 	workers, err := tx.Workers().List()
 	if err != nil {
@@ -388,6 +389,8 @@ func stuckOrchestrators(tx ports.ReadTx, add func(string, int64, api.WorkNeed)) 
 		}
 		need := api.WorkNeed{Orchestrator: &row, Actions: []string{api.ActStartOrchestrator}}
 		switch {
+		case row.Ended():
+			need.Reason, need.Detail = api.ReasonEnded, failureWords(row.EndReason, row.EndDetail)
 		case row.Tripped():
 			need.Reason = api.ReasonTripped
 		case slices.Contains(row.Conditions, string(lanes.WaitingInPane)):

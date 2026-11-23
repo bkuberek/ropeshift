@@ -352,9 +352,14 @@ func (w *Worker) repliesTo(ctx context.Context, lane lanes.Record, id string) (b
 
 // readFacts asks what this generation's first prompt owes, after the ledger moved to it, so a fact
 // that lands later reaches this generation as a message and not by this read. A control plane that
-// is away leaves what a resume was told at its claim.
+// is away leaves what a resume was told at its claim. The ledger keeps those facts under a work order,
+// so a run with none, an orchestrator's or an assistant's, owes its prompt none: a member's messages
+// reach an orchestrator in its wakes and an assistant in its conversation.
 func (r *laneRun) readFacts(ctx context.Context) {
 	r.setFacts(nil)
+	if r.lease.WorkOrder == "" {
+		return
+	}
 	first := r.currentGeneration() == firstGeneration
 	if first && !r.holdsToLimit() {
 		return

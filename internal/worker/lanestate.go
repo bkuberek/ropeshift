@@ -278,6 +278,15 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.compact = compaction{}
 }
 
+// endProcessWaits ends the waits on a turn and on a refused nudge, at a generation whose process is new: they were of
+// the session before, and a bound of either would decide the new session's rest. A clear keeps the process, and the
+// state the lane reads, so a wait it began goes on bounding that state.
+func (s *laneState) endProcessWaits() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnSince, s.refusedSince = time.Time{}, time.Time{}
+}
+
 // noteCleared keeps when the clear that began this generation fired.
 func (s *laneState) noteCleared(atMs int64) {
 	s.mu.Lock()

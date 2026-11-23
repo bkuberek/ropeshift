@@ -106,6 +106,7 @@ type AgentDriver struct {
 	// leftOn is the version each left session started on, for the sessions Find reads it for.
 	leftOn   map[string]string
 	adopted  []ports.AdoptFrom
+	reread   []ports.AdoptFrom
 	findErr  error
 	stopped  bool
 	hooks    []lanes.HookEvent
@@ -316,6 +317,13 @@ func (d *AgentDriver) Adopted() []ports.AdoptFrom {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]ports.AdoptFrom{}, d.adopted...)
+}
+
+// Rereads lists what each Reread handed an adopted session.
+func (d *AgentDriver) Rereads() []ports.AdoptFrom {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]ports.AdoptFrom{}, d.reread...)
 }
 
 // Play sets what the next session does.
@@ -732,6 +740,18 @@ func (d *AgentDriver) Adopt(_ context.Context, h ports.SessionHandle, from ports
 	if d.stopped {
 		session.stop()
 	}
+	return nil
+}
+
+// Reread keeps what it was handed of a session this driver holds. A fake session waits on no dialog, so nothing else
+// changes.
+func (d *AgentDriver) Reread(_ context.Context, h ports.SessionHandle, from ports.AdoptFrom) error {
+	if _, err := d.session(h); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.reread = append(d.reread, from)
 	return nil
 }
 

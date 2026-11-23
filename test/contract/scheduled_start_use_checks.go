@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -25,6 +26,7 @@ var ScheduledStartChecks = []Check{
 	{"OS11", "a start whose orchestrator tripped since leaves the breaker tripped", checkScheduledStartLeavesTrip},
 	{"OS12", "a start is not scheduled for an orchestrator already asked to run", checkScheduledStartRefusesRunning},
 	{"OS13", "a report that says nothing of the sign-in leaves a start waiting", checkScheduledStartWaitsForWord},
+	{"OS14", "a start is not scheduled for an orchestrator whose run ended, and the refusal says a start runs it now", checkScheduledStartRefusesEnded},
 }
 
 const limitHour = int64(60 * 60 * 1000)
@@ -464,6 +466,38 @@ func checkScheduledStartRefusesRunning(r *Rig) error {
 	}
 	if _, err := w.plane.ScheduleOrchestrator(r.Ctx, w.auth.WorkerID, w.member); !errors.Is(err, workorders.ErrInvalid) {
 		return Violatedf("a start scheduled for an orchestrator asked to run: %v", err)
+	}
+	if _, err := w.scheduled(); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a refused schedule left a start: %v", err)
+	}
+	return nil
+}
+
+// No reset runs a run that ended again, so the refusal names the start that does, and promises nothing of the reset.
+func checkScheduledStartRefusesEnded(r *Rig) error {
+	w, err := newLimitWorld(r, r.Store())
+	if err != nil {
+		return err
+	}
+	if _, err := w.limitedFor(limitHour); err != nil {
+		return err
+	}
+	row, err := w.plane.SetOrchestrator(r.Ctx, w.auth.WorkerID, ledger.OrchestratorRunning, w.member)
+	if err != nil {
+		return err
+	}
+	reply, err := w.plane.Upload(r.Ctx, ledger.UploadBatch{Auth: w.auth, Epoch: w.epoch, Events: []ledger.UploadEvent{{
+		Epoch: w.epoch, Seq: 1, Type: ledger.UploadLaneEnded, Lane: row.Lane(), Generation: 1, OccurredAt: 1,
+	}}})
+	if err != nil || len(reply.Rejected) != 0 {
+		return fmt.Errorf("the run's end: %+v, %v", reply, err)
+	}
+	_, err = w.plane.ScheduleOrchestrator(r.Ctx, w.auth.WorkerID, w.member)
+	if !errors.Is(err, workorders.ErrInvalid) {
+		return Violatedf("a start scheduled for an orchestrator whose run ended: %v", err)
+	}
+	if said := err.Error(); strings.Contains(said, "once the limit resets") || !strings.Contains(said, "orchestrator start") {
+		return Violatedf("the refusal says %q, want the start that runs it now", said)
 	}
 	if _, err := w.scheduled(); !errors.Is(err, ports.ErrNotFound) {
 		return Violatedf("a refused schedule left a start: %v", err)

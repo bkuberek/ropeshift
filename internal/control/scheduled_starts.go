@@ -87,6 +87,9 @@ func scheduleStart(ctx context.Context, installation ports.Installation, worker 
 		switch {
 		case err == nil && row.Desired == ledger.OrchestratorRunning && row.Tripped():
 			return fmt.Errorf("%w: the breaker of worker %s's orchestrator tripped, so reset it with orchestrator start", workorders.ErrInvalid, worker)
+		case err == nil && row.Desired == ledger.OrchestratorRunning && row.Ended():
+			// No reset runs an ended run again: a start makes the next run, which waits the limit out.
+			return fmt.Errorf("%w: worker %s's orchestrator run ended, and no reset starts it again, so start its next run with orchestrator start", workorders.ErrInvalid, worker)
 		case err == nil && row.Desired == ledger.OrchestratorRunning:
 			return fmt.Errorf("%w: worker %s's orchestrator is already asked to run, and it runs once the limit resets", workorders.ErrInvalid, worker)
 		}

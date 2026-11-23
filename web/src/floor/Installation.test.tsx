@@ -210,6 +210,35 @@ describe("a worker's orchestrator", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Orchestrator on solo" })).toBeNull());
   });
 
+  // A run that ended while a member wants it running is no running session, so its machine offers Start, which runs the
+  // next run, and Stop beside it, which says a member no longer wants it.
+  it("offers Stop beside Start for an orchestrator whose run ended", async () => {
+    const sent = serveViews((call) => {
+      if (call.path === "/v1/workers/worker-a/orchestrator" && call.method === "PUT") {
+        return { status: 200, body: { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "stopped", run: 1, resets: 0, actual_state: "ended" } };
+      }
+      if (!call.path.startsWith("/v1/views/shop-floor")) {
+        return undefined;
+      }
+      const view = golden<ShopFloor>("shop-floor");
+      const line = solo(view);
+      if (line?.orchestrator) {
+        line.orchestrator.desired_state = "running";
+        line.orchestrator.actual_state = "ended";
+        line.orchestrator.conditions = [];
+      }
+      return { status: 200, body: view };
+    });
+    openPage("/workers");
+    const place = cell(await machineRow(), "Orchestrator");
+    if (!place) {
+      throw new Error("no orchestrator cell");
+    }
+    await waitFor(() => expect(within(place).getByRole("button", { name: "Start orchestrator on solo" })).toBeTruthy());
+    await userEvent.click(within(place).getByRole("button", { name: "Stop orchestrator" }));
+    await waitFor(() => expect(sent.some((call) => call.method === "PUT" && call.path === "/v1/workers/worker-a/orchestrator" && JSON.stringify(call.body).includes('"stopped"'))).toBe(true));
+  });
+
   // An attended worker holds its orchestrator's run until a member opens a run window, so both the machine and its
   // session say so in place of Provisioning, beside the way to open one.
   it("says it waits for a run window, and leads to opening one", async () => {

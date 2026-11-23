@@ -158,16 +158,18 @@ type laneRun struct {
 	bound  bool
 	nudged atomic.Bool
 	// endHeld says the turn's end being read is older than the session's newest input, so it ends no turn the lane is
-	// in, holding is the newest such end since a turn's end was decided, and endMs is when the end being decided fired,
-	// by its hook's clock, and zero when nothing places it. The goroutine that reads the stream alone touches them.
-	endHeld bool
-	holding *ports.TurnResult
-	endMs   int64
-	cursor  int64
-	decided *workorders.Report
-	cost    lanes.CostMeter
-	usage   lanes.Usage
-	fenced  atomic.Bool
+	// in, holding is the newest such end since a turn's end was decided, holdingIn the generation whose session reported
+	// it, and endMs is when the end being decided fired, by its hook's clock, and zero when nothing places it. The
+	// goroutine that reads the stream alone touches them.
+	endHeld   bool
+	holding   *ports.TurnResult
+	holdingIn int64
+	endMs     int64
+	cursor    int64
+	decided   *workorders.Report
+	cost      lanes.CostMeter
+	usage     lanes.Usage
+	fenced    atomic.Bool
 	// stopAsked says this run heard its lease is gone.
 	stopAsked atomic.Bool
 	// keptReported says this run told the operator its lane kept a worktree the root in force would not have
@@ -690,14 +692,17 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
 	r.adopted.Store(true)
-	var unread []string
 	hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
-	if err != nil {
+	hooksRead := err == nil
+	if !hooksRead {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
-		unread = []string{ports.UnnamedCall}
 	}
 	r.replayHooks(ctx, hooks)
-	approvals := append(r.resumeApprovals(ctx), unread...)
+	approvals, approvalsRead := r.resumeApprovals(ctx)
+	if !hooksRead || !approvalsRead {
+		// What could not be read may be an open dialog, so the driver holds every key until the journal reads.
+		approvals = append(approvals, ports.UnnamedCall)
+	}
 	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
 	// to its limit from here.
 	r.readAllowance(ctx)
@@ -708,6 +713,9 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
+	}
+	if !hooksRead || !approvalsRead {
+		r.rereadJournal(ctx, approvalsRead)
 	}
 	r.noteAdoptedSurfaces()
 	crashpoint.Hit("worker.lane", "adopted")
@@ -745,6 +753,47 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.restOnRefusal(ctx)
 	}
 	return r.conclude(ctx, r.watch(ctx, events))
+}
+
+// rereadEvery is how long a run that could not read its journal at its adoption waits between reads.
+const rereadEvery = time.Second
+
+// rereadJournal reads again, until it reads, what a read at the adoption could not: the session's hooks and its open
+// approvals. The driver held every key for what it could not read, which a session at rest never ends, so an idle
+// orchestrator would take no wake until a person's turn or a restart. Once both read, the driver has what they show, as
+// the adoption would have, and a request the adoption could not read is waited on from then. The reads end with the
+// session, the run, or the worker.
+func (r *laneRun) rereadJournal(ctx context.Context, approvalsRead bool) {
+	handle, spec, generation := r.sessionHandle(), r.w.sessionSpec(ctx, r.record()), r.currentGeneration()
+	r.sequence.Go(func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(rereadEvery):
+			}
+			if r.sessionOver.Load() || r.fenced.Load() || r.currentGeneration() != generation {
+				return
+			}
+			hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
+			if err != nil {
+				continue
+			}
+			var approvals []string
+			if approvalsRead {
+				approvals, approvalsRead = r.openApprovals(ctx)
+			} else {
+				approvals, approvalsRead = r.resumeApprovals(ctx)
+			}
+			if !approvalsRead {
+				continue
+			}
+			if err := r.rt.Driver.Reread(ctx, handle, ports.AdoptFrom{Spec: spec, Hooks: hooks, Approvals: approvals}); err != nil {
+				r.w.config.Report(fmt.Errorf("lane %s: handing its driver what its journal holds: %w", r.lease.Lane, err))
+			}
+			return
+		}
+	})
 }
 
 // unread settles a lane whose session cannot be read. Parking and a handoff still finish,
@@ -796,12 +845,29 @@ const maxFailureDetail = 500
 
 // failStart ends a lane that could not start. The outcome carries the cause as its detail, so the card of the
 // failed work and the work order's lanes say more than the reason. What an error says may come from a
-// repository, a terminal, or a process, so it is plain text on one line, cut on a rune boundary.
+// repository, a terminal, or a process, so it is plain text on one line, cut on a rune boundary. An orchestrator's
+// start that failed starts again instead (startFailed), and the outcome is what its run ends with when it cannot.
 func (r *laneRun) failStart(reason string, err error) workorders.Report {
 	r.w.config.Report(fmt.Errorf("lane %s: %s: %w", r.lease.Lane, reason, err))
 	report := failed(reason)
 	report.Detail = failureDetail(err)
+	r.startFailed()
 	return report
+}
+
+// startFailed charges an orchestrator's start that failed as a crash: the run goes on in backoff, under the breaker a
+// crash charges, and the generation after the delay starts again, a tripped breaker's cooldown included, with no
+// member's act (FR-ORCH-1). Nothing else supervises an orchestrator, so a run that ended at its first failed start
+// would wait for a person. A run the breaker gives no restart, such as one whose profile allows none, still ends with
+// the start's outcome. A lane's and an assistant's failed start ends them, because their outcome is what a person
+// reads. A worker on its way out charges nothing: the next one goes on from the journal.
+func (r *laneRun) startFailed() {
+	ctx := r.life
+	if !r.orchestrating() || r.assisting() || ctx == nil || ctx.Err() != nil {
+		return
+	}
+	r.crashed, r.crashedAt = true, r.w.clock.Now()
+	r.signal(ctx, lanes.OnStartFailed)
 }
 
 // failureDetail writes what an error says as plain text on one line, cut at maxFailureDetail bytes. A hook's output
@@ -984,6 +1050,12 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	})
 	if errors.Is(err, ports.ErrUnknownScreen) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		if r.orchestrating() && !r.assisting() {
+			// Nobody resumes an orchestrator's park, and its next generation's start is checked again from the start.
+			report := workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen, Detail: failureDetail(err)}
+			r.startFailed()
+			return report
+		}
 		return r.parkOnScreen(ctx)
 	}
 	if err != nil {
@@ -1522,7 +1594,7 @@ func (r *laneRun) takeTurnBegun(ctx context.Context) bool {
 // holdEnd keeps a turn's end that is older than the session's newest input: the lane works in the turn that input
 // began, and that turn's end is the one to decide. The wait for it is bounded (awaitTurnEnd).
 func (r *laneRun) holdEnd(ctx context.Context, turn *ports.TurnResult) {
-	r.holding = turn
+	r.holding, r.holdingIn = turn, r.currentGeneration()
 	r.awaitTurnEnd(ctx)
 }
 
@@ -1549,7 +1621,12 @@ func (r *laneRun) awaitTurnEnd(ctx context.Context) {
 }
 
 // turnBound takes a lane as at rest once the turn it waited on has shown no sign of work for the live wait, where the
-// stream is read, and decides that rest as a turn's end: the end it held, or a completed one where it held none.
+// stream is read, and decides that rest as a turn's end: the end it held, or a completed one where it held none. An
+// end held of an earlier generation's session ends nothing of this one.
+//
+// Where it held no end, nothing the session reported says it took the wake an orchestrator's generation started on: a
+// hook may have blocked that prompt, or a person interrupted it. That wake goes back to the batch, so the next wake
+// carries it again, and nothing keeps it as landed (wakeLanded). A wake that went twice costs one context.
 func (r *laneRun) turnBound(ctx context.Context) {
 	since, waiting := r.state.turnWait()
 	if !waiting || r.sessionOver.Load() || r.currentFlight() != nil ||
@@ -1557,8 +1634,11 @@ func (r *laneRun) turnBound(ctx context.Context) {
 		return
 	}
 	turn := r.holding
-	if turn == nil {
+	if turn == nil || r.holdingIn != r.currentGeneration() {
 		turn = &ports.TurnResult{Status: ports.TurnCompleted}
+		if r.orchestrating() && !r.assisting() {
+			r.setWake(nil)
+		}
 	}
 	// The bound decides the rest, and no end of a hook stands for it.
 	r.endMs = 0

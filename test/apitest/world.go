@@ -273,23 +273,36 @@ func (w *World) Orchestrator(status ledger.LaneStatus) {
 // OrchestratorStatus has this world's worker report on its orchestrator's current run.
 func (w *World) OrchestratorStatus(status ledger.LaneStatus) {
 	w.t.Helper()
+	w.orchestratorSays(ledger.UploadLaneStatus, status)
+}
+
+// OrchestratorEnded has this world's worker end its orchestrator's current run with report.
+func (w *World) OrchestratorEnded(report workorders.Report) {
+	w.t.Helper()
+	w.orchestratorSays(ledger.UploadLaneEnded, workorders.LaneResult{Report: report})
+}
+
+// orchestratorSays uploads one word of this world's worker on its orchestrator's current run, which the ledger must
+// take.
+func (w *World) orchestratorSays(kind string, payload any) {
+	w.t.Helper()
 	row, err := w.plane.Orchestrator(w.ctx, WorldWorker)
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	raw, err := json.Marshal(status)
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	w.seq++
 	reply, err := w.plane.Upload(w.ctx, ledger.UploadBatch{Auth: w.auth, Epoch: w.epoch, Events: []ledger.UploadEvent{{
-		Epoch: w.epoch, Seq: w.seq, Type: ledger.UploadLaneStatus, Lane: row.Lane(), Generation: 1, Payload: raw, OccurredAt: 1,
+		Epoch: w.epoch, Seq: w.seq, Type: kind, Lane: row.Lane(), Generation: 1, Payload: raw, OccurredAt: 1,
 	}}})
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	if len(reply.Rejected) != 0 {
-		w.t.Fatalf("the orchestrator's status was refused: %+v", reply.Rejected)
+		w.t.Fatalf("the orchestrator's %s was refused: %+v", kind, reply.Rejected)
 	}
 }
 

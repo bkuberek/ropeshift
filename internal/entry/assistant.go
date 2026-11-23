@@ -17,6 +17,8 @@ import (
 type soloHosts struct {
 	kept    ports.Checkouts
 	runtime *worker.LaneRuntime
+	// opts names the daemon's sources, each the checkout of its record in the first project.
+	opts soloOptions
 
 	mu     sync.Mutex
 	worker *worker.Worker
@@ -37,6 +39,18 @@ func (h *soloHosts) read(ctx context.Context, project ledger.WorkspaceID) (map[s
 	if w == nil || w.Auth().WorkerID == "" {
 		return hosts, nil
 	}
+	host, err := h.host(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	hosts[w.Auth().WorkerID] = host
+	return hosts, nil
+}
+
+// host is what the daemon's own worker could run a project's assistant on. In the first project, each daemon source
+// is the checkout of its record, as a lane's start reads it (checkoutOf), so the worker holds that repository
+// before a member keeps a checkout of it with `repository add`, and its orchestrator serves the project.
+func (h *soloHosts) host(ctx context.Context, project ledger.WorkspaceID) (control.AssistantHost, error) {
 	host := control.AssistantHost{Checkouts: map[string]bool{}}
 	if h.runtime != nil && h.runtime.Driver != nil {
 		if capabilities, err := h.runtime.Driver.Capabilities(ctx); err == nil {
@@ -46,12 +60,22 @@ func (h *soloHosts) read(ctx context.Context, project ledger.WorkspaceID) (map[s
 	if h.kept != nil {
 		checkouts, err := h.kept.Of(ctx, project)
 		if err != nil {
-			return nil, err
+			return control.AssistantHost{}, err
 		}
 		for repository := range checkouts {
 			host.Checkouts[repository] = true
 		}
 	}
-	hosts[w.Auth().WorkerID] = host
-	return hosts, nil
+	if project == soloScope {
+		for _, path := range h.opts.sources {
+			instance, ok, err := sourceInstance(ctx, h.opts, h.kept, project, path)
+			if err != nil {
+				return control.AssistantHost{}, err
+			}
+			if ok {
+				host.Checkouts[instance] = true
+			}
+		}
+	}
+	return host, nil
 }

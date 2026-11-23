@@ -46,6 +46,8 @@ var designEdges = []struct {
 	{lanes.Working, lanes.OnSessionGone, lanes.Backoff},
 	{lanes.Idle, lanes.OnSessionGone, lanes.Backoff},
 	{lanes.NeedsDecision, lanes.OnSessionGone, lanes.Backoff},
+	{lanes.Provisioning, lanes.OnStartFailed, lanes.Backoff},
+	{lanes.Starting, lanes.OnStartFailed, lanes.Backoff},
 	{lanes.Backoff, lanes.OnDelayElapsed, lanes.Starting},
 	{lanes.Backoff, lanes.OnRestartLimit, lanes.Tripped},
 	{lanes.Retiring, lanes.OnRestartLimit, lanes.Tripped},
