@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -187,7 +188,7 @@ func planTitle(goal string) string {
 
 // chooseRepository finds the repository the session plans in: the one the person names, else the project's
 // planning repository (ADR-0022), else the only one the daemon reads. A name matches a source's instance or
-// its ID, as `source list` prints it.
+// its ID, as `source list` prints it, or a repository's ID, name, or unique ID prefix, as `repository list` prints it.
 func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (string, int) {
 	if named == "" {
 		planning, code := c.planningRepository(client)
@@ -199,9 +200,15 @@ func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (
 	if err != nil {
 		return "", c.failure(err)
 	}
+	resolved := named
+	if named != "" && !slices.ContainsFunc(list.Sources, func(source planning.SourceBinding) bool { return source.Instance == named || source.ID == named }) {
+		if resolved, _, err = c.repositoryNamed(client, named); err != nil {
+			return "", c.failure(err)
+		}
+	}
 	var instances []string
 	for _, source := range list.Sources {
-		if named != "" && (source.Instance == named || source.ID == named) {
+		if named != "" && (source.Instance == named || source.ID == named || source.Instance == resolved || source.ID == resolved) {
 			return source.Instance, ExitOK
 		}
 		instances = append(instances, source.Instance)
@@ -215,6 +222,35 @@ func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (
 		return "", c.usageError("the daemon reads more than one repository; pass --repository with one of: %s", strings.Join(instances, ", "))
 	}
 	return instances[0], ExitOK
+}
+
+// repositoryNamed is the ID of the repository a name stands for: a whole ID first, then a name, then a unique prefix of
+// an ID, as the control plane reads one. It says the name is unknown when the project holds repositories and none
+// answers to it, and a project with none has nothing for a name to answer to.
+func (c *invocation) repositoryNamed(client *api.ProjectClient, name string) (id string, unknown bool, err error) {
+	list, err := client.Repositories(c.ctx)
+	if err != nil {
+		return "", false, err
+	}
+	var found []string
+	for _, match := range []func(ledger.Repository) bool{
+		func(r ledger.Repository) bool { return r.ID == name },
+		func(r ledger.Repository) bool { return r.Name != "" && r.Name == name },
+		func(r ledger.Repository) bool {
+			return len(name) >= ledger.MinRepositoryPrefix && len(r.ID) > len(name) && r.ID[:len(name)] == name
+		},
+	} {
+		found = found[:0]
+		for _, view := range list.Repositories {
+			if !view.Removed() && match(view.Repository) {
+				found = append(found, view.ID)
+			}
+		}
+		if len(found) == 1 {
+			return found[0], false, nil
+		}
+	}
+	return name, len(list.Repositories) != 0, nil
 }
 
 // planningRepository is the project's planning repository: the one a member named, or else its only

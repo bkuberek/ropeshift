@@ -441,6 +441,8 @@ func TestPlanStartChoosesTheRepository(t *testing.T) {
 	named := []api.RepositoryView{{Repository: ledger.Repository{ID: "shop", Name: "shop"}}, {Repository: ledger.Repository{ID: "blog", Name: "blog", Planning: true}}}
 	only := []api.RepositoryView{{Repository: ledger.Repository{ID: "blog", Name: "blog"}, PlanOfRecord: true}}
 	removed := []api.RepositoryView{{Repository: ledger.Repository{ID: "blog", Name: "blog", Planning: true, State: ledger.RepositoryRemoved}}}
+	apiSource := planning.SourceBinding{ID: "repofiles:repo-0001", Adapter: "repofiles", Instance: "repo-0001", Health: "healthy"}
+	renamed := []api.RepositoryView{{Repository: ledger.Repository{ID: "repo-0001", Name: "storefront"}}, {Repository: ledger.Repository{ID: "blog", Name: "blog"}}}
 	tests := []struct {
 		name         string
 		sources      []planning.SourceBinding
@@ -458,6 +460,9 @@ func TestPlanStartChoosesTheRepository(t *testing.T) {
 		{"a repository named by its instance", []planning.SourceBinding{shop, blog}, nil, []string{"--repository", "blog"}, cli.ExitOK, "blog", ""},
 		{"a repository named by its source ID", []planning.SourceBinding{shop, blog}, nil, []string{"--repository", "repofiles:blog"}, cli.ExitOK, "blog", ""},
 		{"two sources and no choice", []planning.SourceBinding{shop, blog}, nil, nil, cli.ExitUsage, "", "blog"},
+		{"a repository named by its name", []planning.SourceBinding{apiSource, blog}, renamed, []string{"--repository", "storefront"}, cli.ExitOK, "repo-0001", ""},
+		{"a repository named by a prefix of its ID", []planning.SourceBinding{apiSource, blog}, renamed, []string{"--repository", "repo-00"}, cli.ExitOK, "repo-0001", ""},
+		{"a name no repository answers to", []planning.SourceBinding{apiSource, blog}, renamed, []string{"--repository", "nowhere"}, cli.ExitUsage, "", "nowhere"},
 		{"a repository no source has", []planning.SourceBinding{shop}, nil, []string{"--repository", "nowhere"}, cli.ExitUsage, "", "nowhere"},
 		{"no source", nil, nil, nil, cli.ExitConflict, "", "source"},
 	}
