@@ -59,6 +59,9 @@ const (
 	probePane = "probe-screens"
 )
 
+// holdHeld is the state of a `peer_message_hold` line that says the session holds a message.
+const holdHeld = "held"
+
 // The inbound policies the probe runs its sessions under.
 const (
 	inboundRefuse = "refuse"
@@ -189,9 +192,10 @@ func (p *prober) accept(ctx context.Context) {
 	defer p.keepStream("accept", s, SurfaceSocketLine, SurfaceSocketDir, SurfaceUnifiedWindows, SurfaceCommandLifecycle, SurfaceStreamUsage, SurfacePrintKeepsLogin)
 	defer s.end(ctx)
 	socket := s.awaitSocket(ctx)
-	id, sent, turn := "", false, false
+	id, from, sent, turn := "", "", false, false
 	if socket != "" {
-		id, sent = s.message(ctx, socket, "")
+		from = s.sender(socket)
+		id, sent = s.message(ctx, socket, from)
 		turn = sent && s.awaitTurn(ctx)
 	}
 	// No socket, a refused write, or a message the session never took: a turn from stdin still runs
@@ -200,7 +204,8 @@ func (p *prober) accept(ctx context.Context) {
 		turn = s.prompt(ctx) && s.awaitTurn(ctx)
 		if turn && socket == "" {
 			if socket = s.initSocket(); socket != "" {
-				if id, sent = s.message(ctx, socket, ""); sent {
+				from = s.sender(socket)
+				if id, sent = s.message(ctx, socket, from); sent {
 					s.awaitTurn(ctx)
 				}
 			}
@@ -208,7 +213,7 @@ func (p *prober) accept(ctx context.Context) {
 	}
 	init, hasInit := s.firstInit()
 	hasLimit, windows := s.rateLimits()
-	admitted := s.spooled(hookUserPromptSubmit) && s.replayed(id)
+	admitted := s.spooled(hookUserPromptSubmit) && s.replayed(id, from)
 	p.set(SurfaceSocketLine, observed(sent && turn, sent && admitted))
 	p.set(SurfaceSocketDir, observed(socket != "", s.private(socket)))
 	p.set(SurfaceCommandLifecycle, observed(turn, s.saw("command_lifecycle")))
@@ -289,15 +294,16 @@ func (p *prober) hold(ctx context.Context) {
 	if socket == "" {
 		return
 	}
-	id, sent := s.message(ctx, socket, "")
+	from := s.sender(socket)
+	id, sent := s.message(ctx, socket, from)
 	if !sent {
 		return
 	}
-	held := s.waitFor(ctx, probeHoldWait, func() bool { return s.held(id) })
+	held := s.waitFor(ctx, probeHoldWait, func() bool { return s.held(id, from) })
 	if !held {
 		s.closeInput()
 		s.awaitExit(ctx, probeExitWait)
-		held = s.held(id)
+		held = s.held(id, from)
 	}
 	p.set(SurfacePeerMessageHold, observed(true, held))
 }
@@ -566,6 +572,10 @@ type probeSession struct {
 	turns   chan struct{}
 	exited  chan struct{}
 	read    chan struct{}
+	// reply is the address the session's messages name as their sender, once sender has opened it, and receipted is what
+	// its receipts said the session holds, which mu guards.
+	reply     *receiver
+	receipted []string
 
 	// mu guards the stream's lines. inMu guards stdin apart from it, so a write that waits on a full
 	// pipe never holds back the reader that would drain the other one.
@@ -584,12 +594,15 @@ type probeLine struct {
 	Subtype         string         `json:"subtype"`
 	UUID            string         `json:"uuid"`
 	IsReplay        bool           `json:"isReplay"`
-	Origin          *probeOrigin   `json:"origin"`
+	Origin          *messageOrigin `json:"origin"`
 	APIKeySource    string         `json:"apiKeySource"`
 	MessagingSocket string         `json:"messaging_socket_path"`
 	MessageUUID     string         `json:"message_uuid"`
-	RateLimit       *rateLimitInfo `json:"rate_limit_info"`
-	Event           *streamEvent   `json:"event"`
+	// State and From are a `peer_message_hold` line's: whether the message is held, and the reply address its sender named.
+	State     string         `json:"state"`
+	From      string         `json:"from"`
+	RateLimit *rateLimitInfo `json:"rate_limit_info"`
+	Event     *streamEvent   `json:"event"`
 }
 
 // streamUsage says the session wrote the stream events a turn's spend is estimated from: a `message_start` that shows the
@@ -609,11 +622,6 @@ func (s *probeSession) streamUsage() bool {
 		}
 	}
 	return started && delta
-}
-
-// probeOrigin is who a replayed message came from.
-type probeOrigin struct {
-	Kind string `json:"kind"`
 }
 
 func (l probeLine) hasWindows() bool {
@@ -701,7 +709,25 @@ func (s *probeSession) private(socket string) bool {
 	return socket != "" && filepath.Dir(socket) == filepath.Join(s.sockets, socketsDir) && len(socket) <= maxSocketPath
 }
 
-// message writes the probe's message to the socket, opening with a first line a hook can name.
+// sender opens the reply address the probe's messages name as their sender, once for the session, in the session's own
+// socket directory, which is the only place it answers. A socket outside that directory, or an address that cannot be
+// bound, leaves the messages no sender, and a version that replays a message with the sender's `uuid` still shows it.
+func (s *probeSession) sender(socket string) string {
+	if s.reply == nil && s.private(socket) {
+		s.reply, _ = openReceiverOf(ports.SessionSpec{TempDir: s.sockets, Generation: 1}, true, heldInput, s.receiptHeld)
+	}
+	return s.reply.from()
+}
+
+// receiptHeld keeps an input a receipt says the session holds.
+func (s *probeSession) receiptHeld(input string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.receipted = append(s.receipted, input)
+}
+
+// message writes the probe's message to the socket, opening with a first line a hook can name. from is the reply
+// address it names as its sender, if any.
 func (s *probeSession) message(ctx context.Context, socket, from string) (string, bool) {
 	id, err := newUUID()
 	if err != nil {
@@ -782,11 +808,15 @@ func (s *probeSession) rateLimits() (seen, windows bool) {
 	return seen, windows
 }
 
-// replayed reports the headless acknowledgement of a socket message: its own `uuid`, marked as a
-// peer's.
-func (s *probeSession) replayed(id string) bool {
+// replayed reports the headless acknowledgement of a socket message, marked as a peer's: one that carries the
+// message's own `uuid`, or one whose origin names the message's ID and the reply address it named. A version that gives
+// the replay a `uuid` of its own names the sender's ID only there, and only on a message that named a reply address.
+func (s *probeSession) replayed(id, from string) bool {
 	for _, line := range s.snapshot() {
-		if line.Type == "user" && line.IsReplay && line.UUID == id && line.Origin != nil && line.Origin.Kind == "peer" {
+		if line.Type != "user" || !line.IsReplay || line.Origin == nil || line.Origin.Kind != originPeer {
+			continue
+		}
+		if line.UUID == id || (from != "" && line.Origin.MsgID == id && line.Origin.From == from) {
 			return true
 		}
 	}
@@ -812,9 +842,22 @@ func (s *probeSession) endedAs(subtype string) bool {
 	return false
 }
 
-func (s *probeSession) held(id string) bool {
+// held reports the stream's word that the session holds the probe's message: a `peer_message_hold` line that says `held`
+// and names the message's own ID. A version that gives the line a `message_uuid` of its own names the sender's reply address instead,
+// and the line counts when it says `held` for the address the message named and the session's receipt for the message,
+// which names its ID, says the same.
+func (s *probeSession) held(id, from string) bool {
+	s.mu.Lock()
+	receipted := slices.Contains(s.receipted, id)
+	s.mu.Unlock()
 	for _, line := range s.snapshot() {
-		if line.Type == "system" && line.Subtype == "peer_message_hold" && line.MessageUUID == id {
+		if line.Type != "system" || line.Subtype != "peer_message_hold" {
+			continue
+		}
+		if line.State != holdHeld {
+			continue
+		}
+		if line.MessageUUID == id || (receipted && from != "" && line.From == from) {
 			return true
 		}
 	}
@@ -889,6 +932,7 @@ func (s *probeSession) awaitExit(ctx context.Context, limit time.Duration) bool 
 // ending may be writing its configuration in the person's own home directory. After the kill it waits
 // killWait for the end, as a stop of a lane's session does.
 func (s *probeSession) end(ctx context.Context) {
+	defer s.reply.close()
 	s.closeInput()
 	if s.awaitExit(ctx, probeExitWait) {
 		return

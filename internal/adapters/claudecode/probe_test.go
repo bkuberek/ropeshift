@@ -37,23 +37,7 @@ func probeRigOn(t *testing.T, terminal ports.Terminal, drops ...string) (*claude
 	t.Cleanup(claudecode.ShortenProbeWaits(3 * time.Second))
 	path := doubles.InstallFakeClaudeVersion(t, "lane-completed", "2.1.399")
 	if len(drops) != 0 {
-		dir, _, _ := strings.Cut(path, string(os.PathListSeparator))
-		file := filepath.Join(dir, doubles.FixtureFile)
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var script map[string]any
-		if err := json.Unmarshal(raw, &script); err != nil {
-			t.Fatal(err)
-		}
-		script["probe_drops"] = drops
-		if raw, err = json.Marshal(script); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(file, raw, 0o600); err != nil {
-			t.Fatal(err)
-		}
+		editFixture(t, path, func(script map[string]any) { script["probe_drops"] = drops })
 	}
 	home, shared := t.TempDir(), apitest.ShortDir(t)
 	env := []string{"PATH=" + path, "HOME=" + home, "FAKECLAUDE_SOCKETS=" + shared}
@@ -61,6 +45,39 @@ func probeRigOn(t *testing.T, terminal ports.Terminal, drops ...string) (*claude
 	spec := ports.ProbeSpec{
 		Dir: t.TempDir(), TempDir: apitest.ShortDir(t), Env: env, Model: "haiku", Binary: doubles.Ropeshift(t), SignIn: ports.SignInSubscription,
 	}
+	return driver, spec, path
+}
+
+// editFixture changes the fixture of an installed fakeclaude, which its next run reads.
+func editFixture(t *testing.T, path string, change func(script map[string]any)) {
+	t.Helper()
+	dir, _, _ := strings.Cut(path, string(os.PathListSeparator))
+	file := filepath.Join(dir, doubles.FixtureFile)
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var script map[string]any
+	if err := json.Unmarshal(raw, &script); err != nil {
+		t.Fatal(err)
+	}
+	change(script)
+	if raw, err = json.Marshal(script); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// probeRigOrigin is probeRig with fakeclaude standing for Claude Code 2.1.330, whose replay of a socket message
+// carries a uuid of the CLI's own and names the sender's ID only in its origin, and whose hold line names the sender's
+// reply address.
+func probeRigOrigin(t *testing.T, drops ...string) (*claudecode.Driver, ports.ProbeSpec, string) {
+	t.Helper()
+	driver, spec, path := probeRig(t, drops...)
+	editFixture(t, path, func(script map[string]any) { script["peer_shape"] = "origin" })
+	doubles.SetFakeClaudeVersion(t, path, "2.1.330")
 	return driver, spec, path
 }
 
@@ -124,11 +141,66 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 			if got := notPassed(q); !slices.Equal(got, tt.want) {
 				t.Errorf("not passed %v, want %v: %+v", got, tt.want, q.Checks)
 			}
-			degrades := slices.ContainsFunc(tt.want, func(s lanes.Surface) bool {
-				return s != claudecode.SurfaceCommandLifecycle && s != claudecode.SurfacePeerMessageHold && s != claudecode.SurfaceMaxBudget &&
-					s != claudecode.SurfaceStreamUsage
-			})
-			if q.Degraded != degrades {
+			if degrades := degradesOn(tt.want); q.Degraded != degrades {
+				t.Errorf("degraded %v, want %v", q.Degraded, degrades)
+			}
+		})
+	}
+}
+
+// degradesOn says whether a version that did not pass these surfaces runs in `degraded_mode`: a hold, the lifecycle,
+// the budget cap, and the stream's usage are reported and never degrade one.
+func degradesOn(notPassed []lanes.Surface) bool {
+	return slices.ContainsFunc(notPassed, func(s lanes.Surface) bool {
+		return s != claudecode.SurfaceCommandLifecycle && s != claudecode.SurfacePeerMessageHold && s != claudecode.SurfaceMaxBudget &&
+			s != claudecode.SurfaceStreamUsage
+	})
+}
+
+// TestAProbeOfAStandInThatNamesAMessageByItsOriginPassesEveryCheck is Claude Code 2.1.330: the replay of a socket
+// message carries a uuid of the CLI's own, and the sender's ID survives only as `origin.msg_id` beside the reply address
+// as `origin.from`, and a hold line carries a `message_uuid` of the CLI's own beside the reply address as `from`. The
+// probe sends with a reply address of its own, so both checks pass and the version is not degraded.
+func TestAProbeOfAStandInThatNamesAMessageByItsOriginPassesEveryCheck(t *testing.T) {
+	driver, spec, _ := probeRigOrigin(t)
+	q, err := driver.Probe(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing := notPassed(q); len(missing) != 0 {
+		t.Errorf("a stand-in for 2.1.330 left %v not passed: %+v", missing, q.Checks)
+	}
+	if q.Version != "2.1.330" || q.Source != lanes.QualifiedByProbe || q.Degraded {
+		t.Errorf("qualification %+v", q)
+	}
+}
+
+// TestEachCheckFailsOnAnOriginStandInThatDropsItsSurface is the proof that the origin match is not a pass by itself: a
+// replay that names no sender ID, or a sender that is not the probe's, fails `socket_line`, and a hold line that names
+// no sender, or one whose message the session's receipt does not say it holds, fails `peer_message_hold`, which degrades
+// nothing.
+func TestEachCheckFailsOnAnOriginStandInThatDropsItsSurface(t *testing.T) {
+	for _, tt := range []struct {
+		drop string
+		want []lanes.Surface
+	}{
+		{"msg_id", []lanes.Surface{claudecode.SurfaceSocketLine}},
+		{"origin_from", []lanes.Surface{claudecode.SurfaceSocketLine}},
+		{"hold_from", []lanes.Surface{claudecode.SurfacePeerMessageHold}},
+		{"held_receipt", []lanes.Surface{claudecode.SurfacePeerMessageHold}},
+		{"peer_message_hold", []lanes.Surface{claudecode.SurfacePeerMessageHold}},
+		{"socket_line", []lanes.Surface{claudecode.SurfaceSocketLine, claudecode.SurfaceReceipts, claudecode.SurfacePeerMessageHold}},
+	} {
+		t.Run(tt.drop, func(t *testing.T) {
+			driver, spec, _ := probeRigOrigin(t, tt.drop)
+			q, err := driver.Probe(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := notPassed(q); !slices.Equal(got, tt.want) {
+				t.Errorf("not passed %v, want %v: %+v", got, tt.want, q.Checks)
+			}
+			if degrades := degradesOn(tt.want); q.Degraded != degrades {
 				t.Errorf("degraded %v, want %v", q.Degraded, degrades)
 			}
 		})

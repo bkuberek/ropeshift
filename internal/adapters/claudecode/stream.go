@@ -20,6 +20,9 @@ const blockingLimit = "blocking_limit"
 // stopDeferred is the stop reason of a turn that ended on a deferred call.
 const stopDeferred = "tool_deferred"
 
+// originPeer is the origin of a line that came in on the session's socket from another session.
+const originPeer = "peer"
+
 // percentOfUtilization turns the stream's fraction into the status line's percent.
 const percentOfUtilization = 100
 
@@ -56,6 +59,9 @@ type streamLine struct {
 	} `json:"compact_metadata"`
 	// MessagingSocket is where a session reads messages. It changes with the process.
 	MessagingSocket string `json:"messaging_socket_path"`
+	// Origin is where a replayed message came from. It is read apart (admittedInput), so an origin of another shape
+	// costs only itself, as an Error of another shape does.
+	Origin json.RawMessage `json:"origin"`
 	// Message is a line's message, whose shape differs by type: a user message's content can be text.
 	// The driver reads only an assistant message's usage and the subagent each of its Agent calls starts.
 	Message json.RawMessage `json:"message"`
@@ -80,6 +86,26 @@ type streamMessage struct {
 			NotebookPath string `json:"notebook_path"`
 		} `json:"input"`
 	} `json:"content"`
+}
+
+// messageOrigin is where a replayed message came from. A message from another session is a peer's, and carries the
+// sender's reply address as `from` and the sender's own ID as `msg_id` where the message named a reply address.
+type messageOrigin struct {
+	Kind  string `json:"kind"`
+	From  string `json:"from"`
+	MsgID string `json:"msg_id"`
+}
+
+// admittedInput is the ID of the input a replay confirms. A version that replays a peer's message with its sender's
+// `uuid` is read by that, and one that gives the replay a `uuid` of its own names the sender's ID only as
+// `origin.msg_id`, on a message that named a reply address. A peer's origin that carries one counts when its `from` is
+// the session's own reply address, which is the address our messages name, and otherwise the replay is read by its `uuid`.
+func (l streamLine) admittedInput(from string) string {
+	var origin messageOrigin
+	if json.Unmarshal(l.Origin, &origin) == nil && origin.Kind == originPeer && origin.MsgID != "" && from != "" && origin.From == from {
+		return origin.MsgID
+	}
+	return l.UUID
 }
 
 type rateLimitInfo struct {
@@ -147,12 +173,13 @@ type parsed struct {
 }
 
 func parseLine(raw []byte, windows bool) (parsed, error) {
-	return parseLineOf(raw, windows, false)
+	return parseLineOf(raw, windows, false, "")
 }
 
 // parseLineOf reads one line, and the text of an assistant message when replies says the session's text
-// is what a person reads.
-func parseLineOf(raw []byte, windows, replies bool) (parsed, error) {
+// is what a person reads. from is the reply address the session's messages name, which a replay's origin must carry
+// for its `msg_id` to count.
+func parseLineOf(raw []byte, windows, replies bool, from string) (parsed, error) {
 	var line streamLine
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return parsed{}, err
@@ -187,8 +214,8 @@ func parseLineOf(raw []byte, windows, replies bool) (parsed, error) {
 		out.call = assistantCall(line)
 		return withTools(out, toolUses(line)), nil
 	case "user":
-		if line.IsReplay && line.UUID != "" {
-			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: line.UUID}}, nil
+		if id := line.admittedInput(from); line.IsReplay && id != "" {
+			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: id}}, nil
 		}
 	}
 	return parsed{}, nil

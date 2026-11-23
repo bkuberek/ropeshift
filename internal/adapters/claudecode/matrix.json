@@ -45,6 +45,21 @@
         "max_budget_usd": "unobserved",
         "stream_usage": "unobserved"
       }
+    },
+    {
+      "version": "2.1.330",
+      "checks": {
+        "socket_line": "passed",
+        "receipts": "passed",
+        "peer_message_hold": "passed",
+        "socket_dir": "passed",
+        "unified_windows": "passed",
+        "command_lifecycle": "passed",
+        "print_keeps_login": "passed",
+        "start_screens": "passed",
+        "max_budget_usd": "passed",
+        "stream_usage": "passed"
+      }
     }
   ]
 }

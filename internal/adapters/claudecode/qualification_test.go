@@ -32,8 +32,10 @@ func probed(version string, failed ...lanes.Surface) lanes.Qualification {
 }
 
 // TestAFailedCheckRemovesExactlyItsSurface is the gating table: for each check in the qualification
-// matrix, a failed check takes away the one use it guards, and leaves every other use alone. The
-// two surfaces the design only notes take nothing away, the budget flag takes only the flag and never degrades a
+// matrix, a failed check takes away the one use it guards, and leaves every other use alone. The one
+// exception is the socket, which is used only where receipts passed too: a message names the session's reply address,
+// which is opened only there, and a version that confirms a message by its origin keeps the ID only on a message that
+// names one. The two surfaces the design only notes take nothing away, the budget flag takes only the flag and never degrades a
 // version, and the start screens take nothing beyond
 // the start check's own rule, which parks a lane on a screen it does not know.
 func TestAFailedCheckRemovesExactlyItsSurface(t *testing.T) {
@@ -47,7 +49,7 @@ func TestAFailedCheckRemovesExactlyItsSurface(t *testing.T) {
 		degrades bool
 	}{
 		{claudecode.SurfaceSocketLine, func(u *claudecode.Use) { u.PeerInjection = false }, true},
-		{claudecode.SurfaceReceipts, func(u *claudecode.Use) { u.Receipts = false }, true},
+		{claudecode.SurfaceReceipts, func(u *claudecode.Use) { u.Receipts, u.PeerInjection = false, false }, true},
 		{claudecode.SurfaceSocketDir, func(u *claudecode.Use) { u.PrivateSockets = false }, true},
 		{claudecode.SurfaceUnifiedWindows, func(u *claudecode.Use) { u.WindowFigures = false }, true},
 		{claudecode.SurfacePrintKeepsLogin, func(u *claudecode.Use) { u.HeadlessOnSubscription = false }, true},
@@ -127,9 +129,8 @@ func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 	if err := claudecode.CheckMatrix(raw); err != nil {
 		t.Fatal(err)
 	}
-	// 2.1.316 is the spikes' version, and RS14 qualified 2.1.317 and 2.1.319 through the production
-	// probe.
-	for _, version := range []string{"2.1.316", "2.1.317", "2.1.319"} {
+	// 2.1.316 is the spikes' version, and the production probe qualified every later one.
+	for _, version := range []string{"2.1.316", "2.1.317", "2.1.319", "2.1.330"} {
 		if !slices.Contains(claudecode.MatrixVersions(), version) || claudecode.MatrixRow(version).Degraded {
 			t.Errorf("the matrix does not qualify %s: %v", version, claudecode.MatrixVersions())
 		}
@@ -143,6 +144,19 @@ func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 		if claudecode.CheckMatrix([]byte(broken)) == nil {
 			t.Errorf("a broken matrix passed: %s", broken)
 		}
+	}
+}
+
+// The matrix row of 2.1.330 holds every surface its production probe passed.
+func TestTheMatrixRowOf2_1_330HoldsEverySurfaceTheProbeObserved(t *testing.T) {
+	row := claudecode.MatrixRow("2.1.330")
+	for _, surface := range claudecode.Surfaces {
+		if !row.Passed(surface) {
+			t.Errorf("2.1.330 reads %q for %s, and the production probe passed it", row.Checks[surface], surface)
+		}
+	}
+	if row.Degraded || row.Source != lanes.QualifiedByMatrix {
+		t.Errorf("2.1.330 read %+v", row)
 	}
 }
 
