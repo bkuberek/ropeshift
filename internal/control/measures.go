@@ -456,8 +456,17 @@ func (h *historian) approval(e ledger.Event) {
 }
 
 // orchestrator counts a person resetting an orchestrator's breaker, or replacing a run that stalled
-// while it was meant to be running. Starting one that was stopped is a choice, and no interruption.
+// while it was meant to be running. Starting one that was stopped is a choice, and no interruption, and so is
+// starting the next run of one whose run ended, which a start makes as it does of a stopped one. What its worker
+// said of it moves the projection, so a start reads how the run it replaced stood.
 func (h *historian) orchestrator(e ledger.Event) {
+	if e.Type == ledger.EventOrchestratorReported {
+		var report ledger.OrchestratorReport
+		if row, known := h.orchestrators[e.Subject.ID]; known && json.Unmarshal(e.Data, &report) == nil {
+			h.orchestrators[e.Subject.ID] = row.Apply(report)
+		}
+		return
+	}
 	if e.Type != ledger.EventOrchestratorDesired {
 		return
 	}
@@ -466,7 +475,7 @@ func (h *historian) orchestrator(e ledger.Event) {
 		return
 	}
 	before, known := h.orchestrators[e.Subject.ID]
-	replaced := known && before.Desired == ledger.OrchestratorRunning && row.Run > before.Run
+	replaced := known && before.Desired == ledger.OrchestratorRunning && !before.Ended() && row.Run > before.Run
 	if (known && row.Resets > before.Resets) || replaced {
 		h.interrupted(e, measures.InterruptionForced, e.ID)
 	}

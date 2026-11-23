@@ -8,6 +8,8 @@ import (
 
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -127,3 +129,44 @@ func TestAStopOfAnEndedOrchestratorStands(t *testing.T) {
 		t.Errorf("a start after the stop left %+v, %v", row, err)
 	}
 }
+
+// forcedInterruptions counts the forced acts a project's measures read.
+func (r *planeRig) forcedInterruptions() int {
+	r.t.Helper()
+	forced := 0
+	err := r.stores["pa"].Read(r.t.Context(), "pa", func(tx ports.ReadTx) error {
+		history, err := control.HistoryIn(tx)
+		for _, occasion := range history.Interruptions {
+			if occasion.Kind == measures.InterruptionForced {
+				forced++
+			}
+		}
+		return err
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return forced
+}
+
+// A start of a run that ended makes the next run, as a start of a stopped one does, so it counts as no forced act.
+// Replacing a run that stalled is one.
+func TestAStartOfAnEndedOrchestratorIsNoForcedInterruption(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ended := r.endedRun()
+	next, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forced := r.forcedInterruptions(); forced != 0 {
+		t.Errorf("a start of run %d, which ended, counted %d forced interruptions, want none", ended.Run, forced)
+	}
+	r.saysOfRun(2, next.Lane(), ledger.UploadLaneStatus, ledger.LaneStatus{ActualState: "working", Conditions: []string{"stalled"}})
+	if _, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	if forced := r.forcedInterruptions(); forced != 1 {
+		t.Errorf("replacing a run that stalled counted %d forced interruptions, want 1", forced)
+	}
+}
+
