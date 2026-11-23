@@ -150,6 +150,8 @@ func (w *Worker) qualify(ctx context.Context) error {
 	checks := w.config.Lanes.Driver.ProbeChecks(w.probeSignIn(capabilities.Version))
 	w.qualLock.Lock()
 	if w.probe != nil || !w.probeDueLocked(capabilities.Version, checks, w.clock.Now()) {
+		// A look the end of a probe refuses, while that end is being kept, is the end's to take up (runProbe).
+		w.lookRefused = w.lookRefused || (w.probe != nil && w.probeEnding)
 		w.qualLock.Unlock()
 		return nil
 	}
@@ -259,6 +261,7 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 			// Hands the driver the last result the worker holds, which names no version this probe checked.
 			w.handOverLocked()
 		}
+		w.probeEnding = true
 		w.qualLock.Unlock()
 		// The wait goes in the journal with the attempt, so a restart goes on from it. A probe the worker's own stop cut short
 		// proved nothing of its version, so a restart does not wait on it. The save replaces the one before it, so no probe
@@ -270,9 +273,18 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 			}
 		}
 		w.qualLock.Lock()
-		w.probe = nil
+		w.probe, w.probeEnding = nil, false
+		looked := w.lookRefused
+		w.lookRefused = false
 		w.qualLock.Unlock()
 		w.laneMoved()
+		// A look at the installed version that found this probe still the one that runs waits no interval for the next:
+		// a version that moved meanwhile is probed now.
+		if looked && life.Err() == nil {
+			if err := w.qualify(life); err != nil {
+				w.config.Report(fmt.Errorf("reading the CLI's version after the probe of %s: %w", p.version, err))
+			}
+		}
 	}()
 	ctx, cancel := context.WithTimeout(life, probeLimit)
 	defer cancel()

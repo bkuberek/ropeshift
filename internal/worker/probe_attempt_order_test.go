@@ -95,3 +95,47 @@ func TestAnAttemptKeptAtAProbesEndNeverReplacesANewerOne(t *testing.T) {
 		t.Errorf("the journal keeps the attempt %+v, %v, want the newer probe's, of 2.0.0", got, err)
 	}
 }
+
+// A version the worker notices while a probe's end is being kept is probed once that end is kept, and not when a look a
+// version-check interval later finds it: the look that noticed it was refused for the probe that still ran, and nothing
+// else would start the next.
+func TestAVersionNoticedWhileAProbesEndIsKeptIsProbedAtOnce(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &endSaveHeld{Journal: base.journal, reached: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(journal.let)
+	base.workerJournal = journal
+	var releaseProbes func()
+	r := newLaneRigWith(t, base, func(driver *fake.AgentDriver) {
+		driver.SetVersion("1.0.0", true)
+		releaseProbes = driver.HoldProbes()
+	})
+	t.Cleanup(releaseProbes)
+	deadline := time.Now().Add(10 * time.Second)
+	for len(r.driver.Probes()) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the first probe never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	releaseProbes()
+	select {
+	case <-journal.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the first probe's end never kept its attempt")
+	}
+
+	r.driver.SetVersion("2.0.0", true)
+	r.clock.Advance(2 * time.Minute)
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(r.driver.Probes()); n != 1 {
+		t.Fatalf("%d probes had begun while the first one's end was still to be kept, want the first alone", n)
+	}
+	journal.let()
+	r.subject.Wait()
+	if n := len(r.driver.Probes()); n != 2 {
+		t.Errorf("%d probes once the first one's end was kept, with no look since: want the version that moved probed too", n)
+	}
+}
