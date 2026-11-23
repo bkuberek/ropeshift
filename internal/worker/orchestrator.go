@@ -113,8 +113,13 @@ func (r *laneRun) reviewBound() int64 {
 
 // holdsToItsWork refuses a report the control plane would refuse, while the lane can still say more. A
 // review reports a verdict for every criterion of the contract it read when it completes, and no other
-// lane reports a verdict or a security note.
+// lane reports a verdict or a security note. A lane whose own blocking question is open does not report
+// blocked: the report would end the lane, and the answer would reach a generation that is over.
 func (r *laneRun) holdsToItsWork(report workorders.Report) error {
+	if report.Outcome == workorders.OutcomeBlocked && len(r.blockingQuestions()) != 0 {
+		return fmt.Errorf("%w: this lane's blocking question has no answer yet, so it does not report blocked. "+
+			"End your turn now and wait for the answer: the lane goes on with it. Report blocked only if the answer does not change that", workorders.ErrInvalid)
+	}
 	if !r.reviewing() {
 		if len(report.Verdicts) != 0 {
 			return fmt.Errorf("%w: only a review lane reports verdicts", workorders.ErrInvalid)
