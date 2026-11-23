@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,8 @@ type adoptHeld struct {
 	freed   sync.Once
 	early   atomic.Int64
 	adopted atomic.Bool
+	// fail is what the adoption returns, in place of adopting, once a test lets it go.
+	fail error
 }
 
 func (d *adoptHeld) Send(ctx context.Context, handle ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
@@ -50,6 +53,9 @@ func (d *adoptHeld) Adopt(ctx context.Context, handle ports.SessionHandle, from 
 	case <-d.release:
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	if d.fail != nil {
+		return d.fail
 	}
 	err := d.AgentDriver.Adopt(ctx, handle, from)
 	d.adopted.Store(true)
@@ -149,4 +155,25 @@ func TestAWaitParkDuringAnAdoptionFinishes(t *testing.T) {
 	}
 	held.noEarlyCalls(t)
 	w.awaitParked(t, held)
+}
+
+// A park begun while the session is being adopted leaves the handoff it must finish in the run, which the adoption reads when
+// it fails, on its own goroutine. The park's goroutine and the adoption's share it under the flight's lock, and no test
+// orders them: the adoption fails after the park begun, and nothing but the lock stands between the two.
+func TestAParkBegunDuringAnAdoptionThatFailsIsReadUnderTheLock(t *testing.T) {
+	t.Parallel()
+	w, held := anAdoptionInProgress(t, func(*worldRig) {})
+	begun := make(chan struct{})
+	go func() {
+		defer close(begun)
+		request := lanes.ParkRequest{Trigger: lanes.ParkBlockingQuestion, Expr: lanes.HumanWake(), SkipNarrative: true}
+		if err := w.subject.Park(t.Context(), "lane-1", request); err != nil {
+			t.Errorf("the park was refused: %v", err)
+		}
+	}()
+	// Time and not a signal lets the park's write come first, so that a read of it with no lock has nothing to order it.
+	time.Sleep(300 * time.Millisecond)
+	held.fail = errors.New("the pane could not be read")
+	w.awaitParked(t, held)
+	<-begun
 }

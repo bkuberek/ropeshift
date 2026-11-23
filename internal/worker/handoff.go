@@ -95,9 +95,17 @@ func (r *laneRun) currentFlight() *handoffFlight {
 	return r.flight
 }
 
+// handoffLeft says an earlier process left a handoff to finish, or a park begun while this run's session was being adopted
+// did. A park begun then writes it under the flight's lock, from the goroutine that asked for it.
+func (r *laneRun) handoffLeft() bool {
+	r.flightLock.Lock()
+	defer r.flightLock.Unlock()
+	return r.left.Open()
+}
+
 // resumeHandoff goes on with a handoff an earlier process left, from what the journal holds.
 func (r *laneRun) resumeHandoff(ctx context.Context) {
-	if !r.left.Open() {
+	if !r.handoffLeft() {
 		return
 	}
 	r.flightLock.Lock()

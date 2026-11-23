@@ -816,13 +816,13 @@ func (r *laneRun) rereadJournal(ctx context.Context, approvalsRead bool) {
 // wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
 	r.unreadEnd(ctx)
-	if _, reported := r.reported(ctx); !reported && !r.left.Open() {
+	if _, reported := r.reported(ctx); !reported && !r.handoffLeft() {
 		r.w.parkOnSignIn(ctx)
 	}
 	if _, _, asked := r.waitParkOf(); asked || r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}
-	if r.left.Open() {
+	if r.handoffLeft() {
 		return r.finishHandoff(ctx)
 	}
 	return r.finish(ctx, r.unattended(ctx))
