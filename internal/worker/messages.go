@@ -109,8 +109,9 @@ func (w *Worker) messageEvent(record lanes.Record, report messages.Report) (ledg
 }
 
 // deliver writes one message, at most once, for as long as it can be written, and says whether it
-// wrote. A message for a generation this run left is never injected, and neither is one past its
-// window, because a stale instruction is worse than none. Either way the ledger tells the sender.
+// wrote or reported. A message for a generation this run left is never injected, and neither is one
+// past its window, because a stale instruction is worse than none. Either way the ledger tells the
+// sender. A session with no channel for a message takes none (undeliverable).
 func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error) {
 	generation := r.currentGeneration()
 	now := r.w.clock.Now().UnixMilli()
@@ -146,12 +147,40 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		if err := r.w.journal.FinishEffect(context.WithoutCancel(ctx), effect.Key, lanes.EffectFailed, sent.Error()); err != nil {
 			return false, errors.Join(sent, err)
 		}
-		if errors.Is(sent, ports.ErrNoChannel) || errors.Is(sent, ports.ErrNoSession) {
+		switch {
+		case errors.Is(sent, ports.ErrNoChannel):
+			return r.undeliverable(ctx, held)
+		case errors.Is(sent, ports.ErrNoSession):
 			return false, nil
 		}
 		return false, sent
 	}
 	return true, r.recordHandedOff(ctx, held, effect.Key)
+}
+
+// undeliverable settles a message the session has no channel for, which nothing writes into it, not even
+// as the worker's own input, because that would give it the standing of the worker's word. The worker
+// reports it undeliverable and stops holding it, so its sender reads why it was not delivered, and a
+// message that bears a decision reaches the next generation as a ledger fact. An answer the lane waits
+// on parks the lane at once, on a wake the answer has already fired, so the lane resumes and its next
+// generation's first prompt carries the answer (FR-PARK-2, FR-MSG-5). A lane that cannot park now is on
+// its way out already, or parks on its questions at the end of `ask_wait`, and its next generation hears
+// of the answer either way.
+func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, error) {
+	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: messages.ReasonUndeliverable})
+	if err != nil {
+		return false, err
+	}
+	moved, err := r.w.journal.MoveMessage(context.WithoutCancel(ctx), held.ID, messages.AtWorker, messages.Expired, event)
+	if err != nil || !moved {
+		return false, err
+	}
+	if held.Kind == messages.KindAnswer && slices.Contains(r.blockingQuestions(), held.ReplyTo) {
+		r.parkReported(ctx, lanes.ParkRequest{
+			Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake([]string{held.ReplyTo}), PastCompaction: true,
+		})
+	}
+	return true, nil
 }
 
 // afterAPersonsWord reads a write that already has a record, and says whether to write again. Only a

@@ -13,6 +13,7 @@ const reasons: Record<string, string> = {
   timed_out: "Timed out before it was injected",
   generation_ended: "Its generation ended, and the sender decides whether to send it again",
   ledger_fact: "Never injected, so the next generation is told of it",
+  undeliverable: "Not delivered: its session takes no message on this agent CLI version, and the sender decides whether to send it again",
 };
 
 // LaneMessages lists what was sent to a lane, oldest first, as `ropeshift message list` does: each message with

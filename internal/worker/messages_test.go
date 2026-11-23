@@ -16,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -439,16 +440,29 @@ func TestAMessageAgesOnTheWorkersClockAfterItArrives(t *testing.T) {
 }
 
 // TestAVersionWithNoCheckedSocketWritesNothing is a driver with no path for a peer. No stdin stands
-// in, because that would give a message the standing of a worker's own input.
+// in, because that would give a message the standing of a worker's own input. The message is not left
+// waiting at the worker: it reads undeliverable, or, when it bears a decision, that the next generation
+// is told of it, and the worker stops holding it.
 func TestAVersionWithNoCheckedSocketWritesNothing(t *testing.T) {
 	t.Parallel()
 	r := heldBack(t)
 	r.driver.SetPeerChannel(false)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
+	notice := r.send(t, "m-2", messages.KindDecisionNotice, nil)
 	r.beat(t)
 	r.beat(t)
-	if got := r.message(t, m.ID); got.State != messages.AtWorker {
-		t.Errorf("state %s", got.State)
+	if got := r.message(t, m.ID); got.State != messages.Expired || got.Reason != messages.ReasonUndeliverable {
+		t.Errorf("a message no channel took reads %s (%s)", got.State, got.Reason)
+	}
+	if got := r.message(t, notice.ID); got.State != messages.Expired || got.Reason != messages.ReasonLedgerFact {
+		t.Errorf("a decision no channel took reads %s (%s)", got.State, got.Reason)
+	}
+	waiting, err := r.journal.WaitingMessages(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(waiting) != 0 {
+		t.Errorf("a worker still holds %+v", waiting)
 	}
 	for _, input := range r.driver.Sent() {
 		if strings.HasPrefix(input.Text, "[ropeshift message") {
@@ -456,6 +470,87 @@ func TestAVersionWithNoCheckedSocketWritesNothing(t *testing.T) {
 		}
 	}
 	r.letGo()
+}
+
+// TestABlockingAnswerWithNoChannelGoesInThroughAResume is the answer a lane waits on, on a version with no path for a
+// peer: the lane parks at once, on a wake its answer has already fired, and the answer reaches the generation that
+// resumes it in its first prompt. No input of the worker's carries it into the session it waited in.
+func TestABlockingAnswerWithNoChannelGoesInThroughAResume(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"3m\"\nmax_restarts = 0\n")
+	r.driver.SetPeerChannel(false)
+	r.driver.Play(r.asksThenNarrates("Which retry budget?", notCarried))
+	r.driver.PlayAfter(r.toldToGoOn())
+	r.start()
+	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.awaitAskWait()
+	asked := r.questionList(t)
+	if len(asked) != 1 {
+		t.Fatalf("questions %+v", asked)
+	}
+	answer := questions.Answer{DecisionID: "d-member", Statement: "Three retries.", Rationale: "It is what the contract tests."}
+	if _, err := control.NewQuestions(r.store, questions.BatchPolicy{}).Answer(t.Context(), scope, asked[0].ID, answer, member); err != nil {
+		t.Fatal(err)
+	}
+	r.beat(t)
+	r.awaitWoken(t)
+	r.subject.Wait()
+	for _, input := range r.driver.Sent() {
+		if strings.Contains(input.Text, "Three retries.") {
+			t.Errorf("the answer went in as an input of the worker's: %+v", input)
+		}
+	}
+	if wake := r.wakeOf(t, 1); wake.Expr != lanes.QuestionWake([]string{asked[0].ID}) || wake.Open() {
+		t.Errorf("the lane parked on %+v, want a fired wake on its answered question", wake)
+	}
+	if parked := r.parkingOf(t); parked == nil || parked.Trigger != lanes.ParkBlockingQuestion {
+		t.Errorf("the lane parked with %+v", parked)
+	}
+	var told string
+	for _, m := range r.laneMessages(t) {
+		if m.Kind == messages.KindAnswer {
+			told = m.ID
+			if m.State != messages.Expired || m.Reason != messages.ReasonLedgerFact {
+				t.Errorf("the answer reads %s (%s)", m.State, m.Reason)
+			}
+		}
+	}
+	if told == "" {
+		t.Fatal("no answer was sent to the lane")
+	}
+	if len(r.peerInputs()) != 0 {
+		t.Errorf("a write on a peer's path: %+v", r.peerInputs())
+	}
+	r.resumed(t)
+	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, "Three retries.") {
+		t.Errorf("the first prompt of the resumed generation:\n%s", brief)
+	}
+}
+
+// awaitWoken waits for a parked lane's wake to ready its work order again, uploading what the worker holds and acting
+// on nothing, so no resume begins.
+func (r *laneRig) awaitWoken(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for r.row().ResumeLaneID != "lane-1" {
+		if time.Now().After(deadline) {
+			t.Fatalf("the lane was never woken: its work order reads %s", r.row().State)
+		}
+		if err := r.subject.Upload(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// laneMessages reads what was sent to the lane.
+func (r *laneRig) laneMessages(t *testing.T) []messages.Message {
+	t.Helper()
+	rows, err := control.NewMessages(r.store, nil).LaneMessages(t.Context(), scope, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
 }
 
 // TestAWriteThatMayHaveHappenedIsNeverRepeated is at-most-once across a kill. The effect began and

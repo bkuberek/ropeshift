@@ -96,6 +96,20 @@ func TestDecisionBearingKinds(t *testing.T) {
 	}
 }
 
+// A message its session has no channel for reads undeliverable, unless it bears a decision, which the next generation
+// hears of.
+func TestUndeliverableReason(t *testing.T) {
+	for kind, want := range map[messages.Kind]string{
+		messages.KindAnswer: messages.ReasonLedgerFact, messages.KindDecisionNotice: messages.ReasonLedgerFact,
+		messages.KindContractNotice: messages.ReasonLedgerFact, messages.KindDocumentNotice: messages.ReasonLedgerFact,
+		messages.KindInstruction: messages.ReasonUndeliverable, messages.KindNotice: messages.ReasonUndeliverable,
+	} {
+		if got := messages.UndeliverableReason(kind); got != want {
+			t.Errorf("%s: %s, want %s", kind, got, want)
+		}
+	}
+}
+
 // A document notice is a message like a contract notice: a draft of it is accepted, and its fact reaches
 // the next generation when no session heard it.
 func TestADocumentNoticeIsAMessage(t *testing.T) {
