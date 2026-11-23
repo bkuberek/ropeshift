@@ -155,6 +155,10 @@ type shellParser struct {
 	wordEnd int
 	// places says the text gives placeNames and placeCommands no other meaning.
 	places bool
+	// looked counts the words of a command that the reading looked at again after it took them, to place a keyword or a
+	// `((`, and the words of a substitution or a here-document it read in a reading of its own. A test holds it to a bound
+	// that does not grow with a run of one kind of word.
+	looked int
 }
 
 type redirectKind int
@@ -265,7 +269,7 @@ func (p *shellParser) endLine() {
 	}
 	// `case WORD` takes its `in` from a later line too.
 	if words := p.current.words; len(words) <= maxCommandLead {
-		if rest := words[min(commandStart(words), len(words)):]; len(rest) == 2 && isKeyword(rest[0], "case") {
+		if rest := words[min(p.commandStart(words), len(words)):]; len(rest) == 2 && isKeyword(rest[0], "case") {
 			p.skipHeredocs()
 			return
 		}
@@ -382,12 +386,19 @@ func (p *shellParser) startsCommand(words []shellWord) bool {
 	if len(p.current.writes) != 0 || len(p.current.reads) != 0 || p.current.heredoc {
 		return false
 	}
-	start := commandStart(words)
+	start := p.commandStart(words)
 	return start >= len(words) || (len(words) == start+1 && isKeyword(words[start], "for"))
 }
 
 // commandKeywords come before a command.
 var commandKeywords = append(slices.Clone(shellKeywords), "esac", "time")
+
+// commandStart is where the command after the keywords of words begins, and it counts the words it looked at.
+func (p *shellParser) commandStart(words []shellWord) int {
+	start := commandStart(words)
+	p.looked += min(start+1, len(words))
+	return start
+}
 
 // commandStart is where the command after the keywords of words begins.
 func commandStart(words []shellWord) int {
@@ -579,7 +590,7 @@ func (p *shellParser) expandDocument(text string) fedText {
 		}
 	}
 	p.nested = append(p.nested, body.nested...)
-	p.unread, p.tries = p.unread || body.unread, body.tries
+	p.unread, p.tries, p.looked = p.unread || body.unread, body.tries, p.looked+body.looked
 	return fedText{text: out.String(), expands: word.expands}
 }
 
@@ -630,7 +641,7 @@ func (p *shellParser) readKeyword(before []shellWord, word shellWord) {
 	if len(p.current.writes) != 0 || len(p.current.reads) != 0 || p.current.heredoc {
 		return
 	}
-	start := commandStart(before)
+	start := p.commandStart(before)
 	head := before[min(start, len(before)):]
 	switch {
 	case len(head) == 0 && word.text == "esac":
@@ -811,7 +822,7 @@ func (p *shellParser) readSubstitution() string {
 	}
 	inner := &shellParser{text: p.text, at: start, substitution: true, nesting: p.nesting + 1, tries: p.tries, places: p.places, current: newShellCommand()}
 	inner.run()
-	p.at, p.tries, p.unread = inner.at, inner.tries, p.unread || inner.unread
+	p.at, p.tries, p.unread, p.looked = inner.at, inner.tries, p.unread || inner.unread, p.looked+inner.looked
 	end := p.at
 	if inner.closed {
 		end--
