@@ -1203,6 +1203,9 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 			return fmt.Errorf("%w: work order %s runs no lane", workorders.ErrIllegalMove, workOrder)
 		}
 		row, err := tx.Lanes().Row(claim.Lane)
+		if errors.Is(err, ports.ErrNotFound) {
+			return fmt.Errorf("%w: the lane of work order %s has not reported, and only a tripped lane is reset", workorders.ErrIllegalMove, workOrder)
+		}
 		if err != nil {
 			return err
 		}
