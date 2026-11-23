@@ -177,3 +177,77 @@ func TestAParkBegunDuringAnAdoptionThatFailsIsReadUnderTheLock(t *testing.T) {
 	w.awaitParked(t, held)
 	<-begun
 }
+
+// uploadHeld is a link whose upload waits for a test once it is armed, which holds a park's sequence at its first step.
+type uploadHeld struct {
+	ports.WorkerLink
+	armed   atomic.Bool
+	reached chan struct{}
+	release chan struct{}
+	opened  sync.Once
+	freed   sync.Once
+}
+
+func newUploadHeld(link ports.WorkerLink) *uploadHeld {
+	return &uploadHeld{WorkerLink: link, reached: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (l *uploadHeld) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.UploadReply, error) {
+	if l.armed.Load() {
+		l.opened.Do(func() { close(l.reached) })
+		select {
+		case <-l.release:
+		case <-ctx.Done():
+		}
+	}
+	return l.WorkerLink.Upload(ctx, batch)
+}
+
+func (l *uploadHeld) let() { l.freed.Do(func() { close(l.release) }) }
+
+// A park that stops a turn in progress, begun while its session is being adopted, denies the session's next tool call as
+// soon as the driver holds the session, and not when the park's sequence reaches the step that tells it to stop: that
+// sequence uploads first, which can take as long as its bound, and a call must not start in the meantime (NFR-COST-2).
+func TestAMidTurnParkDuringAnAdoptionHoldsTheToolsOnceTheSessionIsAdopted(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	link := newUploadHeld(base.link)
+	t.Cleanup(link.let)
+	base.workerLink = link
+	w := newWorldRigOn(t, base)
+	held := newAdoptHeld(w.driver)
+	t.Cleanup(held.let)
+	w.config.Driver = held
+	w.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", "[lifecycle]\nhandoff_timeout = \"30ms\"\n")
+	w.desire("lane-1")
+	w.record("lane-1", lanes.StateRunning)
+	if err := w.journal.SaveActual(t.Context(), "lane-1", lanes.Working, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
+	w.driver.Leave("lane-1", 1, sessionAlive)
+	w.driver.Play(script([]fake.DriverStep{{Hold: true}}))
+	if _, err := w.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-held.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the worker never began to adopt the session")
+	}
+	request := lanes.ParkRequest{Trigger: lanes.ParkSpendLimit, Expr: lanes.SpendLimitWake("wo"), SkipNarrative: true, MidTurn: true}
+	if err := w.subject.Park(t.Context(), "lane-1", request); err != nil {
+		t.Fatalf("the park was refused: %v", err)
+	}
+	link.armed.Store(true)
+	held.let()
+	select {
+	case <-link.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the park's sequence never reached its first step")
+	}
+	holds := w.driver.Holds()
+	if len(holds) != 1 || holds[0] != lanes.ReasonSpendLimit {
+		t.Errorf("the driver was told to hold the session's tools with %q while the park's sequence uploads, want one hold with the spend limit's reason", holds)
+	}
+}

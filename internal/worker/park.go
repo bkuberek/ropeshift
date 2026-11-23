@@ -101,9 +101,9 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	crashpoint.Hit("worker.park", "begun")
 	r.parking = &parking
 	r.signal(ctx, parkPath...)
-	// The driver may not hold the session yet, and the sequence's stop would go to nobody and could hang. The adoption
-	// starts the sequence from what is kept here once it has the session (resumeParking), and one that fails finishes the
-	// park from the journal (unread).
+	// The driver may not hold the session yet, and the sequence's stop would go to nobody and could hang, and a hold on its
+	// tools would reach no session. The adoption holds the tools of a turn in progress and starts the sequence from what is
+	// kept here once it has the session (resumeParking), and one that fails finishes the park from the journal (unread).
 	if r.adopting() {
 		r.left = &handoff
 		return nil
@@ -149,6 +149,12 @@ func (r *laneRun) resumeParking(ctx context.Context) {
 	progress := lanes.HandoffProgress{Reason: string(r.parking.Trigger)}
 	if r.left != nil {
 		progress = *r.left
+	}
+	// A park that stops a turn in progress denies its next tool call from here, as it does where it begins: one begun
+	// while the session was being adopted could not, because the driver held no session to tell, and the sequence
+	// uploads first (NFR-COST-2). A session that is gone has no call to deny.
+	if progress.MidTurn && !r.sessionOver.Load() {
+		r.holdTools(ctx, progress.Reason)
 	}
 	r.startParking(progress)
 }
