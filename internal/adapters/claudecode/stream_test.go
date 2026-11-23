@@ -26,6 +26,11 @@ func TestAReplayNamesTheInputItConfirms(t *testing.T) {
 			want: "sent-1",
 		},
 		{
+			name: "a peer's replay whose origin names another reply address is not the sender's",
+			line: `{"type":"user","isReplay":true,"isSynthetic":true,"uuid":"cli-1","origin":{"kind":"peer","from":"uds:/other.sock","msg_id":"sent-1"},"message":{"role":"user","content":"hello"}}`,
+			want: "cli-1",
+		},
+		{
 			name: "a peer's replay of a message with no reply address names no sender's ID",
 			line: `{"type":"user","isReplay":true,"isSynthetic":true,"uuid":"cli-1","origin":{"kind":"peer","from":"unknown"},"message":{"role":"user","content":"hello"}}`,
 			want: "cli-1",
@@ -47,7 +52,7 @@ func TestAReplayNamesTheInputItConfirms(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := parseLine([]byte(tt.line), false)
+			p, err := parseLineOf([]byte(tt.line), false, false, "uds:/r1.sock")
 			if err != nil {
 				t.Fatal(err)
 			}

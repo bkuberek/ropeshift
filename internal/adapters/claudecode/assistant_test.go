@@ -89,7 +89,7 @@ func TestAnAssistantReadsOnlyItsTreesAndRunsOnlyRopeshift(t *testing.T) {
 // thinking alone is none, and no other session's text is read.
 func TestAnAssistantsTextIsReadAsReplies(t *testing.T) {
 	text := []byte(`{"type":"assistant","uuid":"u-1","message":{"id":"msg_01","content":[{"type":"text","text":"Two merges wait."},{"type":"tool_use","id":"t1","name":"Bash","input":{}},{"type":"text","text":"Both are green."}]}}`)
-	p, err := parseLineOf(text, false, true)
+	p, err := parseLineOf(text, false, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestAnAssistantsTextIsReadAsReplies(t *testing.T) {
 		`{"type":"assistant","message":{"id":"msg_03","content":[{"type":"thinking","thinking":"hmm"}]}}`,
 		`{"type":"assistant","parent_tool_use_id":"t9","message":{"id":"msg_04","content":[{"type":"text","text":"a subagent"}]}}`,
 	} {
-		p, err := parseLineOf([]byte(line), false, true)
+		p, err := parseLineOf([]byte(line), false, true, "")
 		if err != nil {
 			t.Fatal(err)
 		}

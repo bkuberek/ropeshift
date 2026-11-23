@@ -36,9 +36,9 @@ A headless replay of a message counts when its `type` is `user`, it is marked `i
 - Its `uuid` is the message's ID. The versions in the shipped matrix replay a message with the sender's `uuid`.
 - Its `origin.msg_id` is the message's ID and its `origin.from` is the reply address the message named. Claude Code 2.1.330 gives the replay a `uuid` of its own, and keeps the message's ID only there, and only for a message that names a reply address. The `result` of the turn carries the same origin, so a line of any other type never counts.
 
-A lane's message names its session's reply address too, on a version that passed the `receipts` check, so the driver reads a peer's replay by its `origin.msg_id` when it carries one, and by its `uuid` otherwise.
+A lane's message names its session's reply address too, on a version that passed the `receipts` check, so the driver reads a peer's replay by its `origin.msg_id` when its `origin.from` is the session's own reply address, and by its `uuid` otherwise.
 
-A `peer_message_hold` line counts when its `message_uuid` is the message's ID. Claude Code 2.1.330 gives the line a `message_uuid` of its own and names the reply address as `from`. There the line counts when it says `held` for the probe's address and the session's receipt on that address also says `held` for the message, with the message's ID as `orig_msg_id`. The line that follows when stdin ends says `dropped`, and does not count.
+A `peer_message_hold` line counts when it says `held` and its `message_uuid` is the message's ID. Claude Code 2.1.330 gives the line a `message_uuid` of its own and names the reply address as `from`. There the line counts when it names the probe's address as `from` and the session's receipt on that address also says `held` for the message, with the message's ID as `orig_msg_id`. The line that follows when stdin ends says `dropped`, and does not count.
 
 A version that keeps the message's ID in neither shape fails the check, and a version that fails `socket_line` runs in `degraded_mode`.
 

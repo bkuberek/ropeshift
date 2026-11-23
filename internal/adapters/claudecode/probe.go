@@ -842,8 +842,8 @@ func (s *probeSession) endedAs(subtype string) bool {
 	return false
 }
 
-// held reports the stream's word that the session holds the probe's message: a `peer_message_hold` line that names the
-// message's own ID. A version that gives the line a `message_uuid` of its own names the sender's reply address instead,
+// held reports the stream's word that the session holds the probe's message: a `peer_message_hold` line that says `held`
+// and names the message's own ID. A version that gives the line a `message_uuid` of its own names the sender's reply address instead,
 // and the line counts when it says `held` for the address the message named and the session's receipt for the message,
 // which names its ID, says the same.
 func (s *probeSession) held(id, from string) bool {
@@ -854,7 +854,10 @@ func (s *probeSession) held(id, from string) bool {
 		if line.Type != "system" || line.Subtype != "peer_message_hold" {
 			continue
 		}
-		if line.MessageUUID == id || (receipted && from != "" && line.State == holdHeld && line.From == from) {
+		if line.State != holdHeld {
+			continue
+		}
+		if line.MessageUUID == id || (receipted && from != "" && line.From == from) {
 			return true
 		}
 	}
