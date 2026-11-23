@@ -1,12 +1,16 @@
 package worker_test
 
 import (
+	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -198,4 +202,62 @@ func journalHook(t *testing.T, r *laneRig, event lanes.HookEvent) {
 	if err := r.journal.MergeHook(t.Context(), event); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// messageReadHeld holds the worker's first read of a message by its input once armed, which the goroutine that reads
+// the stream makes for a refusal's receipt, so a test acts while that goroutine is busy.
+type messageReadHeld struct {
+	ports.Journal
+	armed atomic.Bool
+	gate  *gate
+	once  sync.Once
+}
+
+func (j *messageReadHeld) MessageByInput(ctx context.Context, input string) (messages.Held, error) {
+	if j.armed.Load() {
+		j.once.Do(func() {
+			close(j.gate.reached)
+			<-j.gate.release
+		})
+	}
+	return j.Journal.MessageByInput(ctx, input)
+}
+
+// A bound reached can be declined where the stream is read, here because the turn showed work after the wait's
+// goroutine found it quiet and before the stream's goroutine read that. The wait goes on, and a turn that is quiet
+// again for the live wait is bounded then.
+func TestAWaitsBoundDeclinedOnceIsReachedAgain(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	held := &messageReadHeld{Journal: base.journal, gate: newGate()}
+	base.workerJournal = held
+	r := newLaneRigFor(t, base).dispatched()
+	stopped, prompted := newGate(), newGate()
+	r.gates(stopped, prompted, held.gate)
+	r.driver.Play(script(
+		[]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01), prompted.step(), {Refused: "input-none"}},
+		[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.02)},
+	))
+	r.atGate(stopped)
+	at := time.Now().UnixMilli()
+	r.stopAt(t, at, 1)
+	stopped.free()
+	r.restsOnBackground()
+	r.promptAt(t, at+1)
+	held.armed.Store(true)
+	prompted.free()
+	r.reach(t, held.gate)
+	r.clock.Advance(lanes.MaxLiveWait(nil) + time.Second)
+	settle()
+	r.callAt(t, "PreToolUse", "tool-1", at+2)
+	r.callAt(t, "PostToolUse", "tool-1", at+3)
+	held.gate.free()
+	settle()
+	if sent := r.driver.Sent(); len(sent) != 0 {
+		t.Fatalf("sent %+v to a turn that showed work", sent)
+	}
+	if sent := r.awaitSentOn(t, r.driver, 1); sent[0].Text != lanes.Nudge {
+		t.Fatalf("sent %+v, want the nudge", sent)
+	}
+	r.awaitOrderState(t, workorders.Acceptance)
 }

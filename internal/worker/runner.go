@@ -1529,7 +1529,8 @@ func (r *laneRun) holdEnd(ctx context.Context, turn *ports.TurnResult) {
 // awaitTurnEnd bounds the wait for the end of a turn the worker did not hand: one a prompt began, or one an older end
 // left the lane in. No end comes for a prompt a hook blocked, a turn a person interrupted in a pane, or one that
 // hangs, so once the lane has shown no sign of work for as long as it may wait live (max_live_wait, FR-SPEND-1), the
-// goroutine that reads the stream takes it as at rest. A call at work, a request open, and any progress hold it.
+// goroutine that reads the stream takes it as at rest. A call at work, a request open, and any progress hold it. The
+// wait goes on until that goroutine decides it, so a bound it declined is reached again.
 func (r *laneRun) awaitTurnEnd(ctx context.Context) {
 	since := r.w.clock.Now()
 	r.state.noteTurnWait(since)
@@ -1537,7 +1538,6 @@ func (r *laneRun) awaitTurnEnd(ctx context.Context) {
 		for ctx.Err() == nil && !r.sessionOver.Load() && !r.fenced.Load() && r.state.waitsOnTurn(since) {
 			if r.state.turnQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
 				r.boundReached()
-				return
 			}
 			select {
 			case <-ctx.Done():
@@ -1620,22 +1620,20 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 
 // restOnBackground holds a lane at rest on its own background work until the longest it may wait live has passed
 // since its turn stopped (max_live_wait, FR-SPEND-1), then hands what comes next to the goroutine that reads the
-// stream. A turn the work starts, a later stop, or the session's end ends the rest first.
+// stream. A turn the work starts, a later stop, or the session's end ends the rest first. The rest goes on until it
+// ends, so a bound the goroutine that reads the stream declined is reached again.
 func (r *laneRun) restOnBackground(ctx context.Context, since time.Time) {
 	deadline := since.Add(lanes.MaxLiveWait(r.lease.Spend))
 	r.sequence.Go(func() {
-		for r.w.clock.Now().Before(deadline) {
-			if !r.restsOnBackground(ctx, since) {
-				return
+		for r.restsOnBackground(ctx, since) {
+			if !r.w.clock.Now().Before(deadline) {
+				r.boundReached()
 			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(superviseEvery):
 			}
-		}
-		if r.restsOnBackground(ctx, since) {
-			r.boundReached()
 		}
 	})
 }
@@ -1675,7 +1673,8 @@ func (r *laneRun) backgroundBound(ctx context.Context) {
 // wait live (max_live_wait, FR-SPEND-1), and then ends blocked, as a refusal did at once before. A prompt ends the
 // wait, because the turn it begins decides with the nudge still the lane's. A call at work and an open request hold
 // the bound, a call's end begins it again, and a blocking question hands the lane to ask_wait at the bound, so
-// approval_wait and ask_wait keep their parks.
+// approval_wait and ask_wait keep their parks. The wait goes on until it ends, so a bound the goroutine that reads the
+// stream declined is reached again.
 func (r *laneRun) restOnRefusal(ctx context.Context) {
 	since := r.w.clock.Now()
 	r.state.noteRefusal(since)
@@ -1683,7 +1682,6 @@ func (r *laneRun) restOnRefusal(ctx context.Context) {
 		for r.restsOnRefusal(ctx, since) {
 			if r.state.refusalQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
 				r.boundReached()
-				return
 			}
 			select {
 			case <-ctx.Done():
