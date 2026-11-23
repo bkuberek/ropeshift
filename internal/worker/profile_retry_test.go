@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -93,5 +94,75 @@ func TestAnOrchestratorWithNoProfileRestartsOnTheDefaultLimits(t *testing.T) {
 	o.awaitMessage(t, state, messages.HandedOff)
 	if row := o.row(t); row.Run != run.Run || row.Ended() {
 		t.Errorf("the failed start left %+v", row)
+	}
+}
+
+// profileSaying is a profile source that cannot be read, and says why in the words a test sets, until it is told it can.
+type profileSaying struct {
+	ports.ProfileSource
+	says atomic.Value
+}
+
+func (p *profileSaying) Load(ctx context.Context, repository, base, overrides string) (lanes.Profile, error) {
+	if says, _ := p.says.Load().(string); says != "" {
+		return lanes.Profile{}, errors.New(says)
+	}
+	return p.ProfileSource.Load(ctx, repository, base, overrides)
+}
+
+// A profile that stays unreadable is reported once, and not at each of the worker's looks every thirty seconds: the same
+// words say nothing new. Other words are reported, and so is the same failure after a read that succeeded between.
+func TestAProfileThatStaysUnreadableIsReportedOnceUntilItChanges(t *testing.T) {
+	t.Parallel()
+	w := newWorldRig(t)
+	source := w.config.Provisioner.Profiles.(*fake.ProfileSource)
+	source.Put("/repository", "[lifecycle]\nstall_after = \"7m\"\n")
+	reads := &profileSaying{ProfileSource: source}
+	reads.says.Store("the profile source is out")
+	w.config.Provisioner.Profiles = reads
+	w.record("lane-1", lanes.StateRunning)
+	if err := w.journal.SaveActual(t.Context(), "lane-1", lanes.Idle, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
+	w.driver.Leave("lane-1", 1, sessionAlive)
+	w.driver.Play(script([]fake.DriverStep{{Hold: true}}))
+	reported := func(words string) int {
+		n := 0
+		for _, err := range w.problems() {
+			if strings.Contains(err.Error(), words) {
+				n++
+			}
+		}
+		return n
+	}
+	look := func() {
+		t.Helper()
+		w.clock.Advance(31 * time.Second)
+		if _, err := w.subject.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := w.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		look()
+	}
+	if n := reported("the profile source is out"); n != 1 {
+		t.Errorf("a profile that stayed unreadable for five looks was reported %d times, want once", n)
+	}
+
+	reads.says.Store("the profile source is slow")
+	look()
+	look()
+	if n := reported("the profile source is slow"); n != 1 {
+		t.Errorf("a profile that stays unreadable for other reasons was reported %d times, want once", n)
+	}
+
+	reads.says.Store("")
+	look()
+	if stall, _, _ := w.subject.LaneBounds("lane-1"); stall != 7*time.Minute {
+		t.Fatalf("the lane did not read its profile once it could: %v", stall)
 	}
 }

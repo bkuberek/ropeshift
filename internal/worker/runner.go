@@ -152,6 +152,9 @@ type laneRun struct {
 	// profileRetryAt is when this run reads its profile again, in Unix milliseconds of the worker's clock, because the
 	// last read failed, and zero when none waits. The handle's lock guards it.
 	profileRetryAt int64
+	// profileUnreadWords is what the last report of an unreadable profile said, so a profile that stays unreadable for the same
+	// reason is reported once. It is empty once a profile was read, and handleLock guards it.
+	profileUnreadWords string
 
 	// untold is what a driver may have missed while an adoption runs, and nil once it ended (tellDriver).
 	// untoldLock guards it.

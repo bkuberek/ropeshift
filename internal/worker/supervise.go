@@ -55,7 +55,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 	r.state.thresholds(profile, r.role())
 	r.noteReviewBound(profile)
 	r.handleLock.Lock()
-	r.profileRetryAt = 0
+	r.profileRetryAt, r.profileUnreadWords = 0, ""
 	if r.settings.Driver == "" {
 		r.settings = laneSettings(profile, r.role(), r.startedMode)
 	}
@@ -69,7 +69,8 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 // profileUnread reports a profile this run could not read, and sets when it is read again. An orchestrator then wakes
 // on the default bounds and restarts on the default limits: with no bounds it would never read a wake, and would hold
 // each message unread, and with no limits its first failed start would end the run. A session it starts on that wake
-// reads the profile again, and one that still cannot be read is a failed start the breaker counts.
+// reads the profile again, and one that still cannot be read is a failed start the breaker counts. A profile that stays
+// unreadable is reported once, and again when its words change: each look after thirty seconds would say the same.
 func (r *laneRun) profileUnread(err error) {
 	if r.orchestrating() && !r.assisting() {
 		r.state.defaultWakeBounds()
@@ -78,8 +79,12 @@ func (r *laneRun) profileUnread(err error) {
 	}
 	r.handleLock.Lock()
 	r.profileRetryAt = r.w.clock.Now().Add(profileRetryEvery).UnixMilli()
+	said := r.profileUnreadWords == err.Error()
+	r.profileUnreadWords = err.Error()
 	r.handleLock.Unlock()
-	r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	if !said {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	}
 }
 
 // tendProfiles reads again the profile of each run that could not read it, once its wait is out. A read that
