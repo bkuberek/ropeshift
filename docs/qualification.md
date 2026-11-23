@@ -12,7 +12,7 @@ Each surface has one check and one use. A surface whose check failed, or could n
 | `receipts` | A session that refuses messages answers a reply address with `expired` and `refused` | A refusal is not read, and a message waits until it expires |
 | `peer_message_hold` | A session that holds messages reports the hold in its stream | Nothing: no state follows from a hold |
 | `socket_dir` | `CLAUDE_CODE_TMPDIR` moves the socket into the lane's own directory, within the path limit | The socket stays where the CLI puts it |
-| `unified_windows` | A `rate_limit_event` carries a window's `utilization` | The near-limit watch reads the top-level figures only |
+| `unified_windows` | A `rate_limit_event` carries a window's `utilization`. A probe on an API key does not check it, because the figures belong to a subscription | The near-limit watch reads the top-level figures only |
 | `command_lifecycle` | The stream reports it | Nothing: the design does not need it |
 | `print_keeps_login` | On a subscription, `system/init` reports `apiKeySource` `none` and a `messaging_socket_path`, and a `rate_limit_event` arrives | A subscription has no headless lane, and a new lane its profile sends headless starts in tmux |
 | `start_screens` | A pane in a new directory reaches the prompt through the start check | Nothing beyond the start check, which stops on any screen it does not know |
@@ -25,7 +25,7 @@ A dialog that still shows its focus off `Yes, I trust this folder` two seconds a
 
 Enter goes only to a focus that stood on that option, and it goes once. A dialog that takes no key ends the check at its timeout, and so does one that does not act on its Enter: it loses the key, and its focus stays on `Yes, I trust this folder`, or it refuses the key and puts its focus back on `No, exit`. Neither gets a second Enter, because a late first one could answer the next dialog, and neither gets any other key. The daemon's output then says that the trust dialog did not take its Enter, and which of the two it showed, where it otherwise says only that the start stopped on an unknown screen. A fresh start then parks the lane on the screen it stopped on, for a person, and a resume falls back to a new generation.
 
-A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, `max_budget_usd`, and `stream_usage` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription. The login check on an API key and the screen check on a worker with no terminal cannot run, so they read `unobserved` and no result is asked to pass them there.
+A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, `max_budget_usd`, and `stream_usage` are reported and never degrade a version. The login check and the windows check run on every sign-in but an API key, because a sign-in nobody could read counts as a subscription and the figures belong to a subscription. The login and windows checks on an API key and the screen check on a worker with no terminal cannot run, so they read `unobserved` and no result is asked to pass them there.
 
 ## Where results come from
 
@@ -45,7 +45,7 @@ No lane waits for the probe. A lane that starts while it runs starts at once, on
 
 ## Probing a version again
 
-A result that passed every check a probe runs now holds for its version until the version changes. A probe runs every surface above, except the login check on an API key and the screen check on a worker with no terminal. Any other result is probed again: one with a check that failed, one with a check no session reached, one that lacks a check a probe runs now, as a result from an earlier release, from another sign-in, or from a worker with no terminal does, and one a probe that could not run left, which holds no check. The worker probes such a version once when it starts, and then while it runs, on a backoff.
+A result that passed every check a probe runs now holds for its version until the version changes. A probe runs every surface above, except the login check and the windows check on an API key and the screen check on a worker with no terminal. Any other result is probed again: one with a check that failed, one with a check no session reached, one that lacks a check a probe runs now, as a result from an earlier release, from another sign-in, or from a worker with no terminal does, and one a probe that could not run left, which holds no check. The worker probes such a version once when it starts, and then while it runs, on a backoff.
 
 The wait after a probe is 1 hour, and doubles with each later probe of the same version, to 2, 4, 8, and 16 hours, and no more than 24 hours after that. It runs from the end of the probe, and the worker's clock reads it.
 

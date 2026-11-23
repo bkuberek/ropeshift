@@ -197,12 +197,12 @@ func (p *prober) accept(ctx context.Context) {
 	admitted := s.spooled(hookUserPromptSubmit) && s.replayed(id)
 	p.set(SurfaceSocketLine, observed(sent && turn, sent && admitted))
 	p.set(SurfaceSocketDir, observed(socket != "", s.private(socket)))
-	p.set(SurfaceUnifiedWindows, observed(hasLimit, windows))
 	p.set(SurfaceCommandLifecycle, observed(turn, s.saw("command_lifecycle")))
 	p.set(SurfaceStreamUsage, observed(turn, s.streamUsage()))
 	// A sign-in nobody could read is a subscription, as it is everywhere else, so only an API key's
-	// probe leaves the login unchecked.
+	// probe leaves the login and the windows unchecked: both belong to a subscription.
 	if p.spec.SignIn != ports.SignInAPIKey {
+		p.set(SurfaceUnifiedWindows, observed(hasLimit, windows))
 		login := init.APIKeySource == "none" && init.MessagingSocket != "" && hasLimit
 		p.set(SurfacePrintKeepsLogin, observed(hasInit, login))
 	}

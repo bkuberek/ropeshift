@@ -149,8 +149,35 @@ func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
 	}
 }
 
-// A probe runs every surface of the matrix, except the login where the sign-in is an API key and the screens where the
-// driver has no terminal, and a result holds only when it passed all of those.
+// Window utilization on a `rate_limit_event` belongs to a subscription, so an API key's probe does not ask for it: the
+// check stays unobserved whether the stream carries the figures or not, and the result is no worse for it.
+func TestAProbeOnAnAPIKeyLeavesTheWindowsUnobserved(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		drops []string
+	}{
+		{name: "a stream that carries the windows"},
+		{name: "a stream that drops them", drops: []string{"unified_windows"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			driver, spec, _ := probeRig(t, tt.drops...)
+			spec.SignIn = ports.SignInAPIKey
+			q, err := driver.Probe(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := q.Checks[claudecode.SurfaceUnifiedWindows]; got != lanes.CheckUnobserved {
+				t.Errorf("an API key's probe reads the windows as %s, want unobserved", got)
+			}
+			if q.Degraded || !q.PassedAll(driver.ProbeChecks(ports.SignInAPIKey)) {
+				t.Errorf("qualification %+v", q)
+			}
+		})
+	}
+}
+
+// A probe runs every surface of the matrix, except the login and the windows where the sign-in is an API key and the
+// screens where the driver has no terminal, and a result holds only when it passed all of those.
 func TestAProbeRunsEveryCheckItCanObserve(t *testing.T) {
 	t.Parallel()
 	headless := claudecode.New(osexec.Runner{}, claudecode.Options{})
@@ -163,9 +190,11 @@ func TestAProbeRunsEveryCheckItCanObserve(t *testing.T) {
 	}{
 		{"a subscription with a terminal", withTerminal, ports.SignInSubscription, nil},
 		{"an unknown sign-in with a terminal", withTerminal, "", nil},
-		{"an API key with a terminal", withTerminal, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin}},
+		{"an API key with a terminal", withTerminal, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceUnifiedWindows}},
 		{"a subscription with no terminal", headless, ports.SignInSubscription, []lanes.Surface{claudecode.SurfaceStartScreens}},
-		{"an API key with no terminal", headless, ports.SignInAPIKey, []lanes.Surface{claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceStartScreens}},
+		{"an API key with no terminal", headless, ports.SignInAPIKey, []lanes.Surface{
+			claudecode.SurfacePrintKeepsLogin, claudecode.SurfaceUnifiedWindows, claudecode.SurfaceStartScreens,
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
