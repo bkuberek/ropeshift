@@ -162,10 +162,12 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 // as the worker's own input, because that would give it the standing of the worker's word. The worker
 // reports it undeliverable and stops holding it, so its sender reads why it was not delivered, and a
 // message that bears a decision reaches the next generation as a ledger fact. An answer the lane waits
-// on parks the lane at once, on a wake the answer has already fired, so the lane resumes and its next
-// generation's first prompt carries the answer (FR-PARK-2, FR-MSG-5). A lane that cannot park now is on
-// its way out already, or parks on its questions at the end of `ask_wait`, and its next generation hears
-// of the answer either way.
+// on parks the lane at once, on every question it waits on, as `ask_wait` parks it. A lane that waits on
+// only that question parks on a wake the answer has already fired, so it resumes and its next generation's
+// first prompt carries the answer (FR-PARK-2, FR-MSG-5). A lane that waits on another question too stays
+// parked until that one is answered as well, because a resume clears what the lane waited on and would
+// leave that question with nothing waiting on it. A lane that cannot park now is on its way out already,
+// or parks on its questions at the end of `ask_wait`, and its next generation hears of the answer either way.
 func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, error) {
 	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: messages.ReasonUndeliverable})
 	if err != nil {
@@ -175,9 +177,10 @@ func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, 
 	if err != nil || !moved {
 		return false, err
 	}
-	if held.Kind == messages.KindAnswer && slices.Contains(r.blockingQuestions(), held.ReplyTo) {
+	waiting := r.blockingQuestions()
+	if held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) {
 		r.parkReported(ctx, lanes.ParkRequest{
-			Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake([]string{held.ReplyTo}), PastCompaction: true,
+			Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake(waiting), PastCompaction: true,
 		})
 	}
 	return true, nil

@@ -527,6 +527,108 @@ func TestABlockingAnswerWithNoChannelGoesInThroughAResume(t *testing.T) {
 	}
 }
 
+// asksAllThenNarrates is a session that asks each of its questions as a blocking one and comes to rest, then answers
+// the instruction that asks for its narrative.
+func (r *laneRig) asksAllThenNarrates(narrative string, asked ...string) fake.DriverScript {
+	steps := []fake.DriverStep{{Bound: true}}
+	for _, text := range asked {
+		steps = append(steps, fake.DriverStep{Do: func(spec ports.SessionSpec) {
+			r.callAs(spec, lanes.Request{Ask: &lanes.AskRequest{Text: text, Blocking: true}})
+		}})
+	}
+	narrate := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		r.callAs(spec, lanes.Request{Handoff: json.RawMessage(narrative)})
+	}}
+	return script(append(steps, completed(0.01)), []fake.DriverStep{narrate, completed(0.02)})
+}
+
+// answerQuestion records a member's answer to one of the lane's questions.
+func (r *laneRig) answerQuestion(t *testing.T, question, statement string) {
+	t.Helper()
+	answer := questions.Answer{DecisionID: "d-" + question, Statement: statement, Rationale: "It is what the contract tests."}
+	if _, err := control.NewQuestions(r.store, questions.BatchPolicy{}).Answer(t.Context(), scope, question, answer, member); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// questionIDs maps the text of each question the lane asked to its ID.
+func (r *laneRig) questionIDs(t *testing.T) map[string]string {
+	t.Helper()
+	ids := map[string]string{}
+	for _, asked := range r.questionList(t) {
+		ids[asked.Text] = asked.ID
+	}
+	return ids
+}
+
+// awaitLeftRunning uploads what the worker holds until the lane's work order is no longer running, whether it parked
+// and stayed so, or its wake fired at once and readied it again, and moves the worker's clock along as awaitOrder does.
+func (r *laneRig) awaitLeftRunning(t *testing.T) workorders.WorkOrder {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := r.subject.Upload(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if row := r.row(); row.State != workorders.Running {
+			return row
+		}
+		r.clock.Advance(time.Millisecond)
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("work order %s, want it to leave running", r.row().State)
+	return workorders.WorkOrder{}
+}
+
+// TestAnAnswerWithNoChannelKeepsTheLaneParkedOnItsOtherQuestions is a lane that waits on two questions, whose first
+// answer no channel can carry. The lane parks on every question it waits on, so it stays parked, and the second answer
+// is the one that wakes it: a lane that parked on the first alone would resume at once with the second open and
+// nothing waiting on it.
+func TestAnAnswerWithNoChannelKeepsTheLaneParkedOnItsOtherQuestions(t *testing.T) {
+	t.Parallel()
+	const first, second = "Which retry budget?", "Which log level?"
+	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"3m\"\nmax_restarts = 0\n")
+	r.driver.SetPeerChannel(false)
+	r.driver.Play(r.asksAllThenNarrates(notCarried, first, second))
+	r.driver.PlayAfter(r.toldToGoOn())
+	r.start()
+	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.awaitAskWait()
+	ids := r.questionIDs(t)
+	if len(ids) != 2 {
+		t.Fatalf("questions %+v", ids)
+	}
+	r.answerQuestion(t, ids[first], "Three retries.")
+	r.beat(t)
+	r.awaitLeftRunning(t)
+	r.subject.Wait()
+	if row := r.row(); row.State != workorders.Parked || row.ResumeLaneID != "" {
+		t.Fatalf("the lane was woken with a question open: %+v", row)
+	}
+	if want := lanes.QuestionWake([]string{ids[first], ids[second]}); r.wakeOf(t, 1).Expr != want {
+		t.Errorf("the lane parked on %s, want every question it waits on: %s", r.wakeOf(t, 1).Expr, want)
+	}
+	if wake := r.wakeOf(t, 1); !wake.Open() {
+		t.Errorf("the wake fired with a question still open: %+v", wake)
+	}
+	r.answerQuestion(t, ids[second], "Warn.")
+	r.beat(t)
+	r.awaitWoken(t)
+	if wake := r.wakeOf(t, 1); wake.Open() {
+		t.Errorf("the second answer left the wake open: %+v", wake)
+	}
+	r.resumed(t)
+	if len(r.peerInputs()) != 0 {
+		t.Errorf("a write on a peer's path: %+v", r.peerInputs())
+	}
+	brief := r.driver.Specs()[1].Brief
+	for _, statement := range []string{"Three retries.", "Warn."} {
+		if !strings.Contains(brief, statement) {
+			t.Errorf("the first prompt of the resumed generation lacks %q:\n%s", statement, brief)
+		}
+	}
+}
+
 // awaitWoken waits for a parked lane's wake to ready its work order again, uploading what the worker holds and acting
 // on nothing, so no resume begins.
 func (r *laneRig) awaitWoken(t *testing.T) {
