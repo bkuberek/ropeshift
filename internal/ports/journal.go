@@ -214,7 +214,8 @@ type Journal interface {
 	// ProbeAttempt reads the last qualification probe this worker began, and the zero value before any.
 	ProbeAttempt(ctx context.Context) (lanes.ProbeAttempt, error)
 	// SaveProbeAttempt keeps that a probe is beginning, before it starts a session, in place of the attempt before it,
-	// so a worker that restarts knows when the last one began.
+	// so a worker that restarts knows when the last one began, and the wait its version's probes have grown to when the
+	// probe ended.
 	SaveProbeAttempt(ctx context.Context, attempt lanes.ProbeAttempt) error
 	// LanePeaks reads the peaks of the last lanes this worker ran, oldest first, and none before it saves.
 	LanePeaks(ctx context.Context) ([]lanes.LanePeak, error)

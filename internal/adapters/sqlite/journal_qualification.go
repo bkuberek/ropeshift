@@ -52,22 +52,30 @@ ON CONFLICT (id) DO UPDATE SET state = excluded.state`, string(raw)); err != nil
 // ProbeAttempt reads the last probe this worker began, which is none until it first saves.
 func (j *Journal) ProbeAttempt(ctx context.Context) (lanes.ProbeAttempt, error) {
 	var attempt lanes.ProbeAttempt
-	var began int64
-	err := j.db.QueryRowContext(ctx, `SELECT version, began_ms FROM probe_attempt WHERE id = 1`).Scan(&attempt.Version, &began)
+	var began, wait, next int64
+	err := j.db.QueryRowContext(ctx, `SELECT version, began_ms, wait_ms, next_ms FROM probe_attempt WHERE id = 1`).Scan(&attempt.Version, &began, &wait, &next)
 	if errors.Is(err, sql.ErrNoRows) {
 		return lanes.ProbeAttempt{}, nil
 	}
 	if err != nil {
 		return lanes.ProbeAttempt{}, err
 	}
-	attempt.BeganAt = time.UnixMilli(began)
+	attempt.BeganAt, attempt.Wait = time.UnixMilli(began), time.Duration(wait)*time.Millisecond
+	if next != 0 {
+		attempt.Next = time.UnixMilli(next)
+	}
 	return attempt, nil
 }
 
-// SaveProbeAttempt keeps the attempt in place of the one before it.
+// SaveProbeAttempt keeps the attempt, and the wait its version's probes have grown to, in place of the ones before it.
 func (j *Journal) SaveProbeAttempt(ctx context.Context, attempt lanes.ProbeAttempt) error {
-	_, err := j.db.ExecContext(ctx, `INSERT INTO probe_attempt (id, version, began_ms) VALUES (1, ?1, ?2)
-ON CONFLICT (id) DO UPDATE SET version = excluded.version, began_ms = excluded.began_ms`, attempt.Version, attempt.BeganAt.UnixMilli())
+	var next int64
+	if !attempt.Next.IsZero() {
+		next = attempt.Next.UnixMilli()
+	}
+	_, err := j.db.ExecContext(ctx, `INSERT INTO probe_attempt (id, version, began_ms, wait_ms, next_ms) VALUES (1, ?1, ?2, ?3, ?4)
+ON CONFLICT (id) DO UPDATE SET version = excluded.version, began_ms = excluded.began_ms, wait_ms = excluded.wait_ms, next_ms = excluded.next_ms`,
+		attempt.Version, attempt.BeganAt.UnixMilli(), attempt.Wait.Milliseconds(), next)
 	return err
 }
 

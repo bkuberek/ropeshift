@@ -40,10 +40,12 @@ var errNoVersion = errors.New("the driver reports no version")
 // probeRun is the one probe a worker runs at a time.
 type probeRun struct {
 	version string
+	began   time.Time
 }
 
 // probeBackoff is the last probe of one version that ended, whatever it ended with, and when the next may start. A
-// worker keeps one: a probe of another version, or one that passed every check it runs, starts it over.
+// worker keeps one: a probe of another version, or one that passed every check it runs, starts it over. The journal
+// keeps it with the record of the last probe, so a restart goes on from it.
 type probeBackoff struct {
 	version string
 	wait    time.Duration
@@ -77,6 +79,15 @@ func (w *Worker) loadQualification(ctx context.Context) error {
 		w.probeAfter = attempt.BeganAt.Add(restartProbeDelay)
 		if latest := now.Add(restartProbeDelay); w.probeAfter.After(latest) {
 			w.probeAfter = latest
+		}
+		// The wait the version's probes had grown to goes on, so a restart probes a version that keeps failing when that wait
+		// ends. One a clock that moved back left is held to the wait it names and no more.
+		if attempt.Wait > 0 {
+			next := attempt.Next
+			if latest := now.Add(attempt.Wait); next.After(latest) {
+				next = latest
+			}
+			w.backoff = probeBackoff{version: attempt.Version, wait: attempt.Wait, next: next}
 		}
 	}
 	w.handOverLocked()
@@ -146,12 +157,13 @@ func (w *Worker) qualify(ctx context.Context) error {
 	if life == nil {
 		life = ctx
 	}
-	p := &probeRun{version: capabilities.Version}
+	p := &probeRun{version: capabilities.Version, began: w.clock.Now()}
 	w.probe = p
+	attempt := w.attemptLocked(p)
 	w.qualLock.Unlock()
-	// The attempt is journaled before any session starts, so a worker that restarts knows when this one began. A
-	// journal that cannot keep it starts no probe, and the wait before the next try begins.
-	if err := w.journal.SaveProbeAttempt(life, lanes.ProbeAttempt{Version: p.version, BeganAt: w.clock.Now()}); err != nil {
+	// The attempt is journaled before any session starts, so a worker that restarts knows when this one began, and keeps the
+	// wait the version had. A journal that cannot keep it starts no probe, and the wait before the next try begins.
+	if err := w.journal.SaveProbeAttempt(life, attempt); err != nil {
 		w.qualLock.Lock()
 		w.probe = nil
 		w.noteProbeLocked(p.version, false)
@@ -210,6 +222,16 @@ func (w *Worker) noteProbeLocked(version string, passed bool) {
 	w.backoff = probeBackoff{version: version, wait: wait, next: w.clock.Now().Add(wait)}
 }
 
+// attemptLocked is what the journal keeps of a probe: when it began, and the wait the worker holds for its version, which
+// is none for a version no wait stands for. The caller holds qualLock.
+func (w *Worker) attemptLocked(p *probeRun) lanes.ProbeAttempt {
+	attempt := lanes.ProbeAttempt{Version: p.version, BeganAt: p.began}
+	if w.backoff.version == p.version {
+		attempt.Wait, attempt.Next = w.backoff.wait, w.backoff.next
+	}
+	return attempt
+}
+
 // handOverLocked hands the driver the last probe's result. The driver qualifies the version that result
 // names and no other, so a version no result names, such as one that is being probed, runs on documented
 // surfaces until its own result arrives. With no result before, the driver keeps its own answer for the
@@ -233,11 +255,19 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 		w.qualLock.Lock()
 		w.probe = nil
 		w.noteProbeLocked(p.version, passed)
+		attempt := w.attemptLocked(p)
 		if !ownResult {
 			// Hands the driver the last result the worker holds, which names no version this probe checked.
 			w.handOverLocked()
 		}
 		w.qualLock.Unlock()
+		// The wait goes in the journal with the attempt, so a restart goes on from it. A probe the worker's own stop cut short
+		// proved nothing of its version, so a restart does not wait on it.
+		if life.Err() == nil {
+			if err := w.journal.SaveProbeAttempt(life, attempt); err != nil {
+				w.config.Report(fmt.Errorf("recording the wait after the probe of %s: %w", p.version, err))
+			}
+		}
 		w.laneMoved()
 	}()
 	ctx, cancel := context.WithTimeout(life, probeLimit)
