@@ -4,6 +4,10 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,6 +42,11 @@ func TestReadScreen(t *testing.T) {
 		{capture: "ready-boxed", want: screenReady},
 		{capture: "ready-dashed", want: screenReady},
 		{capture: "resume", want: screenReady},
+		// Claude Code 2.1.330 at the pane's width, whose prompt glyph a no-break space follows.
+		{capture: "v2-1-330-trust-focus-cancel", want: screenTrust, focus: focusAbove},
+		{capture: "v2-1-330-trust-focus-accept", want: screenTrust, focus: focusOnAccept},
+		{capture: "v2-1-330-ready", want: screenReady},
+		{capture: "v2-1-330-resume", want: screenReady},
 		// Each of these holds a focused option or a prompt-like line, and none may read
 		// as a screen the check can act on.
 		{capture: "mode-acceptance", want: screenUnknown},
@@ -94,6 +103,7 @@ func TestAPaneHoldsItsPack(t *testing.T) {
 
 func TestStartCheck(t *testing.T) {
 	trust, accepted, ready := pane(t, "trust-focus-cancel"), pane(t, "trust-focus-accept"), pane(t, "ready")
+	trust330, accepted330, ready330 := pane(t, "v2-1-330-trust-focus-cancel"), pane(t, "v2-1-330-trust-focus-accept"), pane(t, "v2-1-330-ready")
 	flipped := strings.Join([]string{" Accessing workspace:", "", "   Yes, I trust this folder", " ❯ No, exit", ""}, "\n")
 	// repainted is a later frame of the same dialog, which a pane shows while the key it took is still
 	// being answered.
@@ -119,12 +129,20 @@ func TestStartCheck(t *testing.T) {
 		// keys is every key the pane must take, in order.
 		keys []string
 		want error
+		// lost says the check ended on the trust dialog after its Enter, and says names the focus its error reports.
+		lost bool
+		says string
 	}{
 		{name: "a ready screen takes no key", script: fake.PaneScript{Screen: ready}, mode: checkFresh},
 		{name: "a resume takes no key", script: fake.PaneScript{Screen: pane(t, "resume")}, mode: checkResume},
 		{
 			name: "the trust dialog moves the focus and then confirms", script: fake.PaneScript{Screen: trust, Moves: moves},
 			mode: checkFresh, keys: []string{"Down", "Enter"},
+		},
+		{
+			name: "the trust dialog of 2.1.330 moves the focus and then confirms", mode: checkFresh,
+			script: fake.PaneScript{Screen: trust330, Moves: map[string]map[string]string{trust330: {"Down": accepted330}, accepted330: {"Enter": ready330}}},
+			keys:   []string{"Down", "Enter"},
 		},
 		{
 			name: "a dropped Down is followed by End, which cannot wrap", mode: checkFresh, timeout: 2 * time.Second, resend: 5 * time.Millisecond,
@@ -154,11 +172,27 @@ func TestStartCheck(t *testing.T) {
 		{
 			name: "an Enter the dialog refused as it put the focus back is never sent again", mode: checkFresh, resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}, trust: {"Down": accepted, "End": accepted}}},
+			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "No, exit",
+		},
+		{
+			name: "a refused Enter takes no navigation either, whatever the focus calls for", mode: checkFresh, timeout: 300 * time.Millisecond,
+			resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: trust, Moves: map[string]map[string]string{trust: {"Down": accepted, "End": accepted}, accepted: {"Enter": trust}}},
+			keys:   []string{"Down", "Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "No, exit",
+		},
+		{
+			name: "a refused Enter on a resume times it out on the trust dialog", mode: checkResume, resend: 5 * time.Millisecond,
+			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}}},
+			keys:   []string{"Enter"}, want: ports.ErrResumeNotReady, lost: true, says: "No, exit",
+		},
+		{
+			name: "an Enter that moved the dialog on to a screen the check does not know names no lost key", mode: checkFresh,
+			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": pane(t, "mode-acceptance")}}},
 			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen,
 		},
 		{
 			name: "an Enter that changes nothing is not sent again once keys repeat", mode: checkFresh, resend: 5 * time.Millisecond,
-			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrUnknownScreen,
+			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: trustAccept,
 		},
 		{
 			name: "a late repaint is waited out before the next key", mode: checkFresh, timeout: 2 * time.Second,
@@ -171,16 +205,16 @@ func TestStartCheck(t *testing.T) {
 		},
 		{
 			name: "an Enter that changes nothing is sent once", mode: checkFresh,
-			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrUnknownScreen,
+			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: trustAccept,
 		},
 		{
 			name: "a dialog that repaints after Enter and still asks takes no second Enter", mode: checkFresh,
 			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": repainted}}},
-			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen,
+			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: trustAccept,
 		},
 		{
 			name: "an Enter that never repaints times out a resume", mode: checkResume,
-			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrResumeNotReady,
+			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrResumeNotReady, lost: true, says: trustAccept,
 		},
 		{
 			name: "a focus already on accept only confirms", script: fake.PaneScript{Screen: accepted, Moves: moves},
@@ -199,17 +233,126 @@ func TestStartCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 			timeout := cmp.Or(tt.timeout, 80*time.Millisecond)
-			err := runStartCheck(t.Context(), terminal, "p", startCheck{mode: tt.mode, timeout: timeout, poll: time.Millisecond, settle: cmp.Or(tt.settle, time.Millisecond), resend: cmp.Or(tt.resend, time.Minute)})
+			guard := &keyGuard{Terminal: terminal}
+			err := runStartCheck(t.Context(), guard, "p", startCheck{mode: tt.mode, timeout: timeout, poll: time.Millisecond, settle: cmp.Or(tt.settle, time.Millisecond), resend: cmp.Or(tt.resend, time.Minute)})
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("check: %v, want %v", err, tt.want)
 			}
+			if lost := errors.Is(err, ports.ErrTrustKeyLost); lost != tt.lost || (lost && !strings.Contains(err.Error(), tt.says)) {
+				t.Errorf("check: %v, want a lost trust key %v naming %q", err, tt.lost, tt.says)
+			}
+			// A resume that stopped is no fresh start's unknown screen, whatever stopped it.
+			if tt.mode == checkResume && errors.Is(err, ports.ErrUnknownScreen) {
+				t.Errorf("a resume ended as an unknown screen: %v", err)
+			}
 			if got := terminal.KeysOf("p"); !slices.Equal(got, tt.keys) {
 				t.Errorf("keys %v, want %v", got, tt.keys)
+			}
+			for _, wrong := range guard.wrong {
+				t.Error(wrong)
 			}
 			if got := terminal.TypedInto("p"); len(got) != 0 {
 				t.Errorf("typed %v into a pane during the check", got)
 			}
 		})
+	}
+}
+
+// keyGuard is a pane that holds each key against the screen it lands on, as the pane shows it then and not as the
+// check last read it. The trust key is the only key that does not go through press and its keysHeld gate, so only
+// the trust dialog takes a key, and only a focus on its accept option takes Enter.
+type keyGuard struct {
+	*fake.Terminal
+	wrong []string
+}
+
+func (g *keyGuard) Keys(ctx context.Context, name string, keys ...string) error {
+	shown, err := g.Screen(ctx, name)
+	if err != nil {
+		return err
+	}
+	seen := readScreen(shown)
+	for _, key := range keys {
+		switch {
+		case seen.kind != screenTrust:
+			g.wrong = append(g.wrong, fmt.Sprintf("%s reached a %s screen:\n%s", key, seen.kind, shown))
+		case key == keyEnter && seen.focus != focusOnAccept:
+			g.wrong = append(g.wrong, fmt.Sprintf("Enter reached a focus %s the accept option:\n%s", seen.focus, shown))
+		}
+	}
+	return g.Terminal.Keys(ctx, name, keys...)
+}
+
+// Every screen that is not the trust dialog, the ready prompt among them, takes no key, however long it stands.
+func TestNoScreenButTheTrustDialogTakesAKey(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join("testdata", "panes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := strings.TrimSuffix(entry.Name(), ".txt")
+		shown := pane(t, name)
+		if readScreen(shown).kind == screenTrust {
+			continue
+		}
+		for _, mode := range []checkMode{checkFresh, checkResume} {
+			t.Run(name+"/"+string(mode), func(t *testing.T) {
+				terminal := fake.NewTerminal()
+				terminal.Play(fake.PaneScript{Screen: shown})
+				if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: "p"}); err != nil {
+					t.Fatal(err)
+				}
+				guard := &keyGuard{Terminal: terminal}
+				_ = runStartCheck(t.Context(), guard, "p", startCheck{mode: mode, timeout: 40 * time.Millisecond, poll: time.Millisecond, settle: time.Millisecond, resend: time.Millisecond})
+				if keys := terminal.KeysOf("p"); len(keys) != 0 {
+					t.Errorf("keys %v reached a screen that is not the trust dialog", keys)
+				}
+				for _, wrong := range guard.wrong {
+					t.Error(wrong)
+				}
+			})
+		}
+	}
+}
+
+// The trust key is the one key a worker sends that does not go through press, which holds every key while a dialog
+// may be open, so no other code in the driver sends a key.
+func TestOnlyTheStartCheckAndPressSendKeys(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := token.NewFileSet()
+	var senders []string
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(set, path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				// A terminal's Keys takes a context and a pane before its keys, and maps.Keys takes one map.
+				if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Keys" && len(call.Args) > 1 {
+					senders = append(senders, path+":"+fn.Name.Name)
+				}
+				return true
+			})
+		}
+	}
+	slices.Sort(senders)
+	if want := []string{"pane.go:press", "startcheck.go:runStartCheck"}; !slices.Equal(senders, want) {
+		t.Errorf("keys are sent from %v, want only %v", senders, want)
 	}
 }
 
@@ -222,8 +365,8 @@ func TestAFocusThatNeverMovesIsNeverConfirmed(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := runStartCheck(t.Context(), terminal, "p", startCheck{mode: checkFresh, timeout: 40 * time.Millisecond, poll: time.Millisecond, settle: time.Millisecond})
-	if !errors.Is(err, ports.ErrUnknownScreen) {
-		t.Fatalf("check: %v", err)
+	if !errors.Is(err, ports.ErrUnknownScreen) || errors.Is(err, ports.ErrTrustKeyLost) {
+		t.Fatalf("check: %v, want an unknown screen, and no lost Enter, since none went", err)
 	}
 	if slices.Contains(terminal.KeysOf("p"), "Enter") {
 		t.Errorf("Enter reached a dialog whose focus did not move: %v", terminal.KeysOf("p"))

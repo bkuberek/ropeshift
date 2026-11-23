@@ -53,12 +53,17 @@ var ErrInputUnconfirmed = fmt.Errorf("the session did not take typed input: %w",
 // one version and a new probe is due.
 var ErrVersionMoved = errors.New("the installed version changed during the probe")
 
-// The two ways a checked start stops. Neither session ran a turn.
+// The two ways a checked start stops, and a cause one of them can name. Neither session ran a turn.
 var (
 	// ErrUnknownScreen means a fresh start never reached a screen the driver knows.
 	ErrUnknownScreen = errors.New("the start stopped on an unknown screen")
 	// ErrResumeNotReady means a resume did not reach a ready state in its time.
 	ErrResumeNotReady = errors.New("the resume did not reach a ready state")
+	// ErrTrustKeyLost is why a checked start stopped at the trust dialog: the dialog did not act on the one Enter that
+	// confirms it, and still asked at the end, with its focus left on the accept option or put back on `No, exit`. No
+	// second Enter goes, because a late first one could answer the next dialog. The start's error wraps it beside
+	// ErrUnknownScreen or ErrResumeNotReady, so a caller of either reads the start as it did.
+	ErrTrustKeyLost = errors.New("the trust dialog did not take its Enter")
 )
 
 // Capabilities says what a driver supports for the installed version (FR-DRV-5). The

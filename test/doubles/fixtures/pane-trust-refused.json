@@ -1,0 +1,4 @@
+{
+  "source": "a trust dialog that answers the Enter on its accept option by putting the focus back on No, exit, as one that refused the key does",
+  "pane": {"trust": true, "trust_enter": "refused"}
+}

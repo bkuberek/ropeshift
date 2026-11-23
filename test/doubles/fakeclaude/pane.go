@@ -28,6 +28,10 @@ type paneScript struct {
 	// TrustSettleMs is how long after it first paints the dialog keeps no key, as 2.1.329 does: that build puts the
 	// focus back on `No, exit` as the dialog settles, so a key sent earlier has no lasting effect.
 	TrustSettleMs int `json:"trust_settle_ms,omitempty"`
+	// TrustEnter says what the dialog does with an Enter on its accept option: "lost" keeps the dialog as it stands, as
+	// one that never read the key does, and "refused" puts the focus back on `No, exit`, as one that refused it does.
+	// Empty accepts it. Either way the dialog takes every later key as before.
+	TrustEnter string `json:"trust_enter,omitempty"`
 	// Stuck draws this and never reaches a prompt.
 	Stuck string `json:"stuck,omitempty"`
 	// ExitOnStart ends the process before a prompt, with this code.
@@ -223,6 +227,14 @@ func (s *session) askTrust(keys <-chan string) {
 			if !accept {
 				witness("bare-enter", "the wrong answer")
 				os.Exit(1)
+			}
+			switch s.script.Pane.TrustEnter {
+			case "lost":
+				continue
+			case "refused":
+				accept = false
+				show()
+				continue
 			}
 			time.Sleep(time.Duration(s.script.Pane.TrustRepaintMs) * time.Millisecond)
 			if err := os.WriteFile(trustMark(), nil, 0o600); err != nil {
