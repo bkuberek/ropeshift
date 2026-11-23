@@ -198,27 +198,22 @@ func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string
 	return here && !p.leadsUnder(at, at, at, p.AskReadRoots, true)
 }
 
-// xargsTakesArgumentFile says an xargs call is given a file to read its arguments from, whatever its path: -a alone, a
-// short bundle that holds a, as -ra, a joined -aPATH, and any long option that abbreviates --arg-file to --a or more,
-// written joined with `=` or followed by its value. xargs reads the file where no hook can see what it holds, so the call
-// fails closed. Only the options before the program xargs runs are read, the value of a short option that takes one is
-// skipped, and a long option written without `=` that is not one that takes no value, or the one abbreviation of it, asks.
+// xargsTakesArgumentFile says an xargs call may be given a file to read its arguments from, whatever its path, which it
+// reads where no hook can see what it holds. It fails closed, and reads every word after xargs, with no model of which
+// option takes which value: a short option bundle that holds a, as -a, -ra, -0n, or a joined -aPATH, a long option of at
+// least --a that abbreviates --arg-file, written joined with `=` or not, and a long option written without `=` that is
+// not one that takes no value, or the one abbreviation of it, because the next word may be its value. A word of the
+// program xargs runs that looks like one of these asks too.
 func xargsTakesArgumentFile(words []shellWord) bool {
 	at := slices.IndexFunc(words, func(word shellWord) bool { return path.Base(word.text) == "xargs" })
 	if at < 0 {
 		return false
 	}
-	// -e, -i, and -l take a value only when it is joined, so none of them skips the word after it.
-	valued := []string{"-n", "-P", "-L", "-d", "-E", "-I", "-s"}
-	// A long option written without `=` may take the next word as its value, so only these, which take none, leave it be.
+	// These take no value, so the word after one is the next option or the program.
 	plain := []string{"--null", "--no-run-if-empty", "--verbose", "--interactive", "--open-tty", "--exit", "--show-limits"}
-	for i := at + 1; i < len(words); i++ {
-		text := words[i].text
+	for _, word := range words[at+1:] {
+		text := word.text
 		switch {
-		case !strings.HasPrefix(text, "-") || text == "-":
-			return false
-		case text == "--":
-			return false
 		case strings.HasPrefix(text, "--"):
 			name, _, joined := strings.Cut(text, "=")
 			if len(name) >= len("--a") && strings.HasPrefix("--arg-file", name) {
@@ -227,10 +222,8 @@ func xargsTakesArgumentFile(words []shellWord) bool {
 			if !joined && (len(name) < len("--a") || len(slices.DeleteFunc(slices.Clone(plain), func(long string) bool { return !strings.HasPrefix(long, name) })) != 1) {
 				return true
 			}
-		case strings.Contains(text[1:], "a"):
+		case strings.HasPrefix(text, "-") && len(text) > 1 && strings.Contains(text[1:], "a"):
 			return true
-		case slices.Contains(valued, text):
-			i++
 		}
 	}
 	return false
