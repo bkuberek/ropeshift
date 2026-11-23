@@ -484,6 +484,49 @@ func TestAProbeStartsNoSessionTheDesignRefuses(t *testing.T) {
 	}
 }
 
+// The budget check pays for a session on each probe, and a version whose flag does not bound a turn fails it each time
+// while the check gates only a backstop. A probe of a version whose last result failed it does not run it again, and its
+// result reads failed as before; a failure of another version's result says nothing of this one.
+func TestAFailedBudgetCheckIsNotRunAgainForItsVersion(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		version string
+		capped  int
+	}{
+		{name: "a result for the version", version: "2.1.399", capped: 0},
+		{name: "a result for another version", version: "2.1.398", capped: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			driver, spec, path := probeRig(t)
+			held := lanes.Qualification{
+				Driver: claudecode.DriverName, Version: tt.version, Source: lanes.QualifiedByProbe,
+				Checks: map[lanes.Surface]lanes.CheckResult{claudecode.SurfaceMaxBudget: lanes.CheckFailed},
+			}
+			driver.Qualify(held)
+			q, err := driver.Probe(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			capped := 0
+			for _, seen := range doubles.ProbesSeenBy(t, doubles.BinDir(path)) {
+				if slices.Contains(seen.Args, "--max-budget-usd") {
+					capped++
+				}
+			}
+			if capped != tt.capped {
+				t.Errorf("%d probe sessions started with a budget cap, want %d", capped, tt.capped)
+			}
+			want := lanes.CheckPassed
+			if tt.capped == 0 {
+				want = lanes.CheckFailed
+			}
+			if got := q.Checks[claudecode.SurfaceMaxBudget]; got != want {
+				t.Errorf("the budget check reads %s, want %s", got, want)
+			}
+		})
+	}
+}
+
 // Every probe session, headless and in its pane, starts with a lane's isolation, so what the probe qualifies is what a
 // lane runs, and a piece of the member's own setup that reaches the probe reached it past the same flags and is a leak
 // (ADR-0040): no user or local settings, ropeshift's MCP configuration alone, and no auto memory.

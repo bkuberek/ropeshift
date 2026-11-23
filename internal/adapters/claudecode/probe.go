@@ -111,8 +111,20 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	q := unqualified(version)
 	q.Source, q.SignIn = lanes.QualifiedByProbe, spec.SignIn
 	p := &prober{d: d, spec: spec, binary: binary, checks: q.Checks}
+	// The budget check pays for a session on each probe, and a version whose flag does not bound a turn fails it each
+	// time while the check only gates a backstop. A result a probe already kept for this version that failed it is the
+	// answer, so the check is not run again.
+	d.mu.Lock()
+	held := d.current
+	d.mu.Unlock()
+	run := []func(context.Context){p.accept, p.refuse, p.hold, p.screens}
+	if held.Source == lanes.QualifiedByProbe && held.For(version) && held.Checks[SurfaceMaxBudget] == lanes.CheckFailed {
+		q.Checks[SurfaceMaxBudget] = lanes.CheckFailed
+	} else {
+		run = append(run, p.budget)
+	}
 	var checks sync.WaitGroup
-	for _, check := range []func(context.Context){p.accept, p.refuse, p.hold, p.budget, p.screens} {
+	for _, check := range run {
 		checks.Go(func() { check(ctx) })
 	}
 	checks.Wait()
