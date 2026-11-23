@@ -76,13 +76,13 @@ const (
 	OnSessionGone      Signal = "session_gone"
 	// OnStartFailed is an orchestrator's start that failed before its session was ready, which waits out a backoff
 	// under the breaker as a crash does (FR-ORCH-1). A lane's failed start ends it instead.
-	OnStartFailed  Signal = "start_failed"
-	OnDelayElapsed Signal = "delay_elapsed"
-	OnRestartLimit     Signal = "restart_limit"
-	OnHumanReset       Signal = "human_reset"
-	OnOutcomeReported  Signal = "outcome_reported"
-	OnStopRequested    Signal = "stop_requested"
-	OnSessionStopped   Signal = "session_stopped"
+	OnStartFailed     Signal = "start_failed"
+	OnDelayElapsed    Signal = "delay_elapsed"
+	OnRestartLimit    Signal = "restart_limit"
+	OnHumanReset      Signal = "human_reset"
+	OnOutcomeReported Signal = "outcome_reported"
+	OnStopRequested   Signal = "stop_requested"
+	OnSessionStopped  Signal = "session_stopped"
 	// OnBreakerCooled says a tripped orchestrator's breaker cooled down with nobody's reset: the restarts that tripped
 	// it left its restart window (FR-ORCH-1).
 	OnBreakerCooled Signal = "breaker_cooled"

@@ -169,4 +169,3 @@ func TestAStartOfAnEndedOrchestratorIsNoForcedInterruption(t *testing.T) {
 		t.Errorf("replacing a run that stalled counted %d forced interruptions, want 1", forced)
 	}
 }
-

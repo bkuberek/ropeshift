@@ -252,4 +252,3 @@ func TestAnAdoptionThatCannotReadItsDialogsReadsThemAgain(t *testing.T) {
 		})
 	}
 }
-

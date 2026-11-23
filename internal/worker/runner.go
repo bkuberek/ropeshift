@@ -165,11 +165,11 @@ type laneRun struct {
 	holding   *ports.TurnResult
 	holdingIn int64
 	endMs     int64
-	cursor  int64
-	decided *workorders.Report
-	cost    lanes.CostMeter
-	usage   lanes.Usage
-	fenced  atomic.Bool
+	cursor    int64
+	decided   *workorders.Report
+	cost      lanes.CostMeter
+	usage     lanes.Usage
+	fenced    atomic.Bool
 	// stopAsked says this run heard its lease is gone.
 	stopAsked atomic.Bool
 	// keptReported says this run told the operator its lane kept a worktree the root in force would not have
