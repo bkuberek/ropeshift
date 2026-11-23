@@ -481,6 +481,7 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.sessionOver.Store(false)
 	r.resumeFrom = resume
 	r.bound, r.crashed, r.cursor, r.endTold, r.endKept = false, false, 0, false, progress.EndCounted
+	r.holding, r.holdingIn, r.endHeld, r.endMs = nil, 0, false, 0
 	r.nudged.Store(false)
 	r.owesBrief.Store(false)
 	r.cost = progress.Cost
@@ -490,6 +491,7 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.running = progress.Cost.SessionTotalUSD
 	r.handleLock.Unlock()
 	r.state.newGeneration(r.w.clock.Now(), progress.BaselineTokens)
+	r.state.endProcessWaits()
 	if r.assisting() {
 		r.assistant().newGeneration()
 	}

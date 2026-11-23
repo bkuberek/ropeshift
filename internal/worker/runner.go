@@ -158,11 +158,13 @@ type laneRun struct {
 	bound  bool
 	nudged atomic.Bool
 	// endHeld says the turn's end being read is older than the session's newest input, so it ends no turn the lane is
-	// in, holding is the newest such end since a turn's end was decided, and endMs is when the end being decided fired,
-	// by its hook's clock, and zero when nothing places it. The goroutine that reads the stream alone touches them.
-	endHeld bool
-	holding *ports.TurnResult
-	endMs   int64
+	// in, holding is the newest such end since a turn's end was decided, holdingIn the generation whose session reported
+	// it, and endMs is when the end being decided fired, by its hook's clock, and zero when nothing places it. The
+	// goroutine that reads the stream alone touches them.
+	endHeld   bool
+	holding   *ports.TurnResult
+	holdingIn int64
+	endMs     int64
 	cursor  int64
 	decided *workorders.Report
 	cost    lanes.CostMeter
@@ -1545,7 +1547,7 @@ func (r *laneRun) takeTurnBegun(ctx context.Context) bool {
 // holdEnd keeps a turn's end that is older than the session's newest input: the lane works in the turn that input
 // began, and that turn's end is the one to decide. The wait for it is bounded (awaitTurnEnd).
 func (r *laneRun) holdEnd(ctx context.Context, turn *ports.TurnResult) {
-	r.holding = turn
+	r.holding, r.holdingIn = turn, r.currentGeneration()
 	r.awaitTurnEnd(ctx)
 }
 
@@ -1572,7 +1574,12 @@ func (r *laneRun) awaitTurnEnd(ctx context.Context) {
 }
 
 // turnBound takes a lane as at rest once the turn it waited on has shown no sign of work for the live wait, where the
-// stream is read, and decides that rest as a turn's end: the end it held, or a completed one where it held none.
+// stream is read, and decides that rest as a turn's end: the end it held, or a completed one where it held none. An
+// end held of an earlier generation's session ends nothing of this one.
+//
+// Where it held no end, nothing the session reported says it took the wake an orchestrator's generation started on: a
+// hook may have blocked that prompt, or a person interrupted it. That wake goes back to the batch, so the next wake
+// carries it again, and nothing keeps it as landed (wakeLanded). A wake that went twice costs one context.
 func (r *laneRun) turnBound(ctx context.Context) {
 	since, waiting := r.state.turnWait()
 	if !waiting || r.sessionOver.Load() || r.currentFlight() != nil ||
@@ -1580,8 +1587,11 @@ func (r *laneRun) turnBound(ctx context.Context) {
 		return
 	}
 	turn := r.holding
-	if turn == nil {
+	if turn == nil || r.holdingIn != r.currentGeneration() {
 		turn = &ports.TurnResult{Status: ports.TurnCompleted}
+		if r.orchestrating() && !r.assisting() {
+			r.setWake(nil)
+		}
 	}
 	// The bound decides the rest, and no end of a hook stands for it.
 	r.endMs = 0
