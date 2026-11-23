@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -64,7 +65,7 @@ func Main(stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string)
 		request.Version, request.Token = lanes.SocketProtocol, token
 		return api.CallLane(socket, request, dialDeadline, answerDeadline)
 	}
-	if err := Serve(stdin, stdout, call); err != nil {
+	if err := ServeMarked(stdin, stdout, call, getenv(api.EnvToolsListed)); err != nil {
 		fmt.Fprintf(stderr, "ropeshift mcp: %v\n", err)
 		return 1
 	}
@@ -73,12 +74,23 @@ func Main(stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string)
 
 // Serve reads one JSON-RPC message per line. A notification takes no answer.
 func Serve(stdin io.Reader, stdout io.Writer, call Caller) error {
+	return ServeMarked(stdin, stdout, call, "")
+}
+
+// ServeMarked is Serve for a session whose driver waits to brief it until the server has listed its tools: once it has
+// written the answer to a tools/list, it makes the file at marker, which the driver reads. An empty marker makes none,
+// and a file it cannot make changes nothing it answers, because the driver briefs the session anyway when its wait ends.
+func ServeMarked(stdin io.Reader, stdout io.Writer, call Caller, marker string) error {
 	reader := bufio.NewReader(stdin)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) != 0 {
-			if werr := answer(line, stdout, call); werr != nil {
+			listed, werr := answer(line, stdout, call)
+			if werr != nil {
 				return werr
+			}
+			if listed && marker != "" {
+				_ = os.WriteFile(marker, nil, 0o600)
 			}
 		}
 		if errors.Is(err, io.EOF) {
@@ -90,13 +102,14 @@ func Serve(stdin io.Reader, stdout io.Writer, call Caller) error {
 	}
 }
 
-func answer(line []byte, stdout io.Writer, call Caller) error {
+// answer answers one line, and says whether it wrote the answer to a tools/list.
+func answer(line []byte, stdout io.Writer, call Caller) (listed bool, err error) {
 	var in message
 	if err := json.Unmarshal(line, &in); err != nil {
-		return reply(stdout, response{ID: json.RawMessage("null"), Error: &rpcError{Code: codeParse, Message: "this line does not parse"}})
+		return false, reply(stdout, response{ID: json.RawMessage("null"), Error: &rpcError{Code: codeParse, Message: "this line does not parse"}})
 	}
 	if len(in.ID) == 0 {
-		return nil
+		return false, nil
 	}
 	out := response{ID: in.ID}
 	switch in.Method {
@@ -126,7 +139,10 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	default:
 		out.Error = &rpcError{Code: codeMethodNotFound, Message: "no such method: " + in.Method}
 	}
-	return reply(stdout, out)
+	if err := reply(stdout, out); err != nil {
+		return false, err
+	}
+	return in.Method == "tools/list", nil
 }
 
 // OwnerAssistant is who an assistant's token stands for: a member's assistant, which reads the context tools

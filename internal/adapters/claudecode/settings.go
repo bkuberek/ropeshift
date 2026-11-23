@@ -158,17 +158,23 @@ func assistantReadRoots(spec ports.SessionSpec) []string {
 func readRootsOf(spec ports.SessionSpec) []string {
 	var roots []string
 	for _, dir := range append([]string{spec.Dir}, spec.ReadOnlyDirs...) {
-		if dir == "" {
-			continue
-		}
-		names := []string{filepath.Clean(dir)}
-		if real, err := filepath.EvalSymlinks(dir); err == nil {
-			names = append(names, real)
-		}
-		for _, name := range names {
-			if !slices.Contains(roots, name) {
-				roots = append(roots, name)
-			}
+		roots = withRoot(roots, dir)
+	}
+	return roots
+}
+
+// withRoot adds a directory to a list of read roots by its name and the name its links resolve to, each once.
+func withRoot(roots []string, dir string) []string {
+	if dir == "" {
+		return roots
+	}
+	names := []string{filepath.Clean(dir)}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		names = append(names, real)
+	}
+	for _, name := range names {
+		if !slices.Contains(roots, name) {
+			roots = append(roots, name)
 		}
 	}
 	return roots
@@ -309,6 +315,9 @@ func generateMCP(spec ports.SessionSpec) mcpFile {
 	env := make(map[string]string, len(serverVariables))
 	for _, name := range serverVariables {
 		env[name] = "${" + name + "}"
+	}
+	if toolsListedPath(spec) != "" {
+		env[lanes.EnvToolsListed] = "${" + lanes.EnvToolsListed + "}"
 	}
 	out.Servers[ServerName] = mcpServer{Type: "stdio", Command: spec.Binary, Args: []string{"mcp"}, Env: env}
 	return out

@@ -21,6 +21,10 @@ const (
 	EnvPolicy       = TagPrefix + "POLICY"
 	// EnvPortBase is the first port of a lane's block.
 	EnvPortBase = TagPrefix + "PORT_BASE"
+	// EnvToolsListed is the file `ropeshift mcp` makes once it has answered its CLI's tools/list. A pane's driver
+	// holds the session's first prompt until the file stands, because the CLI connects its MCP servers in the
+	// background and a prompt that arrives first can reach a session that holds none of ropeshift's tools.
+	EnvToolsListed = TagPrefix + "TOOLS_LISTED"
 )
 
 // EnvMessagingSocket is the one vendor variable a hook reads. The CLI exports it before

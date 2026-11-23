@@ -20,6 +20,7 @@ const (
 	EnvWorkerSocket = lanes.EnvWorkerSocket
 	EnvSpool        = lanes.EnvSpool
 	EnvPolicy       = lanes.EnvPolicy
+	EnvToolsListed  = lanes.EnvToolsListed
 )
 
 // The worker's local files.

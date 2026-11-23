@@ -1,0 +1,8 @@
+{
+  "source": "A pane whose CLI takes a second and a half to connect its MCP servers and list their tools, as it does in the background, so a prompt that is typed at once arrives before them",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true, "mcp_connect_ms": 1500},
+  "turns": [
+    [{"status": {"context_window": {"current_usage": {"input_tokens": 3, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 900}}, "cost": {"total_cost_usd": 0.1}}}]
+  ]
+}

@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -189,8 +190,11 @@ type session struct {
 	opts     options
 	script   fixture
 	settings settings
-	server   *mcpClient
-	costUSD  float64
+	// server is the MCP connection, which a pane's background connection and a scripted call both reach, so
+	// serverLock guards it.
+	server     *mcpClient
+	serverLock sync.Mutex
+	costUSD    float64
 	// telemetrySent says the first prompt's telemetry went out.
 	telemetrySent bool
 	// pane means this session draws on a terminal and writes no stream, and keys is what it reads.
@@ -676,9 +680,7 @@ func (s *session) replay(line string) {
 func (s *session) end() {
 	witness("ended", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	s.hook("SessionEnd", map[string]any{"reason": "other"})
-	if s.server != nil {
-		s.server.close()
-	}
+	s.closeServer()
 	os.Exit(0)
 }
 
@@ -1168,15 +1170,28 @@ type mcpClient struct {
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	nextID int
+	lock   sync.Mutex
 }
 
+// connect is the connection a scripted call uses, and a session that cannot make one ends.
 func (s *session) connect() *mcpClient {
+	client, err := s.dial()
+	if err != nil {
+		fail("mcp: %v", err)
+	}
+	return client
+}
+
+// dial starts the generated MCP server and speaks its handshake, once.
+func (s *session) dial() (*mcpClient, error) {
+	s.serverLock.Lock()
+	defer s.serverLock.Unlock()
 	if s.server != nil {
-		return s.server
+		return s.server, nil
 	}
 	config, err := readMCPConfig(s.opts.mcpConfig)
 	if err != nil {
-		fail("mcp: %v", err)
+		return nil, err
 	}
 	for _, server := range config.Servers {
 		cmd := exec.Command(server.Command, server.Args...)
@@ -1184,22 +1199,34 @@ func (s *session) connect() *mcpClient {
 		cmd.Stderr = os.Stderr
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
-			fail("mcp: %v", err)
+			return nil, err
 		}
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			fail("mcp: %v", err)
+			return nil, err
 		}
 		if err := cmd.Start(); err != nil {
-			fail("mcp: %v", err)
+			return nil, err
 		}
-		s.server = &mcpClient{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
-		s.server.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "fakeclaude", "version": "0"}})
-		s.server.notify("notifications/initialized")
-		return s.server
+		client := &mcpClient{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
+		if _, err := client.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "fakeclaude", "version": "0"}}); err != nil {
+			return nil, err
+		}
+		client.notify("notifications/initialized")
+		s.server = client
+		return client, nil
 	}
-	fail("mcp: no server")
-	return nil
+	return nil, errors.New("no server")
+}
+
+// closeServer ends the MCP connection, if the session made one.
+func (s *session) closeServer() {
+	s.serverLock.Lock()
+	client := s.server
+	s.serverLock.Unlock()
+	if client != nil {
+		client.close()
+	}
 }
 
 func (c *mcpClient) notify(method string) {
@@ -1207,35 +1234,49 @@ func (c *mcpClient) notify(method string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if _, err := c.stdin.Write(append(raw, '\n')); err != nil {
 		fail("mcp: %v", err)
 	}
 }
 
 func (c *mcpClient) call(method string, params map[string]any) map[string]any {
+	result, err := c.request(method, params)
+	if err != nil {
+		fail("mcp: %v", err)
+	}
+	return result
+}
+
+// request is one call and its answer, one at a time, because a pane's background connection and a scripted call share
+// the server.
+func (c *mcpClient) request(method string, params map[string]any) (map[string]any, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.nextID++
 	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": c.nextID, "method": method, "params": params})
 	if err != nil {
-		fail("%v", err)
+		return nil, err
 	}
 	if _, err := c.stdin.Write(append(raw, '\n')); err != nil {
-		fail("mcp: %v", err)
+		return nil, err
 	}
 	line, err := c.stdout.ReadBytes('\n')
 	if err != nil {
-		fail("mcp: no answer to %s: %v", method, err)
+		return nil, fmt.Errorf("no answer to %s: %w", method, err)
 	}
 	var reply struct {
 		Result map[string]any `json:"result"`
 		Error  map[string]any `json:"error"`
 	}
 	if err := json.Unmarshal(line, &reply); err != nil {
-		fail("mcp: %v", err)
+		return nil, err
 	}
 	if reply.Error != nil {
-		fail("mcp: %s: %v", method, reply.Error)
+		return nil, fmt.Errorf("%s: %v", method, reply.Error)
 	}
-	return reply.Result
+	return reply.Result, nil
 }
 
 func (c *mcpClient) close() {

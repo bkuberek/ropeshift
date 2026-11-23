@@ -100,15 +100,22 @@ type Options struct {
 	JournalCap int64
 	// Terminal runs interactive sessions. Nil leaves the driver headless only.
 	Terminal ports.Terminal
+	// ToolsWait is how long a pane's brief waits for ropeshift's MCP server to list its tools. Zero takes the default.
+	ToolsWait time.Duration
+	// Notice receives what the driver did that a person may want to know and that is no failure, such as a brief sent
+	// without waiting for the session's tools. Nil says nothing.
+	Notice func(string)
 }
 
 // Driver runs sessions, each under a shim or in a pane, so each outlives this process.
 type Driver struct {
-	runner   ports.ProcessRunner
-	terminal ports.Terminal
-	grace    time.Duration
-	linger   time.Duration
-	cap      int64
+	runner    ports.ProcessRunner
+	terminal  ports.Terminal
+	grace     time.Duration
+	linger    time.Duration
+	cap       int64
+	toolsWait time.Duration
+	notice    func(string)
 
 	mu  sync.Mutex
 	env []string
@@ -154,6 +161,7 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 	}
 	return &Driver{
 		runner: runner, terminal: options.Terminal, grace: grace, linger: options.ShimLinger, cap: options.JournalCap, env: options.Env,
+		toolsWait: options.ToolsWait, notice: options.Notice,
 		sessions: map[string]liveSession{}, policies: map[string]string{}, listed: map[string][]listedSession{},
 	}
 }

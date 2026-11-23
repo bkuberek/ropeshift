@@ -16,9 +16,11 @@ const Nudge = "You ended your turn with no outcome. Call the " + ToolLaneReport 
 	" tool now, once, with the outcome of this lane."
 
 // BackgroundNudge is the nudge of a lane that rested on its own background work for as long as a lane may wait live,
-// and heard nothing from it.
-const BackgroundNudge = "Your last turn ended with background work you started still running, and it has not reported " +
-	"within the time a lane may wait. Call the " + ToolLaneReport + " tool now, once, with the outcome of this lane."
+// and heard nothing from it. It asks for the outcome the lane's work has reached and for the word that the background
+// work still ran, and names no outcome, because the work still running says nothing of how the lane's own work ended.
+const BackgroundNudge = "Your last turn ended with background work you started still running, and the time a lane may wait " +
+	"for it has passed. Call the " + ToolLaneReport + " tool now, once, with the outcome your work has reached, and say in the " +
+	"reason that the background work was still running."
 
 // PackFile is where a pack sits in a worktree, in a directory git does not see.
 const PackFile = ".ropeshift/context/pack.md"
@@ -419,7 +421,7 @@ func writeFacts(out *strings.Builder, facts []ledger.MessageFact) {
 // isOwnAnswer says a fact is the answer to a question the lane asked: only the lane that asked a question is sent
 // its answer.
 func isOwnAnswer(fact ledger.MessageFact) bool {
-	return fact.Kind == string(messages.KindAnswer) && fact.ReplyTo != ""
+	return messages.IsOwnAnswer(messages.Kind(fact.Kind), fact.ReplyTo)
 }
 
 func writeFactList(out *strings.Builder, notice string, facts []ledger.MessageFact) {
