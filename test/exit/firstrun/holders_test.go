@@ -44,6 +44,20 @@ func leftBehind(t *testing.T, pidFile string) int {
 	return pid
 }
 
+// afterExec waits until a process that Start returned has the command line it started with. Start returns once the
+// kernel is replacing the process image, and until that is done the process reads with an empty command line, which
+// names it by its command name in brackets.
+func afterExec(t *testing.T, pid int, line string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for got := commandLine(pid); got != line; got = commandLine(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("pid %d still reads %q, want %q", pid, got, line)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // A terminal that a process still holds open names that process, with its ID, its command line, and the descriptor it
 // holds the terminal on, and names it no more once it ended.
 func TestTheHoldersOfATerminalAreNamedWithTheirCommandLineAndDescriptors(t *testing.T) {
@@ -61,6 +75,7 @@ func TestTheHoldersOfATerminalAreNamedWithTheirCommandLineAndDescriptors(t *test
 	}
 	t.Cleanup(func() { _ = sleeper.Process.Kill(); _ = sleeper.Wait() })
 	_ = held.Close()
+	afterExec(t, sleeper.Process.Pid, "sleep 30")
 	want := fmt.Sprintf("pid %d holds %s on descriptor 0: sleep 30", sleeper.Process.Pid, slave)
 	if lines := terminalHolders(slave); !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, want) }) {
 		t.Errorf("the holders were %q, want a line that starts %q", lines, want)

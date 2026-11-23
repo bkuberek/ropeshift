@@ -31,10 +31,15 @@ func TestAnAdoptedSessionUsesTheSurfacesItLaunchedWith(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var cursor int64
 	for event := range events {
 		if event.Kind == ports.EventSessionBound {
+			cursor = event.Seq
 			break
 		}
+	}
+	if cursor == 0 {
+		t.Fatal("the session's init carried no position")
 	}
 	// The worker that took over has since probed the version, and the probe found its socket failed.
 	next := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second})
@@ -46,7 +51,9 @@ func TestAnAdoptedSessionUsesTheSurfacesItLaunchedWith(t *testing.T) {
 	if got := located.Handle; got.Version != "2.1.317" || got.Source != lanes.QualifiedByMatrix || got.Degraded {
 		t.Errorf("found %+v, want the version, the matrix, and no degraded mode the launch recorded", got)
 	}
-	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec}); err != nil {
+	// The worker read the session's init, which names the socket, before it stopped, and is given no hook that names it.
+	// Adopting past the init keeps the stream from naming the socket again, whatever the pace of its reader.
+	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec, Cursor: cursor}); err != nil {
 		t.Fatal(err)
 	}
 	// With no hook naming its socket, a session whose launch passed the socket's check has no channel now, which is not the
