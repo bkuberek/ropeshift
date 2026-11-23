@@ -1,0 +1,4 @@
+{
+  "source": "a trust dialog that never reads the Enter on its accept option, as one that lost the key does",
+  "pane": {"trust": true, "trust_enter": "lost"}
+}

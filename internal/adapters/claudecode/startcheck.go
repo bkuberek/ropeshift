@@ -166,6 +166,21 @@ func (c startCheck) failure() error {
 	return ports.ErrUnknownScreen
 }
 
+// timedOut is the failure of a check whose time ran out on last, the screen of its last read. A trust dialog that
+// still asks after the Enter did not take it: a focus still on the accept option says the key was lost, and a focus
+// back on `No, exit` says the dialog refused it. The error names that and wraps the mode's failure, so every caller
+// reads the start as it did.
+func (c startCheck) timedOut(last screen, confirmed bool) error {
+	if !confirmed || last.kind != screenTrust {
+		return c.failure()
+	}
+	why := "it refused the key and put its focus back on `No, exit`"
+	if last.focus == focusOnAccept {
+		why = "it lost the key, and its focus stayed on `" + trustAccept + "`"
+	}
+	return fmt.Errorf("%w: %s: %w", ports.ErrTrustKeyLost, why, c.failure())
+}
+
 // runStartCheck reads the pane until it holds a prompt, and is the driver's ready signal
 // for the `starting` state. It answers the trust dialog by moving the focus and reading
 // that it moved, so no Enter reaches a dialog on `No, exit`. Nothing goes to a screen it
@@ -184,14 +199,16 @@ func (c startCheck) failure() error {
 // Enter, and Home or End leaves it on the accept option however many land.
 //
 // Enter goes once. The check reads the ready prompt after it and nothing else, so an Enter that
-// was lost ends the check unknown, for a person to take over, and no second one can answer a
-// later dialog with its default.
+// was lost or refused ends the check at its timeout, for a person to take over, and no second one
+// can answer a later dialog with its default. A check that ends on the trust dialog after its Enter
+// says so (timedOut).
 func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, check startCheck) error {
 	deadline := time.Now().Add(check.timeout)
 	// shown is the frame the pane shows and since when. answered is the frame the last key answered, empty once
-	// a different frame was read.
+	// a different frame was read. last is what the last read that answered showed.
 	var shown, answered string
 	var since, keyed time.Time
+	var last screen
 	moved, confirmed := false, false
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
@@ -218,6 +235,7 @@ func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, ch
 		if seen.kind == screenReady {
 			return nil
 		}
+		last = seen
 		stands := now.Sub(since) >= check.settle
 		waits := answered != "" && now.Sub(keyed) < check.resend
 		if seen.kind == screenTrust && !confirmed && stands && !waits {
@@ -236,7 +254,7 @@ func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, ch
 		// after its Enter: only time passes.
 		pause(ctx, check.poll)
 	}
-	return check.failure()
+	return check.timedOut(last, confirmed)
 }
 
 // keepScreen saves what a failed start stopped on, for a person, beside the generated
