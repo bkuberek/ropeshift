@@ -800,6 +800,21 @@ func (g *shellGates) alias(args []shellWord, at shellPlace) {
 // textRunners hand their words to a shell.
 var textRunners = []string{"watch", "trap", "su", "parallel"}
 
+// parallelValued are the options of GNU parallel that take a value, and parallelFlags those that take none, so the hold
+// that reads parallel's command finds it past each value. An option in neither is unknown to the hold, which then reads the
+// command from each word that may begin it.
+var (
+	parallelValued = strings.Fields("-a --arg-file --arg-file-sep --argfile-sep --arg-sep --argsep --basefile --bf --block --block-size -b " +
+		"-C --colsep -d --delimiter --delay -E -I -j --jobs -P --max-procs -J -L -l --max-lines -n --max-args -N -s --max-chars " +
+		"--env --header --joblog --halt --load --memfree --memsuspend --nice --recend --recstart --results --res --retries --return " +
+		"--rpl --sshdelay -S --sshlogin --sshloginfile --slf --tag-string --tagstring --tmpdir --tf --transfer-file --transferfile " +
+		"--timeout --trc --workdir --wd --termseq --total-jobs")
+	parallelFlags = strings.Fields("-0 --null -g --group -h --help -k --keep-order -m -q --quote -t --verbose -u --ungroup -v -X -x " +
+		"--bar --bg --citation --dry-run --eta --fg --files --fifo --lb --line-buffer --linebuffer --link --xapply " +
+		"--no-notice --will-cite --nonall --onall --pipe --pipepart --spreadstdin --plus --progress --round --round-robin --resume " +
+		"--resume-failed --retry-failed --sem --semaphore --shuf --silent --tag --version -V --wait --shellquote")
+)
+
 func (g *shellGates) runsText(name string, args []shellWord, at shellPlace) {
 	for _, word := range args {
 		if word.expands {

@@ -484,22 +484,77 @@ func (p DenyPolicy) decideTextRunner(name string, args []shellWord, at string, d
 	if name != "parallel" {
 		return "", false
 	}
-	command := slices.IndexFunc(args, func(word shellWord) bool { return !strings.HasPrefix(word.text, "-") })
-	if command < 0 {
+	return p.decideParallel(args, at, depth, seen)
+}
+
+// decideParallel reads the command parallel builds from the words after its options, up to its inputs. An option that
+// takes a value takes the word after it, which is no command, and an option the policy does not know may take it or not,
+// so its words are read from each word that is no option: the policy refuses what any of them runs.
+func (p DenyPolicy) decideParallel(args []shellWord, at string, depth int, seen *gitSeen) (string, bool) {
+	// ::: and :::: both begin with the first, and each opens the inputs.
+	inputs := slices.IndexFunc(args, func(word shellWord) bool { return strings.HasPrefix(word.text, ":::") })
+	words := args
+	if inputs >= 0 {
+		words = args[:inputs]
+	}
+	start, unsure := -1, false
+	for i := 0; i < len(words) && start < 0; i++ {
+		if !strings.HasPrefix(words[i].text, "-") {
+			start = i
+			break
+		}
+		takes, known := parallelOption(words[i].text)
+		unsure = unsure || !known
+		if takes {
+			i++
+		}
+	}
+	if start < 0 {
+		// With no command, parallel runs the lines it reads, which no hold can read, or the inputs it is given, which were
+		// read above.
+		if inputs >= 0 {
+			return "", false
+		}
 		if p.readOnly() {
 			return ReasonReadOnly, true
 		}
 		return ReasonOutside, true
 	}
-	words := args[command:]
-	// ::: and :::: both begin with the first, and each opens the inputs.
-	if inputs := slices.IndexFunc(words, func(word shellWord) bool { return strings.HasPrefix(word.text, ":::") }); inputs >= 0 {
-		words = words[:inputs]
+	starts := []int{start}
+	if unsure {
+		starts = starts[:0]
+		for i, word := range words {
+			if !strings.HasPrefix(word.text, "-") {
+				starts = append(starts, i)
+			}
+		}
 	}
-	if len(words) == 0 {
-		return "", false
+	for _, from := range starts {
+		if reason, denied := p.decideShell(joinWords(words[from:]), at, depth+1, seen); denied {
+			return reason, true
+		}
 	}
-	return p.decideShell(joinWords(words), at, depth+1, seen)
+	return "", false
+}
+
+// parallelOption reads one option word of parallel: whether its value is the next word, and whether the policy knows
+// the option at all. A short option that takes a value takes the rest of its word as that value when there is one.
+func parallelOption(text string) (takes, known bool) {
+	if strings.HasPrefix(text, "--") {
+		flag, _, joined := strings.Cut(text, "=")
+		valued := slices.Contains(parallelValued, flag)
+		return valued && !joined, valued || slices.Contains(parallelFlags, flag)
+	}
+	for i := 1; i < len(text); i++ {
+		letter := "-" + text[i:i+1]
+		switch {
+		case slices.Contains(parallelValued, letter):
+			return i+1 == len(text), true
+		case !slices.Contains(parallelFlags, letter):
+			return false, false
+		}
+	}
+	return false, true
 }
 
 // readOnly says the policy is a lane's that only reads, which denies a git subcommand with ReasonReadOnly.
