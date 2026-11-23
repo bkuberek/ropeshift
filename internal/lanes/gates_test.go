@@ -503,3 +503,19 @@ func TestAGateReadsSudoHAndEnvPBothWays(t *testing.T) {
 		}
 	}
 }
+
+// With no gate, a wrapper's option that only adjusts how the command runs asks nothing: `nice -$N` sets a
+// priority, and `--` ends `time`'s options. Behind either, a push still asks.
+func TestRareUngatedFormsDoNotAsk(t *testing.T) {
+	policy := policyWithGates(false)
+	for _, command := range []string{"time -p -- ls", "nice -$N ls", "nice -${N} ls", `nice -"$N" ls`, "time -- ls"} {
+		if got := judged(policy, shellCall(command)); got != "" {
+			t.Errorf("%q with no gate: %q, want it to pass", command, got)
+		}
+	}
+	for _, command := range []string{"time -p -- git push", "nice -$N git push", "time -- git push", "nice -n 5 git push"} {
+		if got := judged(policy, shellCall(command)); got != ReasonAskPush {
+			t.Errorf("%q with no gate: %q, want it to ask as a push", command, got)
+		}
+	}
+}

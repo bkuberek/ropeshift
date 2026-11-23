@@ -397,6 +397,9 @@ func commandStart(words []shellWord) int {
 			at++
 		case words[at].text == "-p" && at > 0 && isKeyword(words[at-1], "time"):
 			at++
+		// After `time -p`, `--` ends its options.
+		case words[at].text == "--" && at > 1 && words[at-1].text == "-p" && isKeyword(words[at-2], "time"):
+			at++
 		default:
 			return at
 		}

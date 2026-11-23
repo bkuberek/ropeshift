@@ -339,7 +339,7 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 		// expansion in an option's value, an assignment, or an operand reads as the one word it is written as, unless
 		// it is written to give many. An option's name is never one.
 		if (assigns && !option && !isAssignment(word.text)) || word.manyWords() ||
-			(option && word.expands && !namesOption(word, wrapper.valued)) {
+			(option && word.expands && !namesOption(word, wrapper.valued) && !adjusts(name, word)) {
 			g.unsure(at)
 		}
 		split = split || word.split
@@ -427,6 +427,12 @@ func readOption(text string, valued []string) (flag, value string, takes bool) {
 		}
 	}
 	return text, "", false
+}
+
+// adjusts says an option word of nice is its adjustment: a dash and one expansion, which runs nothing.
+func adjusts(name string, word shellWord) bool {
+	return name == "nice" && word.expands && !word.manyWords() && word.head == 1 && word.tail == len(word.text) &&
+		strings.HasPrefix(word.text, "-")
 }
 
 // namesOption says a word that expands writes its option's name out, with only the value left to a shell.
