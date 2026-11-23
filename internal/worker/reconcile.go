@@ -443,7 +443,13 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		if reason := w.admission(ctx, lease, false); lease.WorkOrder != "" && reason != "" {
 			return w.hold(ctx, lease, reason)
 		}
-		w.startRun(ctx, newRun(w, lease), (*laneRun).begin)
+		run := newRun(w, lease)
+		if run.orchestrating() && !run.assisting() {
+			// A member's Start after a Stop, as the first start: what an earlier run was told of the items that still
+			// stand does not stand for this one, whose session has been told nothing.
+			w.forgetWakes()
+		}
+		w.startRun(ctx, run, (*laneRun).begin)
 	case lanes.ActionClaim:
 		return w.claimWoken(ctx, seen.woken[action.Lane])
 	case lanes.ActionResume:

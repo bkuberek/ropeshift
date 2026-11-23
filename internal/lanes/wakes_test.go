@@ -279,6 +279,39 @@ func TestAnItemThatWentAndCameBackCountsAgain(t *testing.T) {
 	}
 }
 
+// What a run was told of the items that stand was told to a session that may have had no tool to act on it, and it
+// ended. A batch that forgets what it told carries every item that stands to the next run, and counts from no wake, so
+// neither the item nor a lane's wait on it keeps the floor.
+func TestABatchThatForgetsWhatItToldTellsEveryItemThatStandsAgain(t *testing.T) {
+	b := newBatch()
+	items := []ledger.WakeItem{item("a"), waitingOn("b", 1)}
+	b.Note(items, start)
+	first := start.Add(30 * time.Second)
+	b.Sent(b.Batch(), first)
+	b.Note(items, first.Add(time.Second))
+	if b.Due(first.Add(time.Hour)) || len(b.Batch()) != 0 {
+		t.Fatalf("a batch that told every item stands due again: %+v", b.Batch())
+	}
+
+	b.Forget()
+	again := first.Add(time.Minute)
+	b.Note(items, again)
+	if got := b.Batch(); len(got) != 2 {
+		t.Fatalf("the next run is told %+v, want both items again", got)
+	}
+	if b.Due(again.Add(29 * time.Second)) {
+		t.Error("a wake inside the debounce")
+	}
+	if !b.Due(again.Add(30 * time.Second)) {
+		t.Error("no wake once the debounce passed, though the floor of the earlier wake had not")
+	}
+	b.Sent(b.Batch(), again.Add(30*time.Second))
+	b.Note(items, again.Add(31*time.Second))
+	if b.Due(again.Add(time.Hour)) {
+		t.Error("a second wake for what the new run was told")
+	}
+}
+
 func TestWhatLeftBeforeAWakeCarriesNoWake(t *testing.T) {
 	b := newBatch()
 	b.Note([]ledger.WakeItem{item("a")}, start)

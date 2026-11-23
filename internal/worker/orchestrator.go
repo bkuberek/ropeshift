@@ -282,6 +282,13 @@ func (w *Worker) wakeDue() ([]ledger.WakeItem, bool) {
 	return w.wakes.Batch(), true
 }
 
+// forgetWakes starts the batch over for an orchestrator's new run, which is told every item that stands again.
+func (w *Worker) forgetWakes() {
+	w.wakeLock.Lock()
+	defer w.wakeLock.Unlock()
+	w.wakes.Forget()
+}
+
 // wakeLanded keeps that a wake reached a session, after it did. What it records and uploads of the
 // messages the wake held ends with the worker, and a worker that ends first leaves a wake the next
 // one tells again.

@@ -529,6 +529,22 @@ func TestAMembersStopEndsTheSession(t *testing.T) {
 	}
 }
 
+// What an earlier run was told of the items that still stand was told to a session that is over, which may have held no
+// tool to act on it. A run a member starts again after a stop is told every item that stands, as a first run is, so a
+// review that is ready still wakes it.
+func TestAnOrchestratorStartedAgainIsToldWhatItsEarlierRunWasTold(t *testing.T) {
+	o := newOrchestratorRig(t, aSession(), aSession())
+	o.wokenOnce(t)
+	if _, err := o.plane.SetOrchestrator(t.Context(), o.subject.Auth().WorkerID, ledger.OrchestratorStopped, member); err != nil {
+		t.Fatal(err)
+	}
+	o.await(t, "an end", func(row ledger.Orchestrator) bool { return row.Actual == "ended" })
+	o.start(t)
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+}
+
 // A usage limit is a wait for an orchestrator: it holds no work to park, and a wake before the reset
 // would cost a turn that fails.
 func TestAtALimitAnOrchestratorWaitsAndIsNotWoken(t *testing.T) {

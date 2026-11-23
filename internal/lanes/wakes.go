@@ -171,6 +171,13 @@ type WakeBatch struct {
 	last        time.Time
 }
 
+// Forget drops what the batch holds of what it told: a run that starts is told every item that stands, because what an
+// earlier run was told, it was told in a session that is over, which may have held no tool to act on it. The floor
+// counts from no wake either. What the batch noted stays, and the next note counts every item that stands again.
+func (b *WakeBatch) Forget() {
+	b.told, b.toldWaiting, b.last = nil, nil, time.Time{}
+}
+
 // Note reads a digest. What is new starts the debounce, and what is gone from it stops counting,
 // which lets an item that comes back count again.
 func (b *WakeBatch) Note(items []ledger.WakeItem, now time.Time) {
