@@ -399,10 +399,13 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 // keeps the session for another wait: a terminal attached to it, or input a member typed into it through
 // the web pane during that wait. With nobody there it parks on a wake only a person ends, because no
 // process waits on a person. Nobody is there only when two reads `attachedRecheck` apart both say so,
-// because one read that failed says the same. An attached terminal alone keeps the lane for
-// `attachedWaits` waits in a row, and then it parks as with nobody there, because a terminal left attached
-// says nothing of whether anyone is at it. A line the person types starts a turn, which ends the wait, and
-// the next rest starts it again, and input in the web pane starts the count again.
+// because one read that failed says the same. The lane's own background work still running keeps the session
+// as a person at the pane does, because parking ends the session and the work with it. An attached terminal
+// or background work alone keeps the lane for `attachedWaits` waits in a row, and then it parks as with
+// nobody there, because a terminal left attached says nothing of whether anyone is at it, and no process
+// waits on a job without end. A line the person types starts a turn, which ends the wait, as the report of
+// the background work does, and the next rest starts it again, and input in the web pane starts the count
+// again.
 //
 // The first wait's start is read before the lane reads as waiting, as awaitAnswer reads its deadline, so a
 // lane that reads as waiting has its start: a clock moved on seeing it cannot move that wait's deadline, and
@@ -421,11 +424,11 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 			if !r.restUntil(ctx, from.Add(r.state.askWait())) {
 				return
 			}
-			if !r.attended(ctx, from) {
+			if !r.holdsSession(ctx, from) {
 				if !r.restUntil(ctx, r.w.clock.Now().Add(attachedRecheck)) {
 					return
 				}
-				if !r.attended(ctx, from) {
+				if !r.holdsSession(ctx, from) {
 					break
 				}
 			}
@@ -440,6 +443,13 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 		}
 		r.parkReported(ctx, lanes.ParkRequest{Trigger: lanes.ParkWaitingForPerson, Expr: lanes.HumanWake(), PastCompaction: true})
 	})
+}
+
+// holdsSession says a planning lane's session is held at the end of a wait: its own background work still runs, which
+// parking would end, or a person is at its pane.
+func (r *laneRun) holdsSession(ctx context.Context, since time.Time) bool {
+	_, _, running := r.state.backgroundRest()
+	return running || r.attended(ctx, since)
 }
 
 // attended says a person is at the lane's pane: a member typed into it through the web pane since a time,

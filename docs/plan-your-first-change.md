@@ -40,7 +40,7 @@ In Type into the session, type what the session should know, such as "Put the sa
 
 An answer you give in the session becomes a draft decision in the plan, which your approval decides. Here the Outline gains the plan's file and its draft decision, and the session asks a second question that your line leaves open.
 
-Say what you want while the session's questions wait. When the session has what it needs, it writes the plan and submits it. A turn that ends without a submission waits for your next line, and the Planning page shows Waiting for you beside the session's state. When `ask_wait`, five minutes unless the profile says otherwise, runs out with no terminal attached, the session parks, and Needs you offers Resume.
+Say what you want while the session's questions wait. When the session has what it needs, it writes the plan and submits it. A turn that ends without a submission waits for your next line, and the Planning page shows Waiting for you beside the session's state. When `ask_wait`, five minutes unless the profile says otherwise, runs out with no terminal attached and none of the session's own background work still running, the session parks, and Needs you offers Resume.
 
 With the field empty, Enter, Escape, and the up and down arrows go straight to the session, as do the keys under the field. Detach stops what you type from reaching the session, which keeps running, and Attach joins it again.
 

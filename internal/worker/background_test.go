@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -198,6 +199,56 @@ func TestAPlanningLaneWithBackgroundWorkStillWaitsForItsPerson(t *testing.T) {
 	r.awaitOrder(t, workorders.Acceptance)
 	if r.nudged() {
 		t.Errorf("a planning lane waiting for its person was nudged: %+v", r.driver.Sent())
+	}
+}
+
+// A background job a planning lane's turn left running is its own work, so the lane waits on it as one with a
+// person at its pane: parking at `ask_wait` would end the session, and the job with it.
+func TestAPlanningLaneIsNotParkedWhileItsBackgroundWorkRuns(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", func(*fake.AgentDriver) {})
+	stopped := newGate()
+	r.gates(stopped)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01)}))
+	r.atGate(stopped)
+	r.stopHook(t, 2)
+	stopped.free()
+	r.waitsForItsPerson(t)
+
+	r.clock.Advance(5*time.Minute + time.Second)
+	r.holdsFor(t, time.Minute)
+	r.waitsForItsPerson(t)
+	if row := r.row(); row.State != workorders.Running {
+		t.Fatalf("a planning lane with its background work running left its work %s", row.State)
+	}
+}
+
+// The wait on background work is the wait a terminal left attached has, so it ends where that one does: a job that
+// outlasts `attachedWaits` waits in a row with no input from the lane's person no longer keeps the session.
+func TestAPlanningLaneIsParkedOnceItsBackgroundWorkOutlastsTheAttachedWaits(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"1m\"\nhandoff_timeout = \"30ms\"\n", func(*fake.AgentDriver) {})
+	stopped := newGate()
+	r.gates(stopped)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01)}))
+	r.atGate(stopped)
+	r.stopHook(t, 1)
+	stopped.free()
+	r.waitsForItsPerson(t)
+	for wait := 1; wait < worker.AttachedWaits; wait++ {
+		r.clock.Advance(time.Minute + time.Second)
+		time.Sleep(10 * superviseStep)
+		if parking := r.parkingOf(t); parking != nil {
+			t.Fatalf("background work kept the lane for only %d waits: %+v", wait, parking)
+		}
+	}
+	r.waitsForItsPerson(t)
+	r.clock.Advance(time.Minute)
+
+	r.awaitParked(t)
+	r.subject.Wait()
+	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
+		t.Errorf("wake %+v, want one only a person ends", wake)
 	}
 }
 
