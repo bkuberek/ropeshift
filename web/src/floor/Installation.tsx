@@ -426,6 +426,9 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                       const cap = report ? report.caps.max_lanes : line.worker.manifest?.capacity?.max_lanes;
                       const orchestrator = line.orchestrator;
                       const stopped = !orchestrator || !orchestrator.actual_state || !running.has(orchestrator.actual_state);
+                      // One a member wants running that has no running session, such as one whose run ended, offers Stop
+                      // beside Start, so a member can say they no longer want it.
+                      const wanted = orchestrator?.desired_state === "running";
                       return (
                         <tr key={line.worker.id} aria-selected={selected === line.worker.id || undefined}>
                           <td data-label="Machine">
@@ -498,7 +501,8 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                                 <Absent>none</Absent>
                               )}
                               {orchestrator?.waiting_for === "run_window" ? <OpenRunWindow worker={line.worker.id} name={line.worker.name || line.worker.id} /> : null}
-                              {stopped ? <OrchestratorStart line={line} after={after} /> : <StopOrchestrator line={line} after={after} />}
+                              {stopped ? <OrchestratorStart line={line} after={after} /> : null}
+                              {wanted || !stopped ? <StopOrchestrator line={line} after={after} /> : null}
                               {orchestrator ? <OrchestratorDetails line={line} /> : null}
                             </span>
                           </td>
