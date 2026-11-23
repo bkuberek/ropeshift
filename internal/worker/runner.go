@@ -334,6 +334,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.worktree = record.Worktree
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.packRead, run.process = record.Progress.Pack, record.Process
+	run.model, run.resolved = record.Progress.Model, record.Progress.ModelResolved
 	run.handled = record.RespawnsSeen
 	run.waitParkAt = record.WaitParkAt
 	run.owesBrief.Store(record.Progress.OwesBrief)
@@ -1389,6 +1390,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
 		EndCounted: r.endKept, Briefed: r.assisting() && r.assistant().isBriefed(),
+		Model: r.model, ModelResolved: r.resolvedModel(),
 	}
 	r.state.journalContext(&progress)
 	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {

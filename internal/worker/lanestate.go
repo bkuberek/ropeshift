@@ -353,6 +353,10 @@ func (s *laneState) keepContext(progress lanes.Progress) {
 	s.context, s.baseline = progress.ContextTokens, progress.BaselineTokens
 	s.compact = compaction{asked: progress.Compactions, pending: progress.CompactPending, seen: progress.CompactSeen}
 	s.keptBackground, s.keptStopMs = progress.Background, progress.BackgroundStopMs
+	if progress.WaitUntilMs != 0 {
+		s.waitUntil = time.UnixMilli(progress.WaitUntilMs)
+	}
+	s.dayCapped = progress.DayCapped
 }
 
 // journalContext writes what keepContext reads.
@@ -364,6 +368,10 @@ func (s *laneState) journalContext(progress *lanes.Progress) {
 	if s.background > 0 {
 		progress.Background, progress.BackgroundStopMs = s.background, s.stoppedMs
 	}
+	if !s.waitUntil.IsZero() {
+		progress.WaitUntilMs = s.waitUntil.UnixMilli()
+	}
+	progress.DayCapped = s.dayCapped
 }
 
 // resumeRest rests again on the background work the journal kept, once a replay has read the session's hooks: only

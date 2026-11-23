@@ -236,7 +236,11 @@ func (r *laneRun) charged(ctx context.Context, key string, from time.Time, judge
 		if reset == resetMember {
 			verdict.Tripped = false
 		}
-		r.state.setDayCapped(verdict.Tripped && breaker.OverDay(charges, from))
+		if r.state.setDayCapped(verdict.Tripped && breaker.OverDay(charges, from)) {
+			// The verdict outlives a restart: a worker that takes the lane over must not read a day the breaker found
+			// full as one that cooled.
+			r.saveProgress(ctx, r.cursor)
+		}
 		if !verdict.Tripped && reset != resetNone {
 			// A reset that a verdict lets through leaves `tripped`. One of an orchestrator's that finds the
 			// day full leaves the lane where it was, waiting for a member. A breaker that cooled was reset by
@@ -286,10 +290,13 @@ func (k resetKind) clears() bool { return k == resetMember || k == resetWindow }
 
 // setDayCapped keeps whether the breaker's last verdict found the lane's day full, which a tripped lane
 // reports so that an orchestrator does not ask for a reset only a member can make.
-func (s *laneState) setDayCapped(capped bool) {
+// It reports whether the verdict changed what was kept.
+func (s *laneState) setDayCapped(capped bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	changed := s.dayCapped != capped
 	s.dayCapped = capped
+	return changed
 }
 
 // isDayCapped says the breaker's last verdict found the lane's day full. It holds until the next verdict, which a
