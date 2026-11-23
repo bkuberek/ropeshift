@@ -213,6 +213,9 @@ type ToolCall struct {
 	Pattern string
 	// Cwd is where the session stands, which a relative path is read against.
 	Cwd string
+	// Transcript is the file the session's CLI keeps its transcript in, which names the folder beside it where the CLI
+	// saves a large tool output for the session to read.
+	Transcript string
 }
 
 // RealPathReader says where a path leads on the disk a policy guards, through every link in it.
@@ -486,8 +489,10 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 					return reason, true
 				}
 			default:
-				if len(p.AskReadRoots) != 0 && p.programReadsOutside(name, words[1:], at, command.piped) {
-					seen.reads = true
+				if len(p.AskReadRoots) != 0 {
+					leaders := command.words[:len(command.words)-len(words)]
+					viaXargs := slices.ContainsFunc(leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" })
+					seen.reads = seen.reads || p.programReadsOutside(name, words[1:], at, command, viaXargs)
 				}
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {

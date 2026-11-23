@@ -26,6 +26,10 @@ type readerRule struct {
 	supplies, files, bare, valued []string
 	// recursive are the options that make a search read the directory it stands in.
 	recursive []string
+	// lastIsTarget says the last operand is where the program writes, so only the operands before it are read, unless
+	// an option of targets names the destination, which leaves every operand a source.
+	lastIsTarget bool
+	targets      []string
 }
 
 var (
@@ -57,7 +61,13 @@ var readers = map[string]readerRule{
 	"awk":    {pattern: true, files: []string{"-f", "--file"}, valued: []string{"-F", "-v"}},
 	"gawk":   {pattern: true, files: []string{"-f", "--file"}, valued: []string{"-F", "-v"}},
 	"jq":     {pattern: true, files: []string{"-f", "--from-file"}, valued: []string{"--arg", "--argjson"}},
+	"cp":     {lastIsTarget: true, targets: copyTargets}, "install": {lastIsTarget: true, targets: copyTargets, valued: []string{"-m", "-o", "-g", "--mode", "--owner", "--group"}},
+	"rsync": {lastIsTarget: true, valued: []string{"-e", "--rsh", "--exclude", "--include", "--port", "--bwlimit"}},
+	"tar":   {files: []string{"-f", "--file"}, valued: []string{"-C", "--directory", "--exclude"}},
 }
+
+// copyTargets are the options that name the directory a copy goes to.
+var copyTargets = []string{"-t", "--target-directory"}
 
 // readOperands are the words a reader takes as paths, and whether the reader was given an option that reads the
 // directory it stands in with no path.
@@ -66,7 +76,7 @@ func readOperands(name string, rule readerRule, args []shellWord) (paths []shell
 		return findOperands(args), true
 	}
 	needPattern := rule.pattern
-	options := true
+	options, targeted := true, false
 	for i := 0; i < len(args); i++ {
 		word := args[i]
 		text := word.text
@@ -78,6 +88,11 @@ func readOperands(name string, rule readerRule, args []shellWord) (paths []shell
 			switch {
 			case slices.Contains(rule.recursive, option):
 				recursive = true
+			case slices.Contains(rule.targets, option):
+				targeted = true
+				if !joined {
+					i++
+				}
 			case slices.Contains(rule.bare, option):
 				needPattern = false
 			case slices.Contains(rule.supplies, option):
@@ -106,6 +121,9 @@ func readOperands(name string, rule readerRule, args []shellWord) (paths []shell
 		default:
 			paths = append(paths, word)
 		}
+	}
+	if rule.lastIsTarget && !targeted && len(paths) != 0 {
+		paths = paths[:len(paths)-1]
 	}
 	return paths, recursive
 }
@@ -149,11 +167,19 @@ func findOperands(args []shellWord) []shellWord {
 
 // programReadsOutside says a program that reads files reads one where AskReadRoots do not reach, as far as its
 // words say: a path it names, or the directory the session stands in when it names none. A path only a shell can
-// name, and a directory the policy does not know, read as inside, because a hook runs nothing.
-func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string, piped bool) bool {
+// name reads as outside, because a hook runs nothing and cannot say where it leads, and so does every path a reader
+// run through xargs is handed. A directory the policy does not know reads as inside. A program that runs the code its
+// words hold reads where that code names a place (codeReadsOutside).
+func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string, command shellCommand, viaXargs bool) bool {
+	if kind, runs := interpreterOf(name); runs && kind.letters != "" {
+		return p.codeReadsOutside(kind, args, at, command)
+	}
 	rule, listed := readers[name]
 	if !listed && name != "find" {
 		return false
+	}
+	if viaXargs {
+		return true
 	}
 	paths, recursive := readOperands(name, rule, args)
 	for _, word := range paths {
@@ -161,7 +187,7 @@ func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string
 			return true
 		}
 	}
-	if len(paths) != 0 || at == "" || piped && name != "find" {
+	if len(paths) != 0 || at == "" || command.piped && name != "find" {
 		return false
 	}
 	here := rule.here == readsWhereItStands || rule.here == readsWhereItStandsRecursively && recursive
@@ -171,11 +197,79 @@ func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string
 	return here && !p.leadsUnder(at, at, at, p.AskReadRoots, true)
 }
 
+// codeReadsOutside says the code an interpreter is given names a place where AskReadRoots do not reach: inline code,
+// as `python -c` takes it, or a here-document or here-string that feeds it. Code names a path as a word that begins
+// with `/`, `~`, or `..`, which is as far as a hook reads a language it does not run. Code only a shell can write, or
+// standard input a pipe feeds with nothing to read, asks, as the gates treat code they cannot read. A script file is
+// the lane's own, and a module is no path.
+func (p DenyPolicy) codeReadsOutside(kind interpreter, args []shellWord, at string, command shellCommand) bool {
+	var code []shellWord
+	file, coded := false, false
+	for i := 0; i < len(args) && !file; i++ {
+		text := args[i].text
+		switch {
+		case text == "-" || text == "--":
+			file = false
+			i = len(args)
+		case kind.module && strings.HasPrefix(text, "-m") || !strings.HasPrefix(text, "-"):
+			file = true
+		case slices.Contains([]string{"--eval", "--print", "--command"}, text) || !strings.HasPrefix(text, "--") && strings.ContainsAny(text[1:], kind.letters):
+			coded = true
+			if i+1 < len(args) {
+				code = append(code, args[i+1])
+			}
+			i++
+		}
+		if coded {
+			break
+		}
+	}
+	if file {
+		return false
+	}
+	for _, word := range code {
+		if word.dynamic || word.expands || p.namesPlaceOutside(word.text, at) {
+			return true
+		}
+	}
+	if coded {
+		return false
+	}
+	for _, body := range command.fed {
+		if body.expands || p.namesPlaceOutside(body.text, at) {
+			return true
+		}
+	}
+	return kind.standard && command.piped && len(command.fed) == 0
+}
+
+// namesPlaceOutside says text names, as a word, a path where AskReadRoots do not reach.
+func (p DenyPolicy) namesPlaceOutside(text, at string) bool {
+	for word := range strings.FieldsFuncSeq(text, func(c rune) bool {
+		return (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && !strings.ContainsRune("_./~$-+@:%", c)
+	}) {
+		if !strings.HasPrefix(word, "/") && !strings.HasPrefix(word, "~") && !strings.HasPrefix(word, "../") && word != ".." {
+			continue
+		}
+		if strings.Trim(word, "/") == "" || strings.HasPrefix(word, "//") {
+			continue
+		}
+		if p.readsOutside(shellWord{text: word}, at) {
+			return true
+		}
+	}
+	return false
+}
+
 // readsOutside says a file a command reads, as the words give its name, lies where AskReadRoots do not reach. A name
-// only a shell can read is not seen.
+// only a shell can expand reads as outside.
 func (p DenyPolicy) readsOutside(word shellWord, at string) bool {
 	resolved, ok := p.resolve(word, at)
-	if !ok || slices.Contains(quietDevices, resolved) || word.process || resolved == "/dev/stdin" {
+	if !ok {
+		// A word only a shell can expand names a place no hook can read.
+		return word.dynamic || word.expands
+	}
+	if slices.Contains(quietDevices, resolved) || word.process || resolved == "/dev/stdin" {
 		return false
 	}
 	raw := word.text

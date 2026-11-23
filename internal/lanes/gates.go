@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"path"
 	"slices"
 	"strings"
 )
@@ -38,7 +39,7 @@ func (p DenyPolicy) Asks(call ToolCall) (string, bool) {
 	if p.Program != "" {
 		return "", false
 	}
-	if len(p.AskReadRoots) != 0 && slices.Contains(readTools, call.Tool) && !p.readableUnder(call, p.AskReadRoots, true) {
+	if len(p.AskReadRoots) != 0 && slices.Contains(readTools, call.Tool) && !p.readableUnder(call, p.readRootsOf(call), true) {
 		return ReasonAskReadOutside, true
 	}
 	if !RunsShell(call.Tool) {
@@ -62,6 +63,21 @@ func (p DenyPolicy) Asks(call ToolCall) (string, bool) {
 		return ReasonAskReadOutside, true
 	}
 	return "", false
+}
+
+// transcriptSuffix ends the name of the file the session's CLI keeps its transcript in. The policy names the folder
+// beside it, and never opens the file.
+const transcriptSuffix = ".jsonl"
+
+// readRootsOf are the directories a call reads with no prompt: AskReadRoots, and for the Read tool the folder where
+// the session's own CLI saved a tool output for it. The folder is the transcript's name without its extension, and
+// nothing else beside the transcript is the session's to read: not the transcript, and not another session's folder.
+func (p DenyPolicy) readRootsOf(call ToolCall) []string {
+	if call.Tool != "Read" || !strings.HasSuffix(call.Transcript, transcriptSuffix) || !path.IsAbs(call.Transcript) {
+		return p.AskReadRoots
+	}
+	saved := path.Join(strings.TrimSuffix(call.Transcript, transcriptSuffix), "tool-results")
+	return append(slices.Clone(p.AskReadRoots), saved)
 }
 
 // shellReadsOutside says a shell call reads a file where AskReadRoots do not reach, in any command it holds, however

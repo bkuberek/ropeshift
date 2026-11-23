@@ -381,9 +381,18 @@ func TestNoShellRuleExemptsOnlyItsOneLine(t *testing.T) {
 // and a job file are formats the vendor documents as unstable.
 var vendorFiles = []string{"/.claude/projects", "/.claude/jobs", ".claude/jobs/", "transcript_path", ".jsonl\""}
 
+// vendorNames are the two lines that name a transcript without opening it: the hook's input field that holds the
+// transcript's path, and the suffix of its file name. The saved output of a tool is in the folder beside the transcript,
+// named for it, which is the one place a lane's read of the CLI's own directory asks nothing, and no code reads the
+// transcript or lists a directory of the CLI for it.
+var vendorNames = map[string][]string{
+	"internal/hook/hook.go":   {"Transcript string `json:\"transcript_path\"`"},
+	"internal/lanes/gates.go": {`const transcriptSuffix = ".jsonl"`},
+}
+
 // TestNoVendorFileReads finds no read of a transcript or a job file.
 func TestNoVendorFileReads(t *testing.T) {
-	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, vendorFiles)
+	found, err := FindSourceLines(repoRoot(t), []string{"cmd", "internal"}, vendorFiles, vendorNames)
 	if err != nil {
 		t.Fatal(err)
 	}

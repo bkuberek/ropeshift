@@ -426,9 +426,11 @@ func decideRule(cfg config, input []byte, rule *string) (verdict, []byte) {
 		return callDenied, denial(unavailablePolicy)
 	}
 	var call struct {
-		Tool  string `json:"tool_name"`
-		Cwd   string `json:"cwd"`
-		Input struct {
+		Tool string `json:"tool_name"`
+		Cwd  string `json:"cwd"`
+		// Transcript is where the CLI keeps the session's transcript.
+		Transcript string `json:"transcript_path"`
+		Input      struct {
 			Command  string `json:"command"`
 			File     string `json:"file_path"`
 			Notebook string `json:"notebook_path"`
@@ -467,8 +469,10 @@ func decideRule(cfg config, input []byte, rule *string) (verdict, []byte) {
 	if target == "" {
 		target = call.Input.Path
 	}
-	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Pattern: call.Input.Pattern, Cwd: call.Cwd}
-	reason, waitRule, denied := policy.WithLinks(diskLink).WithRealPaths(filepath.EvalSymlinks).DecideRule(tool)
+	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Pattern: call.Input.Pattern, Cwd: call.Cwd, Transcript: call.Transcript}
+	// One policy reads the disk for every question below, so a denial and an ask read a path where it leads.
+	policy = policy.WithLinks(diskLink).WithRealPaths(filepath.EvalSymlinks)
+	reason, waitRule, denied := policy.DecideRule(tool)
 	if denied {
 		if rule != nil {
 			*rule = waitRule

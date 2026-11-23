@@ -57,7 +57,35 @@ func TestAReadOutsideALanesRootsAsks(t *testing.T) {
 		{"listing of the worktree", ToolCall{Tool: "Bash", Command: "ls", Cwd: "/work/lane-1"}, false},
 		{"listing after a cd inside", ToolCall{Tool: "Bash", Command: "cd internal && ls", Cwd: "/work/lane-1"}, false},
 		{"a place only a shell can name", ToolCall{Tool: "Bash", Command: "cd \"$(git rev-parse --show-toplevel)\" && ls", Cwd: "/work/lane-1"}, false},
-		{"a path a variable holds", ToolCall{Tool: "Bash", Command: "cat $FILE", Cwd: "/work/lane-1"}, false},
+		{"a path a variable holds", ToolCall{Tool: "Bash", Command: "cat $FILE", Cwd: "/work/lane-1"}, true},
+		{"a path a substitution makes", ToolCall{Tool: "Bash", Command: "cat $(echo f)", Cwd: "/work/lane-1"}, true},
+		{"a path a quoted variable holds", ToolCall{Tool: "Bash", Command: "rg token \"$DIR\"", Cwd: "/work/lane-1"}, true},
+		{"a pattern a variable holds", ToolCall{Tool: "Bash", Command: "rg \"$PATTERN\" internal", Cwd: "/work/lane-1"}, false},
+		{"paths a pipe hands to a reader", ToolCall{Tool: "Bash", Command: "echo f | xargs cat", Cwd: "/work/lane-1"}, true},
+		{"paths a pipe hands to a reader behind options", ToolCall{Tool: "Bash", Command: "git ls-files | xargs -n 1 wc -l", Cwd: "/work/lane-1"}, true},
+		{"a pipe into a program that is no reader", ToolCall{Tool: "Bash", Command: "git ls-files | xargs echo", Cwd: "/work/lane-1"}, false},
+		{"a copy from outside", ToolCall{Tool: "Bash", Command: "cp /etc/passwd ./p", Cwd: "/work/lane-1"}, true},
+		{"a copy of several from outside", ToolCall{Tool: "Bash", Command: "cp -r a /var/log b", Cwd: "/work/lane-1"}, true},
+		{"a copy inside", ToolCall{Tool: "Bash", Command: "cp -r a b", Cwd: "/work/lane-1"}, false},
+		{"a copy to a directory named by an option", ToolCall{Tool: "Bash", Command: "cp -t dest /etc/hosts", Cwd: "/work/lane-1"}, true},
+		{"an install from outside", ToolCall{Tool: "Bash", Command: "install -m 644 /etc/hosts ./h", Cwd: "/work/lane-1"}, true},
+		{"a sync from outside", ToolCall{Tool: "Bash", Command: "rsync -a /etc/ ./x/", Cwd: "/work/lane-1"}, true},
+		{"a sync inside", ToolCall{Tool: "Bash", Command: "rsync -a src/ dst/", Cwd: "/work/lane-1"}, false},
+		{"an archive of a place outside", ToolCall{Tool: "Bash", Command: "tar -cf - /etc", Cwd: "/work/lane-1"}, true},
+		{"an archive with no dash", ToolCall{Tool: "Bash", Command: "tar cf - /etc", Cwd: "/work/lane-1"}, true},
+		{"an archive of the worktree", ToolCall{Tool: "Bash", Command: "tar -czf out.tgz internal", Cwd: "/work/lane-1"}, false},
+		{"python code that names a file outside", ToolCall{Tool: "Bash", Command: "python3 -c 'print(open(\"/etc/passwd\").read())'", Cwd: "/work/lane-1"}, true},
+		{"python code that names the home directory", ToolCall{Tool: "Bash", Command: "python3 -c 'import os; os.listdir(\"~/.ssh\")'", Cwd: "/work/lane-1"}, true},
+		{"node code that names a file outside", ToolCall{Tool: "Bash", Command: "node -e \"require('fs').readFileSync('/etc/hosts')\"", Cwd: "/work/lane-1"}, true},
+		{"perl code that names a file outside", ToolCall{Tool: "Bash", Command: "perl -e 'open F, \"</etc/passwd\"'", Cwd: "/work/lane-1"}, true},
+		{"ruby code that names a file outside", ToolCall{Tool: "Bash", Command: "ruby -e 'File.read(\"/etc/hosts\")'", Cwd: "/work/lane-1"}, true},
+		{"python code that climbs out", ToolCall{Tool: "Bash", Command: "python3 -c 'open(\"../../etc/passwd\")'", Cwd: "/work/lane-1"}, true},
+		{"python code a variable holds", ToolCall{Tool: "Bash", Command: "python3 -c \"$CODE\"", Cwd: "/work/lane-1"}, true},
+		{"python code a here-document holds", ToolCall{Tool: "Bash", Command: "python3 <<'EOF'\nprint(open('/etc/passwd').read())\nEOF", Cwd: "/work/lane-1"}, true},
+		{"python code that names a file inside", ToolCall{Tool: "Bash", Command: "python3 -c 'print(open(\"/work/lane-1/main.py\").read())'", Cwd: "/work/lane-1"}, false},
+		{"python code that names no path", ToolCall{Tool: "Bash", Command: "python3 -c 'print(1 + 1)'", Cwd: "/work/lane-1"}, false},
+		{"a script of the worktree", ToolCall{Tool: "Bash", Command: "python3 scripts/check.py", Cwd: "/work/lane-1"}, false},
+		{"a module", ToolCall{Tool: "Bash", Command: "python3 -m pytest", Cwd: "/work/lane-1"}, false},
 		{"input redirect from the null device", ToolCall{Tool: "Bash", Command: "go test ./... < /dev/null", Cwd: "/work/lane-1"}, false},
 		{"a build", ToolCall{Tool: "Bash", Command: "go test ./... && go build ./...", Cwd: "/work/lane-1"}, false},
 		{"a write to /tmp is the write rule's", ToolCall{Tool: "Bash", Command: "echo hi > /tmp/x", Cwd: "/work/lane-1"}, false},
@@ -69,7 +97,7 @@ func TestAReadOutsideALanesRootsAsks(t *testing.T) {
 			if asks != tt.asks {
 				t.Errorf("Asks(%+v) = %q, %v; want asks %v", tt.call, reason, asks, tt.asks)
 			}
-			if asks && reason != ReasonAskReadOutside {
+			if asks && reason != ReasonAskReadOutside && reason != ReasonAskRead {
 				t.Errorf("reason %q", reason)
 			}
 		})
@@ -92,7 +120,10 @@ func TestAPolicyWithNoAskReadRootsAsksForNoRead(t *testing.T) {
 // A read asks by where its path leads: a link in the worktree that leads out asks, a path with nothing there yet
 // does not, and a path inside a root reads as inside.
 func TestAReadAsksByWhereItLeads(t *testing.T) {
-	base := t.TempDir()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	worktree := filepath.Join(base, "lane")
 	outside := filepath.Join(base, "elsewhere")
 	for _, dir := range []string{worktree, outside} {

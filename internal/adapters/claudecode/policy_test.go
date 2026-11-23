@@ -646,7 +646,10 @@ func TestNoGeneratedSettingUsesABypassMode(t *testing.T) {
 // path, the read-only trees, and the lane's private directory, and the hook denies none: the assistant is the one
 // session whose reads are denied past its roots.
 func TestALanesPolicyAsksForReadsOutsideItsRoots(t *testing.T) {
-	base := t.TempDir()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	real := filepath.Join(base, "real", "lane-1")
 	reads := filepath.Join(base, "reads", "api")
 	linked := filepath.Join(base, "reads-link")
