@@ -587,9 +587,27 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 	}
 }
 
+// clockSkewMs is how far past the worker's clock a hook's time may stand before it cannot be a time on this machine.
+const clockSkewMs = 1000
+
+// clampToClock takes each time of the turn clock past now as now. The clock that stamps a hook is this machine's, so
+// no hook fires after now, and a time kept past it was kept before the wall clock stepped back. Left as it is, it
+// leaves every later Stop and prompt no newer than it, until the clock catches up.
+func (s *laneState) clampToClock(nowMs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, kept := range []*int64{&s.stoppedMs, &s.failedMs, &s.promptedMs, &s.handedMs} {
+		if *kept > nowMs+clockSkewMs {
+			*kept = nowMs
+		}
+	}
+}
+
 // observeHook turns one hook event into what it says about the lane. A tool call that has
-// started and not finished is a wait, not a stall.
+// started and not finished is a wait, not a stall. A time kept past the clock is read as now first, because the wall
+// clock may have stepped back (clampToClock).
 func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
+	r.state.clampToClock(r.w.clock.Now().UnixMilli())
 	r.observe(ctx, event, false)
 }
 

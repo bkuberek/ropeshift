@@ -61,7 +61,7 @@ func TestAPlanningLaneWorkingOnATypedLineIsNotParked(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.reach(t, working)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.promptAt(t, at)
 	r.callAt(t, "PreToolUse", "tool-1", at+1)
 	for range 11 {
@@ -90,7 +90,7 @@ func TestADrainLeavesATurnBackgroundWorkStartedToRun(t *testing.T) {
 		{Bound: true}, stopped.step(), completed(0.01), working.step(), r.reports(workorders.OutcomeCompleted), completed(0.02),
 	}))
 	r.atGate(stopped)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	stopped.free()
 	r.reach(t, working)
@@ -123,7 +123,7 @@ func TestAThresholdInATurnBackgroundWorkStartedHandsOffMidTurn(t *testing.T) {
 		[]fake.DriverStep{answer, completed(0.03)},
 	)
 	r.reach(t, stopped)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	stopped.free()
 	r.reach(t, resumed)
@@ -162,7 +162,7 @@ func TestTwoEndsOlderThanTheNewestPromptLeaveTheLaneWorking(t *testing.T) {
 		{Bound: true}, first.step(), completed(0.01), completed(0.02), third.step(), r.reports(workorders.OutcomeCompleted), completed(0.03),
 	}))
 	r.atGate(first)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	r.promptAt(t, at+1)
 	r.stopAt(t, at+2, 1)
@@ -191,7 +191,7 @@ func TestAFailureOfTheNextTurnLeavesTheEndBeforeItUnnudged(t *testing.T) {
 		{Bound: true}, first.step(), completed(0.01), {Turn: &fake.DriverTurn{Status: ports.TurnFailed, Reason: "server_error", TotalUSD: 0.02}},
 	}))
 	r.atGate(first)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	r.promptAt(t, at+1)
 	r.failureAt(t, at+2, "server_error")
@@ -237,7 +237,7 @@ func TestARestsBoundReadsTheTurnAgainBeforeItNudges(t *testing.T) {
 		{Bound: true}, stopped.step(), completed(0.01), working.step(), r.reports(workorders.OutcomeCompleted), completed(0.02),
 	}))
 	r.atGate(stopped)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	stopped.free()
 	r.reach(t, working)
@@ -268,7 +268,7 @@ func TestAnEndOlderThanItsPromptLeavesANewerCompaction(t *testing.T) {
 		{Bound: true}, first.step(), completed(0.01), next.step(), r.reports(workorders.OutcomeCompleted), completed(0.02),
 	}))
 	r.atGate(first)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	r.promptAt(t, at+1)
 	r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "session-1", Detail: "auto", AtMs: at + 2})
@@ -298,7 +298,7 @@ func TestAHookOfTheSameMillisecondIsNewerThanTheOneHeardBeforeIt(t *testing.T) {
 			[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.03)},
 		))
 		r.atGate(stopped)
-		at := time.Now().UnixMilli()
+		at := r.clock.Now().UnixMilli()
 		r.stopAt(t, at, 2)
 		r.promptAt(t, at)
 		stopped.free()
@@ -322,7 +322,7 @@ func TestAHookOfTheSameMillisecondIsNewerThanTheOneHeardBeforeIt(t *testing.T) {
 			[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.02)},
 		))
 		r.atGate(stopped)
-		at := time.Now().UnixMilli()
+		at := r.clock.Now().UnixMilli()
 		r.promptAt(t, at)
 		r.stopAt(t, at, 0)
 		stopped.free()
@@ -373,7 +373,7 @@ func TestAPromptWhileATurnsEndIsDecidedDrawsNoNudge(t *testing.T) {
 	r.subject.HoldApprovalLoop("lane-1")
 	r.look(t, gatedCall, "call-1", false)
 	r.eventually("a lane that waits", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.NeedsDecision) })
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 0)
 	held.armed.Store(true)
 	stopped.free()

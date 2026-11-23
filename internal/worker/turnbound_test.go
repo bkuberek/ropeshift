@@ -55,7 +55,7 @@ func TestATurnThatNeverEndsIsBoundedByTheLiveWait(t *testing.T) {
 		[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.02)},
 	))
 	r.atGate(stopped)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	stopped.free()
 	r.restsOnBackground()
@@ -83,7 +83,7 @@ func TestAnEndOlderThanItsPromptIsBoundedByTheLiveWait(t *testing.T) {
 				[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.02)},
 			))
 			r.atGate(stopped)
-			at := time.Now().UnixMilli()
+			at := r.clock.Now().UnixMilli()
 			if promptFirst {
 				r.promptAt(t, at+1)
 				r.stopAt(t, at, 1)
@@ -115,7 +115,7 @@ func TestALateStopDoesNotStrandTheEndAfterIt(t *testing.T) {
 	))
 	r.start()
 	r.reach(t, nudged)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	r.promptAt(t, at+1)
 	nudged.free()
@@ -146,7 +146,7 @@ func TestATakenOverLaneKeepsItsTurnStateAndItsBounds(t *testing.T) {
 		r.driver.Play(script([]fake.DriverStep{{Bound: true}, stopped.step(), completed(0.01)}))
 		r.start()
 		r.reach(t, stopped)
-		at := time.Now().UnixMilli()
+		at := r.clock.Now().UnixMilli()
 		r.stopAt(t, at, 1)
 		stopped.free()
 		r.restsOnBackground()
@@ -181,7 +181,7 @@ func TestATakenOverLaneKeepsItsTurnStateAndItsBounds(t *testing.T) {
 		r.driver.Play(script([]fake.DriverStep{{Bound: true}, stopped.step()}))
 		r.start()
 		r.reach(t, stopped)
-		at := time.Now().UnixMilli()
+		at := r.clock.Now().UnixMilli()
 		r.stopAt(t, at, 1)
 		r.promptAt(t, at+1)
 		driver := r.takeOver(t, script([]fake.DriverStep{completed(0.01)}))
@@ -239,7 +239,7 @@ func TestAWaitsBoundDeclinedOnceIsReachedAgain(t *testing.T) {
 		[]fake.DriverStep{r.reports(workorders.OutcomeCompleted), completed(0.02)},
 	))
 	r.atGate(stopped)
-	at := time.Now().UnixMilli()
+	at := r.clock.Now().UnixMilli()
 	r.stopAt(t, at, 1)
 	stopped.free()
 	r.restsOnBackground()
