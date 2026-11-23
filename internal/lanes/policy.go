@@ -128,6 +128,8 @@ type PolicySpec struct {
 	ReadOnly bool
 	// ReadRoots, when set, are the only directories the session may read with a file tool.
 	ReadRoots []string
+	// AskReadRoots, when set, are the only directories the session reads with no prompt: a read anywhere else asks.
+	AskReadRoots []string
 	// Program, when set, is the one program the session may run in a shell, and Commands are the only
 	// commands of it the session may run, by name.
 	Program  string
@@ -184,7 +186,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		Waits:    waits,
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
-		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots),
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots), AskReadRoots: slices.Clone(spec.AskReadRoots),
 		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
 		RefusedFlags: slices.Clone(spec.RefusedFlags),
 	}
@@ -281,11 +283,17 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 // pattern names a place too: the part of it before its first wildcard must lie under a read root, and no
 // part after one may climb out with `..`.
 func (p DenyPolicy) readable(call ToolCall) bool {
+	return p.readableUnder(call, p.ReadRoots, false)
+}
+
+// readableUnder is readable for any roots. A lenient reading takes a path that leads nowhere as inside when its name
+// lies inside, because it reads nothing, and a person is not asked about it.
+func (p DenyPolicy) readableUnder(call ToolCall, roots []string, lenient bool) bool {
 	target := call.Path
 	if target == "" {
 		target = call.Cwd
 	}
-	if !p.readsUnder(target, call.Cwd) {
+	if !p.readsUnderRoots(target, call.Cwd, roots, lenient) {
 		return false
 	}
 	if call.Tool != "Glob" || call.Pattern == "" {
@@ -299,46 +307,59 @@ func (p DenyPolicy) readable(call ToolCall) bool {
 	case prefix == "":
 		return true
 	case path.IsAbs(prefix):
-		return p.readsUnder(prefix, call.Cwd)
+		return p.readsUnderRoots(prefix, call.Cwd, roots, lenient)
 	}
 	if !path.IsAbs(target) {
 		target = call.Cwd + "/" + target
 	}
-	return p.readsUnder(target+"/"+prefix, call.Cwd)
+	return p.readsUnderRoots(target+"/"+prefix, call.Cwd, roots, lenient)
 }
 
-// readsUnder says a path lies under a read root, by its name and, with the disk, by where it leads through
-// every link in it: a link in a tree leads wherever the tree's content says. A path that leads nowhere
-// reads as outside, because this hook fails closed.
-func (p DenyPolicy) readsUnder(target, cwd string) bool {
+// readsUnderRoots says a path lies under a root, by its name and, with the disk, by where it leads through
+// every link in it: a link in a tree leads wherever the tree's content says. A path that leads nowhere reads as
+// outside, because this hook fails closed, unless the reading is lenient.
+func (p DenyPolicy) readsUnderRoots(target, cwd string, roots []string, lenient bool) bool {
 	// A tool may read `~` or a variable as a place the policy cannot see, so neither reads as inside.
 	if strings.HasPrefix(target, "~") || strings.Contains(target, "$") {
 		return false
 	}
 	resolved, ok := p.resolve(shellWord{text: target}, cwd)
-	if !ok || !under(resolved, p.ReadRoots) {
+	if !ok {
+		return false
+	}
+	return p.leadsUnder(target, resolved, cwd, roots, lenient)
+}
+
+// leadsUnder says a path whose name lies under a root also leads there through every link in it. The name as the tool
+// gave it, uncleaned, is what the disk reads, so `link/..` climbs from where the link leads, as the system reads it. A
+// lenient reading follows the part of a path that exists.
+func (p DenyPolicy) leadsUnder(target, resolved, cwd string, roots []string, lenient bool) bool {
+	if !under(resolved, roots) {
 		return false
 	}
 	if p.real == nil {
 		return true
 	}
-	// The name as the tool gave it, uncleaned, so `link/..` climbs from where the link leads, as the system
-	// reads it.
 	raw := target
 	if !path.IsAbs(raw) {
 		raw = cwd + "/" + raw
 	}
 	leads, err := p.real(raw)
+	for lenient && err != nil && raw != "/" {
+		// A path that leads nowhere reads nothing, so it leads where the part of it that exists does.
+		raw = path.Dir(raw)
+		leads, err = p.real(raw)
+	}
 	if err != nil {
 		return false
 	}
-	var roots []string
-	for _, root := range p.ReadRoots {
-		if real, err := p.real(root); err == nil {
-			roots = append(roots, real)
+	var real []string
+	for _, root := range roots {
+		if resolvedRoot, err := p.real(root); err == nil {
+			real = append(real, resolvedRoot)
 		}
 	}
-	return under(leads, roots)
+	return under(leads, real)
 }
 
 // under says a path is one of roots or lies below one.
@@ -401,6 +422,8 @@ func Pushes(command string) bool {
 type gitSeen struct {
 	pushes  bool
 	commits bool
+	// reads says a command reads a file where AskReadRoots do not reach (readsOutside).
+	reads bool
 }
 
 func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (string, bool) {
@@ -415,6 +438,11 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 	}
 	at := cwd
 	for _, command := range commands {
+		if len(p.AskReadRoots) != 0 {
+			for _, target := range command.reads {
+				seen.reads = seen.reads || p.readsOutside(target, at)
+			}
+		}
 		if len(p.Roots) != 0 {
 			for _, target := range command.writes {
 				if !p.inside(target, at) {
@@ -458,6 +486,9 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 					return reason, true
 				}
 			default:
+				if len(p.AskReadRoots) != 0 && p.programReadsOutside(name, words[1:], at, command.piped) {
+					seen.reads = true
+				}
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {
 						if !p.inside(target, at) {

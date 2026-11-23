@@ -58,10 +58,12 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 			readOnly = append(readOnly, resolved)
 		}
 	}
-	var readRoots []string
+	var readRoots, askReadRoots []string
 	program := ""
 	if spec.Assistant {
 		readRoots, program = readRootsOf(spec), spec.Binary
+	} else {
+		askReadRoots = laneReadRoots(spec)
 	}
 	var waits *lanes.WaitRules
 	if spec.Waits.Version != 0 {
@@ -73,7 +75,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		ReadOnlyRoots: readOnly,
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
-		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: policyGates(spec), GatesAskOnly: spec.RunMode == ports.RunModeInteractive, ReadRoots: readRoots,
+		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: policyGates(spec), GatesAskOnly: spec.RunMode == ports.RunModeInteractive, ReadRoots: readRoots, AskReadRoots: askReadRoots,
 		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec), RefusedFlags: refusedFlagsOf(spec),
 	})
 	if spec.Assistant {
@@ -82,6 +84,21 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		}
 	}
 	return policy
+}
+
+// laneReadRoots are the directories a lane reads with no prompt: its worktree, the read-only trees of other repositories,
+// and its private temp directory, each by its name and the name its links resolve to. The hook asks for a read anywhere
+// else, because the CLI's own `auto` mode runs such a read with no prompt.
+func laneReadRoots(spec ports.SessionSpec) []string {
+	roots := readRootsOf(spec)
+	if spec.TempDir != "" {
+		temp := filepath.Clean(spec.TempDir)
+		roots = append(roots, temp)
+		if real, err := filepath.EvalSymlinks(temp); err == nil && real != temp {
+			roots = append(roots, real)
+		}
+	}
+	return roots
 }
 
 // assistantCalls are the only tools an assistant's session may call: its built-in tools and ropeshift's

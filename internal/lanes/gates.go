@@ -15,9 +15,10 @@ const (
 
 // The reasons a hook asks. Each reaches the person who answers.
 const (
-	ReasonAskPush = "ropeshift policy: a push asks in every permission mode."
-	ReasonAskGate = "ropeshift policy: this lane's profile gates this command, which asks in every permission mode."
-	ReasonAskRead = "ropeshift policy: this command could be a push or a gated command in a form the policy cannot read, so it asks in every permission mode."
+	ReasonAskPush        = "ropeshift policy: a push asks in every permission mode."
+	ReasonAskGate        = "ropeshift policy: this lane's profile gates this command, which asks in every permission mode."
+	ReasonAskReadOutside = "ropeshift policy: this read is outside this lane's worktree and the trees it reads, so it asks in every permission mode."
+	ReasonAskRead        = "ropeshift policy: this command could be a push or a gated command in a form the policy cannot read, so it asks in every permission mode."
 )
 
 // RunsShell says a tool runs the shell command its input names.
@@ -25,8 +26,8 @@ func RunsShell(tool string) bool {
 	return tool == ToolBash || tool == toolMonitor || tool == toolPowerShell
 }
 
-// Asks says a person is asked before a shell call runs, and why: for a push, for a command a gate names, and for a
-// command this cannot read that could be either. It holds in both run modes and every permission mode, because a
+// Asks says a person is asked before a call runs, and why: for a push, for a command a gate names, for a command this
+// cannot read that could be either, and for a read outside AskReadRoots, by a file tool or by a shell command it reads. It holds in both run modes and every permission mode, because a
 // hook's `ask` goes to the permission prompt and not to auto mode's classifier ([hooks]), while an ask rule matches
 // only the command as written ([permissions]). It asks of nothing in a session held to one program, which runs no
 // other.
@@ -34,7 +35,13 @@ func RunsShell(tool string) bool {
 // [hooks]: https://code.claude.com/docs/en/hooks#pretooluse-ask-decisions-in-auto-mode
 // [permissions]: https://code.claude.com/docs/en/permissions#bash-rule-limits
 func (p DenyPolicy) Asks(call ToolCall) (string, bool) {
-	if !RunsShell(call.Tool) || p.Program != "" {
+	if p.Program != "" {
+		return "", false
+	}
+	if len(p.AskReadRoots) != 0 && slices.Contains(readTools, call.Tool) && !p.readableUnder(call, p.AskReadRoots, true) {
+		return ReasonAskReadOutside, true
+	}
+	if !RunsShell(call.Tool) {
 		return "", false
 	}
 	if call.Tool == toolPowerShell {
@@ -51,8 +58,18 @@ func (p DenyPolicy) Asks(call ToolCall) (string, bool) {
 		return ReasonAskGate, true
 	case read.unread:
 		return ReasonAskRead, true
+	case len(p.AskReadRoots) != 0 && p.shellReadsOutside(call):
+		return ReasonAskReadOutside, true
 	}
 	return "", false
+}
+
+// shellReadsOutside says a shell call reads a file where AskReadRoots do not reach, in any command it holds, however
+// deep, through a program the policy knows reads files or a redirect from one.
+func (p DenyPolicy) shellReadsOutside(call ToolCall) bool {
+	var seen gitSeen
+	_, _ = p.decideShell(call.Command, call.Cwd, 0, &seen)
+	return seen.reads
 }
 
 // MayPush says a shell call is a push, or is one this cannot read that shows a push: it names one, or runs git, and
