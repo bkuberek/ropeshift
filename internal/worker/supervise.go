@@ -731,10 +731,15 @@ func (w *Worker) parkOnWaits(ctx context.Context) {
 }
 
 // declareWait keeps a lane's own word that it waits on something outside, for a time it
-// names. A quiet lane past that is a stalled one again.
+// names. A quiet lane past that is a stalled one again. The journal keeps it at once, from the goroutine that reads the
+// stream, so a worker that takes the lane over after a restart before the turn ends does not read it as stalled.
 func (r *laneRun) declareWait(wait lanes.WaitDeclaration) {
 	s := r.state
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.waitUntil = r.w.clock.Now().Add(time.Duration(wait.Minutes) * time.Minute)
+	s.mu.Unlock()
+	select {
+	case r.progressDue <- struct{}{}:
+	default:
+	}
 }

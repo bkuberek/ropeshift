@@ -55,6 +55,26 @@ func TestAnAdoptedRunKeepsItsDeclaredWait(t *testing.T) {
 	}
 }
 
+// A wait a lane declares is kept when it is declared, and not at the next turn's end: a restart in between would lose it, and
+// the worker that took the lane over would read it as stalled at once.
+func TestADeclaredWaitIsKeptBeforeTheNextTurnEnds(t *testing.T) {
+	t.Parallel()
+	r := aLaneThatSavedAfterATurn(t, func(*laneRig) {})
+	if reply := r.wait(t, 2); !reply.OK {
+		t.Fatalf("the wait was refused: %+v", reply)
+	}
+	until := r.clock.Now().Add(2 * time.Minute)
+	r.eventually("the wait kept", func(ledger.LaneView) bool {
+		record, err := r.journal.Lane(t.Context(), "lane-1")
+		return err == nil && record.Progress.WaitUntilMs == until.UnixMilli()
+	})
+	driver := r.takeOver(t, script([]fake.DriverStep{{Hold: true}}))
+	r.eventually("the session adopted", func(ledger.LaneView) bool { return len(driver.Adopted()) == 1 })
+	if got := r.subject.LaneWaitUntil("lane-1"); !got.Equal(until) {
+		t.Errorf("the adopted run's declared wait ends at %v, want %v", got, until)
+	}
+}
+
 // A model a lane's session resolved is known to the run that takes the lane over, so a clear in that run binds its
 // generation with the model the first one ran on.
 func TestAnAdoptedRunKeepsItsModel(t *testing.T) {
