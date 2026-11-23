@@ -920,6 +920,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.refuseStart(err)
 	}
 	if r.orchestrating() && !r.assisting() && !r.awaitWake(ctx) {
+		// A stop fences the run, and only a worker on its way out cancels the context.
+		if r.fenced.Load() {
+			return failed(workorders.ReasonFenced)
+		}
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	if r.assisting() {
