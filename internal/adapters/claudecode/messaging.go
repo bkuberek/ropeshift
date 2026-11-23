@@ -22,6 +22,7 @@ const (
 	receiptType    = "control"
 	receiptAction  = "peer_message_status"
 	receiptExpired = "expired"
+	receiptHeld    = "held"
 	detailRefused  = "refused"
 	// receiptLineMax bounds one receipt.
 	receiptLineMax = 1 << 16
@@ -55,6 +56,16 @@ func refusedInput(raw []byte) string {
 	return line.OrigMsgID
 }
 
+// heldInput reads one line of a receipt, and names the input it says the session holds. Only a probe reads it, as the
+// session's own word on the message it holds: a held message stays `handed_off` to a worker until it expires.
+func heldInput(raw []byte) string {
+	var line receiptLine
+	if json.Unmarshal(raw, &line) != nil || line.Type != receiptType || line.Action != receiptAction || line.Status != receiptHeld {
+		return ""
+	}
+	return line.OrigMsgID
+}
+
 // receiver is the socket a session's receipts come back to. It names an address of its own in the
 // session's socket directory, which is the only place the session answers.
 type receiver struct {
@@ -71,6 +82,12 @@ func receiptPath(spec ports.SessionSpec) string {
 // check gets none, so `refused` is never read on a surface that passed no check, and a session with
 // no private directory has none it can answer. It replaces what a killed process left at that path.
 func openReceiver(spec ports.SessionSpec, receipts bool, take func(input string)) (*receiver, error) {
+	return openReceiverOf(spec, receipts, refusedInput, take)
+}
+
+// openReceiverOf is openReceiver for the receipts one reader reads: it names the input a line of a receipt says
+// something of, or nothing, and take is handed each input it names.
+func openReceiverOf(spec ports.SessionSpec, receipts bool, read func(raw []byte) string, take func(input string)) (*receiver, error) {
 	if !receipts || spec.TempDir == "" {
 		return nil, nil
 	}
@@ -86,11 +103,11 @@ func openReceiver(spec ports.SessionSpec, receipts bool, take func(input string)
 		return nil, err
 	}
 	r := &receiver{listener: listener, path: path}
-	r.done.Go(func() { r.serve(take) })
+	r.done.Go(func() { r.serve(read, take) })
 	return r, nil
 }
 
-func (r *receiver) serve(take func(string)) {
+func (r *receiver) serve(read func([]byte) string, take func(string)) {
 	for {
 		conn, err := r.listener.Accept()
 		if err != nil {
@@ -102,7 +119,7 @@ func (r *receiver) serve(take func(string)) {
 			scanner := bufio.NewScanner(conn)
 			scanner.Buffer(make([]byte, 1<<12), receiptLineMax)
 			for scanner.Scan() {
-				if input := refusedInput(scanner.Bytes()); input != "" {
+				if input := read(scanner.Bytes()); input != "" {
 					take(input)
 				}
 			}
@@ -139,7 +156,9 @@ type socketLine struct {
 }
 
 // writeSocket writes one line to a socket only a hook or an init of this session could have named,
-// whose name carries the process that owns it. The write proves only that the socket took it.
+// whose name carries the process that owns it. The write proves only that the socket took it. A line that names a
+// reply address names its ID as `msg_id` too, which is the only trace of the ID on a version that gives the replay
+// a `uuid` of its own: its origin then carries both.
 func writeSocket(ctx context.Context, name, socket string, pid int, in ports.Input, from string) (ports.SendReceipt, error) {
 	if socket == "" {
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w: no socket", name, ports.ErrNoSession)
