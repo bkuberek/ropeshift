@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -74,6 +75,51 @@ func TestAStalledOrchestratorAsksAPersonAndAStartReplacesIt(t *testing.T) {
 	}
 	if items := stuckOrchestrators(t, d); len(items) != 0 {
 		t.Errorf("a replaced session is still stuck: %+v", items)
+	}
+}
+
+// An orchestrator whose run ended while a member still wants it waits for a person, because no worker runs an ended
+// run again, and Needs you says why it ended. A start runs the next run, and a stop says a member no longer wants it.
+func TestAnEndedOrchestratorAsksAPersonWithWhyItEnded(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	w.Orchestrator(orchestratorStatus("starting"))
+	w.OrchestratorEnded(workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonSpawnFailed, Detail: "the pane did not open"})
+	items := stuckOrchestrators(t, d)
+	if len(items) != 1 {
+		t.Fatalf("stuck %+v", items)
+	}
+	item := items[0]
+	if item.Reason != api.ReasonEnded || item.Detail != "spawn_failed: the pane did not open" || item.Orchestrator == nil || item.Since == 0 {
+		t.Errorf("item %+v", item)
+	}
+	if !slices.Equal(item.Actions, []string{api.ActStartOrchestrator}) {
+		t.Errorf("an ended orchestrator offers %v", item.Actions)
+	}
+	var needs api.NeedsYou
+	if err := d.Client.ReadView(t.Context(), api.ViewNeedsYou, "", &needs); err != nil {
+		t.Fatal(err)
+	}
+	if len(needs.Items) != 1 || needs.Items[0].Work == nil || needs.Items[0].Work.Reason != api.ReasonEnded {
+		t.Errorf("needs you %+v", needs.Items)
+	}
+	row, err := d.Client.SetOrchestrator(t.Context(), apitest.WorldWorker, api.SetOrchestrator{Desired: ledger.OrchestratorRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Run != 2 || row.Actual != "" {
+		t.Errorf("the start left %+v", row)
+	}
+	if items := stuckOrchestrators(t, d); len(items) != 0 {
+		t.Errorf("the next run is still stuck: %+v", items)
+	}
+	w.OrchestratorEnded(workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonWorkerRestarted})
+	if _, err := d.Client.SetOrchestrator(t.Context(), apitest.WorldWorker, api.SetOrchestrator{Desired: ledger.OrchestratorStopped}); err != nil {
+		t.Fatal(err)
+	}
+	if items := stuckOrchestrators(t, d); len(items) != 0 {
+		t.Errorf("a stopped orchestrator whose run ended is stuck: %+v", items)
 	}
 }
 

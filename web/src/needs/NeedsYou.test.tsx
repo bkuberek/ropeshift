@@ -1304,6 +1304,19 @@ describe("waiting work", () => {
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
   });
 
+  // No worker runs an ended run again, so the card says the run ended and why, and offers the start a member makes.
+  it("says an orchestrator's run ended and why, and offers to start it again", async () => {
+    const view = goldenNeedsYou();
+    const orchestrator = { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 1, resets: 0, actual_state: "ended", end_reason: "spawn_failed", end_detail: "the pane did not open" };
+    view.items = [{ kind: "work", id: orchestrator.id, since: view.as_of, work: { reason: "ended", detail: "spawn_failed: the pane did not open", orchestrator, actions: ["start_orchestrator"] } }];
+    show(view);
+    const card = screen.getByRole("article");
+    expect(within(card).getByText("Orchestrator not running")).toBeTruthy();
+    expect(within(card).getByText(/This orchestrator's run ended, and nothing starts it again on its own/)).toBeTruthy();
+    expect(within(card).getByText("spawn_failed: the pane did not open")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Start it again" })).toBeTruthy();
+  });
+
   // A merge outside ropeshift dropped the design history an adoption imported. The card names the branch and the
   // missing commit, and offers nothing to press: merging the commit into the base clears it at the next check.
   it("says a merged adoption lost the design history it imported, naming the branch and the missing commit", async () => {

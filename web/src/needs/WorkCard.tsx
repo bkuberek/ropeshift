@@ -37,6 +37,7 @@ const reasonWords: Record<string, string> = {
 const toldReasons = ["worker_behind", "history_missing", "history_unread"];
 
 const orchestratorWords: Record<string, string> = {
+  ended: "This orchestrator's run ended, and nothing starts it again on its own. Questions wait until it runs.",
   tripped: "This orchestrator crashed too often, and its breaker stopped it. Questions wait until it runs.",
   stalled: "This orchestrator shows no progress. Questions wait until it runs.",
   waiting_in_pane:
@@ -200,6 +201,11 @@ export function WorkCard({
           <Fact name="Worker">
             <Id value={work.orchestrator.worker_id} />
           </Fact>
+          {work.reason === "ended" && work.detail ? (
+            <Fact name="Ended with" mono>
+              {work.detail}
+            </Fact>
+          ) : null}
         </Facts>
       ) : null}
       {work.work_order && !inPage ? (

@@ -1235,6 +1235,9 @@ export type Orchestrator = {
   // its sign-in's usage reset.
   hold?: OrchestratorHold;
   scheduled?: ScheduledStart;
+  // end_reason and end_detail say why its current run ended: the reason its worker gave, and the cause beside it.
+  end_reason?: string;
+  end_detail?: string;
 };
 
 export type WorkerLine = {

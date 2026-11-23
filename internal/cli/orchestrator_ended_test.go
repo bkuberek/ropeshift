@@ -30,8 +30,8 @@ func TestOrchestratorStartRunsAnEndedOrchestratorAgain(t *testing.T) {
 	if err != nil || len(reply.Rejected) != 0 {
 		t.Fatalf("upload: %+v %v", reply, err)
 	}
-	if show := s.must("orchestrator", "show", worker); !strings.Contains(show, "reads ended") {
-		t.Fatalf("show %q", show)
+	if show := s.must("orchestrator", "show", worker); !strings.Contains(show, "reads ended") || !strings.Contains(show, "ended: unknown_screen\n") {
+		t.Fatalf("show %q, want the run ended with its reason", show)
 	}
 	if start, show := s.must("orchestrator", "start", worker), s.must("orchestrator", "show", worker); start != show || !strings.Contains(start, "asked to be running, reads no status yet") {
 		t.Errorf("start %q and show %q", start, show)
