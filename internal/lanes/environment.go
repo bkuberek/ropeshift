@@ -25,9 +25,10 @@ const EnvComposeProject = "COMPOSE_PROJECT_NAME"
 
 // inherited is everything a lane takes from the process that started it. A session
 // started inside another session inherits that session's markers, so anything not
-// named here stays out (FR-DRV-10).
+// named here stays out (FR-DRV-10). DISABLE_AUTOUPDATER is the owner's pin of the agent CLI's
+// version, which a lane keeps so that the CLI does not replace itself under a session.
 var inherited = []string{
-	"HOME", "USER", "LOGNAME", "PATH", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ",
+	"HOME", "USER", "LOGNAME", "PATH", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ", "DISABLE_AUTOUPDATER",
 }
 
 // envGitConfigCount is how git reads configuration from the environment
