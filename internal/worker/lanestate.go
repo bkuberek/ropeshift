@@ -683,7 +683,8 @@ func (r *laneRun) observe(ctx context.Context, event lanes.HookEvent, replayed b
 }
 
 // noteStop keeps what the turn that just stopped left running in the background, and when the worker heard it.
-// A Stop no newer than the last says nothing, and one older than the newest prompt left a wait that is over.
+// A Stop no newer than the last says nothing, and one no newer than the newest prompt left a wait that is over: a turn
+// cannot end in the millisecond it began.
 func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -695,7 +696,7 @@ func (s *laneState) noteStop(tasks int, at time.Time, atMs int64) {
 	}
 	s.stoppedMs = max(s.stoppedMs, atMs)
 	s.endHeard(atMs)
-	if atMs > 0 && atMs < s.promptedMs {
+	if atMs > 0 && atMs <= s.promptedMs {
 		tasks = 0
 	}
 	s.background, s.backgroundSince = tasks, at

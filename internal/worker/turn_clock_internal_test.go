@@ -83,3 +83,28 @@ func TestAClampToTheClockLeavesWhatTheClockHasReached(t *testing.T) {
 		})
 	}
 }
+
+// A turn cannot end in the millisecond it began, so a Stop in the newest prompt's millisecond is the end of the turn before
+// it, and that turn's background work is over: the Stop keeps no count of it, as one older than the prompt keeps none.
+func TestAStopInThePromptsMillisecondKeepsNoBackgroundCount(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		stopAt int64
+		tasks  int
+	}{
+		{"before the prompt", 4_999, 0},
+		{"in its millisecond", 5_000, 0},
+		{"after it", 5_001, 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.UnixMilli(1_000_000)
+			state := newLaneState(lanes.Idle, now)
+			state.notePrompt(5_000)
+			state.noteStop(2, now, tt.stopAt)
+			if _, tasks, resting := state.backgroundRest(); tasks != tt.tasks || resting != (tt.tasks > 0) {
+				t.Errorf("a Stop at %d after a prompt at 5000 keeps %d background tasks, resting %v, want %d", tt.stopAt, tasks, resting, tt.tasks)
+			}
+		})
+	}
+}
