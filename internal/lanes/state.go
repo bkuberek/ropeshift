@@ -74,7 +74,10 @@ const (
 	OnProcessGone      Signal = "process_gone"
 	OnWakeFired        Signal = "wake_fired"
 	OnSessionGone      Signal = "session_gone"
-	OnDelayElapsed     Signal = "delay_elapsed"
+	// OnStartFailed is an orchestrator's start that failed before its session was ready, which waits out a backoff
+	// under the breaker as a crash does (FR-ORCH-1). A lane's failed start ends it instead.
+	OnStartFailed  Signal = "start_failed"
+	OnDelayElapsed Signal = "delay_elapsed"
 	OnRestartLimit     Signal = "restart_limit"
 	OnHumanReset       Signal = "human_reset"
 	OnOutcomeReported  Signal = "outcome_reported"
@@ -95,7 +98,7 @@ var Signals = []Signal{
 	OnBriefGrace, OnTurnFinished, OnTurnStarted, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
 	OnCompactionStarted, OnCompactionFinished, OnFinishedInTurn, OnFinishedAtRest, OnCompactionFailed, OnHandoffThreshold,
 	OnHandoffWritten, OnNextGeneration, OnCannotProceed, OnParkRequested, OnProcessGone, OnWakeFired,
-	OnSessionGone, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnBreakerCooled, OnOutcomeReported, OnStopRequested,
+	OnSessionGone, OnStartFailed, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnBreakerCooled, OnOutcomeReported, OnStopRequested,
 	OnSessionStopped, OnLaneEnding,
 }
 
@@ -136,6 +139,8 @@ var transitions = map[edge]ActualState{
 	{Idle, OnSessionGone}:               Backoff,
 	{NeedsDecision, OnSessionGone}:      Backoff,
 	{Compacting, OnSessionGone}:         Backoff,
+	{Provisioning, OnStartFailed}:       Backoff,
+	{Starting, OnStartFailed}:           Backoff,
 	{Backoff, OnDelayElapsed}:           Starting,
 	{Backoff, OnRestartLimit}:           Tripped,
 	{Retiring, OnRestartLimit}:          Tripped,
