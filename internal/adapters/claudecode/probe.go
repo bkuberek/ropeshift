@@ -98,6 +98,8 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 		}
 		defer os.RemoveAll(dir)
 	}
+	// The evidence of the probe before this one goes the same way, so one that ends with no result leaves none.
+	clearEvidence(spec.EvidenceDir)
 	binary, err := findBinary(spec.Env)
 	if err != nil {
 		return lanes.Qualification{}, err

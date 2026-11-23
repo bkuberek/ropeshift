@@ -65,7 +65,7 @@ A probe's own directories are removed when it ends. When a check failed or no se
 | `budget.stream` | The stream of the session with a budget cap | `max_budget_usd` |
 | `screens.screen` | The pane's screen as the start check left it | `start_screens` |
 
-A file is kept only when one of its checks did not pass. Only the newest probe's evidence stays: each probe that ends with a result replaces what the one before left, and a probe in which every check passed leaves none. Only its owner can read the directory and its files, and no file holds more than 256 KiB: a file cut at that bound ends with `[truncated]`.
+A file is kept only when one of its checks did not pass. Only the newest probe's evidence stays: each probe clears what the one before it left when it begins, so a probe that ends with no result, by an error, a timeout, or a version that moved, leaves none, and a probe in which every check passed leaves none either. Only its owner can read the directory and its files, and no file holds more than 256 KiB: a file cut at that bound ends with `[truncated]`.
 
 The files hold what the CLI wrote and showed, and never the environment a session started with, an agent credential, or the settings ropeshift generated for it. A kept screen can show the signed-in account's email address or organization, which is why only its owner can read the directory. A probe keeps nothing where the directory is a link, and replaces a link of its own with a directory. Nothing of the files reaches the ledger, the daemon's log, or an API response.
 
