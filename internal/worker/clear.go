@@ -218,11 +218,13 @@ func (r *laneRun) briefCleared(ctx context.Context) {
 
 // handedBrief moves the lane into the turn the brief began, unless the stream read that turn's end first. That end was
 // read while the generation owed its brief, so the stream may have set it aside as the clear's, and the goroutine that
-// reads the stream decides it again now that the brief has landed (briefBound).
+// reads the stream decides it again now that the brief has landed (briefBound). A lane a prompt's hook already moved into
+// the turn stays there with the brief in progress.
 func (r *laneRun) handedBrief(ctx context.Context, ends uint64, text string) {
 	if r.state.endsRead() == ends {
 		r.setInstruction(text)
-		if r.signalUnlessEnded(ctx, ends, lanes.OnInputHanded) {
+		ended := r.signalUnlessEnded(ctx, ends, lanes.OnInputHanded)
+		if !ended {
 			return
 		}
 		r.setInstruction("")

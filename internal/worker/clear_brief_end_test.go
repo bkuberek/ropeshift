@@ -129,3 +129,96 @@ func TestTheEndOfABriefsTurnReadBeforeItsHandOffIsDecided(t *testing.T) {
 		})
 	}
 }
+
+// slowHandOff holds the record of a brief's delivery until a test lets it go, and keeps what each save of the lane's
+// progress says the session was told and has not finished.
+type slowHandOff struct {
+	ports.Journal
+	inFinish chan struct{}
+	release  chan struct{}
+	once     sync.Once
+	mu       sync.Mutex
+	saved    []string
+}
+
+func (j *slowHandOff) FinishEffect(ctx context.Context, key string, state lanes.EffectState, detail string) error {
+	if briefIsKey(key) {
+		j.once.Do(func() { close(j.inFinish) })
+		select {
+		case <-j.release:
+		case <-time.After(20 * time.Second):
+		}
+	}
+	return j.Journal.FinishEffect(ctx, key, state, detail)
+}
+
+func (j *slowHandOff) SaveProgress(ctx context.Context, lane string, generation int64, progress lanes.Progress) (bool, error) {
+	j.mu.Lock()
+	j.saved = append(j.saved, progress.Instruction)
+	j.mu.Unlock()
+	return j.Journal.SaveProgress(ctx, lane, generation, progress)
+}
+
+func (j *slowHandOff) saves() []string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return append([]string(nil), j.saved...)
+}
+
+// A pane tells the worker of a prompt by a hook, which can reach it before the pass that sent the brief has recorded the
+// hand-off. The prompt moves the lane into the brief's turn, and the hand-off then moves nothing. The lane is in that turn
+// still, no end of it has been read, and the brief stays what the session was told and has not finished.
+func TestABriefsPromptThatMovesTheLaneFirstLeavesTheBriefInProgress(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &slowHandOff{Journal: base.journal, inFinish: make(chan struct{}), release: make(chan struct{})}
+	base.workerJournal = journal
+	r := newLaneRigFor(t, base).dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}, []fake.DriverStep{{Hold: true}}))
+	r.start()
+	r.reach(t, g)
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	r.cleared(t, clearedSession)
+	g.release <- struct{}{}
+	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	pass := make(chan error, 1)
+	go func() {
+		_, err := r.subject.Reconcile(t.Context())
+		pass <- err
+	}()
+	select {
+	case <-journal.inFinish:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no pass sent the brief")
+	}
+	if reply := r.hookEvent(t, lanes.HookEvent{Event: lanes.EventUserPromptSubmit, Subject: "prompt-1"}); !reply.OK {
+		t.Fatalf("the prompt's hook was refused: %+v", reply)
+	}
+	r.eventually("the prompt began a turn", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	close(journal.release)
+	if err := <-pass; err != nil {
+		t.Fatal(err)
+	}
+	before := len(journal.saves())
+	// A declared wait has the goroutine that reads the stream keep the lane's progress.
+	if reply := r.wait(t, 5); !reply.OK {
+		t.Fatalf("the wait was refused: %+v", reply)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for len(journal.saves()) == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the lane's progress was never kept")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	sent := r.driver.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("the session was sent %+v", sent)
+	}
+	saved := journal.saves()
+	if kept := saved[before]; kept != sent[0].Text {
+		t.Errorf("the lane kept %q in progress, want the brief it sent: %q", kept, sent[0].Text)
+	}
+}

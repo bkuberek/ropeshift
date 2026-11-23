@@ -452,24 +452,27 @@ func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) bool {
 
 // signalAt is signal for a hook's signals, which carry the time the hook fired.
 func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Signal) bool {
-	return r.moveLane(ctx, atMs, nil, signals)
+	moved, _ := r.moveLane(ctx, atMs, nil, signals)
+	return moved
 }
 
 // signalUnlessEnded is signal for a move that holds only while the stream has read no turn's end since ends was read. It
-// reads the count under the lock the count is kept under, so a move never lands after an end that closed the turn it begins.
-func (r *laneRun) signalUnlessEnded(ctx context.Context, ends uint64, signals ...lanes.Signal) bool {
-	return r.moveLane(ctx, 0, &ends, signals)
+// reads the count under the lock the count is kept under, so a move never lands after an end that closed the turn it begins,
+// and it says whether it withheld the move for such an end. A move that finds the lane where it would put it is not withheld.
+func (r *laneRun) signalUnlessEnded(ctx context.Context, ends uint64, signals ...lanes.Signal) (ended bool) {
+	_, ended = r.moveLane(ctx, 0, &ends, signals)
+	return ended
 }
 
-// moveLane applies signals to the lane. It does nothing when unlessEnds is set and the stream has counted a turn's end past it.
-func (r *laneRun) moveLane(ctx context.Context, atMs int64, unlessEnds *uint64, signals []lanes.Signal) bool {
+// moveLane applies signals to the lane, and says whether it moved. It does nothing when unlessEnds is set and the stream
+// has counted a turn's end past it, which it says in its second result.
+func (r *laneRun) moveLane(ctx context.Context, atMs int64, unlessEnds *uint64, signals []lanes.Signal) (moved, ended bool) {
 	s := r.state
 	s.mu.Lock()
 	if unlessEnds != nil && s.ends != *unlessEnds {
 		s.mu.Unlock()
-		return false
+		return false, true
 	}
-	moved := false
 	for _, signal := range signals {
 		if s.tracker.ApplyAt(signal, atMs) {
 			moved = true
@@ -484,11 +487,11 @@ func (r *laneRun) moveLane(ctx context.Context, atMs int64, unlessEnds *uint64, 
 	}
 	s.mu.Unlock()
 	if !moved {
-		return false
+		return false, false
 	}
 	r.saveActual(ctx)
 	r.w.laneMoved()
-	return true
+	return true, false
 }
 
 // saveActual keeps where the lane stands. A hook's goroutine and the stream's can move the lane at once, so one of
