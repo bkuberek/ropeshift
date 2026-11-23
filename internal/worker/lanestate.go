@@ -120,6 +120,10 @@ type laneState struct {
 	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
 	moves  uint64
 	saving atomic.Bool
+	// ends counts the turn ends the stream has read. Each is counted before the stream reads what its generation owes
+	// and before it moves the lane, so a reader that finds the lane at rest and then reads the count has the end that
+	// brought it there.
+	ends uint64
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -448,9 +452,27 @@ func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) bool {
 
 // signalAt is signal for a hook's signals, which carry the time the hook fired.
 func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Signal) bool {
+	moved, _ := r.moveLane(ctx, atMs, nil, signals)
+	return moved
+}
+
+// signalUnlessEnded is signal for a move that holds only while the stream has read no turn's end since ends was read. It
+// reads the count under the lock the count is kept under, so a move never lands after an end that closed the turn it begins,
+// and it says whether it withheld the move for such an end. A move that finds the lane where it would put it is not withheld.
+func (r *laneRun) signalUnlessEnded(ctx context.Context, ends uint64, signals ...lanes.Signal) (ended bool) {
+	_, ended = r.moveLane(ctx, 0, &ends, signals)
+	return ended
+}
+
+// moveLane applies signals to the lane, and says whether it moved. It does nothing when unlessEnds is set and the stream
+// has counted a turn's end past it, which it says in its second result.
+func (r *laneRun) moveLane(ctx context.Context, atMs int64, unlessEnds *uint64, signals []lanes.Signal) (moved, ended bool) {
 	s := r.state
 	s.mu.Lock()
-	moved := false
+	if unlessEnds != nil && s.ends != *unlessEnds {
+		s.mu.Unlock()
+		return false, true
+	}
 	for _, signal := range signals {
 		if s.tracker.ApplyAt(signal, atMs) {
 			moved = true
@@ -465,11 +487,11 @@ func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Sig
 	}
 	s.mu.Unlock()
 	if !moved {
-		return false
+		return false, false
 	}
 	r.saveActual(ctx)
 	r.w.laneMoved()
-	return true
+	return true, false
 }
 
 // saveActual keeps where the lane stands. A hook's goroutine and the stream's can move the lane at once, so one of
@@ -769,6 +791,19 @@ func (s *laneState) placeEnd(turn *ports.TurnResult) int64 {
 		return s.failedMs
 	}
 	return 0
+}
+
+// noteEnd counts a turn's end the stream read, and endsRead says how many it has.
+func (s *laneState) noteEnd() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ends++
+}
+
+func (s *laneState) endsRead() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ends
 }
 
 // olderThanInput says a turn's end that fired at atMs is older than the session's newest prompt, a prompt of its
