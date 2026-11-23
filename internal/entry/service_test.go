@@ -162,6 +162,42 @@ func TestAServiceKeepsTheVariablesThatPlaceTheWorktrees(t *testing.T) {
 	}
 }
 
+// A service keeps the owner's pin of the agent CLI's version, as a lane's environment does, so a daemon the service
+// manager starts does not let the CLI replace itself under a session. The name alone is checked where it is absent.
+func TestAServiceKeepsTheOwnersUpdaterPin(t *testing.T) {
+	const name = "DISABLE_AUTOUPDATER"
+	for _, goos := range []string{"darwin", "linux"} {
+		for _, set := range []bool{true, false} {
+			t.Run(goos+map[bool]string{true: " set", false: " unset"}[set], func(t *testing.T) {
+				s, _ := serviceMachine(t, goos, nil)
+				variables := map[string]string{"PATH": "/usr/bin", "XDG_CONFIG_HOME": filepath.Join(s.home, "config")}
+				if set {
+					variables[name] = "1"
+				}
+				s.lookup = lookupIn(variables)
+				installed, err := s.install(t.Context(), "", nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err := os.ReadFile(installed.Path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := `Environment="` + name + `=1"`
+				if goos == "darwin" {
+					want = "<key>" + name + "</key>\n\t\t<string>1</string>"
+				}
+				if kept := strings.Contains(string(raw), want); kept != set {
+					t.Errorf("the definition keeps %s: %v, want %v", name, kept, set)
+				}
+				if !set && strings.Contains(string(raw), name) {
+					t.Errorf("the definition names %s though the shell set none", name)
+				}
+			})
+		}
+	}
+}
+
 // A service says that ropeshift wrote it, whatever the installing shell says, so the daemon never takes
 // the unit of a Homebrew install for one that `brew services` runs.
 func TestAServiceNamesRopeshiftAsItsManagerWhateverTheShellSays(t *testing.T) {

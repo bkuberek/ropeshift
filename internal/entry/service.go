@@ -35,11 +35,12 @@ var serviceName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // serviceVariables are what a service keeps of the shell that installs it. A service manager starts
 // the daemon with almost no environment, so the daemon would find no agent CLI, tmux, or git on its
-// PATH, and an installation moved by a variable would be another installation. Nothing else is kept,
-// so no credential reaches a service's file (NFR-SEC-1).
+// PATH, and an installation moved by a variable would be another installation. DISABLE_AUTOUPDATER is the
+// owner's pin of the agent CLI's version, which the daemon's lanes keep so that the CLI does not replace itself
+// under a session. Nothing else is kept, so no credential reaches a service's file (NFR-SEC-1).
 var serviceVariables = []string{
-	"LANG", "LC_ALL", "LC_CTYPE", "PATH", api.EnvRunDir, api.EnvStateDir, api.EnvTelemetry, api.EnvWeb, api.EnvWorktreeDir, "TZ",
-	"XDG_DATA_HOME", "XDG_STATE_HOME",
+	"DISABLE_AUTOUPDATER", "LANG", "LC_ALL", "LC_CTYPE", "PATH", api.EnvRunDir, api.EnvStateDir, api.EnvTelemetry, api.EnvWeb,
+	api.EnvWorktreeDir, "TZ", "XDG_DATA_HOME", "XDG_STATE_HOME",
 }
 
 // services writes the daemon's service on this machine, through its service manager.
