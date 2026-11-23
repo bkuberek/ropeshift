@@ -53,7 +53,11 @@ type laneState struct {
 	unconfirmed bool
 	retried     bool
 	degraded    bool
-	unpushed    bool
+	// probeDegraded says the newest result of a probe for this process's own version found a check that did not
+	// pass. It stands until a later result for that version says otherwise, and a probe of another version leaves it,
+	// because the process keeps the surfaces it started on.
+	probeDegraded bool
+	unpushed      bool
 	// policy is what a role's lane is held to, and baselined says this generation's baseline went
 	// on its way to the ledger.
 	policy     lanes.ContextPolicy
@@ -894,15 +898,18 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 			liveness, awaitsPerson = observation.Liveness, observation.AwaitsPerson
 		}
 	}
-	// The process uses the surfaces it started with, so the condition it launched with stands, and a
-	// probe's result for its version can add to it and never clears it. While the probe runs, the lane
-	// names it.
+	// The process uses the surfaces it started with, so the condition it launched with stands. A probe's result for
+	// its version adds to it, a later result for that version replaces what an earlier one added, and a probe of
+	// another version changes nothing. While the probe runs, the lane names it.
 	version, surfaces := r.runVersion()
 	check, held, holds := r.w.qualificationOf(version, surfaces)
 	s := r.state
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	degraded := s.degraded || (holds && held.Degraded)
+	if holds {
+		s.probeDegraded = held.Degraded
+	}
+	degraded := s.degraded || s.probeDegraded
 	now := r.w.clock.Now()
 	state := s.tracker.State()
 	facts := lanes.Facts{

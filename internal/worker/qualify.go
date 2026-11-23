@@ -371,5 +371,6 @@ func (r *laneRun) noteProcess(handle ports.SessionHandle) {
 	r.handleLock.Unlock()
 	r.state.mu.Lock()
 	r.state.degraded = handle.Degraded
+	r.state.probeDegraded = false
 	r.state.mu.Unlock()
 }
