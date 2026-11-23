@@ -219,7 +219,8 @@ func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
 		Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1", "/work/lane-1.reads/api"},
 	})
 	allowed := []string{
-		"xargs -0 echo", "echo hi | xargs -0 echo", "echo a b | xargs -n 1 echo hi", "echo a | xargs -r -P 2 echo", "cat *.go", "cat internal/*.go", "head -5 main.go", "rg TODO internal", "ls internal", "find internal -name '*.go'", "wc -l main.go go.mod",
+		"xargs -0 echo", "xargs --max-args=1 -0 echo", "xargs --null --no-run-if-empty echo", "xargs --nul --verbose echo", "xargs -ifoo echo foo",
+		"echo hi | xargs -0 echo", "echo a b | xargs -n 1 echo hi", "echo a | xargs -r -P 2 echo", "cat *.go", "cat internal/*.go", "head -5 main.go", "rg TODO internal", "ls internal", "find internal -name '*.go'", "wc -l main.go go.mod",
 	}
 	for _, command := range allowed {
 		if reason, asks := policy.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); asks {
@@ -258,7 +259,10 @@ func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
 			"xargs -a /etc/passwd echo", "xargs -a/etc/passwd echo", "xargs -ra /etc/passwd echo", "xargs -0a /etc/passwd echo",
 			"xargs --arg-file=/etc/passwd echo", "xargs --arg-file /etc/passwd echo", "xargs --arg /etc/passwd echo", "xargs --arg=/etc/passwd echo",
 			"xargs --a /etc/passwd echo", "xargs --a=/etc/passwd echo", "xargs --ar /etc/passwd echo", "xargs --arg-f=/etc/passwd echo",
-			"xargs -n 1 -a /etc/passwd echo", "xargs -a list echo", "echo hi | xargs -a /etc/passwd echo", "env xargs -a /etc/passwd echo",
+			"xargs -n 1 -a /etc/passwd echo", "xargs -i -a /etc/passwd echo", "xargs -e -a /etc/passwd echo", "xargs -l -a /etc/passwd echo",
+			"xargs --max-args 1 -a /etc/passwd echo", "xargs --max-procs 2 -a /etc/passwd echo", "xargs --delimiter , -a /etc/passwd echo",
+			"xargs --max-args 1 --arg-file /etc/passwd echo", "xargs --n -a /etc/passwd echo", "xargs --max-args 1 -0 echo",
+			"xargs --unknown value -a /etc/passwd echo", "xargs --null --max-args 1 -a /etc/passwd echo", "xargs -a list echo", "echo hi | xargs -a /etc/passwd echo", "env xargs -a /etc/passwd echo",
 		},
 		"a bypass of the forms the hook once allowed": {
 			// A directory named `a ` that holds etc/hostname splits, in xargs, into the words `a` and `etc/hostname`.
