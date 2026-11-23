@@ -259,14 +259,17 @@ func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin, goals ma
 		}
 	}
 	if origin.workOrder == "" && request.WorkOrder != "" {
+		// A work order the ledger no longer holds is no branch to keep naming, so the version is offered as it stands.
 		order, err := tx.WorkOrders().Get(request.WorkOrder)
-		if err != nil {
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
-		if held, err := AttemptCommit(tx.Evidence(), order); err != nil {
-			return err
-		} else if order.Kind == workorders.KindPlan && order.State == workorders.Integrating && held == requestCommit(request) {
-			origin = planOrigin{workOrder: order.ID, commit: held}
+		if err == nil {
+			if held, err := AttemptCommit(tx.Evidence(), order); err != nil {
+				return err
+			} else if order.Kind == workorders.KindPlan && order.State == workorders.Integrating && held == requestCommit(request) {
+				origin = planOrigin{workOrder: order.ID, commit: held}
+			}
 		}
 	}
 	return askAboutVersion(tx, latest, origin, missing)

@@ -123,15 +123,18 @@ type Worker struct {
 
 	// qualLock guards qual, the probe result in force, probe, the one probe running, backoff, the wait before the
 	// installed version is probed again, probeAfter, before which a restarted worker starts no probe, life, the
-	// context a probe runs under, which outlives any one lane, and lookedAt, when the worker last read the installed
-	// version for itself.
-	qualLock   sync.Mutex
-	qual       lanes.Qualification
-	probe      *probeRun
-	backoff    probeBackoff
-	probeAfter time.Time
-	life       context.Context
-	lookedAt   time.Time
+	// context a probe runs under, which outlives any one lane, lookedAt, when the worker last read the installed
+	// version for itself, and probeEnding and lookRefused: the probe's end is being kept, and a look at the installed
+	// version was refused meanwhile, so the end takes up that look.
+	qualLock    sync.Mutex
+	qual        lanes.Qualification
+	probe       *probeRun
+	backoff     probeBackoff
+	probeAfter  time.Time
+	life        context.Context
+	lookedAt    time.Time
+	probeEnding bool
+	lookRefused bool
 	// probes holds the probe goroutine, which Wait also waits for.
 	probes sync.WaitGroup
 

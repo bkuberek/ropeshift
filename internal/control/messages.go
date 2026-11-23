@@ -341,7 +341,7 @@ var workerReports = []messages.State{messages.AtWorker, messages.HandedOff, mess
 // its lane, and only for messages to that lane, so a word from a lane that moved on still counts:
 // what happened to a message stays true. A word the table refuses changes nothing, because a
 // signal can arrive late or twice, and that is not an error. A message the session had no channel
-// for takes the reason the ledger gives it by its kind (messages.UndeliverableReason).
+// for takes the reason the ledger gives it by its kind and the worker's reason (messages.UndeliverableReason).
 func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	var report messages.Report
 	if err := json.Unmarshal(e.Payload, &report); err != nil {
@@ -350,7 +350,7 @@ func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	if !slices.Contains(workerReports, report.State) {
 		return fmt.Errorf("%w: a worker cannot report %q", workorders.ErrInvalid, report.State)
 	}
-	if report.State == messages.Expired && report.Reason != messages.ReasonUndeliverable {
+	if report.State == messages.Expired && report.Reason != messages.ReasonUndeliverable && report.Reason != messages.ReasonChannelUnavailable {
 		return fmt.Errorf("%w: a worker reports a message expired only when it was undeliverable", workorders.ErrInvalid)
 	}
 	row, err := tx.Messages().Message(report.ID)
@@ -374,7 +374,7 @@ func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	}
 	reason := ""
 	if report.State == messages.Expired {
-		reason = messages.UndeliverableReason(row.Kind)
+		reason = messages.UndeliverableReason(row.Kind, report.Reason)
 	}
 	row.Reply = report.Reply
 	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }

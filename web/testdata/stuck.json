@@ -9,6 +9,7 @@
       "id": "wo-lapsed",
       "lane": {
         "actual_state": "working",
+        "agent": "implementation",
         "as_of": 1790000184000,
         "freshness": "last_reported",
         "generation": 1,
@@ -58,6 +59,7 @@
       "id": "wo-blocked",
       "lane": {
         "actual_state": "ended",
+        "agent": "implementation",
         "artifacts": [
           {
             "created_at": 1790000304001,
@@ -115,6 +117,7 @@
       "id": "wo-stalled",
       "lane": {
         "actual_state": "working",
+        "agent": "implementation",
         "as_of": 1790000724001,
         "conditions": [
           "stalled"
@@ -165,6 +168,7 @@
       "id": "wo-tripped",
       "lane": {
         "actual_state": "tripped",
+        "agent": "implementation",
         "as_of": 1790000724001,
         "freshness": "last_reported",
         "generation": 1,
@@ -213,6 +217,7 @@
       "id": "wo-failed",
       "lane": {
         "actual_state": "ended",
+        "agent": "implementation",
         "artifacts": [
           {
             "created_at": 1790000904001,

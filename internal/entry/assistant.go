@@ -49,7 +49,8 @@ func (h *soloHosts) read(ctx context.Context, project ledger.WorkspaceID) (map[s
 
 // host is what the daemon's own worker could run a project's assistant on. In the first project, each daemon source
 // is the checkout of its record, as a lane's start reads it (checkoutOf), so the worker holds that repository
-// before a member keeps a checkout of it with `repository add`, and its orchestrator serves the project.
+// before a member keeps a checkout of it with `repository add`, and its orchestrator serves the project. A source
+// that cannot be read counts as no checkout.
 func (h *soloHosts) host(ctx context.Context, project ledger.WorkspaceID) (control.AssistantHost, error) {
 	host := control.AssistantHost{Checkouts: map[string]bool{}}
 	if h.runtime != nil && h.runtime.Driver != nil {
@@ -68,9 +69,10 @@ func (h *soloHosts) host(ctx context.Context, project ledger.WorkspaceID) (contr
 	}
 	if project == soloScope {
 		for _, path := range h.opts.sources {
+			// A source git cannot read is the checkout of no record, and the sources after it still are.
 			instance, ok, err := sourceInstance(ctx, h.opts, h.kept, project, path)
 			if err != nil {
-				return control.AssistantHost{}, err
+				continue
 			}
 			if ok {
 				host.Checkouts[instance] = true

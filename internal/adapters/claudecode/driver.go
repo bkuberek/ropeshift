@@ -501,7 +501,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	if err := writeGenerated(spec); err != nil {
 		return ports.SessionHandle{}, err
 	}
-	if err := writeLaunchedVersion(spec, version); err != nil {
+	if err := writeLaunched(spec, q); err != nil {
 		return ports.SessionHandle{}, err
 	}
 	stderr, err := openStderr(spec)
@@ -800,10 +800,37 @@ func launchedVersionPath(spec ports.SessionSpec) string {
 	return filepath.Join(spec.ConfigDir, fmt.Sprintf("version-%d", spec.Generation))
 }
 
-// writeLaunchedVersion keeps the version a session is about to start on, so a worker that adopts it
-// later qualifies the process and not whatever is installed by then.
-func writeLaunchedVersion(spec ports.SessionSpec, version string) error {
-	return os.WriteFile(launchedVersionPath(spec), []byte(version+"\n"), 0o600)
+// launchedPath names the file that holds what qualified the version a generation's process started on, as the launch
+// judged it.
+func launchedPath(spec ports.SessionSpec) string {
+	return filepath.Join(spec.ConfigDir, fmt.Sprintf("launched-%d.json", spec.Generation))
+}
+
+// writeLaunched keeps the version a session is about to start on and the qualification its launch judged, so a worker that
+// adopts the session later uses and reports what the process started with, and not what is installed or probed by then.
+func writeLaunched(spec ports.SessionSpec, q lanes.Qualification) error {
+	if err := os.WriteFile(launchedVersionPath(spec), []byte(q.Version+"\n"), 0o600); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(q)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(launchedPath(spec), raw, 0o600)
+}
+
+// launchedQualification reads that record, and says false when a launch left none, as a session an earlier build started
+// did not.
+func launchedQualification(spec ports.SessionSpec) (lanes.Qualification, bool) {
+	raw, err := os.ReadFile(launchedPath(spec))
+	if err != nil {
+		return lanes.Qualification{}, false
+	}
+	var q lanes.Qualification
+	if json.Unmarshal(raw, &q) != nil || q.Version == "" {
+		return lanes.Qualification{}, false
+	}
+	return q, true
 }
 
 // launchedVersion reads that file, and empty when a launch left none.
@@ -1219,15 +1246,16 @@ func (s *session) send(ctx context.Context, in ports.Input) (ports.SendReceipt, 
 	if !s.use.PeerInjection {
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
 	}
+	// From here the version passed its check, so a channel that is missing is missing now, and says so.
 	state, err := shimlink.ReadState(s.dir)
 	if err != nil {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoChannel, err)
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %w: %v", s.handle.ID, ports.ErrNoChannel, ports.ErrChannelUnavailable, err)
 	}
 	s.mu.Lock()
 	socket := s.peerSocket
 	s.mu.Unlock()
 	if socket == "" {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: no socket", s.handle.ID, ports.ErrNoChannel)
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %w: no socket", s.handle.ID, ports.ErrNoChannel, ports.ErrChannelUnavailable)
 	}
 	return writeSocket(ctx, s.handle.ID, socket, state.ChildPID, in, s.receipts.from())
 }

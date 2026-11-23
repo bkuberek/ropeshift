@@ -150,6 +150,8 @@ func (w *Worker) qualify(ctx context.Context) error {
 	checks := w.config.Lanes.Driver.ProbeChecks(w.probeSignIn(capabilities.Version))
 	w.qualLock.Lock()
 	if w.probe != nil || !w.probeDueLocked(capabilities.Version, checks, w.clock.Now()) {
+		// A look the end of a probe refuses, while that end is being kept, is the end's to take up (runProbe).
+		w.lookRefused = w.lookRefused || (w.probe != nil && w.probeEnding)
 		w.qualLock.Unlock()
 		return nil
 	}
@@ -253,22 +255,36 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	ownResult, passed := false, false
 	defer func() {
 		w.qualLock.Lock()
-		w.probe = nil
 		w.noteProbeLocked(p.version, passed)
 		attempt := w.attemptLocked(p)
 		if !ownResult {
 			// Hands the driver the last result the worker holds, which names no version this probe checked.
 			w.handOverLocked()
 		}
+		w.probeEnding = true
 		w.qualLock.Unlock()
 		// The wait goes in the journal with the attempt, so a restart goes on from it. A probe the worker's own stop cut short
-		// proved nothing of its version, so a restart does not wait on it.
+		// proved nothing of its version, so a restart does not wait on it. The save replaces the one before it, so no probe
+		// begins before it is made: this probe stays the one that runs until then, and no other keeps an attempt for this
+		// one to replace. The journal is written with the qualification lock let go.
 		if life.Err() == nil {
 			if err := w.journal.SaveProbeAttempt(life, attempt); err != nil {
 				w.config.Report(fmt.Errorf("recording the wait after the probe of %s: %w", p.version, err))
 			}
 		}
+		w.qualLock.Lock()
+		w.probe, w.probeEnding = nil, false
+		looked := w.lookRefused
+		w.lookRefused = false
+		w.qualLock.Unlock()
 		w.laneMoved()
+		// A look at the installed version that found this probe still the one that runs waits no interval for the next:
+		// a version that moved meanwhile is probed now.
+		if looked && life.Err() == nil {
+			if err := w.qualify(life); err != nil {
+				w.config.Report(fmt.Errorf("reading the CLI's version after the probe of %s: %w", p.version, err))
+			}
+		}
 	}()
 	ctx, cancel := context.WithTimeout(life, probeLimit)
 	defer cancel()
@@ -343,20 +359,6 @@ func (w *Worker) qualificationOf(version, source string) (check *ledger.CLICheck
 		return ledger.CheckingCLI(driver, version, source), lanes.Qualification{}, false
 	}
 	return nil, lanes.Qualification{}, false
-}
-
-// noteAdoptedSurfaces drops the shipped matrix as the source of the surfaces an adopted session runs on when the
-// worker holds a probe's result, because the driver's adoption then read that result and not the matrix.
-func (r *laneRun) noteAdoptedSurfaces() {
-	r.w.qualLock.Lock()
-	probed := r.w.qual.Version != ""
-	r.w.qualLock.Unlock()
-	if !probed {
-		return
-	}
-	r.handleLock.Lock()
-	r.source = ""
-	r.handleLock.Unlock()
 }
 
 // runVersion is the version the lane's process runs, and empty before its first process starts. The source

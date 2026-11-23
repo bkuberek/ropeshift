@@ -339,7 +339,7 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 		// expansion in an option's value, an assignment, or an operand reads as the one word it is written as, unless
 		// it is written to give many. An option's name is never one.
 		if (assigns && !option && !isAssignment(word.text)) || word.manyWords() ||
-			(option && word.expands && !namesOption(word, wrapper.valued)) {
+			(option && word.expands && !namesOption(word, wrapper.valued) && !adjusts(name, word)) {
 			g.unsure(at)
 		}
 		split = split || word.split
@@ -352,6 +352,11 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 			held := word
 			// An expansion against an option is its value, though a substitution leaves no text of it.
 			if takes && !word.expands {
+				if (name == "sudo" && flag == "-h") || (name == "env" && flag == "-P") {
+					// Whether this option takes a value depends on the system, so the words from where its value
+					// would stand run as a command too.
+					g.run(args, at)
+				}
 				if len(args) == 0 {
 					return nil, at, !at.input && name != "xargs"
 				}
@@ -422,6 +427,12 @@ func readOption(text string, valued []string) (flag, value string, takes bool) {
 		}
 	}
 	return text, "", false
+}
+
+// adjusts says an option word of nice is its adjustment: a dash and one expansion, which runs nothing.
+func adjusts(name string, word shellWord) bool {
+	return name == "nice" && word.expands && !word.manyWords() && word.head == 1 && word.tail == len(word.text) &&
+		strings.HasPrefix(word.text, "-")
 }
 
 // namesOption says a word that expands writes its option's name out, with only the value left to a shell.
@@ -788,6 +799,21 @@ func (g *shellGates) alias(args []shellWord, at shellPlace) {
 
 // textRunners hand their words to a shell.
 var textRunners = []string{"watch", "trap", "su", "parallel"}
+
+// parallelValued are the options of GNU parallel that take a value, and parallelFlags those that take none, so the hold
+// that reads parallel's command finds it past each value. An option in neither is unknown to the hold, which then reads the
+// command from each word that may begin it.
+var (
+	parallelValued = strings.Fields("-a --arg-file --arg-file-sep --argfile-sep --arg-sep --argsep --basefile --bf --block --block-size -b " +
+		"-C --colsep -d --delimiter --delay -E -I -j --jobs -P --max-procs -J -L -l --max-lines -n --max-args -N -s --max-chars " +
+		"--env --header --joblog --halt --load --memfree --memsuspend --nice --recend --recstart --results --res --retries --return " +
+		"--rpl --sshdelay -S --sshlogin --sshloginfile --slf --tag-string --tagstring --tmpdir --tf --transfer-file --transferfile " +
+		"--timeout --trc --workdir --wd --termseq --total-jobs")
+	parallelFlags = strings.Fields("-0 --null -g --group -h --help -k --keep-order -m -q --quote -t --verbose -u --ungroup -v -X -x " +
+		"--bar --bg --citation --dry-run --eta --fg --files --fifo --lb --line-buffer --linebuffer --link --xapply " +
+		"--no-notice --will-cite --nonall --onall --pipe --pipepart --spreadstdin --plus --progress --round --round-robin --resume " +
+		"--resume-failed --retry-failed --sem --semaphore --shuf --silent --tag --version -V --wait --shellquote")
+)
 
 func (g *shellGates) runsText(name string, args []shellWord, at shellPlace) {
 	for _, word := range args {

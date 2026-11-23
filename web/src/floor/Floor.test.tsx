@@ -347,6 +347,24 @@ describe("a work order", () => {
     expect(within(panel).getByText(said)).toBeTruthy();
   });
 
+  it("says on its Lanes tab, in a sentence the chip points to, how the lane of the work runs", async () => {
+    const words = "Runs on documented surfaces until it restarts on a qualified version.";
+    serving<Stuck>("stuck", (view) => {
+      const failed = view.items.find((item) => item.id === "wo-failed");
+      if (!failed?.lane) {
+        throw new Error("the golden stuck view holds no lane of wo-failed");
+      }
+      failed.lane.conditions = ["degraded_mode"];
+      failed.lane.condition_notes = { degraded_mode: words };
+    });
+    openPage("/work-order?id=wo-failed&tab=lanes");
+    const panel = await screen.findByRole("heading", { name: /^Lane lane-wo-failed/ }).then((heading) => heading.closest("section") as HTMLElement);
+    const chip = within(panel).getByText("Degraded mode");
+    const sentence = within(panel).getByText(words);
+    expect(sentence.id).not.toBe("");
+    expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
+  });
+
   // Work in integrating waits on a merge request, which has its own card beside the work order's tabs.
   it("shows the merge request the work waits on as its own card, bound to the reviewed commit", async () => {
     const request = mergeRequest("approve", { work_order_id: "wo-running", pull_request: 12, url: "https://github.com/acme/harbor-web/pull/12" });

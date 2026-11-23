@@ -145,6 +145,27 @@ describe("the Overview", () => {
     expect(rows.map((row) => row.textContent).join(" ")).not.toContain("Ended");
   });
 
+  it("says beside Degraded mode, in a sentence the chip points to, how a listed lane runs", async () => {
+    const words = "Runs on documented surfaces until it restarts on a qualified version.";
+    serving({
+      floor: (view) => {
+        const lane = view.lanes.find((line) => line.id === "lane-wo-approval");
+        if (!lane) {
+          throw new Error("the golden holds no lane lane-wo-approval");
+        }
+        lane.conditions = ["degraded_mode"];
+        lane.condition_notes = { degraded_mode: words };
+      },
+    });
+    openPage(`/projects/${testProject}`);
+    const lanes = within(await screen.findByRole("region", { name: "Lanes" }));
+    const first = within((await lanes.findAllByRole("row"))[1] as HTMLElement);
+    const chip = first.getByText("Degraded mode");
+    const sentence = first.getByText(words);
+    expect(sentence.id).not.toBe("");
+    expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
+  });
+
   it("lists the top five of what waits on the member, the longest wait first, each opening its item", async () => {
     serving();
     openPage(`/projects/${testProject}`);

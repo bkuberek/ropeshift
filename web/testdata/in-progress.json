@@ -4,6 +4,7 @@
     {
       "lane": {
         "actual_state": "working",
+        "agent": "implementation",
         "as_of": 1790000364001,
         "freshness": "last_reported",
         "generation": 1,
@@ -45,6 +46,7 @@
     {
       "lane": {
         "actual_state": "working",
+        "agent": "implementation",
         "as_of": 1790000484001,
         "freshness": "last_reported",
         "generation": 1,
@@ -86,6 +88,7 @@
     {
       "lane": {
         "actual_state": "working",
+        "agent": "implementation",
         "as_of": 1790000724001,
         "freshness": "last_reported",
         "generation": 1,
@@ -127,6 +130,7 @@
     {
       "lane": {
         "actual_state": "working",
+        "agent": "implementation",
         "as_of": 1790000724001,
         "conditions": [
           "stalled"
@@ -171,6 +175,7 @@
     {
       "lane": {
         "actual_state": "tripped",
+        "agent": "implementation",
         "as_of": 1790000724001,
         "freshness": "last_reported",
         "generation": 1,

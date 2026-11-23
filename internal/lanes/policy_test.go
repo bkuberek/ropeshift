@@ -842,3 +842,98 @@ func TestASessionHeldToOneProgramTakesNoCommentOrClosedDescriptor(t *testing.T) 
 		}
 	}
 }
+
+// A program that hands its words to a shell runs the commands those words hold, so every hold reads them as
+// it reads a shell's own: the write, branch, and read-only holds all stand in front of parallel, watch, trap,
+// and su. A parallel with only options runs the lines it reads, which no hold can read.
+func keptPolicy() DenyPolicy {
+	return CompilePolicy(PolicySpec{
+		Worktree: "/work/app-lanes/lane-1", Home: "/home/person", DefaultBranches: []string{"main"}, Kept: []string{"feature/retry"},
+	})
+}
+
+func TestTheHoldsReadWhatTextRunnersRun(t *testing.T) {
+	const cwd = "/work/app-lanes/lane-1"
+	tests := []struct {
+		name    string
+		policy  DenyPolicy
+		command string
+		denied  string
+	}{
+		{name: "a push to the default branch in parallel's text", policy: testPolicy(),
+			command: "parallel 'git push origin main' ::: 1", denied: ReasonDefaultBranch},
+		{name: "a commit as parallel's own command on a read-only lane", policy: readOnlyPolicy(),
+			command: "parallel git commit -m x ::: 1", denied: ReasonReadOnly},
+		{name: "a commit after parallel's options on a read-only lane", policy: readOnlyPolicy(),
+			command: "parallel -k --bar git commit -m x ::: 1", denied: ReasonReadOnly},
+		{name: "a write outside in parallel's text", policy: testPolicy(),
+			command: "parallel 'rm -rf /outside' ::: 1", denied: ReasonOutside},
+		{name: "a move of a kept branch in parallel's text", policy: keptPolicy(),
+			command: "parallel 'git branch -f feature/retry HEAD' ::: 1", denied: ReasonKept},
+		{name: "a push in watch's text", policy: testPolicy(),
+			command: "watch 'git push origin main'", denied: ReasonDefaultBranch},
+		{name: "a push in trap's text", policy: testPolicy(),
+			command: "trap 'git push origin main' EXIT", denied: ReasonDefaultBranch},
+		{name: "a commit in su's text on a read-only lane", policy: readOnlyPolicy(),
+			command: "su -c 'git commit -m x' person", denied: ReasonReadOnly},
+		{name: "parallel with only options on a read-only lane", policy: readOnlyPolicy(),
+			command: "parallel -k --bar", denied: ReasonReadOnly},
+		{name: "parallel with no word on a lane that writes", policy: testPolicy(),
+			command: "parallel", denied: ReasonOutside},
+		{name: "parallel with only options on a lane that writes", policy: testPolicy(),
+			command: "parallel -k", denied: ReasonOutside},
+
+		{name: "a commit after an option's separate value on a read-only lane", policy: readOnlyPolicy(),
+			command: "parallel -j 4 git commit -m x ::: 1", denied: ReasonReadOnly},
+		{name: "a commit after a long option's separate value on a read-only lane", policy: readOnlyPolicy(),
+			command: "parallel --joblog log git commit -m x ::: 1", denied: ReasonReadOnly},
+		{name: "a write outside after a long option's separate value", policy: testPolicy(),
+			command: "parallel --jobs 4 rm -rf /outside ::: 1", denied: ReasonOutside},
+		{name: "a write outside after a joined value and a flag", policy: testPolicy(),
+			command: "parallel -j4 -k rm -rf /outside ::: 1", denied: ReasonOutside},
+		{name: "a commit after an option the policy does not know", policy: readOnlyPolicy(),
+			command: "parallel --frobnicate 4 git commit -m x ::: 1", denied: ReasonReadOnly},
+		{name: "a write outside after an option the policy does not know", policy: testPolicy(),
+			command: "parallel -Z 4 rm -rf /outside ::: 1", denied: ReasonOutside},
+		{name: "options that take values and no command on a lane that writes", policy: testPolicy(),
+			command: "parallel -j 4 --joblog log", denied: ReasonOutside},
+
+		{name: "an expanded word as parallel's command on a read-only lane", policy: readOnlyPolicy(),
+			command: "parallel $OPT git commit -m x ::: 1", denied: ReasonReadOnly},
+		{name: "an expanded word as the command on a read-only lane", policy: readOnlyPolicy(),
+			command: "$X git commit -m x", denied: ReasonReadOnly},
+		{name: "an expanded word as nice's command on a read-only lane", policy: readOnlyPolicy(),
+			command: "nice $X git commit -m x", denied: ReasonReadOnly},
+		{name: "an expanded word as xargs's command on a read-only lane", policy: readOnlyPolicy(),
+			command: "xargs $X git commit -m x", denied: ReasonReadOnly},
+		{name: "an expanded word as env's command on a read-only lane", policy: readOnlyPolicy(),
+			command: "env $X git commit -m x", denied: ReasonReadOnly},
+		{name: "an expanded word as the command after an assignment on a read-only lane", policy: readOnlyPolicy(),
+			command: `A=1 "$X" git commit -m x`, denied: ReasonReadOnly},
+		{name: "an expanded word as a shell's command on a read-only lane", policy: readOnlyPolicy(),
+			command: `sh -c '$X git commit -m x'`, denied: ReasonReadOnly},
+		{name: "an expansion in an argument of a read on a read-only lane", policy: readOnlyPolicy(), command: "git log $REF"},
+		{name: "an expansion in an argument of echo on a read-only lane", policy: readOnlyPolicy(), command: "echo $X"},
+		{name: "an expansion in an argument of ls on a read-only lane", policy: readOnlyPolicy(), command: "ls $DIR | head"},
+		{name: "an expanded command on a lane that writes is the gate reader's to ask about", policy: testPolicy(), command: "$X git commit -m x"},
+
+		{name: "parallel over a harmless command", policy: testPolicy(), command: "parallel echo ::: 1 2"},
+		{name: "an option's value is not a command to a read-only lane", policy: readOnlyPolicy(), command: "parallel -j 4 echo git commit ::: 1"},
+		{name: "a read after a long option's separate value on a read-only lane", policy: readOnlyPolicy(), command: "parallel --jobs 4 git log ::: 1"},
+		{name: "a harmless command after an option the policy does not know", policy: testPolicy(), command: "parallel --frobnicate 4 echo ::: 1"},
+		{name: "options that take values, and inputs that are the commands", policy: readOnlyPolicy(), command: "parallel -j 4 ::: 'git log -1'"},
+		{name: "parallel over a read on a read-only lane", policy: readOnlyPolicy(), command: "parallel git log ::: 1 2"},
+		{name: "parallel's text that only reads", policy: readOnlyPolicy(), command: "parallel 'git log -1' ::: 1"},
+		{name: "a push of the lane's own branch in parallel's text", policy: testPolicy(),
+			command: "parallel 'git push origin lane/one' ::: 1"},
+		{name: "a write inside in parallel's text", policy: testPolicy(), command: "parallel 'rm -rf scratch' ::: 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := tt.policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: cwd})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+}

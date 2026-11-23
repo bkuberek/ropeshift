@@ -240,7 +240,7 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 	if err := writeGenerated(spec); err != nil {
 		return ports.SessionHandle{}, err
 	}
-	if err := writeLaunchedVersion(spec, version); err != nil {
+	if err := writeLaunched(spec, q); err != nil {
 		return ports.SessionHandle{}, err
 	}
 	state := paneState{Name: paneName(spec), Phase: phaseOpening, Mode: mode, Timeout: readyTimeout(spec), Brief: spec.Brief}
@@ -386,7 +386,7 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	s := d.newPaneSession(spec, state.Name, h, from.Cost)
 	s.handle.PID = h.PID
 	s.floor = from.Cursor
-	if err := s.listen(spec, d.adoptedUse(ctx, launchedVersion(spec))); err != nil {
+	if err := s.listen(spec, d.adoptedUse(ctx, spec)); err != nil {
 		return err
 	}
 	s.replay(from, spec.Generation)

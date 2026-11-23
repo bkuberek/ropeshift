@@ -191,6 +191,11 @@ export type Lane = {
   surfaces?: string;
   // condition_notes is the sentence of each condition the lane carries that has one, as the server words it.
   condition_notes?: Record<string, string>;
+  // agent is the roster agent the lane runs as, which its latest claim pinned.
+  agent?: string;
+  // agent_note says why a woken lane runs as another agent than its earlier claim pinned: it names both agents and why the
+  // first no longer fit, and it is absent for a lane whose claim kept its agent.
+  agent_note?: string;
   freshness: "observed" | "last_reported";
   as_of: number;
   reported_by_epoch?: number;

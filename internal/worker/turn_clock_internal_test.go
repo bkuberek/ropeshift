@@ -36,8 +36,8 @@ func TestAClockThatStepsBackStillEndsTheTurn(t *testing.T) {
 	}
 
 	at := clock.Now().UnixMilli()
-	run.observeHook(t.Context(), prompt(at+1))
-	run.observeHook(t.Context(), stop(at+2))
+	run.observeHook(t.Context(), prompt(at))
+	run.observeHook(t.Context(), stop(at+1))
 	if run.state.turnUnended() {
 		t.Fatal("a turn whose Stop was heard reads as running")
 	}
@@ -45,11 +45,12 @@ func TestAClockThatStepsBackStillEndsTheTurn(t *testing.T) {
 
 	clock.Advance(-time.Hour)
 	back := clock.Now().UnixMilli()
-	run.observeHook(t.Context(), prompt(back+1))
+	// A hook stamped at the clock's new time is the first the lane hears after the step, so it must read as newer than what was kept.
+	run.observeHook(t.Context(), prompt(back))
 	if state := run.state.current(); state != lanes.Working || !run.state.turnUnended() {
 		t.Fatalf("a prompt after the clock stepped back reads %s, running %v, want a turn begun", state, run.state.turnUnended())
 	}
-	run.observeHook(t.Context(), stop(back+2))
+	run.observeHook(t.Context(), stop(back+1))
 	if run.state.turnUnended() {
 		t.Error("a Stop after the clock stepped back ends no turn")
 	}
@@ -59,12 +60,51 @@ func TestAClockThatStepsBackStillEndsTheTurn(t *testing.T) {
 	}
 }
 
-// A time the clock has not reached stays as a hook's: only a time more than a second past now cannot be one.
+// A time the clock has not reached stays as a hook's: only a time more than a second past now cannot be one. One that
+// cannot be stands a millisecond before the hook being read, or before now when that hook is stamped later or not at all.
 func TestAClampToTheClockLeavesWhatTheClockHasReached(t *testing.T) {
 	t.Parallel()
-	state := &laneState{stoppedMs: 5_000, failedMs: 6_500, promptedMs: 9_000, handedMs: 5_001}
-	state.clampToClock(5_000)
-	if state.stoppedMs != 5_000 || state.failedMs != 5_000 || state.promptedMs != 5_000 || state.handedMs != 5_001 {
-		t.Errorf("the clamp left stopped %d, failed %d, prompted %d, handed %d", state.stoppedMs, state.failedMs, state.promptedMs, state.handedMs)
+	for _, tt := range []struct {
+		name string
+		at   int64
+		want int64
+	}{
+		{"a hook stamped before now", 4_900, 4_899},
+		{"a hook stamped at now", 5_000, 4_999},
+		{"a hook stamped after now", 5_400, 4_999},
+		{"a hook with no stamp", 0, 4_999},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			state := &laneState{stoppedMs: 5_000, failedMs: 6_500, promptedMs: 9_000, handedMs: 5_001}
+			state.clampToClock(5_000, tt.at)
+			if state.stoppedMs != 5_000 || state.failedMs != tt.want || state.promptedMs != tt.want || state.handedMs != 5_001 {
+				t.Errorf("the clamp left stopped %d, failed %d, prompted %d, handed %d, want a clamped time of %d", state.stoppedMs, state.failedMs, state.promptedMs, state.handedMs, tt.want)
+			}
+		})
+	}
+}
+
+// A turn cannot end in the millisecond it began, so a Stop in the newest prompt's millisecond is the end of the turn before
+// it, and that turn's background work is over: the Stop keeps no count of it, as one older than the prompt keeps none.
+func TestAStopInThePromptsMillisecondKeepsNoBackgroundCount(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		stopAt int64
+		tasks  int
+	}{
+		{"before the prompt", 4_999, 0},
+		{"in its millisecond", 5_000, 0},
+		{"after it", 5_001, 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.UnixMilli(1_000_000)
+			state := newLaneState(lanes.Idle, now)
+			state.notePrompt(5_000)
+			state.noteStop(2, now, tt.stopAt)
+			if _, tasks, resting := state.backgroundRest(); tasks != tt.tasks || resting != (tt.tasks > 0) {
+				t.Errorf("a Stop at %d after a prompt at 5000 keeps %d background tasks, resting %v, want %d", tt.stopAt, tasks, resting, tt.tasks)
+			}
+		})
 	}
 }

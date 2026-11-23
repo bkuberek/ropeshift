@@ -386,6 +386,35 @@ func pinAgent(tx ports.WriteTx, order workorders.WorkOrder, priorClaim string, c
 	return nil
 }
 
+// unfitPin says the roster no longer gives an agent an earlier claim pinned to work of this kind: it holds no such
+// agent, has it disabled, or finds it unfit for the work. The reason is the roster's own.
+func unfitPin(resolved roster.Resolved, order workorders.WorkOrder, agent string) (string, bool) {
+	_, err := resolved.LaneAgent(roster.LaneWork{Kind: string(order.Kind), Size: order.Size, Named: agent})
+	if !refusedAgent(err) {
+		return "", false
+	}
+	return err.Error(), true
+}
+
+// repinUnfit gives the claim of a woken lane the agent the roster picks for its work when the agent its earlier claim
+// pinned no longer fits it, such as a shell-less agent pinned before change work needed the shell, and pins the roster as
+// it stands. It returns words that say which agent the lane left and why, or none when the pin stays.
+func repinUnfit(tx ports.WriteTx, resolved roster.Resolved, order workorders.WorkOrder, priorClaim string, claim *workorders.Claim) (string, error) {
+	if claim.Agent == "" {
+		return "", nil
+	}
+	why, unfit := unfitPin(resolved, order, claim.Agent)
+	if !unfit {
+		return "", nil
+	}
+	was := claim.Agent
+	claim.Agent = ""
+	if err := pinAgent(tx, order, priorClaim, claim); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("the lane resumes as agent %q in place of %q, which no longer fits this work: %s", claim.Agent, was, why), nil
+}
+
 // reworkedAgent is the agent that ran the work this attempt reworks: the attempt before it, when a review
 // or a member sent that attempt back, or the work a `rework` work order reworks. Empty means this attempt
 // reworks nothing, because a failed review is an actual failure and a crash is not.
@@ -469,14 +498,20 @@ func refusedAgent(err error) bool {
 // state a failed definition of ready leaves work in, with that readiness failure as the reason of the move, so
 // the member and the orchestrator read why and can replan it. It returns the failure, or empty when the work
 // is not ready or its agent fits. It reads the agent the claim would pin: work that continues a woken lane
-// whose claim pinned an agent keeps that one, as the claim does.
+// whose claim pinned an agent keeps that one while it fits, and otherwise takes the agent the roster picks, as the
+// claim does.
 func sendBackUnfit(tx ports.WriteTx, resolved roster.Resolved, order workorders.WorkOrder, actor ledger.Actor) (string, error) {
 	if order.State != workorders.Ready {
 		return "", nil
 	}
 	var continued workorders.Claim
-	if err := continuesLane(tx, order, &continued); err != nil || continued.Agent != "" {
+	if err := continuesLane(tx, order, &continued); err != nil {
 		return "", err
+	}
+	if continued.Agent != "" {
+		if _, unfit := unfitPin(resolved, order, continued.Agent); !unfit {
+			return "", nil
+		}
 	}
 	reworks, err := reworkedAgent(tx, order, order.ClaimID)
 	if err != nil {

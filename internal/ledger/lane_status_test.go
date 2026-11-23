@@ -71,7 +71,7 @@ func TestACheckSaysWhatItMeansForTheLaneAndWhatEndsIt(t *testing.T) {
 func TestACheckOfTheShippedMatrixNamesItsSurfaces(t *testing.T) {
 	t.Parallel()
 	got := ledger.CheckingCLI("claude-code", "2.1.317", ledger.SurfacesShipped)
-	const want = "Checking Claude Code 2.1.317: this lane runs on the surfaces this release qualified for 2.1.317 until the check ends"
+	const want = "Checking Claude Code 2.1.317: this lane runs on the surfaces this release qualified for 2.1.317; a respawn after the check picks up its result"
 	if got.Words != want {
 		t.Errorf("the check reads %+v, want words %q", got, want)
 	}

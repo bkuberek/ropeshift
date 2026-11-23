@@ -75,6 +75,20 @@ describe("the messages on the Lane view", () => {
     expect(state).toContain("Not delivered: its session takes no message on this agent CLI version, and the sender decides whether to send it again");
   });
 
+  it("says in words that a session on a version that passed its checks had no channel for a message just then, and names no version", async () => {
+    const expired = sent.find((message) => message.state === "expired");
+    if (!expired) {
+      throw new Error("no expired message in the golden list");
+    }
+    serveMessages(() => ({ status: 200, body: { messages: [{ ...expired, reason: "channel_unavailable" }] } }));
+    openPage(here(`/lane?id=${lane}`));
+    const [row] = await table();
+    const state = flat(cell(row as HTMLElement, "State"));
+    expect(state).toContain("Expired");
+    expect(state).toContain("Not delivered: its session had no channel for it just then, because it had no socket yet or its state could not be read, and the sender decides whether to send it again");
+    expect(state).not.toContain("agent CLI version");
+  });
+
   it("shows the body of a message as text, and a lane's reply only on a message it replied to", async () => {
     serveMessages(() => ({
       status: 200,

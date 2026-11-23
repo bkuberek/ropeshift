@@ -427,6 +427,7 @@
         {
           "lane": {
             "actual_state": "working",
+            "agent": "implementation",
             "as_of": 1790000065001,
             "freshness": "last_reported",
             "generation": 1,
@@ -468,6 +469,7 @@
         {
           "lane": {
             "actual_state": "briefing",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "waiting_background"
@@ -512,6 +514,7 @@
         {
           "lane": {
             "actual_state": "compacting",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "pack_oversized"
@@ -556,6 +559,7 @@
         {
           "lane": {
             "actual_state": "idle",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "near_budget"
@@ -600,6 +604,7 @@
         {
           "lane": {
             "actual_state": "needs_decision",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "brief_unconfirmed"
@@ -644,6 +649,7 @@
         {
           "lane": {
             "actual_state": "pending",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "stalled"
@@ -688,6 +694,7 @@
         {
           "lane": {
             "actual_state": "provisioning",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "overdue"
@@ -732,6 +739,7 @@
         {
           "lane": {
             "actual_state": "starting",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "waiting_external"
@@ -776,6 +784,7 @@
         {
           "lane": {
             "actual_state": "working",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "waiting_in_pane"
@@ -820,6 +829,7 @@
         {
           "lane": {
             "actual_state": "idle",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "conditions": [
               "unpushed_work"
@@ -864,6 +874,7 @@
         {
           "lane": {
             "actual_state": "backoff",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "conditions": [
               "day_capped"
@@ -908,6 +919,7 @@
         {
           "lane": {
             "actual_state": "handing_off",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "conditions": [
               "handoff_degraded"
@@ -952,6 +964,7 @@
         {
           "lane": {
             "actual_state": "parking",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "condition_notes": {
               "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
@@ -999,6 +1012,7 @@
         {
           "lane": {
             "actual_state": "retiring",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "conditions": [
               "drifted"
@@ -1043,6 +1057,7 @@
         {
           "lane": {
             "actual_state": "tripped",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "conditions": [
               "waiting_for_person",
@@ -1103,6 +1118,7 @@
             ],
             "lane": {
               "actual_state": "working",
+              "agent": "implementation",
               "as_of": 1790000000000,
               "freshness": "last_reported",
               "generation": 1,
@@ -1175,6 +1191,7 @@
             ],
             "lane": {
               "actual_state": "parked",
+              "agent": "implementation",
               "as_of": 1790000066001,
               "freshness": "observed",
               "generation": 1,
@@ -1231,6 +1248,7 @@
             ],
             "lane": {
               "actual_state": "ended",
+              "agent": "implementation",
               "artifacts": [
                 {
                   "created_at": 1790000067001,
@@ -1327,6 +1345,7 @@
             "detail": "no_outcome",
             "lane": {
               "actual_state": "ended",
+              "agent": "implementation",
               "artifacts": [
                 {
                   "created_at": 1790000069001,
@@ -1389,6 +1408,7 @@
             "extra_attempt": true,
             "lane": {
               "actual_state": "ended",
+              "agent": "implementation",
               "artifacts": [
                 {
                   "created_at": 1790000071001,
@@ -1451,6 +1471,7 @@
             ],
             "lane": {
               "actual_state": "pending",
+              "agent": "implementation",
               "as_of": 1790000073001,
               "conditions": [
                 "stalled"
@@ -1502,6 +1523,7 @@
             "actions": [],
             "lane": {
               "actual_state": "working",
+              "agent": "implementation",
               "as_of": 1790000073001,
               "conditions": [
                 "waiting_in_pane"
@@ -1556,6 +1578,7 @@
             ],
             "lane": {
               "actual_state": "ended",
+              "agent": "implementation",
               "artifacts": [
                 {
                   "created_at": 1790000133001,
@@ -1649,6 +1672,7 @@
             ],
             "lane": {
               "actual_state": "parked",
+              "agent": "implementation",
               "as_of": 1790000133001,
               "freshness": "observed",
               "generation": 1,
@@ -1705,6 +1729,7 @@
             ],
             "lane": {
               "actual_state": "tripped",
+              "agent": "implementation",
               "as_of": 1790000133001,
               "conditions": [
                 "waiting_for_person",
@@ -1757,6 +1782,7 @@
         {
           "lane": {
             "actual_state": "parked",
+            "agent": "implementation",
             "as_of": 1790000066001,
             "freshness": "observed",
             "generation": 1,
@@ -1803,6 +1829,7 @@
         {
           "lane": {
             "actual_state": "parked",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "freshness": "observed",
             "generation": 1,
@@ -5404,6 +5431,7 @@
       "lanes": [
         {
           "actual_state": "idle",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "conditions": [
             "unpushed_work"
@@ -5429,6 +5457,7 @@
         },
         {
           "actual_state": "backoff",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "conditions": [
             "day_capped"
@@ -5454,6 +5483,7 @@
         },
         {
           "actual_state": "briefing",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "waiting_background"
@@ -5479,6 +5509,7 @@
         },
         {
           "actual_state": "compacting",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "pack_oversized"
@@ -5504,6 +5535,7 @@
         },
         {
           "actual_state": "ended",
+          "agent": "implementation",
           "archivable": true,
           "artifacts": [
             {
@@ -5540,6 +5572,7 @@
         },
         {
           "actual_state": "handing_off",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "conditions": [
             "handoff_degraded"
@@ -5565,6 +5598,7 @@
         },
         {
           "actual_state": "idle",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "near_budget"
@@ -5590,6 +5624,7 @@
         },
         {
           "actual_state": "needs_decision",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "brief_unconfirmed"
@@ -5615,6 +5650,7 @@
         },
         {
           "actual_state": "parked",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "freshness": "observed",
           "generation": 1,
@@ -5639,6 +5675,7 @@
         },
         {
           "actual_state": "parking",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "condition_notes": {
             "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
@@ -5667,6 +5704,7 @@
         },
         {
           "actual_state": "pending",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "stalled"
@@ -5692,6 +5730,7 @@
         },
         {
           "actual_state": "provisioning",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "overdue"
@@ -5717,6 +5756,7 @@
         },
         {
           "actual_state": "retiring",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "conditions": [
             "drifted"
@@ -5742,6 +5782,7 @@
         },
         {
           "actual_state": "starting",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "waiting_external"
@@ -5767,6 +5808,7 @@
         },
         {
           "actual_state": "tripped",
+          "agent": "implementation",
           "as_of": 1790000133001,
           "conditions": [
             "waiting_for_person",
@@ -5793,6 +5835,7 @@
         },
         {
           "actual_state": "working",
+          "agent": "implementation",
           "as_of": 1790000073001,
           "conditions": [
             "waiting_in_pane"
@@ -5818,6 +5861,7 @@
         },
         {
           "actual_state": "ended",
+          "agent": "implementation",
           "archivable": true,
           "artifacts": [
             {
@@ -5854,6 +5898,7 @@
         },
         {
           "actual_state": "ended",
+          "agent": "implementation",
           "archivable": true,
           "artifacts": [
             {
@@ -5890,6 +5935,7 @@
         },
         {
           "actual_state": "ended",
+          "agent": "implementation",
           "archivable": true,
           "artifacts": [
             {
@@ -5926,6 +5972,7 @@
         },
         {
           "actual_state": "ended",
+          "agent": "implementation",
           "archivable": true,
           "artifacts": [
             {
@@ -5962,6 +6009,7 @@
         },
         {
           "actual_state": "ended",
+          "agent": "implementation",
           "archivable": true,
           "artifacts": [
             {
@@ -5998,6 +6046,7 @@
         },
         {
           "actual_state": "working",
+          "agent": "implementation",
           "as_of": 1790000000000,
           "freshness": "last_reported",
           "generation": 1,
@@ -6020,6 +6069,7 @@
         },
         {
           "actual_state": "parked",
+          "agent": "implementation",
           "as_of": 1790000066001,
           "freshness": "observed",
           "generation": 1,
@@ -6044,6 +6094,7 @@
         },
         {
           "actual_state": "working",
+          "agent": "implementation",
           "as_of": 1790000065001,
           "freshness": "last_reported",
           "generation": 1,
@@ -6114,6 +6165,7 @@
           "id": "wo-lapsed",
           "lane": {
             "actual_state": "working",
+            "agent": "implementation",
             "as_of": 1790000000000,
             "freshness": "last_reported",
             "generation": 1,
@@ -6163,6 +6215,7 @@
           "id": "wo-blocked",
           "lane": {
             "actual_state": "ended",
+            "agent": "implementation",
             "artifacts": [
               {
                 "created_at": 1790000069001,
@@ -6221,6 +6274,7 @@
           "id": "wo-failed",
           "lane": {
             "actual_state": "ended",
+            "agent": "implementation",
             "artifacts": [
               {
                 "created_at": 1790000071001,
@@ -6279,6 +6333,7 @@
           "id": "wl-pending",
           "lane": {
             "actual_state": "pending",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "stalled"
@@ -6326,6 +6381,7 @@
           "id": "wl-working",
           "lane": {
             "actual_state": "working",
+            "agent": "implementation",
             "as_of": 1790000073001,
             "conditions": [
               "waiting_in_pane"
@@ -6376,6 +6432,7 @@
           "id": "wl-tripped",
           "lane": {
             "actual_state": "tripped",
+            "agent": "implementation",
             "as_of": 1790000133001,
             "conditions": [
               "waiting_for_person",

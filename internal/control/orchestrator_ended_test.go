@@ -149,23 +149,44 @@ func (r *planeRig) forcedInterruptions() int {
 	return forced
 }
 
-// A start of a run that ended makes the next run, as a start of a stopped one does, so it counts as no forced act.
-// Replacing a run that stalled is one.
-func TestAStartOfAnEndedOrchestratorIsNoForcedInterruption(t *testing.T) {
+// A run that ended on a failure was cut short, so starting its next run is a rescue and counts as a forced act, as
+// replacing a run that stalled does.
+func TestAStartOfAnOrchestratorThatEndedOnAFailureIsAForcedInterruption(t *testing.T) {
 	r := newPlaneRig(t, ledger.ProtocolVersion)
 	ended := r.endedRun()
 	next, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forced := r.forcedInterruptions(); forced != 0 {
-		t.Errorf("a start of run %d, which ended, counted %d forced interruptions, want none", ended.Run, forced)
+	if forced := r.forcedInterruptions(); forced != 1 {
+		t.Errorf("a start of run %d, which ended on %q, counted %d forced interruptions, want 1", ended.Run, ended.EndReason, forced)
 	}
 	r.saysOfRun(2, next.Lane(), ledger.UploadLaneStatus, ledger.LaneStatus{ActualState: "working", Conditions: []string{"stalled"}})
 	if _, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember); err != nil {
 		t.Fatal(err)
 	}
-	if forced := r.forcedInterruptions(); forced != 1 {
-		t.Errorf("replacing a run that stalled counted %d forced interruptions, want 1", forced)
+	if forced := r.forcedInterruptions(); forced != 2 {
+		t.Errorf("replacing a run that stalled counted %d forced interruptions, want 2", forced)
+	}
+}
+
+// A run that ended with no reason was not cut short on a failure, so starting its next run is a choice, as starting one a
+// member stopped is.
+func TestAStartOfAnOrchestratorThatEndedWithNoReasonIsNoForcedInterruption(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	row, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.saysOfRun(1, row.Lane(), ledger.UploadLaneEnded, nil)
+	ended, err := r.plane.Orchestrator(t.Context(), "worker-1")
+	if err != nil || ended.Actual != "ended" || ended.EndReason != "" {
+		t.Fatalf("the run that ended with no payload reads %+v, %v, want it ended with no reason", ended, err)
+	}
+	if _, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	if forced := r.forcedInterruptions(); forced != 0 {
+		t.Errorf("a start of run %d, which ended with no reason, counted %d forced interruptions, want none", ended.Run, forced)
 	}
 }

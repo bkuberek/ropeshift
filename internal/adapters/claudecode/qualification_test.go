@@ -248,8 +248,53 @@ func TestAnAdoptedSessionKeepsTheVersionItStartedOn(t *testing.T) {
 	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec, Hooks: hooks}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := next.Send(t.Context(), located.Handle, ports.Input{Text: "from a peer", Peer: true}); !errors.Is(err, ports.ErrNoChannel) {
-		t.Errorf("an adopted session on a version whose socket failed took a peer's message: %v", err)
+	if _, err := next.Send(t.Context(), located.Handle, ports.Input{Text: "from a peer", Peer: true}); !errors.Is(err, ports.ErrNoChannel) || errors.Is(err, ports.ErrChannelUnavailable) {
+		t.Errorf("an adopted session on a version whose socket failed took a peer's message, or called a version that failed its check temporarily unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(doubles.BinDir(path), "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Stop(t.Context(), located.Handle, ports.StopNow); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A session on a version whose socket passed its check, and that has no socket to write to now, has no channel for a peer's
+// message for a reason of its own, which is not the version's: the error says so, and a version that passed is never
+// named as the cause.
+func TestAPeerMessageToAQualifiedSessionWithNoSocketNowIsUnavailableAndNotUnqualified(t *testing.T) {
+	first, path, spec := session(t, "lane-survives", nil)
+	doubles.SetFakeClaudeVersion(t, path, "2.1.399")
+	first.Qualify(probed("2.1.399"))
+	handle, err := first.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := first.Events(t.Context(), handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range events {
+		if event.Kind == ports.EventSessionBound {
+			break
+		}
+	}
+	next := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second})
+	next.Qualify(probed("2.1.399"))
+	located, err := next.Find(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if located.Handle.Degraded {
+		t.Fatalf("the version passed every check, and the session reads degraded: %+v", located.Handle)
+	}
+	// No hook names the session's socket, as with a hook the worker has not read.
+	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = next.Send(t.Context(), located.Handle, ports.Input{Text: "from a peer", Peer: true})
+	if !errors.Is(err, ports.ErrNoChannel) || !errors.Is(err, ports.ErrChannelUnavailable) {
+		t.Errorf("a qualified session with no socket now answered %v, want no channel, unavailable", err)
 	}
 	if err := os.WriteFile(filepath.Join(doubles.BinDir(path), "release"), nil, 0o600); err != nil {
 		t.Fatal(err)

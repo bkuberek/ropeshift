@@ -428,6 +428,12 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 			}
 		}
 		for _, words := range leaderReadings(command.words) {
+			// Only a shell knows what a command word that expands names, and an argument of a wrapper that expands may be
+			// the command or an option that takes it away, so no hold can read what the words run. A lane that only reads
+			// runs none of it. A lane that writes leaves it to the gate reader, which asks.
+			if words[0].expands && p.readOnly() {
+				return ReasonReadOnly, true
+			}
 			name := path.Base(words[0].text)
 			switch {
 			case name == "cd":
@@ -447,6 +453,10 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 						return reason, true
 					}
 				}
+			case slices.Contains(textRunners, name):
+				if reason, denied := p.decideTextRunner(name, words[1:], at, depth, seen); denied {
+					return reason, true
+				}
 			default:
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {
@@ -462,6 +472,100 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 		}
 	}
 	return "", false
+}
+
+// decideTextRunner reads what a program that hands its words to a shell runs: each argument that holds a byte
+// a shell reads is a command line, as the gate reader takes it. Parallel also builds a command from the words
+// that follow its options, up to the first of its inputs. A parallel with only options runs the lines it
+// reads, which no hold can read, so a lane that only reads and a lane that writes are both refused it.
+func (p DenyPolicy) decideTextRunner(name string, args []shellWord, at string, depth int, seen *gitSeen) (string, bool) {
+	for _, word := range args {
+		if !strings.ContainsAny(word.text, shellSpecial) {
+			continue
+		}
+		if reason, denied := p.decideShell(word.text, at, depth+1, seen); denied {
+			return reason, true
+		}
+	}
+	if name != "parallel" {
+		return "", false
+	}
+	return p.decideParallel(args, at, depth, seen)
+}
+
+// decideParallel reads the command parallel builds from the words after its options, up to its inputs. An option that
+// takes a value takes the word after it, which is no command, and an option the policy does not know may take it or not,
+// so its words are read from each word that is no option: the policy refuses what any of them runs.
+func (p DenyPolicy) decideParallel(args []shellWord, at string, depth int, seen *gitSeen) (string, bool) {
+	// ::: and :::: both begin with the first, and each opens the inputs.
+	inputs := slices.IndexFunc(args, func(word shellWord) bool { return strings.HasPrefix(word.text, ":::") })
+	words := args
+	if inputs >= 0 {
+		words = args[:inputs]
+	}
+	start, unsure := -1, false
+	for i := 0; i < len(words) && start < 0; i++ {
+		if !strings.HasPrefix(words[i].text, "-") {
+			start = i
+			break
+		}
+		takes, known := parallelOption(words[i].text)
+		unsure = unsure || !known
+		if takes {
+			i++
+		}
+	}
+	if start < 0 {
+		// With no command, parallel runs the lines it reads, which no hold can read, or the inputs it is given, which were
+		// read above.
+		if inputs >= 0 {
+			return "", false
+		}
+		if p.readOnly() {
+			return ReasonReadOnly, true
+		}
+		return ReasonOutside, true
+	}
+	starts := []int{start}
+	if unsure {
+		starts = starts[:0]
+		for i, word := range words {
+			if !strings.HasPrefix(word.text, "-") {
+				starts = append(starts, i)
+			}
+		}
+	}
+	for _, from := range starts {
+		if reason, denied := p.decideShell(joinWords(words[from:]), at, depth+1, seen); denied {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+// parallelOption reads one option word of parallel: whether its value is the next word, and whether the policy knows
+// the option at all. A short option that takes a value takes the rest of its word as that value when there is one.
+func parallelOption(text string) (takes, known bool) {
+	if strings.HasPrefix(text, "--") {
+		flag, _, joined := strings.Cut(text, "=")
+		valued := slices.Contains(parallelValued, flag)
+		return valued && !joined, valued || slices.Contains(parallelFlags, flag)
+	}
+	for i := 1; i < len(text); i++ {
+		letter := "-" + text[i:i+1]
+		switch {
+		case slices.Contains(parallelValued, letter):
+			return i+1 == len(text), true
+		case !slices.Contains(parallelFlags, letter):
+			return false, false
+		}
+	}
+	return false, true
+}
+
+// readOnly says the policy is a lane's that only reads, which denies a git subcommand with ReasonReadOnly.
+func (p DenyPolicy) readOnly() bool {
+	return slices.ContainsFunc(p.Deny, func(rule DenyRule) bool { return rule.Reason == ReasonReadOnly })
 }
 
 func joinWords(words []shellWord) string {

@@ -110,10 +110,15 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 			claim.ContinuesRef, claim.ContinuesCommit = start.ContinuesRef, start.ContinuesCommit
 			claim.Reads = start.Reads
 		}
+		// A woken lane resumes as the agent its earlier claim pinned while the roster still gives it that agent, and
+		// otherwise as the agent the roster picks, which its claim's event says.
+		var repinned string
 		if claim.Agent == "" {
 			if err := pinAgent(tx, current, prior.ClaimID, &claim); err != nil {
 				return err
 			}
+		} else if repinned, err = repinUnfit(tx, view.Resolved, current, prior.ClaimID, &claim); err != nil {
+			return err
 		}
 		if err := l.pinPack(tx, current, &claim, actor); err != nil {
 			return err
@@ -132,6 +137,7 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 			Worker:     request.Worker,
 			LeaseUntil: current.LeaseUntil,
 			Lane:       claim.Lane,
+			Reason:     repinned,
 		}, actor)
 		if err != nil {
 			return err
@@ -1203,6 +1209,9 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 			return fmt.Errorf("%w: work order %s runs no lane", workorders.ErrIllegalMove, workOrder)
 		}
 		row, err := tx.Lanes().Row(claim.Lane)
+		if errors.Is(err, ports.ErrNotFound) {
+			return fmt.Errorf("%w: the lane of work order %s has not reported, and only a tripped lane is reset", workorders.ErrIllegalMove, workOrder)
+		}
 		if err != nil {
 			return err
 		}

@@ -1294,6 +1294,20 @@ describe("waiting work", () => {
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("says beside Degraded mode, in a sentence the chip points to, how the lane of stopped work runs", async () => {
+    const words = "Runs on documented surfaces until it restarts on a qualified version.";
+    const view = goldenNeedsYou();
+    const stalled = view.items.find((item) => item.kind === "work" && item.id === "wo-stalled") as Extract<NeedItem, { kind: "work" }>;
+    stalled.work.lane = { ...stalled.work.lane!, conditions: ["degraded_mode"], condition_notes: { degraded_mode: words } };
+    view.items = [stalled];
+    show(view);
+    const card = screen.getByRole("article");
+    const chip = within(card).getByText("Degraded mode");
+    const sentence = within(card).getByText(words);
+    expect(sentence.id).not.toBe("");
+    expect(chip.getAttribute("aria-describedby")).toBe(sentence.id);
+  });
+
   it("says an orchestrator waits in its pane, and offers no start that would replace it", async () => {
     const view = goldenNeedsYou();
     const orchestrator = { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 1, resets: 0, actual_state: "working", conditions: ["waiting_in_pane"] };

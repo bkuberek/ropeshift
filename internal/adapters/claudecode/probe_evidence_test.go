@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -315,6 +316,9 @@ func TestAProbeDoesNotFollowASymlinkedEvidenceRoot(t *testing.T) {
 	})
 	t.Run("a driver directory that is a link", func(t *testing.T) {
 		driver, spec, _ := probeRig(t, "max_budget_usd")
+		// This subtest holds the probe to exactly the evidence of its one failed check, and a check that times out on a
+		// loaded machine keeps its stream too, so every wait of the probe has room here.
+		t.Cleanup(claudecode.ShortenProbeWaits(30 * time.Second))
 		elsewhere := plant(t)
 		spec.EvidenceDir = filepath.Join(t.TempDir(), "evidence")
 		if err := os.MkdirAll(spec.EvidenceDir, 0o700); err != nil {

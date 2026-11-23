@@ -3,6 +3,7 @@
   "lanes": [
     {
       "actual_state": "ended",
+      "agent": "heavy-implementation",
       "archivable": true,
       "artifacts": [
         {
@@ -39,6 +40,7 @@
     },
     {
       "actual_state": "ended",
+      "agent": "review",
       "archivable": true,
       "as_of": 1790000424001,
       "base_commit": "abc1230000000000000000000000000000000000",
@@ -66,6 +68,7 @@
     },
     {
       "actual_state": "ended",
+      "agent": "review",
       "archivable": true,
       "as_of": 1790000844001,
       "base_commit": "abc1230000000000000000000000000000000000",
@@ -93,6 +96,7 @@
     },
     {
       "actual_state": "ended",
+      "agent": "implementation",
       "archivable": true,
       "artifacts": [
         {
@@ -129,6 +133,7 @@
     },
     {
       "actual_state": "working",
+      "agent": "implementation",
       "as_of": 1790000484001,
       "freshness": "last_reported",
       "generation": 1,
@@ -151,6 +156,7 @@
     },
     {
       "actual_state": "ended",
+      "agent": "implementation",
       "archivable": true,
       "artifacts": [
         {
@@ -187,6 +193,7 @@
     },
     {
       "actual_state": "ended",
+      "agent": "implementation",
       "archivable": true,
       "artifacts": [
         {
@@ -231,6 +238,7 @@
     },
     {
       "actual_state": "working",
+      "agent": "implementation",
       "as_of": 1790000364001,
       "freshness": "last_reported",
       "generation": 1,
@@ -253,6 +261,7 @@
     },
     {
       "actual_state": "ended",
+      "agent": "implementation",
       "archivable": true,
       "artifacts": [
         {
@@ -289,6 +298,7 @@
     },
     {
       "actual_state": "working",
+      "agent": "implementation",
       "as_of": 1790000184000,
       "freshness": "last_reported",
       "generation": 1,
@@ -311,6 +321,7 @@
     },
     {
       "actual_state": "parked",
+      "agent": "implementation",
       "as_of": 1790000664001,
       "freshness": "observed",
       "generation": 1,
@@ -335,6 +346,7 @@
     },
     {
       "actual_state": "working",
+      "agent": "implementation",
       "as_of": 1790000724001,
       "freshness": "last_reported",
       "generation": 1,
@@ -357,6 +369,7 @@
     },
     {
       "actual_state": "working",
+      "agent": "implementation",
       "as_of": 1790000724001,
       "conditions": [
         "stalled"
@@ -382,6 +395,7 @@
     },
     {
       "actual_state": "tripped",
+      "agent": "implementation",
       "as_of": 1790000724001,
       "freshness": "last_reported",
       "generation": 1,

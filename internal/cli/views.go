@@ -65,7 +65,15 @@ func (c *invocation) needs(args []string) int {
 				project = plainLine(item.Project.Name)
 			}
 			waited := time.Duration(max(view.AsOf-item.Since, 0)) * time.Millisecond
-			fmt.Fprintf(&out, "%s\t%s\t%s\twaiting %s\n", project, plainLine(item.Kind), plainLine(item.ID), waited.Round(time.Second))
+			fmt.Fprintf(&out, "%s\t%s\t%s\twaiting %s", project, plainLine(item.Kind), plainLine(item.ID), waited.Round(time.Second))
+			// Stopped work says why: the reason, and its detail when it has one.
+			if item.Work != nil && item.Work.Reason != "" {
+				out.WriteString("\t" + plainLine(item.Work.Reason))
+				if item.Work.Detail != "" {
+					out.WriteString(": " + plainLine(item.Work.Detail))
+				}
+			}
+			out.WriteByte('\n')
 		}
 		if len(view.Items) == 0 {
 			out.WriteString("Nothing waits on a member.\n")

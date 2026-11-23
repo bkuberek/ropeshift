@@ -24,6 +24,11 @@ const messageLabel = "message/"
 // prefix, and never the words of an error, to tell a write nothing took from one that failed another way.
 const detailNoChannel = "no channel for the message"
 
+// detailChannelUnavailable begins the detail of a write that failed on a version whose socket passed its check, because
+// the session had no socket yet or its state could not be read. It begins with detailNoChannel, so a restart settles that
+// write too, and it keeps the reason, which names no version.
+const detailChannelUnavailable = detailNoChannel + " now"
+
 // takesMessages are the states a session reads a message in. A lane on its way out reads nothing
 // more, so what waits for it meets the rollover table instead.
 var takesMessages = []lanes.ActualState{lanes.Working, lanes.Idle, lanes.NeedsDecision}
@@ -145,7 +150,7 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 			return false, err
 		}
 		if leftWithNoChannel(current) {
-			return r.undeliverable(ctx, held)
+			return r.undeliverable(ctx, held, noChannelReason(current.Detail))
 		}
 		again, err := r.afterAPersonsWord(ctx, held, current)
 		if err != nil || !again {
@@ -161,7 +166,7 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		}
 		switch {
 		case errors.Is(sent, ports.ErrNoChannel):
-			return r.undeliverable(ctx, held)
+			return r.undeliverable(ctx, held, noChannelReason(writeFailure(sent)))
 		case errors.Is(sent, ports.ErrNoSession):
 			return false, nil
 		}
@@ -171,12 +176,25 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 }
 
 // writeFailure is what the journal keeps of a write that failed. A write that no channel took says so first, so a
-// worker that dies before it reports the message undeliverable settles it on its restart (leftWithNoChannel).
+// worker that dies before it reports the message undeliverable settles it on its restart (leftWithNoChannel), and says
+// whether the channel was unavailable then, which the restart reports as the reason (noChannelReason).
 func writeFailure(sent error) string {
-	if errors.Is(sent, ports.ErrNoChannel) {
+	switch {
+	case errors.Is(sent, ports.ErrChannelUnavailable):
+		return detailChannelUnavailable + ": " + sent.Error()
+	case errors.Is(sent, ports.ErrNoChannel):
 		return detailNoChannel + ": " + sent.Error()
 	}
 	return sent.Error()
+}
+
+// noChannelReason is what a worker tells the ledger of a message no channel took, from the detail of the failed write: a
+// channel that was not available then, or else the version, whose message surface passed no check.
+func noChannelReason(detail string) string {
+	if strings.HasPrefix(detail, detailChannelUnavailable) {
+		return messages.ReasonChannelUnavailable
+	}
+	return messages.ReasonUndeliverable
 }
 
 // leftWithNoChannel says a write failed for want of a channel. Nothing was written into the session, and no later
@@ -194,10 +212,12 @@ func leftWithNoChannel(effect lanes.Effect) bool {
 // only that question parks on a wake the answer has already fired, so it resumes and its next generation's
 // first prompt carries the answer (FR-PARK-2, FR-MSG-5). A lane that waits on another question too stays
 // parked until that one is answered as well, because a resume clears what the lane waited on and would
-// leave that question with nothing waiting on it. A lane that cannot park now is on its way out already,
-// or parks on its questions at the end of `ask_wait`, and its next generation hears of the answer either way.
-func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, error) {
-	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: messages.ReasonUndeliverable})
+// leave that question with nothing waiting on it. Only a lane at rest parks: one in a turn is not cut off, and
+// parks when its turn ends (awaitAnswer reads the answer as undelivered, answerLeftUndelivered). A lane that
+// cannot park now is on its way out already, or parks on its questions at the end of `ask_wait`, and its next
+// generation hears of the answer either way.
+func (r *laneRun) undeliverable(ctx context.Context, held messages.Held, reason string) (bool, error) {
+	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: reason})
 	if err != nil {
 		return false, err
 	}
@@ -206,12 +226,43 @@ func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, 
 		return false, err
 	}
 	waiting := r.blockingQuestions()
-	if held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) {
+	if held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) && r.state.atRest() {
 		r.parkReported(ctx, lanes.ParkRequest{
 			Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake(waiting), PastCompaction: true,
 		})
 	}
 	return true, nil
+}
+
+// answerLeftUndelivered says an answer to a question the lane still waits on was settled as undeliverable in this
+// generation: its message reads expired, and its write failed for want of a channel. The journal keeps both across a
+// restart, so a lane whose worker died between that move and the lane's park is found by them.
+func (r *laneRun) answerLeftUndelivered(ctx context.Context) bool {
+	waiting := r.blockingQuestions()
+	if len(waiting) == 0 {
+		return false
+	}
+	effects, err := r.w.journal.Effects(ctx)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: reading its effects: %w", r.lease.Lane, err))
+		return false
+	}
+	generation := r.currentGeneration()
+	prefix := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, generation, "", messageLabel).Key
+	for _, effect := range effects {
+		id, ours := strings.CutPrefix(effect.Key, prefix)
+		if !ours || effect.Lane != r.lease.Lane || effect.Generation != generation || !leftWithNoChannel(effect) {
+			continue
+		}
+		held, err := r.w.journal.Message(ctx, id)
+		if err != nil {
+			continue
+		}
+		if held.State == messages.Expired && held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) {
+			return true
+		}
+	}
+	return false
 }
 
 // afterAPersonsWord reads a write that already has a record, and says whether to write again. Only a

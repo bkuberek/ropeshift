@@ -103,20 +103,24 @@ type AgentDriver struct {
 	specs    []ports.SessionSpec
 	resumed  []ports.ResumeRef
 	left     map[string]ports.Located
-	// leftOn is the version each left session started on, for the sessions Find reads it for.
-	leftOn   map[string]string
-	adopted  []ports.AdoptFrom
-	reread   []ports.AdoptFrom
-	findErr  error
-	stopped  bool
-	hooks    []lanes.HookEvent
-	onStop   func()
-	signIn   string
-	present  bool
-	costs    lanes.ResumeCosts
-	noResume bool
+	// leftOn is the version each left session started on, and leftSurfaces what qualified it when it was left, as a launch
+	// records it, for the sessions Find reads them for.
+	leftOn       map[string]string
+	leftSurfaces map[string]surfaceRecord
+	adopted      []ports.AdoptFrom
+	reread       []ports.AdoptFrom
+	findErr      error
+	stopped      bool
+	hooks        []lanes.HookEvent
+	onStop       func()
+	signIn       string
+	present      bool
+	costs        lanes.ResumeCosts
+	noResume     bool
 	// noPeerChannel stands for a version whose socket surfaces passed no check.
 	noPeerChannel bool
+	// peerChannelDown stands for a version whose socket passed its check, on a session that cannot take a message now.
+	peerChannelDown bool
 	// probeChecks are the surfaces a probe runs, and SurfacePeerChannel alone when none was set. subscriptionChecks are
 	// the ones it runs besides, unless the sign-in is an API key.
 	probeChecks        []lanes.Surface
@@ -186,7 +190,7 @@ type driverSession struct {
 // NewAgentDriver returns a driver with an empty script.
 func NewAgentDriver() *AgentDriver {
 	return &AgentDriver{
-		version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{}, leftOn: map[string]string{},
+		version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{}, leftOn: map[string]string{}, leftSurfaces: map[string]surfaceRecord{},
 		signIn: ports.SignInAPIKey, present: true, costs: DefaultResumeCosts(),
 	}
 }
@@ -213,6 +217,14 @@ func (d *AgentDriver) SetPeerChannel(on bool) {
 	d.noPeerChannel = !on
 }
 
+// SetPeerChannelUnavailable says a peer's message has no path into a session now, though the version's message surface
+// passed its check: the session has no socket yet, or its state could not be read.
+func (d *AgentDriver) SetPeerChannelUnavailable(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.peerChannelDown = on
+}
+
 // SetHeadless says whether this driver offers headless sessions.
 func (d *AgentDriver) SetHeadless(on bool) {
 	d.mu.Lock()
@@ -237,14 +249,24 @@ func (d *AgentDriver) Leave(lane string, generation int64, session lanes.Session
 	d.left[id] = ports.Located{Session: session, Handle: ports.SessionHandle{ID: id}}
 }
 
-// LeaveOn places a session as an earlier process left it, one that started on a version: Find reports that version
-// and what qualifies it when Find reads, as the real driver does from what the launch wrote down.
+// surfaceRecord is what qualified a version when a session launched on it: whether it ran degraded, and where its surfaces
+// came from.
+type surfaceRecord struct {
+	degraded bool
+	source   string
+}
+
+// LeaveOn places a session as an earlier process left it, one that started on a version: Find reports that version and
+// what qualified it now, at the launch, and not what qualifies it when Find reads, as the real driver does from what the
+// launch wrote down.
 func (d *AgentDriver) LeaveOn(lane string, generation int64, session lanes.Session, version string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	id := sessionID(lane, generation)
 	d.left[id] = ports.Located{Session: session, Handle: ports.SessionHandle{ID: id}}
 	d.leftOn[id] = version
+	degraded, _, source := d.surfacesOfLocked(version)
+	d.leftSurfaces[id] = surfaceRecord{degraded: degraded, source: source}
 }
 
 // FailFind makes every Find an incomplete read, until it is given nil.
@@ -716,8 +738,8 @@ func (d *AgentDriver) Find(_ context.Context, spec ports.SessionSpec) (ports.Loc
 	}
 	located := d.left[id]
 	if version := d.leftOn[id]; version != "" {
-		located.Handle.Version = version
-		located.Handle.Degraded, _, located.Handle.Source = d.surfacesOfLocked(version)
+		recorded := d.leftSurfaces[id]
+		located.Handle.Version, located.Handle.Degraded, located.Handle.Source = version, recorded.degraded, recorded.source
 	}
 	return located, nil
 }
@@ -931,6 +953,10 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 	if (in.Peer || in.MidTurn) && (d.noPeerChannel || (in.MidTurn && d.midTurnRefused)) {
 		d.mu.Unlock()
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w", h.ID, ports.ErrNoChannel)
+	}
+	if (in.Peer || in.MidTurn) && d.peerChannelDown {
+		d.mu.Unlock()
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %w", h.ID, ports.ErrNoChannel, ports.ErrChannelUnavailable)
 	}
 	d.sends++
 	if in.ID == "" {

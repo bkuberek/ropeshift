@@ -43,6 +43,10 @@ const (
 	// version whose message surface passed no check, so nothing was written. The sender decides whether
 	// to send it again.
 	ReasonUndeliverable = "undeliverable"
+	// ReasonChannelUnavailable is a message its session could not take then, though its version's message surface passed
+	// its check: the session had no socket yet, or its state could not be read. Nothing was written, and the version is
+	// not the cause. The sender decides whether to send it again.
+	ReasonChannelUnavailable = "channel_unavailable"
 )
 
 // moves is the delivery table. An admission can pass `handed_off`, because a worker can die
@@ -110,12 +114,15 @@ func ExpiryReason(kind Kind) string {
 	return ReasonTimedOut
 }
 
-// UndeliverableReason says what a message its session has no channel for means to its sender. Nothing
-// will write it to that session, and a decision stands all the same, so the next generation hears of
-// it, and anything else is not delivered.
-func UndeliverableReason(kind Kind) string {
-	if kind.DecisionBearing() {
+// UndeliverableReason says what a message its session has no channel for means to its sender, from the reason its worker
+// gave. Nothing will write it to that session, and a decision stands all the same, so the next generation hears of it, and
+// anything else is not delivered, for the worker's reason: the version's, or a channel that was not available then.
+func UndeliverableReason(kind Kind, reported string) string {
+	switch {
+	case kind.DecisionBearing():
 		return ReasonLedgerFact
+	case reported == ReasonChannelUnavailable:
+		return ReasonChannelUnavailable
 	}
 	return ReasonUndeliverable
 }

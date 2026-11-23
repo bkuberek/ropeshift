@@ -152,6 +152,9 @@ type laneRun struct {
 	// profileRetryAt is when this run reads its profile again, in Unix milliseconds of the worker's clock, because the
 	// last read failed, and zero when none waits. The handle's lock guards it.
 	profileRetryAt int64
+	// profileUnreadWords is what the last report of an unreadable profile said, so a profile that stays unreadable for the same
+	// reason is reported once. It is empty once a profile was read, and handleLock guards it.
+	profileUnreadWords string
 
 	// untold is what a driver may have missed while an adoption runs, and nil once it ended (tellDriver).
 	// untoldLock guards it.
@@ -226,6 +229,9 @@ type laneRun struct {
 	// spendCheck carries a hook's word that a tool call is starting to the goroutine that reads this run's stream, which
 	// then holds the lane to its limits as a usage report does. It holds one word, so a burst of calls is one check.
 	spendCheck chan struct{}
+	// progressDue carries a request that the journal keep what this run knows now, such as a wait the lane declared, to
+	// the goroutine that reads the stream: it alone reads and writes the figures a save holds. It holds one word.
+	progressDue chan struct{}
 	// boundDue carries the end of a bounded wait to the same goroutine, which decides what the lane does next: a rest
 	// on background work, a turn no end was heard for, or a refused nudge.
 	boundDue chan struct{}
@@ -314,7 +320,7 @@ func newOnce() *sync.Once { return &sync.Once{} }
 // newRun is a lane's run at its first generation.
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
-		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(), spendCheck: make(chan struct{}, 1),
+		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(), spendCheck: make(chan struct{}, 1), progressDue: make(chan struct{}, 1),
 		boundDue: make(chan struct{}, 1),
 		state:    newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
 	}
@@ -728,7 +734,6 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if !hooksRead || !approvalsRead {
 		r.rereadJournal(ctx, approvalsRead)
 	}
-	r.noteAdoptedSurfaces()
 	crashpoint.Hit("worker.lane", "adopted")
 	r.reach(ctx)
 	r.signal(ctx, lanes.OnDriverReady)
@@ -813,13 +818,13 @@ func (r *laneRun) rereadJournal(ctx context.Context, approvalsRead bool) {
 // wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
 	r.unreadEnd(ctx)
-	if _, reported := r.reported(ctx); !reported && !r.left.Open() {
+	if _, reported := r.reported(ctx); !reported && !r.handoffLeft() {
 		r.w.parkOnSignIn(ctx)
 	}
 	if _, _, asked := r.waitParkOf(); asked || r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}
-	if r.left.Open() {
+	if r.handoffLeft() {
 		return r.finishHandoff(ctx)
 	}
 	return r.finish(ctx, r.unattended(ctx))
@@ -1290,6 +1295,9 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.backgroundBound(ctx)
 			r.turnBound(ctx)
 			r.refusalBound(ctx)
+			continue
+		case <-r.progressDue:
+			r.saveProgress(ctx, r.cursor)
 			continue
 		case <-r.spendCheck:
 			// A tool call is starting, and no cost report may come to show the limit passed: a call that cannot be

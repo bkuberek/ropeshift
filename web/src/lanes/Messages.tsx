@@ -14,6 +14,8 @@ const reasons: Record<string, string> = {
   generation_ended: "Its generation ended, and the sender decides whether to send it again",
   ledger_fact: "Never injected, so the next generation is told of it",
   undeliverable: "Not delivered: its session takes no message on this agent CLI version, and the sender decides whether to send it again",
+  channel_unavailable:
+    "Not delivered: its session had no channel for it just then, because it had no socket yet or its state could not be read, and the sender decides whether to send it again",
 };
 
 // LaneMessages lists what was sent to a lane, oldest first, as `ropeshift message list` does: each message with

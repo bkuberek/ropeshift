@@ -534,3 +534,29 @@ func TestAHostileNeedsItemReachesNoTerminal(t *testing.T) {
 		t.Errorf("needs printed %q", stdout.String())
 	}
 }
+
+// ropeshift needs says why stopped work waits: the reason of an item of work, and its detail when it has one. An item
+// that holds no work, or no reason, prints no more than its wait.
+func TestNeedsTextSaysWhyWorkStopped(t *testing.T) {
+	a := newCreationAPI(t)
+	a.needs = api.NeedsYou{AsOf: 90_000, Items: []api.NeedItem{
+		{Project: &api.ProjectLabel{Name: "shop"}, Kind: api.NeedWork, ID: "orch-1", Since: 0,
+			Work: &api.WorkNeed{Reason: api.ReasonEnded, Detail: "the start check failed:\x1b[31m the screen was unknown\n"}},
+		{Project: &api.ProjectLabel{Name: "shop"}, Kind: api.NeedWork, ID: "orch-2", Since: 0,
+			Work: &api.WorkNeed{Reason: api.ReasonTripped}},
+		{Project: &api.ProjectLabel{Name: "shop"}, Kind: api.NeedWork, ID: "orch-3", Since: 0, Work: &api.WorkNeed{}},
+		{Project: &api.ProjectLabel{Name: "shop"}, Kind: api.NeedRepositoryCreation, ID: "ap1/a", Since: 0},
+	}}
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"needs", "--socket", a.socket}, &stdout, &stderr, cli.Options{}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	assertPlain(t, "needs", stdout.String())
+	want := "shop\twork\torch-1\twaiting 1m30s\t" + api.ReasonEnded + ": the start check failed: the screen was unknown\n" +
+		"shop\twork\torch-2\twaiting 1m30s\t" + api.ReasonTripped + "\n" +
+		"shop\twork\torch-3\twaiting 1m30s\n" +
+		"shop\trepository_creation\tap1/a\twaiting 1m30s\n"
+	if stdout.String() != want {
+		t.Errorf("needs printed %q, want %q", stdout.String(), want)
+	}
+}

@@ -170,7 +170,9 @@ func TestAStoppingWorkerWaitsForTheStopItSent(t *testing.T) {
 	select {
 	case <-stopping:
 	case <-time.After(20 * time.Second):
-		t.Fatalf("the worker never stopped the session that reported: the lane reads %+v, problems %v", r.read(), r.problems())
+		// Run publishes the lane's status, so the message reads the plane and never publishes by hand.
+		view, err := r.plane.Lane(t.Context(), "lane-1")
+		t.Fatalf("the worker never stopped the session that reported: the lane reads %+v (%v), problems %v", view, err, r.problems())
 	}
 
 	stop()
