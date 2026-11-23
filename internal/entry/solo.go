@@ -317,7 +317,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		batches: batches, windows: windows, telemetry: telemetry.store, panes: soloPanes(terminal, laneRuntime.PaneInputs),
 		webAddress: webAddressOf(webListener), stderr: stderr,
 	})
-	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
+	hosts := &soloHosts{kept: kept, runtime: laneRuntime, opts: opts}
 	config.AssistantHosts = hosts.read
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -875,25 +875,33 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 		}
 		if project == soloScope {
 			for _, path := range opts.sources {
-				// A source is the checkout of the record registration would match it to, and no other record's
-				// merely because it holds one of that repository's first commits.
-				instance, err := repofiles.New(repofiles.Config{
-					Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
-				}).Instance(ctx)
-				if _, refused := repofiles.Refusal(err); refused {
-					// Intake reports a source registration would refuse. It is no checkout of any record.
-					continue
-				}
+				instance, ok, err := sourceInstance(ctx, opts, kept, project, path)
 				if err != nil {
 					return "", err
 				}
-				if instance == id {
+				if ok && instance == id {
 					return filepath.Abs(path)
 				}
 			}
 		}
 		return "", fmt.Errorf("%w: this worker keeps no checkout of repository %q in project %s", ports.ErrNotFound, id, project)
 	}
+}
+
+// sourceInstance names the record a daemon source is the checkout of: the one registration would match it to, and no
+// other record's merely because it holds one of that repository's first commits. A source registration would refuse
+// is no checkout of any record, and intake reports it.
+func sourceInstance(ctx context.Context, opts soloOptions, kept ports.Checkouts, project ledger.WorkspaceID, path string) (string, bool, error) {
+	instance, err := repofiles.New(repofiles.Config{
+		Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
+	}).Instance(ctx)
+	if _, refused := repofiles.Refusal(err); refused {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return instance, true, nil
 }
 
 // checkoutIdentity names, at each read, the record this worker keeps a path as the checkout of in a project,
