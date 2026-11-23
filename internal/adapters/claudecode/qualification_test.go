@@ -127,9 +127,8 @@ func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 	if err := claudecode.CheckMatrix(raw); err != nil {
 		t.Fatal(err)
 	}
-	// 2.1.316 is the spikes' version, and RS14 qualified 2.1.317 and 2.1.319 through the production
-	// probe.
-	for _, version := range []string{"2.1.316", "2.1.317", "2.1.319"} {
+	// 2.1.316 is the spikes' version, and the production probe qualified every later one.
+	for _, version := range []string{"2.1.316", "2.1.317", "2.1.319", "2.1.330"} {
 		if !slices.Contains(claudecode.MatrixVersions(), version) || claudecode.MatrixRow(version).Degraded {
 			t.Errorf("the matrix does not qualify %s: %v", version, claudecode.MatrixVersions())
 		}
@@ -147,6 +146,18 @@ func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 }
 
 // A row qualifies only its own version, and nothing in it extends to the next one.
+func TestTheMatrixRowOf2_1_330HoldsEverySurfaceTheProbeObserved(t *testing.T) {
+	row := claudecode.MatrixRow("2.1.330")
+	for _, surface := range claudecode.Surfaces {
+		if !row.Passed(surface) {
+			t.Errorf("2.1.330 reads %q for %s, and the production probe passed it", row.Checks[surface], surface)
+		}
+	}
+	if row.Degraded || row.Source != lanes.QualifiedByMatrix {
+		t.Errorf("2.1.330 read %+v", row)
+	}
+}
+
 func TestAMatrixRowQualifiesOnlyItsVersion(t *testing.T) {
 	if claudecode.MatrixRow("2.1.316").Degraded {
 		t.Error("2.1.316 passed every check in the spikes")

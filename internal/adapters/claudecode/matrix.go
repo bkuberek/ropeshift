@@ -14,12 +14,15 @@ import (
 // The surfaces this driver uses only through a check, one for each row of the qualification
 // matrix's checks for undocumented surfaces.
 const (
-	// SurfaceSocketLine is the socket's message line and its `uuid`: injection of anyone's message,
-	// and the worker's own input to a pane.
+	// SurfaceSocketLine is the socket's message line and the replay that confirms it: the replay carries our message ID
+	// as its `uuid`, or as `origin.msg_id` beside `origin.from`, which equals the sender's reply address. It is
+	// injection of anyone's message, and the worker's own input to a pane.
 	SurfaceSocketLine lanes.Surface = "socket_line"
 	// SurfaceReceipts is a receipt on a reply address, which is how `refused` is read.
 	SurfaceReceipts lanes.Surface = "receipts"
-	// SurfacePeerMessageHold is `system/peer_message_hold`, which shows a hold.
+	// SurfacePeerMessageHold is `system/peer_message_hold`, which shows a hold: the line names our message ID as its
+	// `message_uuid`, or names the reply address as `from` and is confirmed by the session's receipt for the message,
+	// whose `orig_msg_id` is our ID.
 	SurfacePeerMessageHold lanes.Surface = "peer_message_hold"
 	// SurfaceSocketDir is `CLAUDE_CODE_TMPDIR` moving the socket into a lane's private directory.
 	SurfaceSocketDir lanes.Surface = "socket_dir"
