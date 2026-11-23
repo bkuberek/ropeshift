@@ -506,26 +506,29 @@ type paneSession struct {
 	waitingMs int64
 	// compactMs is when the newest compaction began, by its hook's clock, and unsentMs is when the worker last
 	// pressed Enter on typed input the session did not take, and zero once a prompt or a compaction at or after it
-	// shows the session took a line.
+	// shows the session took a line. pressedMs is when the worker last pressed Enter on a line the session has not
+	// shown it took yet, and zero once it shows that, because that Enter may have begun a turn whose hooks come late.
 	compactMs int64
 	unsentMs  int64
+	pressedMs int64
 	totalUSD  float64
 	// approvals names the calls a hook is waiting on and when each was asked, and no key reaches a pane until
 	// each ends, because an Enter on a permission prompt is an answer.
 	approvals map[string]int64
 	meter     lanes.CostMeter
 	seen      ports.Observation
-	// now reads the clock that a prompt's hook is stamped by, and grace is how long typed input has to show the
-	// session took it.
-	now   func() time.Time
-	grace time.Duration
+	// now reads the clock that a prompt's hook is stamped by, grace is how long typed input has to show the
+	// session took it, and notice is how long the start of a turn holds the keys (dialogNotice).
+	now    func() time.Time
+	grace  time.Duration
+	notice time.Duration
 }
 
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
 		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]int64{},
-		now: time.Now, grace: inputGrace,
+		now: time.Now, grace: inputGrace, notice: dialogNotice,
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)
@@ -804,22 +807,32 @@ func (s *paneSession) closedBy(event lanes.HookEvent, closedMs int64) bool {
 // a key answers a dialog. A dialog may be open from the first sign of one until the session shows it closed: a
 // PermissionRequest until its call ends or its turn does, a Notification of a dialog until a newer prompt, a newer
 // turn's end, or its dialog's close, typed input the session did not take until it takes a line, and the first
-// seconds of a turn, in which a dialog no hook announces is still untold (dialogNotice). A prompt in the same
-// millisecond as the stop before it begins a turn too. The caller holds the lock.
+// seconds of a turn (turnStarting). The caller holds the lock.
 func (s *paneSession) keysHeld() bool {
-	turnStarting := s.promptMs > 0 && s.promptMs >= s.stopMs && s.now().UnixMilli()-s.promptMs < dialogNotice.Milliseconds()
-	return s.waiting || len(s.approvals) != 0 || s.unsentMs != 0 || turnStarting
+	return s.waiting || len(s.approvals) != 0 || s.unsentMs != 0 || s.turnStarting()
+}
+
+// turnStarting says a turn may be in its first seconds, in which a dialog no hook announces is still untold
+// (dialogNotice): one a prompt began, which a prompt in the same millisecond as the stop before it does too, or one an
+// Enter the session has not shown it took may have begun, because that turn's hooks, its prompt's and its dialog's,
+// can come late. The caller holds the lock.
+func (s *paneSession) turnStarting() bool {
+	start := max(s.promptMs, s.pressedMs)
+	return start > 0 && start >= s.stopMs && s.now().UnixMilli()-start < s.notice.Milliseconds()
 }
 
 // took says the session took a line entered at sinceMs or later: a prompt's hook or a compaction's fired since. The
 // caller holds the lock.
 func (s *paneSession) took(sinceMs int64) bool { return max(s.promptMs, s.compactMs) >= sinceMs }
 
-// tookLine ends the hold of typed input the session did not take, once it shows it took a line. The caller holds the
-// lock.
+// tookLine ends the hold of typed input the session did not take, and of an Enter it had not shown it took, once it
+// shows it took a line entered then or later. The caller holds the lock.
 func (s *paneSession) tookLine() {
 	if s.unsentMs != 0 && s.took(s.unsentMs) {
 		s.unsentMs = 0
+	}
+	if s.pressedMs != 0 && s.took(s.pressedMs) {
+		s.pressedMs = 0
 	}
 }
 
@@ -956,9 +969,10 @@ const enterAttempts = 2
 // press types a line and presses Enter, and returns once the session shows it took the line: a prompt's hook, or a
 // compaction's, at or after the first Enter, however late it arrives. A session that shows nothing within the grace
 // gets Enter once more and never the text again, because the text may stand in its prompt. Every key obeys keysHeld,
-// read just before it goes. A line the session never took holds the keys until the session takes one entered at or
-// after the first Enter, or after the text was typed when no Enter went, so nothing is typed after its text, and says
-// ErrInputUnconfirmed.
+// read just before it goes, and an Enter the session has not shown it took holds the keys as a prompt does, so the
+// second Enter waits out the first seconds of a turn the first may have begun (awaitTaken). A line the session never
+// took holds the keys until the session takes one entered at or after the first Enter, or after the text was typed
+// when no Enter went, so nothing is typed after its text, and says ErrInputUnconfirmed.
 func (s *paneSession) press(ctx context.Context, line string) error {
 	s.mu.Lock()
 	held := s.keysHeld()
@@ -977,6 +991,9 @@ func (s *paneSession) press(ctx context.Context, line string) error {
 	for range enterAttempts {
 		s.mu.Lock()
 		held, sinceMs := s.keysHeld(), s.now().UnixMilli()
+		if !held {
+			s.pressedMs = sinceMs
+		}
 		s.mu.Unlock()
 		if held {
 			break
@@ -1001,19 +1018,25 @@ func (s *paneSession) press(ctx context.Context, line string) error {
 	return fmt.Errorf("%s: %w", s.handle.ID, ports.ErrInputUnconfirmed)
 }
 
-// awaitTaken waits up to the grace for the session to show it took a line entered at sinceMs. A session that ends
-// took nothing.
+// awaitTaken waits for the session to show it took a line entered at sinceMs: up to the grace, and past it while a
+// turn the Enter may have begun is in its first seconds (turnStarting), because the next key must not reach a dialog
+// that turn may show before any hook tells of it. A dialog a hook told of ends the wait past the grace, as no key goes
+// to it. A session that ends took nothing.
 func (s *paneSession) awaitTaken(ctx context.Context, sinceMs int64) (bool, error) {
 	deadline := time.NewTimer(s.grace)
 	defer deadline.Stop()
 	poll := time.NewTicker(takenPoll)
 	defer poll.Stop()
+	graced := false
 	for {
 		s.mu.Lock()
-		taken := s.took(sinceMs)
+		taken, starting, told := s.took(sinceMs), s.turnStarting(), s.waiting || len(s.approvals) != 0
 		s.mu.Unlock()
-		if taken {
+		switch {
+		case taken:
 			return true, nil
+		case graced && (told || !starting):
+			return false, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -1023,7 +1046,7 @@ func (s *paneSession) awaitTaken(ctx context.Context, sinceMs int64) (bool, erro
 		case <-s.gone:
 			return false, fmt.Errorf("%s: %w", s.handle.ID, ports.ErrNoSession)
 		case <-deadline.C:
-			return false, nil
+			graced = true
 		case <-poll.C:
 		}
 	}
