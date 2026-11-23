@@ -31,8 +31,12 @@ func (s *laneState) breaker() lanes.Breaker {
 	return s.limits
 }
 
+// profileRetryEvery is how long a run whose profile could not be read waits before it reads it again.
+const profileRetryEvery = 30 * time.Second
+
 // loadProfile gives an adopted lane the thresholds its profile sets, because a restart
-// leaves nothing of them. A lane whose profile cannot be read runs without its checks.
+// leaves nothing of them. A lane whose profile cannot be read runs without its checks until
+// a later read answers (tendProfiles).
 func (r *laneRun) loadProfile(ctx context.Context) {
 	repository, err := r.repository(ctx)
 	if err != nil {
@@ -51,6 +55,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 	r.state.thresholds(profile, r.role())
 	r.noteReviewBound(profile)
 	r.handleLock.Lock()
+	r.profileRetryAt = 0
 	if r.settings.Driver == "" {
 		r.settings = laneSettings(profile, r.role(), r.startedMode)
 	}
@@ -61,15 +66,34 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 	r.handleLock.Unlock()
 }
 
-// profileUnread reports a profile this run could not read. An orchestrator then wakes on the default bounds:
-// with none it would never read a wake, and would hold each message unread. A session it starts on that wake
-// reads the profile again, and one that still cannot be read ends the run saying why.
+// profileUnread reports a profile this run could not read, and sets when it is read again. An orchestrator then wakes
+// on the default bounds and restarts on the default limits: with no bounds it would never read a wake, and would hold
+// each message unread, and with no limits its first failed start would end the run. A session it starts on that wake
+// reads the profile again, and one that still cannot be read is a failed start the breaker counts.
 func (r *laneRun) profileUnread(err error) {
 	if r.orchestrating() && !r.assisting() {
 		r.state.defaultWakeBounds()
-		err = fmt.Errorf("reading its profile, so it wakes on the default bounds: %w", err)
+		r.state.defaultBreaker()
+		err = fmt.Errorf("reading its profile, so it wakes on the default bounds and restarts on the default limits: %w", err)
 	}
+	r.handleLock.Lock()
+	r.profileRetryAt = r.w.clock.Now().Add(profileRetryEvery).UnixMilli()
+	r.handleLock.Unlock()
 	r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+}
+
+// tendProfiles reads again the profile of each run that could not read it, once its wait is out. A read that
+// succeeds changes nothing a profile already set, because loadProfile keeps the settings and the gates a run has.
+func (w *Worker) tendProfiles(ctx context.Context) {
+	now := w.clock.Now().UnixMilli()
+	for _, run := range w.runs() {
+		run.handleLock.Lock()
+		due := run.profileRetryAt != 0 && run.profileRetryAt <= now
+		run.handleLock.Unlock()
+		if due {
+			run.loadProfile(ctx)
+		}
+	}
 }
 
 // mayRestart says a generation ended in a way a new one could mend: it crashed, nothing

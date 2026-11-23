@@ -2,7 +2,9 @@ package worker
 
 import (
 	"context"
+	"slices"
 	"sync"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -75,6 +77,20 @@ func (w *Worker) WakeWaiting() int {
 func (w *Worker) HoldingForAnswer(lane string) bool {
 	run := w.runOf(lane)
 	return run != nil && run.waiting.Load()
+}
+
+// LaneBounds is the stall bound and the gates a lane's run holds, and false for a lane this worker does not run.
+func (w *Worker) LaneBounds(lane string) (stall time.Duration, gates []string, ok bool) {
+	run := w.runOf(lane)
+	if run == nil {
+		return 0, nil, false
+	}
+	run.state.mu.Lock()
+	stall = run.state.stallAfter
+	run.state.mu.Unlock()
+	run.handleLock.Lock()
+	defer run.handleLock.Unlock()
+	return stall, slices.Clone(run.gates), true
 }
 
 // Running says a lane's run is still in this worker's hands. The run leaves them as its goroutine ends.

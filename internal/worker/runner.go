@@ -149,6 +149,9 @@ type laneRun struct {
 	maxReviewRounds int64
 	// gates are the permission rules this lane's profile gates, which its requests are read against.
 	gates []string
+	// profileRetryAt is when this run reads its profile again, in Unix milliseconds of the worker's clock, because the
+	// last read failed, and zero when none waits. The handle's lock guards it.
+	profileRetryAt int64
 
 	// untold is what a driver may have missed while an adoption runs, and nil once it ended (tellDriver).
 	// untoldLock guards it.

@@ -69,6 +69,8 @@ type laneState struct {
 	briefGrace time.Duration
 	waitUntil  time.Time
 	limits     lanes.Breaker
+	// limitsRead says a profile set limits, so a profile that could not be read has not stood in for them.
+	limitsRead bool
 	// handoffLimit is how long an agent has to write its part of a handoff, and
 	// handoffDegraded says the last handoff has only the worker's part. That stays until a
 	// later handoff has both, because it is what this generation was told.
@@ -172,6 +174,7 @@ func (s *laneState) thresholds(profile lanes.Profile, role string) {
 	s.limits = lanes.Breaker{
 		MaxRestarts: profile.Lifecycle.MaxRestarts, Window: window, MaxPerDay: profile.Lifecycle.MaxGenerationsPerDay, Backoff: backoff,
 	}
+	s.limitsRead = true
 	s.handoffLimit, _ = time.ParseDuration(profile.Lifecycle.HandoffTimeout)
 	s.askLimit, _ = time.ParseDuration(profile.Lifecycle.AskWait)
 	s.usageBase, _ = time.ParseDuration(profile.Lifecycle.UsageBackoff)
@@ -186,6 +189,16 @@ func (s *laneState) defaultWakeBounds() {
 	defer s.mu.Unlock()
 	if s.wakeFloor == 0 {
 		s.wakeDebounce, s.wakeFloor = lanes.WakeBounds(lanes.LifecycleSettings{})
+	}
+}
+
+// defaultBreaker restarts an orchestrator whose profile could not be read on the default limits, so its first failed
+// start is a crash the breaker counts and not the end of its run. Limits a profile set stay.
+func (s *laneState) defaultBreaker() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.limitsRead {
+		s.limits = lanes.DefaultBreaker()
 	}
 }
 

@@ -84,3 +84,9 @@ func (b Breaker) Judge(charges []Restart, now time.Time) BreakerVerdict {
 	}
 	return BreakerVerdict{Delay: min(delay, b.Window)}
 }
+
+// DefaultBreaker is the limit a lane runs on when its profile could not be read: the built-in profile's lifecycle limits,
+// which a test of the profiles package holds equal.
+func DefaultBreaker() Breaker {
+	return Breaker{MaxRestarts: 5, Window: 10 * time.Minute, MaxPerDay: 8, Backoff: 30 * time.Second}
+}
