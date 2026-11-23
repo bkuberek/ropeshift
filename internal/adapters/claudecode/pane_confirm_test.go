@@ -209,3 +209,85 @@ func TestADialogBeforeTheSessionTookALineGetsNoEnter(t *testing.T) {
 		})
 	}
 }
+
+// A prompt's or a compaction's hook that reaches the pane after the grace, stamped at the first Enter, shows the
+// session took the line: the second Enter does not move the bar, and nothing holds the keys once the turn ends.
+func TestALateHookOfTheFirstEnterShowsTheSessionTookTheLine(t *testing.T) {
+	t.Parallel()
+	for _, compact := range []bool{false, true} {
+		name := "a line"
+		if compact {
+			name = "a compaction"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			terminal := &takingTerminal{loseAll: true}
+			s := takingPane(t, terminal)
+			var enters int
+			var firstMs int64
+			terminal.entered = func() {
+				s.mu.Lock()
+				now := s.now().UnixMilli()
+				s.mu.Unlock()
+				enters++
+				if enters == 1 {
+					firstMs = now
+					return
+				}
+				event := lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: firstMs}
+				if compact {
+					event = lanes.HookEvent{Event: hookPreCompact, Detail: compactRequested, AtMs: firstMs}
+				}
+				s.takeHook(event)
+			}
+			var err error
+			if compact {
+				err = s.compact(t.Context())
+			} else {
+				_, err = s.typeInput(t.Context(), ports.Input{Text: "a nudge"})
+			}
+			if err != nil {
+				t.Fatalf("a line the session took, whose hook came late, was not delivered: %v", err)
+			}
+			s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: time.Now().UnixMilli() + 1})
+			s.mu.Lock()
+			held := s.keysHeld()
+			s.mu.Unlock()
+			if held || s.observe(t.Context()).AwaitsPerson {
+				t.Fatalf("keys held %v, awaits a person %v after the turn ended", held, s.observe(t.Context()).AwaitsPerson)
+			}
+		})
+	}
+}
+
+// Text typed with its Enter held stands in the prompt until the session takes a line entered after it was typed: an
+// older prompt that arrives late does not lift the hold, and one at or after the typing does.
+func TestAnOlderPromptDoesNotLiftTheHoldOfTextTypedWithItsEnterHeld(t *testing.T) {
+	t.Parallel()
+	terminal := &takingTerminal{loseAll: true}
+	s := takingPane(t, terminal)
+	var typedAt int64
+	terminal.typed = func() {
+		s.mu.Lock()
+		typedAt = s.now().UnixMilli()
+		s.mu.Unlock()
+		s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationPermission, AtMs: typedAt})
+	}
+	before := time.Now().UnixMilli()
+	if _, err := s.typeInput(t.Context(), ports.Input{Text: "a nudge"}); !errors.Is(err, ports.ErrInputUnconfirmed) {
+		t.Fatalf("input whose Enter was held came back as %v, want ErrInputUnconfirmed", err)
+	}
+	unsent := func() int64 {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.unsentMs
+	}
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: before - 1})
+	if unsent() == 0 {
+		t.Fatal("a prompt older than the typed text lifted its hold")
+	}
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: typedAt + 1})
+	if unsent() != 0 {
+		t.Fatal("a prompt after the text was typed did not lift its hold")
+	}
+}

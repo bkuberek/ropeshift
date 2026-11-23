@@ -927,9 +927,10 @@ func (s *paneSession) typeInput(ctx context.Context, in ports.Input) (ports.Send
 const enterAttempts = 2
 
 // press types a line and presses Enter, and returns once the session shows it took the line: a prompt's hook, or a
-// compaction's, at or after the Enter. A session that shows nothing within the grace gets Enter once more and never
-// the text again, because the text may stand in its prompt. Every key obeys keysHeld, read just before it goes. A line
-// the session never took holds the keys until the session takes one, so nothing is typed after its text, and says
+// compaction's, at or after the first Enter, however late it arrives. A session that shows nothing within the grace
+// gets Enter once more and never the text again, because the text may stand in its prompt. Every key obeys keysHeld,
+// read just before it goes. A line the session never took holds the keys until the session takes one entered at or
+// after the first Enter, or after the text was typed when no Enter went, so nothing is typed after its text, and says
 // ErrInputUnconfirmed.
 func (s *paneSession) press(ctx context.Context, line string) error {
 	s.mu.Lock()
@@ -938,6 +939,9 @@ func (s *paneSession) press(ctx context.Context, line string) error {
 	if held {
 		return ports.ErrAwaitingAnswer
 	}
+	s.mu.Lock()
+	typedMs := s.now().UnixMilli()
+	s.mu.Unlock()
 	if err := s.terminal.Type(ctx, s.name, line); err != nil {
 		return s.typingFailed(err)
 	}
@@ -953,15 +957,20 @@ func (s *paneSession) press(ctx context.Context, line string) error {
 		if err := s.terminal.Keys(ctx, s.name, keyEnter); err != nil {
 			return s.typingFailed(err)
 		}
-		enteredMs = sinceMs
-		if taken, err := s.awaitTaken(ctx, sinceMs); taken || err != nil {
+		if enteredMs == 0 {
+			enteredMs = sinceMs
+		}
+		if taken, err := s.awaitTaken(ctx, enteredMs); taken || err != nil {
 			return err
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if enteredMs != 0 && s.took(enteredMs) {
+		return nil
+	}
 	// A line taken before the text was typed, which held its Enter, does not take the text.
-	s.unsentMs = max(enteredMs, max(s.promptMs, s.compactMs)+1)
+	s.unsentMs = max(enteredMs, typedMs)
 	return fmt.Errorf("%s: %w", s.handle.ID, ports.ErrInputUnconfirmed)
 }
 
