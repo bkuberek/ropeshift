@@ -205,7 +205,7 @@ func (c startCheck) timedOut(last screen, confirmed bool) error {
 func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, check startCheck) error {
 	deadline := time.Now().Add(check.timeout)
 	// shown is the frame the pane shows and since when. answered is the frame the last key answered, empty once
-	// a different frame was read. last is what the last read that answered showed.
+	// a different frame was read. last is what the newest successful read showed, and nothing after a read that failed.
 	var shown, answered string
 	var since, keyed time.Time
 	var last screen
@@ -219,8 +219,8 @@ func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, ch
 			if errors.Is(err, ports.ErrNotFound) {
 				return fmt.Errorf("%w: the pane closed: %v", check.failure(), err)
 			}
-			// Nothing says what showed meanwhile, so what stood starts again.
-			shown = ""
+			// Nothing says what showed meanwhile, so what stood starts again, and no screen is the last.
+			shown, last = "", screen{}
 			pause(ctx, check.poll)
 			continue
 		}

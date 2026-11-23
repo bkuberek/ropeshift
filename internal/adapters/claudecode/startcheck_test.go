@@ -412,6 +412,41 @@ func TestAnIncompleteReadIsNotAScreen(t *testing.T) {
 	}
 }
 
+// failsAfterKeys is a pane whose reads fail from the moment a key reaches it.
+type failsAfterKeys struct {
+	*fake.Terminal
+	err error
+}
+
+func (f *failsAfterKeys) Keys(ctx context.Context, name string, keys ...string) error {
+	if err := f.Terminal.Keys(ctx, name, keys...); err != nil {
+		return err
+	}
+	f.Terminal.FailReads(f.err)
+	return nil
+}
+
+// A read that failed shows nothing, so a check that times out after only failed reads names no screen: it cannot say a
+// trust dialog it saw before them is still there, or that its Enter was lost, and its error is the mode's failure alone.
+func TestAFailedReadForgetsTheLastScreen(t *testing.T) {
+	terminal := fake.NewTerminal()
+	terminal.Play(fake.PaneScript{Screen: pane(t, "trust-focus-accept")})
+	if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	failing := &failsAfterKeys{Terminal: terminal, err: errors.New("the server did not answer")}
+	err := runStartCheck(t.Context(), failing, "p", startCheck{mode: checkFresh, timeout: 60 * time.Millisecond, poll: time.Millisecond, settle: time.Millisecond})
+	if !errors.Is(err, ports.ErrUnknownScreen) {
+		t.Fatalf("check: %v, want the start's unknown screen", err)
+	}
+	if errors.Is(err, ports.ErrTrustKeyLost) {
+		t.Errorf("check: %v, names a trust dialog that no read after the Enter showed", err)
+	}
+	if got := terminal.KeysOf("p"); !slices.Equal(got, []string{"Enter"}) {
+		t.Errorf("keys %v, want the one Enter", got)
+	}
+}
+
 func TestACanceledCheckStops(t *testing.T) {
 	terminal := fake.NewTerminal()
 	terminal.Play(fake.PaneScript{Screen: pane(t, "unknown")})
