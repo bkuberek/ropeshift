@@ -172,18 +172,18 @@ func TestStartCheck(t *testing.T) {
 		{
 			name: "an Enter the dialog refused as it put the focus back is never sent again", mode: checkFresh, resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}, trust: {"Down": accepted, "End": accepted}}},
-			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "No, exit",
+			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "moved its focus off",
 		},
 		{
 			name: "a refused Enter takes no navigation either, whatever the focus calls for", mode: checkFresh, timeout: 300 * time.Millisecond,
 			resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: trust, Moves: map[string]map[string]string{trust: {"Down": accepted, "End": accepted}, accepted: {"Enter": trust}}},
-			keys:   []string{"Down", "Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "No, exit",
+			keys:   []string{"Down", "Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "moved its focus off",
 		},
 		{
 			name: "a refused Enter on a resume times it out on the trust dialog", mode: checkResume, resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}}},
-			keys:   []string{"Enter"}, want: ports.ErrResumeNotReady, lost: true, says: "No, exit",
+			keys:   []string{"Enter"}, want: ports.ErrResumeNotReady, lost: true, says: "moved its focus off",
 		},
 		{
 			name: "an Enter that moved the dialog on to a screen the check does not know names no lost key", mode: checkFresh,
@@ -255,6 +255,29 @@ func TestStartCheck(t *testing.T) {
 				t.Errorf("typed %v into a pane during the check", got)
 			}
 		})
+	}
+}
+
+// A trust dialog whose Enter did not take, and whose focus is anywhere but its accept option when the check ends, says it
+// moved its focus off that option. It does not say the focus went back on `No, exit`, which only the dialog's first option
+// is.
+func TestATrustTimeoutWithTheFocusElsewhereSaysItLeftAccept(t *testing.T) {
+	for _, focus := range []focusLine{focusAbove, focusBelow} {
+		t.Run(string(focus), func(t *testing.T) {
+			err := startCheck{mode: checkFresh}.timedOut(screen{kind: screenTrust, focus: focus}, true)
+			if !errors.Is(err, ports.ErrTrustKeyLost) || !errors.Is(err, ports.ErrUnknownScreen) {
+				t.Fatalf("the timeout is %v, want a lost trust key that wraps the start's failure", err)
+			}
+			if strings.Contains(err.Error(), "No, exit") {
+				t.Errorf("a focus %s the accept option is reported as %q, which names an option the focus may not be on", focus, err)
+			}
+			if !strings.Contains(err.Error(), "moved its focus off `"+trustAccept+"`") {
+				t.Errorf("the timeout says %q, want that the focus left the accept option", err)
+			}
+		})
+	}
+	if err := (startCheck{mode: checkFresh}).timedOut(screen{kind: screenTrust, focus: focusOnAccept}, true); !strings.Contains(err.Error(), "lost the key") {
+		t.Errorf("a focus still on the accept option says %q, want that the key was lost", err)
 	}
 }
 

@@ -168,13 +168,13 @@ func (c startCheck) failure() error {
 
 // timedOut is the failure of a check whose time ran out on last, the screen of its last read. A trust dialog that
 // still asks after the Enter did not take it: a focus still on the accept option says the key was lost, and a focus
-// back on `No, exit` says the dialog refused it. The error names that and wraps the mode's failure, so every caller
-// reads the start as it did.
+// anywhere else says the dialog refused it and moved the focus off that option. The error names that and wraps the
+// mode's failure, so every caller reads the start as it did.
 func (c startCheck) timedOut(last screen, confirmed bool) error {
 	if !confirmed || last.kind != screenTrust {
 		return c.failure()
 	}
-	why := "it refused the key and put its focus back on `No, exit`"
+	why := "it refused the key and moved its focus off `" + trustAccept + "`"
 	if last.focus == focusOnAccept {
 		why = "it lost the key, and its focus stayed on `" + trustAccept + "`"
 	}

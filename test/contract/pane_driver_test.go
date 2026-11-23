@@ -440,16 +440,17 @@ func TestPaneUnknownScreenStopsAndKeepsTheScreen(t *testing.T) {
 // second Enter and no other key follows, the screen is kept, and the error names the trust dialog as well as the
 // unknown screen every caller reads.
 func TestPaneTrustDialogThatDoesNotTakeItsEnterEndsTheStart(t *testing.T) {
-	for _, tt := range []struct{ fixture, focus string }{
-		{fixture: "pane-trust-lost", focus: "Yes, I trust this folder"},
-		{fixture: "pane-trust-refused", focus: "No, exit"},
+	// says is what the error names, and focus is the option the kept screen shows the focus on.
+	for _, tt := range []struct{ fixture, says, focus string }{
+		{fixture: "pane-trust-lost", says: "Yes, I trust this folder", focus: "Yes, I trust this folder"},
+		{fixture: "pane-trust-refused", says: "moved its focus off", focus: "No, exit"},
 	} {
 		t.Run(tt.fixture, func(t *testing.T) {
 			r := newPaneRig(t, tt.fixture)
 			r.spec.ReadyTimeout = 4 * time.Second
 			_, err := r.driver.Start(t.Context(), r.spec)
-			if !errors.Is(err, ports.ErrUnknownScreen) || !errors.Is(err, ports.ErrTrustKeyLost) || !strings.Contains(err.Error(), tt.focus) {
-				t.Fatalf("start: %v, want the unknown screen of a trust dialog that kept its focus on %q", err, tt.focus)
+			if !errors.Is(err, ports.ErrUnknownScreen) || !errors.Is(err, ports.ErrTrustKeyLost) || !strings.Contains(err.Error(), tt.says) {
+				t.Fatalf("start: %v, want the unknown screen of a trust dialog that did not take its Enter and says %q", err, tt.says)
 			}
 			if got := r.log("keys"); !slices.Equal(got, []string{"trust <down>", "trust <enter>"}) {
 				t.Errorf("keys %v, want one move and one Enter", got)
