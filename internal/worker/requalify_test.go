@@ -36,8 +36,8 @@ func degradedRig(t *testing.T) *laneRig {
 }
 
 // TestAWorkerProbesADegradedResultAgainWhenItStarts is a restart on the version a probe left with a check
-// that did not pass: the journal's result goes to the driver, and the worker probes the version once more, so a
-// probe that was fixed takes effect.
+// that did not pass, once that version's wait is over: the journal's result goes to the driver, and the worker probes the
+// version once more, so a probe that was fixed takes effect.
 func TestAWorkerProbesADegradedResultAgainWhenItStarts(t *testing.T) {
 	t.Parallel()
 	first := degradedRig(t)
@@ -46,7 +46,7 @@ func TestAWorkerProbesADegradedResultAgainWhenItStarts(t *testing.T) {
 		t.Fatalf("the first worker recorded %+v", got)
 	}
 	driver := fake.NewAgentDriver()
-	first.clock.Advance(restartedAfter)
+	first.clock.Advance(restartedAfterTheWait)
 	second := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
 	if err := second.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -279,22 +279,31 @@ func restarted(t *testing.T, earlier *laneRig) (*worker.Worker, *fake.AgentDrive
 	return subject, driver
 }
 
-// TestARestartInsideTheDelayHoldsBackItsProbe is a worker that starts on a result a probe left with a check that did
-// not pass, where the last probe began minutes before: it holds that probe back until ten minutes after the last
+// TestARestartInsideTheDelayHoldsBackItsProbe is a worker that starts where the last probe began minutes before and left
+// no wait, as one does that its worker's stop cut short: it holds its probe back until ten minutes after that probe
 // began, and then probes the version.
 func TestARestartInsideTheDelayHoldsBackItsProbe(t *testing.T) {
 	t.Parallel()
-	first := degradedRig(t)
-	first.subject.Wait()
-	first.clock.Advance(5 * time.Minute)
-	second, driver := restarted(t, first)
+	base := newRig(t)
+	if err := base.journal.SaveProbeAttempt(t.Context(), lanes.ProbeAttempt{Version: "1.0.0", BeganAt: base.clock.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	base.clock.Advance(5 * time.Minute)
+	driver := fake.NewAgentDriver()
+	driver.SetVersion("1.0.0", true)
+	second := worker.New(base.link, base.journal, base.clock, worker.Config{
+		Name:      "test",
+		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
+		Lanes:     &worker.LaneRuntime{Driver: driver},
+	})
+	if err := second.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second.Wait()
 	if n := len(driver.Probes()); n != 0 {
 		t.Fatalf("%d probes at a start five minutes after the last probe began", n)
 	}
-	if q := driver.Qualified(); q.Version != "1.0.0" || !q.Degraded {
-		t.Errorf("until its probe the driver holds %+v, the last result", q)
-	}
-	first.clock.Advance(4 * time.Minute)
+	base.clock.Advance(4 * time.Minute)
 	if _, err := second.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -302,13 +311,94 @@ func TestARestartInsideTheDelayHoldsBackItsProbe(t *testing.T) {
 	if n := len(driver.Probes()); n != 0 {
 		t.Fatalf("%d probes nine minutes after the last probe began", n)
 	}
-	first.clock.Advance(90 * time.Second)
+	base.clock.Advance(90 * time.Second)
 	if _, err := second.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	second.Wait()
 	if n := len(driver.Probes()); n != 1 {
 		t.Errorf("%d probes once ten minutes had passed since the last began", n)
+	}
+}
+
+// TestAProbeTheWorkersStopCutShortLeavesNoWait is a probe that ends because its worker is stopping: it proved nothing of
+// its version, so no wait is kept for the next worker, which holds back only for the restart delay.
+func TestAProbeTheWorkersStopCutShortLeavesNoWait(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	driver := fake.NewAgentDriver()
+	driver.SetVersion("1.0.0", true)
+	release := driver.HoldProbes()
+	t.Cleanup(release)
+	ctx, stop := context.WithCancel(t.Context())
+	subject := worker.New(base.link, base.journal, base.clock, worker.Config{
+		Name:      "test",
+		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
+		Lanes:     &worker.LaneRuntime{Driver: driver},
+	})
+	if err := subject.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(driver.Probes()) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the probe never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	stop()
+	release()
+	subject.Wait()
+	got, err := base.journal.ProbeAttempt(t.Context())
+	if err != nil || got.Version != "1.0.0" || got.Wait != 0 || !got.Next.IsZero() {
+		t.Errorf("a probe its worker's stop cut short left the attempt %+v, %v, want one with no wait", got, err)
+	}
+}
+
+// TestARestartKeepsTheBackoffOfAVersionThatKeepsFailing is a worker that restarts on a version whose probes keep leaving a
+// check that did not pass: the wait the probes grew to is in the journal, so each restart probes the version when that
+// wait ends, and not ten minutes after the last probe began, and the wait goes on doubling across restarts.
+func TestARestartKeepsTheBackoffOfAVersionThatKeepsFailing(t *testing.T) {
+	t.Parallel()
+	first := degradedRig(t)
+	first.subject.Wait()
+	if n := len(first.driver.Probes()); n != 1 {
+		t.Fatalf("%d probes at the start", n)
+	}
+	look := func(w *worker.Worker, driver *fake.AgentDriver, after time.Duration) int {
+		t.Helper()
+		first.clock.Advance(after)
+		if _, err := w.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		w.Wait()
+		return len(driver.Probes())
+	}
+
+	// The first probe's wait is an hour.
+	first.clock.Advance(restartedAfter)
+	second, driver := restarted(t, first)
+	if n := len(driver.Probes()); n != 0 {
+		t.Fatalf("%d probes at a restart eleven minutes into a wait of an hour", n)
+	}
+	if n := look(second, driver, 40*time.Minute); n != 0 {
+		t.Fatalf("%d probes fifty-one minutes after the last probe", n)
+	}
+	if n := look(second, driver, 10*time.Minute); n != 1 {
+		t.Fatalf("%d probes once the hour had passed, want one", n)
+	}
+
+	// That probe left a wait of two hours, which a restart keeps.
+	first.clock.Advance(restartedAfter)
+	third, driver := restarted(t, first)
+	if n := len(driver.Probes()); n != 0 {
+		t.Fatalf("%d probes at a restart eleven minutes into a wait of two hours", n)
+	}
+	if n := look(third, driver, 90*time.Minute); n != 0 {
+		t.Fatalf("%d probes an hour and forty-one minutes after the last probe", n)
+	}
+	if n := look(third, driver, 25*time.Minute); n != 1 {
+		t.Errorf("%d probes once the two hours had passed, want one", n)
 	}
 }
 
@@ -387,6 +477,10 @@ func TestAProbeThatCannotBeJournaledStartsNoSession(t *testing.T) {
 // restartedAfter is how long a restart waits after the last worker began a probe: past the delay a start holds
 // back its probe for.
 const restartedAfter = 11 * time.Minute
+
+// restartedAfterTheWait is how long a restart waits after a probe left a check that did not pass: past the hour that
+// version's first wait lasts, which the journal keeps for the restart.
+const restartedAfterTheWait = time.Hour + restartedAfter
 
 // TestAResultThatLacksACheckAProbeRunsNowIsProbedAgain is a full pass stored by a probe that ran fewer checks, as
 // one from an older build, or on another sign-in, or with no terminal, does: the missing check was never observed, so
@@ -516,7 +610,7 @@ func TestAProbeRunsOnTheKindTheHeldResultWasProbedOnWhenTheSignInIsUnread(t *tes
 	driver := fake.NewAgentDriver()
 	driver.SetSubscriptionChecks(login)
 	driver.SetSignIn("")
-	first.clock.Advance(restartedAfter)
+	first.clock.Advance(restartedAfterTheWait)
 	second := worker.New(first.link, first.journal, first.clock, worker.Config{Name: "test", Lanes: &worker.LaneRuntime{Driver: driver}})
 	if err := second.Start(t.Context()); err != nil {
 		t.Fatal(err)

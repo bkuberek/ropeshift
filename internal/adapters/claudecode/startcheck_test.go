@@ -172,18 +172,18 @@ func TestStartCheck(t *testing.T) {
 		{
 			name: "an Enter the dialog refused as it put the focus back is never sent again", mode: checkFresh, resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}, trust: {"Down": accepted, "End": accepted}}},
-			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "No, exit",
+			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "moved its focus off",
 		},
 		{
 			name: "a refused Enter takes no navigation either, whatever the focus calls for", mode: checkFresh, timeout: 300 * time.Millisecond,
 			resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: trust, Moves: map[string]map[string]string{trust: {"Down": accepted, "End": accepted}, accepted: {"Enter": trust}}},
-			keys:   []string{"Down", "Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "No, exit",
+			keys:   []string{"Down", "Enter"}, want: ports.ErrUnknownScreen, lost: true, says: "moved its focus off",
 		},
 		{
 			name: "a refused Enter on a resume times it out on the trust dialog", mode: checkResume, resend: 5 * time.Millisecond,
 			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": trust}}},
-			keys:   []string{"Enter"}, want: ports.ErrResumeNotReady, lost: true, says: "No, exit",
+			keys:   []string{"Enter"}, want: ports.ErrResumeNotReady, lost: true, says: "moved its focus off",
 		},
 		{
 			name: "an Enter that moved the dialog on to a screen the check does not know names no lost key", mode: checkFresh,
@@ -255,6 +255,29 @@ func TestStartCheck(t *testing.T) {
 				t.Errorf("typed %v into a pane during the check", got)
 			}
 		})
+	}
+}
+
+// A trust dialog whose Enter did not take, and whose focus is anywhere but its accept option when the check ends, says it
+// moved its focus off that option. It does not say the focus went back on `No, exit`, which only the dialog's first option
+// is.
+func TestATrustTimeoutWithTheFocusElsewhereSaysItLeftAccept(t *testing.T) {
+	for _, focus := range []focusLine{focusAbove, focusBelow} {
+		t.Run(string(focus), func(t *testing.T) {
+			err := startCheck{mode: checkFresh}.timedOut(screen{kind: screenTrust, focus: focus}, true)
+			if !errors.Is(err, ports.ErrTrustKeyLost) || !errors.Is(err, ports.ErrUnknownScreen) {
+				t.Fatalf("the timeout is %v, want a lost trust key that wraps the start's failure", err)
+			}
+			if strings.Contains(err.Error(), "No, exit") {
+				t.Errorf("a focus %s the accept option is reported as %q, which names an option the focus may not be on", focus, err)
+			}
+			if !strings.Contains(err.Error(), "moved its focus off `"+trustAccept+"`") {
+				t.Errorf("the timeout says %q, want that the focus left the accept option", err)
+			}
+		})
+	}
+	if err := (startCheck{mode: checkFresh}).timedOut(screen{kind: screenTrust, focus: focusOnAccept}, true); !strings.Contains(err.Error(), "lost the key") {
+		t.Errorf("a focus still on the accept option says %q, want that the key was lost", err)
 	}
 }
 
@@ -386,6 +409,41 @@ func TestAnIncompleteReadIsNotAScreen(t *testing.T) {
 	}
 	if len(terminal.KeysOf("p")) != 0 {
 		t.Errorf("keys %v", terminal.KeysOf("p"))
+	}
+}
+
+// failsAfterKeys is a pane whose reads fail from the moment a key reaches it.
+type failsAfterKeys struct {
+	*fake.Terminal
+	err error
+}
+
+func (f *failsAfterKeys) Keys(ctx context.Context, name string, keys ...string) error {
+	if err := f.Terminal.Keys(ctx, name, keys...); err != nil {
+		return err
+	}
+	f.FailReads(f.err)
+	return nil
+}
+
+// A read that failed shows nothing, so a check that times out after only failed reads names no screen: it cannot say a
+// trust dialog it saw before them is still there, or that its Enter was lost, and its error is the mode's failure alone.
+func TestAFailedReadForgetsTheLastScreen(t *testing.T) {
+	terminal := fake.NewTerminal()
+	terminal.Play(fake.PaneScript{Screen: pane(t, "trust-focus-accept")})
+	if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	failing := &failsAfterKeys{Terminal: terminal, err: errors.New("the server did not answer")}
+	err := runStartCheck(t.Context(), failing, "p", startCheck{mode: checkFresh, timeout: 60 * time.Millisecond, poll: time.Millisecond, settle: time.Millisecond})
+	if !errors.Is(err, ports.ErrUnknownScreen) {
+		t.Fatalf("check: %v, want the start's unknown screen", err)
+	}
+	if errors.Is(err, ports.ErrTrustKeyLost) {
+		t.Errorf("check: %v, names a trust dialog that no read after the Enter showed", err)
+	}
+	if got := terminal.KeysOf("p"); !slices.Equal(got, []string{"Enter"}) {
+		t.Errorf("keys %v, want the one Enter", got)
 	}
 }
 

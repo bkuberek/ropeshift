@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -114,4 +115,84 @@ func TestAStartAloneRunsAnEndedOrchestratorThatReadsWhatWaited(t *testing.T) {
 		t.Errorf("the next run's session is %+v", spec)
 	}
 	o.awaitMessage(t, state, messages.HandedOff)
+}
+
+// adoptRefusal is a driver whose adoption of an orchestrator's session fails on an unknown screen while it refuses, as a pane
+// does that a restart finds in its start check and that fails the check.
+type adoptRefusal struct {
+	ports.AgentDriver
+	refuses atomic.Bool
+}
+
+func (d *adoptRefusal) Adopt(ctx context.Context, handle ports.SessionHandle, from ports.AdoptFrom) error {
+	if from.Spec.WorkOrder == "" && d.refuses.Load() {
+		return fmt.Errorf("check: %w", ports.ErrUnknownScreen)
+	}
+	return d.AgentDriver.Adopt(ctx, handle, from)
+}
+
+// A session an orchestrator is adopted into in its start check, and that fails the check, is a failed start as the same
+// start with no restart is: the run goes to backoff under the breaker, and the generation after the delay starts again.
+// Nothing ends the run as a worker that restarted.
+func TestAnOrchestratorAdoptedInAFailedStartCheckRestarts(t *testing.T) {
+	o := newOrchestratorRig(t, script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	row := o.row(t)
+	first := o.subject
+	o.stopWorker()
+	t.Cleanup(func() {
+		o.driver.StopEverySession()
+		first.Wait()
+	})
+	// The session a restart finds is still in its start check, as the journal last saw it.
+	if err := o.journal.SaveActual(t.Context(), row.Lane(), lanes.Starting, ""); err != nil {
+		t.Fatal(err)
+	}
+	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
+	driver.Leave(row.Lane(), 1, sessionAlive)
+	driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	refusing := &adoptRefusal{AgentDriver: driver}
+	refusing.refuses.Store(true)
+	config := *o.config
+	config.Driver = refusing
+	next := worker.New(o.link, o.journal, o.clock, worker.Config{Name: "test", Lanes: &config, Report: o.noteProblem})
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(func() {
+		cancel()
+		driver.StopEverySession()
+		next.Wait()
+	})
+	if err := next.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	o.subject, o.ctx, o.stopWorker = next, ctx, cancel
+	if _, err := next.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	o.await(t, "backoff after the failed adoption", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+
+	refusing.refuses.Store(false)
+	o.told(t, "Are you there?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	for len(driver.Specs()) == 0 && time.Now().Before(deadline) {
+		o.tick(t)
+	}
+	specs := driver.Specs()
+	if len(specs) != 1 || specs[0].Lane != row.Lane() || specs[0].Generation != 2 {
+		t.Fatalf("the sessions after the backoff are %+v, want run %s's generation 2", specs, row.Lane())
+	}
+	if after := o.row(t); after.Run != row.Run || after.Ended() {
+		t.Errorf("the failed adoption left %+v", after)
+	}
 }

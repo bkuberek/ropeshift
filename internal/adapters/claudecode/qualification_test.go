@@ -96,6 +96,29 @@ func TestASurfaceOnlyCountsWhereItIsUsed(t *testing.T) {
 	}
 }
 
+// A rate-limit event carries window utilization only on a subscription, so an API key's probe cannot see it, and a result
+// without it degrades nothing there. A subscription's, and a sign-in nobody could read, still depend on it.
+func TestAnAPIKeyResultWithoutWindowsIsNotDegraded(t *testing.T) {
+	for _, tt := range []struct {
+		name, signIn string
+		degraded     bool
+	}{
+		{name: "an API key", signIn: ports.SignInAPIKey},
+		{name: "a subscription", signIn: ports.SignInSubscription, degraded: true},
+		{name: "a sign-in nobody could read", signIn: "", degraded: true},
+	} {
+		for _, result := range []lanes.CheckResult{lanes.CheckFailed, lanes.CheckUnobserved} {
+			t.Run(tt.name+" "+string(result), func(t *testing.T) {
+				q := probed("9.9.9", claudecode.SurfaceUnifiedWindows)
+				q.SignIn, q.Checks[claudecode.SurfaceUnifiedWindows] = tt.signIn, result
+				if got := claudecode.Judge(q, true).Degraded; got != tt.degraded {
+					t.Errorf("degraded %v, want %v", got, tt.degraded)
+				}
+			})
+		}
+	}
+}
+
 func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 	raw, err := os.ReadFile("matrix.json")
 	if err != nil {

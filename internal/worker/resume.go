@@ -36,13 +36,37 @@ func (w *Worker) claimWoken(ctx context.Context, woken ledger.DesiredWoken) erro
 	}
 	_, err := w.link.Claim(ctx, w.Auth(), request)
 	switch {
-	case errors.Is(err, workorders.ErrLost), errors.Is(err, workorders.ErrIneligible):
+	case errors.Is(err, workorders.ErrLost):
+		return nil
+	case errors.Is(err, workorders.ErrIneligible):
+		w.reportWokenRefused(woken.Lane, err)
 		return nil
 	case err != nil:
 		return err
 	}
+	w.forgetWokenRefused(woken.Lane)
 	crashpoint.Hit("worker.resume", "claimed")
 	return w.Sync(ctx)
+}
+
+// reportWokenRefused says why the ledger refused the claim of a woken lane, once for each lane and each refusal: a
+// lane that is never claimed would otherwise say nothing, and the same refusal on each pass would say it each time.
+func (w *Worker) reportWokenRefused(lane string, refusal error) {
+	text := refusal.Error()
+	w.mu.Lock()
+	known := w.wokenRefused[lane] == text
+	w.wokenRefused[lane] = text
+	w.mu.Unlock()
+	if !known {
+		w.config.Report(fmt.Errorf("lane %s: the claim of its wake was refused: %w", lane, refusal))
+	}
+}
+
+// forgetWokenRefused drops what was said of a lane whose claim went through, so a refusal after it is said again.
+func (w *Worker) forgetWokenRefused(lane string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.wokenRefused, lane)
 }
 
 // sessionOf names the session a record's lane last ran. A generation that parked before its

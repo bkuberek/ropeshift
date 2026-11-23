@@ -101,6 +101,13 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	crashpoint.Hit("worker.park", "begun")
 	r.parking = &parking
 	r.signal(ctx, parkPath...)
+	// The driver may not hold the session yet, and the sequence's stop would go to nobody and could hang. The adoption
+	// starts the sequence from what is kept here once it has the session (resumeParking), and one that fails finishes the
+	// park from the journal (unread).
+	if r.adopting() {
+		r.left = &handoff
+		return nil
+	}
 	// A turn in progress has its next tool call denied from here, before the sequence's first step: that step uploads,
 	// which can take as long as its bound, and a call must not start in the meantime (NFR-COST-2).
 	if handoff.MidTurn {

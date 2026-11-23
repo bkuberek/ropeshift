@@ -168,6 +168,27 @@ func (s *laneState) noteApprovals(open int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.approvals = open
+	s.approvalsSeq++
+}
+
+// approvalsMark reads the sequence of the notes of open requests, which a read of the journal's requests takes before
+// it reads them.
+func (s *laneState) approvalsMark() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.approvalsSeq
+}
+
+// noteApprovalsSince notes what a read of the journal found open, unless a live hook noted a count since the mark: that
+// count is newer than the read, and the read would put the stale one back.
+func (s *laneState) noteApprovalsSince(mark uint64, open int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.approvalsSeq != mark {
+		return
+	}
+	s.approvals = open
+	s.approvalsSeq++
 }
 
 func (s *laneState) approvalsOpen() int {
@@ -832,12 +853,13 @@ func (r *laneRun) parkDeferred(ctx context.Context) bool {
 // resumeApprovals restores what a journal held of a lane that goes on, and returns the calls it still waits
 // on, each as a hook names its call, and whether it could read them.
 func (r *laneRun) resumeApprovals(ctx context.Context) ([]string, bool) {
+	mark := r.state.approvalsMark()
 	rows, err := r.requestsOfThisGeneration(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return nil, false
 	}
-	r.state.noteApprovals(len(rows))
+	r.state.noteApprovalsSince(mark, len(rows))
 	if len(rows) != 0 && !r.parkingOf().Open() {
 		r.awaitApproval(ctx)
 	}

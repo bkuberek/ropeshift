@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/test/gittest"
@@ -682,5 +683,27 @@ func TestTheClassMappingIsTheUsersAlone(t *testing.T) {
 				t.Errorf("classes %v", profile.Agent.Classes)
 			}
 		})
+	}
+}
+
+// The limits a lane runs on when its profile cannot be read are the built-in profile's own.
+func TestTheDefaultBreakerIsTheBuiltInProfiles(t *testing.T) {
+	profile, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := time.ParseDuration(profile.Lifecycle.RestartWindow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backoff, err := time.ParseDuration(profile.Lifecycle.RestartBackoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	built := lanes.Breaker{
+		MaxRestarts: profile.Lifecycle.MaxRestarts, Window: window, MaxPerDay: profile.Lifecycle.MaxGenerationsPerDay, Backoff: backoff,
+	}
+	if got := lanes.DefaultBreaker(); got != built {
+		t.Errorf("the default breaker is %+v, want the built-in profile's %+v", got, built)
 	}
 }
