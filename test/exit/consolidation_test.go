@@ -77,14 +77,10 @@ func acmeWorkspace(t *testing.T) (workspace, design *gittest.Repo) {
 // instructions into the workspace's as one commit, writes the plan, and reports.
 func consolidatingLane(t *testing.T) string {
 	t.Helper()
-	staged := filepath.Join(t.TempDir(), "plan.md")
-	if err := os.WriteFile(staged, []byte(consolidatedPlan), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	merge := "test -s " + lanes.InventoryFile + " && git show HEAD^2:AGENTS.md > design-rules.md" +
 		" && { cat AGENTS.md; echo; cat design-rules.md; } > merged-rules.md && mv merged-rules.md AGENTS.md && rm design-rules.md" +
 		" && git add AGENTS.md && git commit -q -m '" + mergedRulesSubject + "'" +
-		" && mkdir -p plans && cp " + staged + " plans/plan.md && git add plans && git commit -q -m 'Plan the adoption'"
+		" && mkdir -p plans && printf %s " + shellQuote(consolidatedPlan) + " > plans/plan.md && git add plans && git commit -q -m 'Plan the adoption'"
 	fixture, err := json.Marshal(map[string]any{
 		"source": "an adopt lane that merges the design repository's instructions and writes the plan",
 		"turns": [][]map[string]any{{

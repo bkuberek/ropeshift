@@ -393,7 +393,12 @@ func rolloverCase() crashCase {
 			for _, kind := range []messages.Kind{messages.KindAnswer, messages.KindInstruction} {
 				id := w.rig.ID("m")
 				draft := messages.Draft{ID: id, To: messages.Target{Lane: holder.Lane}, Kind: kind, Body: "Before the end."}
-				if _, err := ops.Send(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
+				// An answer to a lane is recorded as the answer to a question records it, and Send refuses the kind.
+				send := ops.Send
+				if kind == messages.KindAnswer {
+					send = ops.RecordAnswer
+				}
+				if _, err := send(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
 					return childSpec{}, err
 				}
 				if kind == messages.KindAnswer {
