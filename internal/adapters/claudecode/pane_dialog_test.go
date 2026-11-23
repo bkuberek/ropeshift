@@ -111,6 +111,22 @@ func TestTheStartOfATurnHoldsTheKeys(t *testing.T) {
 	typesFreely(t, s)
 }
 
+// A prompt in the same millisecond as the stop before it begins a turn as any later prompt does, so the first seconds
+// of that turn hold the keys too.
+func TestAPromptInTheMillisecondOfTheLastStopHoldsTheKeys(t *testing.T) {
+	t.Parallel()
+	s, terminal := dialogPane(t)
+	s.mu.Lock()
+	stop := time.UnixMilli(s.stopMs)
+	s.mu.Unlock()
+	s.now = func() time.Time { return stop.Add(time.Millisecond) }
+	s.takeHook(lanes.HookEvent{Event: hookUserPromptSubmit, AtMs: stop.UnixMilli()})
+	refusesInput(t, s)
+	noKeyReached(t, s, terminal)
+	s.now = func() time.Time { return stop.Add(dialogNotice) }
+	typesFreely(t, s)
+}
+
 // A prompt's hook can reach a pane twice, from an adoption that kept it and from the session it adopted, and it began
 // one turn.
 func TestARepeatedPromptIsTakenOnce(t *testing.T) {

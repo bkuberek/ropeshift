@@ -804,9 +804,10 @@ func (s *paneSession) closedBy(event lanes.HookEvent, closedMs int64) bool {
 // a key answers a dialog. A dialog may be open from the first sign of one until the session shows it closed: a
 // PermissionRequest until its call ends or its turn does, a Notification of a dialog until a newer prompt, a newer
 // turn's end, or its dialog's close, typed input the session did not take until it takes a line, and the first
-// seconds of a turn, in which a dialog no hook announces is still untold (dialogNotice). The caller holds the lock.
+// seconds of a turn, in which a dialog no hook announces is still untold (dialogNotice). A prompt in the same
+// millisecond as the stop before it begins a turn too. The caller holds the lock.
 func (s *paneSession) keysHeld() bool {
-	turnStarting := s.promptMs > s.stopMs && s.now().UnixMilli()-s.promptMs < dialogNotice.Milliseconds()
+	turnStarting := s.promptMs > 0 && s.promptMs >= s.stopMs && s.now().UnixMilli()-s.promptMs < dialogNotice.Milliseconds()
 	return s.waiting || len(s.approvals) != 0 || s.unsentMs != 0 || turnStarting
 }
 
