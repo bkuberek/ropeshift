@@ -734,7 +734,6 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if !hooksRead || !approvalsRead {
 		r.rereadJournal(ctx, approvalsRead)
 	}
-	r.noteAdoptedSurfaces()
 	crashpoint.Hit("worker.lane", "adopted")
 	r.reach(ctx)
 	r.signal(ctx, lanes.OnDriverReady)

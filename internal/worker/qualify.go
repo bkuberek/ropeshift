@@ -346,20 +346,6 @@ func (w *Worker) qualificationOf(version, source string) (check *ledger.CLICheck
 	return nil, lanes.Qualification{}, false
 }
 
-// noteAdoptedSurfaces drops the shipped matrix as the source of the surfaces an adopted session runs on when the
-// worker holds a probe's result, because the driver's adoption then read that result and not the matrix.
-func (r *laneRun) noteAdoptedSurfaces() {
-	r.w.qualLock.Lock()
-	probed := r.w.qual.Version != ""
-	r.w.qualLock.Unlock()
-	if !probed {
-		return
-	}
-	r.handleLock.Lock()
-	r.source = ""
-	r.handleLock.Unlock()
-}
-
 // runVersion is the version the lane's process runs, and empty before its first process starts. The source
 // is where the surfaces that process started on come from.
 func (r *laneRun) runVersion() (version, source string) {

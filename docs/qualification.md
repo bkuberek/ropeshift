@@ -79,7 +79,7 @@ A running process keeps the version it started on. A new process reads the insta
 - Any other version uses no undocumented surface, whether the last probe passed or failed, until its own probe ends. A lane whose process starts meanwhile starts at once, on documented surfaces.
 - The worker probes the new version as soon as it reads it, whether or not a lane is starting, so no lane waits for the probe. After a restart the probe waits out what is left of its version's backoff, and for at least 10 minutes from the last probe the worker began ([probing a version again](#probing-a-version-again)).
 - A process keeps the surfaces it started with, so a lane that started on documented surfaces keeps `degraded_mode` after its version's probe passes, and a respawn starts a process on the surfaces the probe passed. A probe that finds a surface failed adds the condition to a lane that is running, and a lane that started on the shipped matrix's surfaces then says it runs on the surfaces this release qualified for its version, not on documented surfaces. A later probe whose result is not degraded clears the condition a probe added, while a lane whose process started on documented surfaces keeps its own until a respawn.
-- A session that a restarted worker takes over uses the result for the version it started on, not the installed one.
+- A session that a restarted worker takes over uses the surfaces its process started with, as its launch recorded them; a session started by an earlier build uses the result for the version it started on.
 
 So an update never moves a lane between qualified and degraded without a probe's result for the version it runs, and no process uses an undocumented surface that no check of its version passed.
 

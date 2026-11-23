@@ -97,8 +97,11 @@ func (d *Driver) Find(ctx context.Context, spec ports.SessionSpec) (ports.Locate
 	if err != nil || !located.Found {
 		return located, err
 	}
-	// The process runs the version its launch wrote down, whatever is installed by now.
-	if version := launchedVersion(spec); version != "" {
+	// The process runs the version its launch wrote down, and on the surfaces that launch judged, whatever is installed or
+	// probed by now. A session an earlier build started has no such record, so what the driver holds of its version stands.
+	if q, ok := launchedQualification(spec); ok {
+		located.Handle.Version, located.Handle.Degraded, located.Handle.Source = q.Version, q.Degraded, q.Source
+	} else if version := launchedVersion(spec); version != "" {
 		q := d.qualificationFor(version)
 		located.Handle.Version, located.Handle.Degraded, located.Handle.Source = version, q.Degraded, q.Source
 	}
@@ -150,10 +153,14 @@ func answersPing(ctx context.Context, socket string) bool {
 	return err == nil && client.Ping(attempt) == nil
 }
 
-// adoptedUse is what a session an earlier worker started may use: what qualifies the version its
-// process runs, which the launch wrote down, because the installed version may have moved on since.
-// A launch that wrote none reads the installed one.
-func (d *Driver) adoptedUse(ctx context.Context, version string) Use {
+// adoptedUse is what a session an earlier worker started may use: what its launch judged, which it wrote down, because
+// the installed version may have moved on since, and a probe may have ended. A launch that wrote only its version reads
+// what qualifies that version now, and one that wrote none reads the installed one.
+func (d *Driver) adoptedUse(ctx context.Context, spec ports.SessionSpec) Use {
+	if q, ok := launchedQualification(spec); ok {
+		return UseOf(q)
+	}
+	version := launchedVersion(spec)
 	if version == "" {
 		if installed, err := d.version(ctx, d.versionEnv()); err == nil {
 			version = installed
@@ -178,7 +185,7 @@ func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.Ad
 	if _, err := shimlink.ReadState(shimDir(spec)); err != nil {
 		return fmt.Errorf("%s: %w: %v", h.ID, ports.ErrNoSession, err)
 	}
-	use := d.adoptedUse(ctx, launchedVersion(spec))
+	use := d.adoptedUse(ctx, spec)
 	attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
 	defer cancel()
 	if client, err := shimlink.Dial(attempt, shimSocket(spec)); err == nil {

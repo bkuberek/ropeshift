@@ -3,7 +3,6 @@ package worker_test
 import (
 	"context"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -128,10 +127,10 @@ func (d *watchedAdoption) awaitRead(t *testing.T) {
 	}
 }
 
-// A driver answers from the shipped matrix only while it holds no probe's result, so a session that a worker takes
-// over after its first probe ended runs on that probe's answer, whatever the matrix said when the worker looked for
-// it. The lane then says nothing of the matrix's surfaces, whichever way the probe went.
-func TestAnAdoptionAfterTheFirstProbeEndedDoesNotClaimTheMatrixSurfaces(t *testing.T) {
+// A session a worker takes over runs on the surfaces its process started with, which its launch recorded: one that started
+// on the shipped matrix's keeps saying so after the worker's first probe ended, and the probe's result, which differs,
+// adds Degraded mode to the lane and changes no surface of the process. The lane names no check once the probe ended.
+func TestARestartAfterTheProbeKeepsTheMatrixSource(t *testing.T) {
 	t.Parallel()
 	r, taken, driver, endProbe := aMatrixLaneTakenOver(t, true)
 	driver.SetVersion("1.0.0", true)
@@ -143,14 +142,11 @@ func TestAnAdoptionAfterTheFirstProbeEndedDoesNotClaimTheMatrixSurfaces(t *testi
 	}
 	taken.awaitRead(t)
 	view := r.read()
+	if view.Surfaces != ledger.SurfacesShipped {
+		t.Errorf("the lane says its surfaces come from %q, want %q: the process started on them", view.Surfaces, ledger.SurfacesShipped)
+	}
 	if !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
 		t.Errorf("a lane whose probe failed reads %v", view.Conditions)
-	}
-	if view.Surfaces == ledger.SurfacesShipped {
-		t.Errorf("the lane claims the shipped matrix's surfaces, which its session was taken over without")
-	}
-	if note := view.ConditionNotes[string(lanes.DegradedMode)]; strings.Contains(note, "this release qualified") {
-		t.Errorf("the lane says %q", note)
 	}
 	if view.Checking != nil {
 		t.Errorf("the lane names a check after its probe ended: %+v", view.Checking)
