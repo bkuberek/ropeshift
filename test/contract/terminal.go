@@ -293,8 +293,9 @@ func checkNoScrolledHistory(t *testing.T, ctx context.Context, rig TerminalRig) 
 func checkHistoryRefusesNone(t *testing.T, ctx context.Context, rig TerminalRig) {
 	openPane(t, ctx, rig, rig.Scrolls("none", 12))
 	rig.Waits(t, "none", "line12")
-	if got, err := rig.Terminal.History(ctx, "none", 0); err == nil {
-		t.Errorf("a read of no lines answered %+v", got)
+	// The pane exists, so a refusal that says it was not found names the wrong cause.
+	if got, err := rig.Terminal.History(ctx, "none", 0); err == nil || errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a read of no lines answered %+v, %v, want a refusal that is not a missing pane", got, err)
 	}
 }
 
