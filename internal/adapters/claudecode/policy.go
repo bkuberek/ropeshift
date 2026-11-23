@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -87,11 +89,15 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	return policy
 }
 
-// laneReadRoots are the directories a lane reads with no prompt: its worktree, the read-only trees of other repositories,
-// and its private temp directory, each by its name and the name its links resolve to. The hook asks for a read anywhere
-// else, because the CLI's own `auto` mode runs such a read with no prompt.
+// laneReadRoots are the directories a lane reads with no prompt: its worktree, its git directory and the common git
+// directory it shares with its clone, the read-only trees of other repositories, and its private temp directory, each by
+// its name and the name its links resolve to. The hook asks for a read anywhere else, because the CLI's own `auto` mode
+// runs such a read with no prompt.
 func laneReadRoots(spec ports.SessionSpec) []string {
 	roots := readRootsOf(spec)
+	for _, dir := range laneGitDirs(spec) {
+		roots = withRoot(roots, dir)
+	}
 	if spec.TempDir != "" {
 		temp := filepath.Clean(spec.TempDir)
 		roots = append(roots, temp)
@@ -100,6 +106,31 @@ func laneReadRoots(spec ports.SessionSpec) []string {
 		}
 	}
 	return roots
+}
+
+// gitDirsTimeout bounds the reads of a lane's git directories, which a policy is compiled with before its session starts.
+const gitDirsTimeout = 10 * time.Second
+
+// laneGitDirs are what `git rev-parse --git-dir` and `--git-common-dir` give for a lane's worktree: the git directory
+// its clone registered for it, and the common one the two share, which holds the objects, the refs, and the
+// configuration git reads in every command. They are read from the clone, never from the `.git` file of the worktree,
+// which a lane can edit to name any directory, so a lane that does reads nothing more with no prompt (registeredGitDir).
+// A lane with no clone, or whose registration does not read, has none.
+func laneGitDirs(spec ports.SessionSpec) []string {
+	if spec.Assistant {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitDirsTimeout)
+	defer cancel()
+	dir, ok := registeredGitDir(ctx, spec)
+	if !ok {
+		return nil
+	}
+	dirs := []string{dir}
+	if common, err := repositoryGit(spec).Text(ctx, "rev-parse", "--path-format=absolute", "--git-common-dir"); err == nil && common != "" {
+		dirs = append(dirs, common)
+	}
+	return dirs
 }
 
 // assistantCalls are the only tools an assistant's session may call: its built-in tools and ropeshift's
