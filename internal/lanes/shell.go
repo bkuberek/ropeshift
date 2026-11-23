@@ -40,7 +40,12 @@ type shellCommand struct {
 	piped bool
 	// processes are the texts of its process substitutions, which run where it stands.
 	processes []string
+	// leadersOnly says every word so far is an assignment or a command keyword, which stand before the command.
+	leadersOnly bool
 }
+
+// newShellCommand is a command with no word yet.
+func newShellCommand() shellCommand { return shellCommand{leadersOnly: true} }
 
 // fedText is what a here-document or a here-string gives a command, as the shell passes it on where it can be read.
 type fedText struct {
@@ -169,7 +174,7 @@ func parseShell(text string) ([]shellCommand, []string) {
 
 // parseScript is parseShell, and it says whether it could follow the whole text.
 func parseScript(text string) *shellParser {
-	p := &shellParser{text: text, places: true, unread: strings.ContainsRune(text, 0)}
+	p := &shellParser{text: text, places: true, unread: strings.ContainsRune(text, 0), current: newShellCommand()}
 	for _, change := range []string{"()", "( )", "function ", "alias ", "read ", "HOME=", "PWD=", "GOPATH=", "GOBIN="} {
 		p.places = p.places && !strings.Contains(text, change)
 	}
@@ -201,7 +206,7 @@ func (p *shellParser) endCommand() {
 			p.heredocs[i].owner = owner
 		}
 	}
-	p.current = shellCommand{}
+	p.current = newShellCommand()
 	p.pending = redirectNone
 }
 
@@ -302,7 +307,7 @@ func (p *shellParser) readOperator(c byte, against bool) {
 		p.endCommand()
 	case '|':
 		if p.pattern {
-			p.current = shellCommand{}
+			p.current = newShellCommand()
 			return
 		}
 		p.endCommand()
@@ -314,7 +319,7 @@ func (p *shellParser) readOperator(c byte, against bool) {
 		p.openParen(next, against)
 	case ')':
 		if p.pattern {
-			p.current, p.pattern, p.opened = shellCommand{}, false, false
+			p.current, p.pattern, p.opened = newShellCommand(), false, false
 			return
 		}
 		p.endCommand()
@@ -341,7 +346,7 @@ func (p *shellParser) readOperator(c byte, against bool) {
 
 func (p *shellParser) openParen(next byte, against bool) {
 	if p.pattern {
-		p.current, p.opened = shellCommand{}, true
+		p.current, p.opened = newShellCommand(), true
 		return
 	}
 	words := p.current.words
@@ -350,6 +355,7 @@ func (p *shellParser) openParen(next byte, against bool) {
 		p.at++
 		if p.readArithmetic(')') {
 			p.current.words = append(words, shellWord{text: "((", dynamic: true})
+			p.current.leadersOnly = false
 			return
 		}
 		p.at = mark
@@ -555,7 +561,7 @@ func (p *shellParser) readLine() string {
 
 // expandDocument reads a here-document's body as a shell does before it feeds it on: escapes, and expansions.
 func (p *shellParser) expandDocument(text string) fedText {
-	body := &shellParser{text: text, places: p.places, nesting: p.nesting, tries: p.tries}
+	body := &shellParser{text: text, places: p.places, nesting: p.nesting, tries: p.tries, current: newShellCommand()}
 	var out strings.Builder
 	var word shellWord
 	for body.at < len(text) {
@@ -602,6 +608,7 @@ func (p *shellParser) takeWord(word shellWord) {
 	}
 	before := p.current.words
 	p.current.words = append(before, word)
+	p.current.leadersOnly = p.current.leadersOnly && (isAssignment(word.text) || isKeyword(word, commandKeywords...))
 	p.readKeyword(before, word)
 }
 
@@ -707,9 +714,7 @@ func (p *shellParser) readWord() shellWord {
 		}
 	}
 	// Before a command, a shell reads `name[` on to its `]` as a subscript, past blanks, operators, and lines.
-	if brackets > 0 && !slices.ContainsFunc(p.current.words, func(before shellWord) bool {
-		return !isAssignment(before.text) && !isKeyword(before, commandKeywords...)
-	}) {
+	if brackets > 0 && p.current.leadersOnly {
 		p.unread = true
 	}
 	word.text = out.String()
@@ -804,7 +809,7 @@ func (p *shellParser) readSubstitution() string {
 		p.unread, p.at = true, len(p.text)
 		return p.text[start:]
 	}
-	inner := &shellParser{text: p.text, at: start, substitution: true, nesting: p.nesting + 1, tries: p.tries, places: p.places}
+	inner := &shellParser{text: p.text, at: start, substitution: true, nesting: p.nesting + 1, tries: p.tries, places: p.places, current: newShellCommand()}
 	inner.run()
 	p.at, p.tries, p.unread = inner.at, inner.tries, p.unread || inner.unread
 	end := p.at
