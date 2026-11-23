@@ -148,7 +148,7 @@ func storeHandoff(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) err
 // on, and how its checks stand. It holds to the same test as a question, because a lane
 // reaches the ledger only through the worker that holds it.
 func (w *Workers) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error) {
-	facts := ledger.LaneFacts{OpenQuestions: []string{}, OpenAssumptions: []string{}, Checks: []ledger.CheckState{}}
+	facts := ledger.LaneFacts{OpenQuestions: []string{}, BlockingQuestions: []string{}, OpenAssumptions: []string{}, Checks: []ledger.CheckState{}}
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		if err := w.checkSession(tx, request.Auth, request.Epoch); err != nil {
 			return err
@@ -160,7 +160,7 @@ func (w *Workers) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest
 		if order.LeaseWorker != request.Auth.WorkerID || order.Fence != request.Fence {
 			return &workorders.FencedError{Current: order.Fence, State: order.State}
 		}
-		if facts.OpenQuestions, err = openQuestions(tx, request.Lane); err != nil {
+		if facts.OpenQuestions, facts.BlockingQuestions, err = openQuestions(tx, request.Lane); err != nil {
 			return err
 		}
 		if facts.OpenAssumptions, err = tx.Questions().OpenAssumptions(request.WorkOrder); err != nil {
@@ -204,24 +204,28 @@ func (w *Workers) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest
 	return facts, nil
 }
 
-// openQuestions lists what a lane asked and has no answer to.
-func openQuestions(tx ports.ReadTx, lane string) ([]string, error) {
+// openQuestions lists what a lane asked and has no answer to, and which of those it cannot go on without.
+func openQuestions(tx ports.ReadTx, lane string) (open, blocking []string, err error) {
 	attached, err := tx.Questions().Attachments("")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	open := []string{}
+	open, blocking = []string{}, []string{}
 	for _, attachment := range attached {
 		if attachment.Lane != lane {
 			continue
 		}
 		question, err := tx.Questions().Question(attachment.QuestionID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if question.Status.Unresolved() {
-			open = append(open, question.ID)
+		if !question.Status.Unresolved() {
+			continue
+		}
+		open = append(open, question.ID)
+		if attachment.Blocking {
+			blocking = append(blocking, question.ID)
 		}
 	}
-	return open, nil
+	return open, blocking, nil
 }

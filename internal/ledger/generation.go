@@ -129,9 +129,12 @@ type CheckState struct {
 // LaneFacts is what a handoff states and only the ledger knows. Each list is empty, not nil,
 // when the ledger read it and found nothing.
 type LaneFacts struct {
-	OpenQuestions   []string     `json:"open_questions"`
-	OpenAssumptions []string     `json:"open_assumptions"`
-	Checks          []CheckState `json:"checks"`
+	OpenQuestions []string `json:"open_questions"`
+	// BlockingQuestions are the open questions the lane cannot go on without, which include the question a merged one
+	// moved to and leave out one that was answered or dismissed.
+	BlockingQuestions []string     `json:"blocking_questions"`
+	OpenAssumptions   []string     `json:"open_assumptions"`
+	Checks            []CheckState `json:"checks"`
 	// Facts are what this generation's first prompt owes, read after the ledger moved to it.
 	Facts []MessageFact `json:"facts,omitempty"`
 	// Pack is the newest version of the pack this claim pinned, for the generation about to start.

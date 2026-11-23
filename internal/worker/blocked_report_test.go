@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -65,5 +67,29 @@ func TestABlockedReportIsTakenOnceTheLanesQuestionIsAnswered(t *testing.T) {
 	r.awaitMessage(t, answer.ID, messages.Admitted)
 	if reply := r.laneReport(t, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: "cannot_go_on"}); !reply.OK {
 		t.Errorf("a blocked report was refused after the answer: %+v", reply)
+	}
+}
+
+// A question a member dismissed no longer holds the lane, so a blocked report is taken.
+func TestABlockedReportIsTakenOnceTheLanesQuestionIsDismissed(t *testing.T) {
+	t.Parallel()
+	g := newGate()
+	r := laneRigWith(t, restingAsk)
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.asking("Which retry budget?"), g.step(), completed(0.01)}))
+	r.start()
+	r.atGate(g)
+	asked := r.questionList(t)
+	if len(asked) != 1 {
+		t.Fatalf("questions %+v", asked)
+	}
+	if reply := r.laneReport(t, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: "waiting_on_answer"}); reply.OK {
+		t.Fatal("a blocked report was taken while the question was open")
+	}
+	if err := control.NewQuestions(r.store, questions.BatchPolicy{}).Dismiss(t.Context(), scope, asked[0].ID, member); err != nil {
+		t.Fatal(err)
+	}
+	if reply := r.laneReport(t, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: "cannot_go_on"}); !reply.OK {
+		t.Errorf("a blocked report was refused after the question was dismissed: %+v", reply)
 	}
 }

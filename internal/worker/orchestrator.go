@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -111,15 +112,46 @@ func (r *laneRun) reviewBound() int64 {
 	return r.maxReviewRounds
 }
 
+// holdsToItsQuestions refuses a blocked report while a blocking question of the lane is open: the report would end the
+// lane, and the answer would reach a generation that is over. What the worker holds is read against the ledger, which
+// knows a question that was dismissed and one that was merged into another, so a lane waits on the question that stays
+// and never on one nobody will answer.
+func (r *laneRun) holdsToItsQuestions(ctx context.Context, report workorders.Report) error {
+	if report.Outcome != workorders.OutcomeBlocked || len(r.blockingQuestions()) == 0 {
+		return nil
+	}
+	open := r.blockingQuestions()
+	if facts, err := r.laneFacts(ctx); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: its open questions: %w", r.lease.Lane, err))
+	} else {
+		open = facts.BlockingQuestions
+		r.syncBlocking(ctx, open)
+	}
+	if len(open) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: this lane's blocking question has no answer yet, so it does not report blocked. "+
+		"End your turn now and wait for the answer: the lane goes on with it. Report blocked only if the answer does not change that", workorders.ErrInvalid)
+}
+
+// syncBlocking holds the questions the ledger says the lane cannot go on without, in place of those it held.
+func (r *laneRun) syncBlocking(ctx context.Context, open []string) {
+	for _, id := range r.blockingQuestions() {
+		if !slices.Contains(open, id) {
+			r.noteAsked(ctx, questions.AskResult{Status: questions.AskAnswered, QuestionID: id})
+		}
+	}
+	for _, id := range open {
+		if !slices.Contains(r.blockingQuestions(), id) {
+			r.noteAsked(ctx, questions.AskResult{Status: questions.AskPending, QuestionID: id})
+		}
+	}
+}
+
 // holdsToItsWork refuses a report the control plane would refuse, while the lane can still say more. A
 // review reports a verdict for every criterion of the contract it read when it completes, and no other
-// lane reports a verdict or a security note. A lane whose own blocking question is open does not report
-// blocked: the report would end the lane, and the answer would reach a generation that is over.
+// lane reports a verdict or a security note.
 func (r *laneRun) holdsToItsWork(report workorders.Report) error {
-	if report.Outcome == workorders.OutcomeBlocked && len(r.blockingQuestions()) != 0 {
-		return fmt.Errorf("%w: this lane's blocking question has no answer yet, so it does not report blocked. "+
-			"End your turn now and wait for the answer: the lane goes on with it. Report blocked only if the answer does not change that", workorders.ErrInvalid)
-	}
 	if !r.reviewing() {
 		if len(report.Verdicts) != 0 {
 			return fmt.Errorf("%w: only a review lane reports verdicts", workorders.ErrInvalid)
