@@ -53,8 +53,9 @@ func (m *Messages) Send(ctx context.Context, scope ledger.WorkspaceID, draft mes
 	return m.send(ctx, scope, draft, actor)
 }
 
-// RecordAnswer records the message that carries the answer to a question to the lane that asked it. No route, tool, or
-// command calls it: an answer reaches a lane through the answer to its question, and Send refuses the kind.
+// RecordAnswer records a message of kind answer to a lane for the contract suite, which checks what the rollover table
+// does with an answer to a generation that ended, to a lane that ended, and to a lane with no question, none of which the
+// answer to a question can make. No route, tool, or command calls it, and Send refuses the kind.
 func (m *Messages) RecordAnswer(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error) {
 	if draft.Kind != messages.KindAnswer {
 		return messages.Message{}, refuseWith(messages.ErrInvalid, "RecordAnswer records a message of kind answer.")
