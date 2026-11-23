@@ -825,17 +825,30 @@ func (r *laneRun) parkDeferred(ctx context.Context) bool {
 }
 
 // resumeApprovals restores what a journal held of a lane that goes on, and returns the calls it still waits
-// on, each as a hook names its call. What cannot be read may be an open dialog, so it is a call with no name.
-func (r *laneRun) resumeApprovals(ctx context.Context) []string {
+// on, each as a hook names its call, and whether it could read them.
+func (r *laneRun) resumeApprovals(ctx context.Context) ([]string, bool) {
 	rows, err := r.requestsOfThisGeneration(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		return []string{ports.UnnamedCall}
+		return nil, false
 	}
 	r.state.noteApprovals(len(rows))
 	if len(rows) != 0 && !r.parkingOf().Open() {
 		r.awaitApproval(ctx)
 	}
+	return seenOf(rows), true
+}
+
+// openApprovals reads the calls this session waits on a decision for, as a hook names each, and whether it could.
+func (r *laneRun) openApprovals(ctx context.Context) ([]string, bool) {
+	rows, err := r.requestsOfThisGeneration(ctx)
+	if err != nil {
+		return nil, false
+	}
+	return seenOf(rows), true
+}
+
+func seenOf(rows []lanes.OpenApproval) []string {
 	waits := make([]string, 0, len(rows))
 	for _, row := range rows {
 		waits = append(waits, row.Seen)

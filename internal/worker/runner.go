@@ -692,14 +692,17 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
 	r.adopted.Store(true)
-	var unread []string
 	hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
-	if err != nil {
+	hooksRead := err == nil
+	if !hooksRead {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
-		unread = []string{ports.UnnamedCall}
 	}
 	r.replayHooks(ctx, hooks)
-	approvals := append(r.resumeApprovals(ctx), unread...)
+	approvals, approvalsRead := r.resumeApprovals(ctx)
+	if !hooksRead || !approvalsRead {
+		// What could not be read may be an open dialog, so the driver holds every key until the journal reads.
+		approvals = append(approvals, ports.UnnamedCall)
+	}
 	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
 	// to its limit from here.
 	r.readAllowance(ctx)
@@ -710,6 +713,9 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
+	}
+	if !hooksRead || !approvalsRead {
+		r.rereadJournal(ctx, approvalsRead)
 	}
 	r.noteAdoptedSurfaces()
 	crashpoint.Hit("worker.lane", "adopted")
@@ -747,6 +753,47 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.restOnRefusal(ctx)
 	}
 	return r.conclude(ctx, r.watch(ctx, events))
+}
+
+// rereadEvery is how long a run that could not read its journal at its adoption waits between reads.
+const rereadEvery = time.Second
+
+// rereadJournal reads again, until it reads, what a read at the adoption could not: the session's hooks and its open
+// approvals. The driver held every key for what it could not read, which a session at rest never ends, so an idle
+// orchestrator would take no wake until a person's turn or a restart. Once both read, the driver has what they show, as
+// the adoption would have, and a request the adoption could not read is waited on from then. The reads end with the
+// session, the run, or the worker.
+func (r *laneRun) rereadJournal(ctx context.Context, approvalsRead bool) {
+	handle, spec, generation := r.sessionHandle(), r.w.sessionSpec(ctx, r.record()), r.currentGeneration()
+	r.sequence.Go(func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(rereadEvery):
+			}
+			if r.sessionOver.Load() || r.fenced.Load() || r.currentGeneration() != generation {
+				return
+			}
+			hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
+			if err != nil {
+				continue
+			}
+			var approvals []string
+			if approvalsRead {
+				approvals, approvalsRead = r.openApprovals(ctx)
+			} else {
+				approvals, approvalsRead = r.resumeApprovals(ctx)
+			}
+			if !approvalsRead {
+				continue
+			}
+			if err := r.rt.Driver.Reread(ctx, handle, ports.AdoptFrom{Spec: spec, Hooks: hooks, Approvals: approvals}); err != nil {
+				r.w.config.Report(fmt.Errorf("lane %s: handing its driver what its journal holds: %w", r.lease.Lane, err))
+			}
+			return
+		}
+	})
 }
 
 // unread settles a lane whose session cannot be read. Parking and a handoff still finish,

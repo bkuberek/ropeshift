@@ -193,3 +193,63 @@ func TestAnAdoptionThatCannotReadItsDialogsHoldsTheKeys(t *testing.T) {
 		})
 	}
 }
+
+// healingJournal cannot read what a restarted worker needs to know of open dialogs until it is mended.
+type healingJournal struct {
+	ports.Journal
+	approvals, hooks bool
+	broken           atomic.Bool
+}
+
+func (j *healingJournal) OpenApprovals(ctx context.Context, lane string) ([]lanes.OpenApproval, error) {
+	if j.approvals && j.broken.Load() {
+		return nil, errors.New("the disk failed")
+	}
+	return j.Journal.OpenApprovals(ctx, lane)
+}
+
+func (j *healingJournal) HookEvents(ctx context.Context, lane string) ([]lanes.HookRecord, error) {
+	if j.hooks && j.broken.Load() {
+		return nil, errors.New("the disk failed")
+	}
+	return j.Journal.HookEvents(ctx, lane)
+}
+
+// An adoption that could not read its dialogs held every key, which a session at rest never frees, so it reads them
+// again until they read, and hands the driver what they show: here nothing open, which frees the keys.
+func TestAnAdoptionThatCannotReadItsDialogsReadsThemAgain(t *testing.T) {
+	t.Parallel()
+	for name, failing := range map[string]func(*healingJournal){
+		"approvals": func(j *healingJournal) { j.approvals = true },
+		"hooks":     func(j *healingJournal) { j.hooks = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			base := newRig(t)
+			journal := &healingJournal{Journal: base.journal}
+			failing(journal)
+			journal.broken.Store(true)
+			base.workerJournal = journal
+			w := newWorldRigOn(t, base)
+			w.desire("lane-1")
+			w.adoptedAt(t, lanes.Working, lanes.Idle)
+			w.passesOnceAdopted(t)
+			if waits := w.driver.Adopted()[0].Approvals; !slices.Equal(waits, []string{""}) {
+				t.Fatalf("the adopted session was told it waits on %q", waits)
+			}
+			journal.broken.Store(false)
+			deadline := time.Now().Add(10 * time.Second)
+			for len(w.driver.Rereads()) == 0 && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			rereads := w.driver.Rereads()
+			if len(rereads) != 1 {
+				t.Fatalf("the driver was handed the journal %d times, want once", len(rereads))
+			}
+			if waits := rereads[0].Approvals; len(waits) != 0 || rereads[0].Spec.Lane != "lane-1" {
+				t.Errorf("the driver was handed %+v, want lane-1 waiting on nothing", rereads[0])
+			}
+		})
+	}
+}
+

@@ -435,6 +435,19 @@ func (s *paneSession) replay(from ports.AdoptFrom, generation int64) {
 	s.holdDialogs(from.Approvals, askedMs, clearedMs)
 }
 
+// reread takes what a journal holds of a session, read again after a read at its adoption failed. The wait that read
+// left for a call nobody could name has no time, and gives way to what the hooks and the open approvals show, as a
+// replay of them at the adoption would have: an end, a clear, or a prompt after a dialog closes it. A hook taken twice
+// says nothing new, so what the session told since stands, and a wait a hook began since stays.
+func (s *paneSession) reread(from ports.AdoptFrom, generation int64) {
+	s.mu.Lock()
+	if askedMs, held := s.approvals[ports.UnnamedCall]; held && askedMs == 0 {
+		delete(s.approvals, ports.UnnamedCall)
+	}
+	s.mu.Unlock()
+	s.replay(from, generation)
+}
+
 // holdDialogs restores the waits of a question or a dialog that may still be open. None outlasts the end of its
 // turn or a clear, whether or not the worker read that end, and no question outlasts a later prompt.
 // Otherwise each open approval stands, and beside them the newest request is a dialog with no name, because it
@@ -711,6 +724,9 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	switch event.Event {
 	case hookSessionStart:
 		s.note(event)
+		if event.Detail == lanes.SourceClear {
+			s.clearedAt(event.AtMs)
+		}
 	case hookUserPromptSubmit:
 		// A prompt no newer than the newest began a turn already taken: a hook can reach a pane twice, from a spool or
 		// from an adoption that kept it.
@@ -766,6 +782,16 @@ func (s *paneSession) takeNotification(event lanes.HookEvent) {
 	case lanes.DialogCloses(event.Detail) && event.AtMs > s.waitingMs:
 		s.waiting = false
 	}
+}
+
+// clearedAt ends every wait older than a clear that fired at atMs: a clear starts a session at its prompt, where no
+// dialog is open. A clear with no time cannot be placed, and ends nothing. The caller holds the lock.
+func (s *paneSession) clearedAt(atMs int64) {
+	if atMs <= 0 {
+		return
+	}
+	maps.DeleteFunc(s.approvals, func(_ string, askedMs int64) bool { return askedMs <= atMs })
+	s.waiting = s.waiting && s.waitingMs > atMs
 }
 
 // closedBy says a dialog's hook fired at or before closedMs, by which the dialog it told of closed. A hook with no
