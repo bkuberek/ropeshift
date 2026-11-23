@@ -487,3 +487,19 @@ func TestTheBoundLeavesOrdinaryCommandsToPass(t *testing.T) {
 		}
 	}
 }
+
+// Whether `sudo -h` and `env -P` take a value depends on the system, so a gate reads the words after each both
+// ways: as the command, and as what follows the value.
+func TestAGateReadsSudoHAndEnvPBothWays(t *testing.T) {
+	policy := policyWithGates(false, "Bash(git tag *)")
+	for _, command := range []string{"sudo -h git tag v1", "env -P git tag v1", "sudo -h host git tag v1", "env -P /usr/bin git tag v1"} {
+		if got := judged(policy, shellCall(command)); got != ReasonAskGate {
+			t.Errorf("%q under a git tag gate: %q, want it to ask", command, got)
+		}
+	}
+	for _, command := range []string{"sudo -h host ls", "env -P /usr/bin ls", "sudo -h git status", "sudo -h host git log"} {
+		if got := judged(policy, shellCall(command)); got != "" {
+			t.Errorf("%q under a git tag gate: %q, want it to pass", command, got)
+		}
+	}
+}

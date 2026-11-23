@@ -352,6 +352,11 @@ func (g *shellGates) unwrap(name string, wrapper gateWrapper, args []shellWord, 
 			held := word
 			// An expansion against an option is its value, though a substitution leaves no text of it.
 			if takes && !word.expands {
+				if (name == "sudo" && flag == "-h") || (name == "env" && flag == "-P") {
+					// Whether this option takes a value depends on the system, so the words from where its value
+					// would stand run as a command too.
+					g.run(args, at)
+				}
 				if len(args) == 0 {
 					return nil, at, !at.input && name != "xargs"
 				}
