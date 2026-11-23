@@ -66,6 +66,13 @@ func TestAFailedStartOfAnOrchestratorStartsAgainAfterItsBackoff(t *testing.T) {
 			if row := o.row(t); row.Run != run.Run || row.Ended() {
 				t.Errorf("the failed start left %+v", row)
 			}
+			// An orchestrator has no work order, so its next generation owes its prompt nothing the ledger keeps of one,
+			// and asks for nothing that could be missing.
+			for _, problem := range o.problems() {
+				if strings.Contains(problem.Error(), "what its prompt owes") {
+					t.Errorf("the next generation said %v", problem)
+				}
+			}
 		})
 	}
 }
