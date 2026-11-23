@@ -19,6 +19,11 @@ import (
 // messageLabel names a message's one write, which is the key that keeps it to one.
 const messageLabel = "message/"
 
+// detailNoChannel begins the detail of a write that failed because the session had no channel for a peer's message, and
+// the driver's error follows it. The journal keeps an error as text, which names no sentinel, so a restart reads this
+// prefix, and never the words of an error, to tell a write nothing took from one that failed another way.
+const detailNoChannel = "no channel for the message"
+
 // takesMessages are the states a session reads a message in. A lane on its way out reads nothing
 // more, so what waits for it meets the rollover table instead.
 var takesMessages = []lanes.ActualState{lanes.Working, lanes.Idle, lanes.NeedsDecision}
@@ -135,7 +140,14 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		return false, err
 	}
 	if !begun {
-		again, err := r.afterAPersonsWord(ctx, held, effect.Key)
+		current, err := r.w.journal.Effect(ctx, effect.Key)
+		if err != nil {
+			return false, err
+		}
+		if leftWithNoChannel(current) {
+			return r.undeliverable(ctx, held)
+		}
+		again, err := r.afterAPersonsWord(ctx, held, current)
 		if err != nil || !again {
 			return false, err
 		}
@@ -144,7 +156,7 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 	_, sent := r.rt.Driver.Send(ctx, handle, ports.Input{ID: held.InputID, Text: messages.Render(held.Message, age, window), Peer: true})
 	crashpoint.Hit("worker.message", "written")
 	if sent != nil {
-		if err := r.w.journal.FinishEffect(context.WithoutCancel(ctx), effect.Key, lanes.EffectFailed, sent.Error()); err != nil {
+		if err := r.w.journal.FinishEffect(context.WithoutCancel(ctx), effect.Key, lanes.EffectFailed, writeFailure(sent)); err != nil {
 			return false, errors.Join(sent, err)
 		}
 		switch {
@@ -156,6 +168,22 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		return false, sent
 	}
 	return true, r.recordHandedOff(ctx, held, effect.Key)
+}
+
+// writeFailure is what the journal keeps of a write that failed. A write that no channel took says so first, so a
+// worker that dies before it reports the message undeliverable settles it on its restart (leftWithNoChannel).
+func writeFailure(sent error) string {
+	if errors.Is(sent, ports.ErrNoChannel) {
+		return detailNoChannel + ": " + sent.Error()
+	}
+	return sent.Error()
+}
+
+// leftWithNoChannel says a write failed for want of a channel. Nothing was written into the session, and no later
+// attempt will write it, so what is left is to report the message undeliverable and move it, which a worker that died
+// between the failed write and that report has yet to do.
+func leftWithNoChannel(effect lanes.Effect) bool {
+	return effect.Kind == lanes.EffectInput && effect.State == lanes.EffectFailed && strings.HasPrefix(effect.Detail, detailNoChannel)
 }
 
 // undeliverable settles a message the session has no channel for, which nothing writes into it, not even
@@ -189,16 +217,12 @@ func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, 
 // afterAPersonsWord reads a write that already has a record, and says whether to write again. Only a
 // person sends one back, since a restart turns whatever it finds started to unknown, and only a
 // person's word that it arrived stands for a hand-off no write of ours saw.
-func (r *laneRun) afterAPersonsWord(ctx context.Context, held messages.Held, key string) (bool, error) {
-	current, err := r.w.journal.Effect(ctx, key)
-	if err != nil {
-		return false, err
-	}
+func (r *laneRun) afterAPersonsWord(ctx context.Context, held messages.Held, current lanes.Effect) (bool, error) {
 	switch {
 	case current.State == lanes.EffectStarted && current.Attempts > 1:
 		return true, nil
 	case current.State == lanes.EffectCompleted && current.Detail == lanes.DetailSaidHappened:
-		return false, r.recordHandedOff(ctx, held, key)
+		return false, r.recordHandedOff(ctx, held, current.Key)
 	}
 	return false, nil
 }
