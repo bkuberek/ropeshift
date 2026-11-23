@@ -62,6 +62,19 @@ describe("the messages on the Lane view", () => {
     expect(sent.map((message) => message.state)).toEqual(["expired", "replied", "admitted", "refused", "queued"]);
   });
 
+  it("says in words why a message its session has no channel for was not delivered", async () => {
+    const expired = sent.find((message) => message.state === "expired");
+    if (!expired) {
+      throw new Error("no expired message in the golden list");
+    }
+    serveMessages(() => ({ status: 200, body: { messages: [{ ...expired, reason: "undeliverable" }] } }));
+    openPage(here(`/lane?id=${lane}`));
+    const [row] = await table();
+    const state = flat(cell(row as HTMLElement, "State"));
+    expect(state).toContain("Expired");
+    expect(state).toContain("Not delivered: its session takes no message on this agent CLI version, and the sender decides whether to send it again");
+  });
+
   it("shows the body of a message as text, and a lane's reply only on a message it replied to", async () => {
     serveMessages(() => ({
       status: 200,
