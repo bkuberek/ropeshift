@@ -393,7 +393,13 @@ const (
 // text is a sender's, so it says what it is not.
 func writeFacts(out *strings.Builder, facts []ledger.MessageFact) {
 	var stated, unanswered []ledger.MessageFact
+	answered, others := false, false
 	for _, fact := range facts {
+		if isOwnAnswer(fact) {
+			answered = true
+		} else {
+			others = true
+		}
 		if fact.Unanswered {
 			unanswered = append(unanswered, fact)
 		} else {
@@ -402,9 +408,18 @@ func writeFacts(out *strings.Builder, facts []ledger.MessageFact) {
 	}
 	writeFactList(out, factsNotice, stated)
 	writeFactList(out, unansweredNotice, unanswered)
-	if len(facts) != 0 {
+	if others {
 		out.WriteString("\n" + messages.NotConsent + "\n")
 	}
+	if answered {
+		out.WriteString("\n" + messages.AnswerInForce + "\n")
+	}
+}
+
+// isOwnAnswer says a fact is the answer to a question the lane asked: only the lane that asked a question is sent
+// its answer.
+func isOwnAnswer(fact ledger.MessageFact) bool {
+	return fact.Kind == string(messages.KindAnswer) && fact.ReplyTo != ""
 }
 
 func writeFactList(out *strings.Builder, notice string, facts []ledger.MessageFact) {
