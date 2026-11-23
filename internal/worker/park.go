@@ -364,7 +364,8 @@ func (r *laneRun) blockingQuestions() []string {
 // awaitAnswer holds a lane at rest for `ask_wait`, then parks it, because no process waits on a
 // person. A new turn ends the wait, and the next rest starts it again. A compaction at rest sits this
 // out while it may still end, and once it reads `stalled` nothing will end it, so the lane parks from
-// where it stands.
+// where it stands. A lane whose answer was settled as undeliverable waits for nothing: it parks at once, as
+// the answer's settling would have parked it had the lane rested then, or had the worker lived to do it.
 func (r *laneRun) awaitAnswer(ctx context.Context) {
 	// The deadline is read before the flag is taken, so a lane that reads as waiting has its deadline.
 	deadline := r.w.clock.Now().Add(r.state.askWait())
@@ -373,7 +374,11 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 	}
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
-		if !r.restUntil(ctx, deadline) {
+		if r.answerLeftUndelivered(ctx) {
+			if !r.restsOn(ctx) {
+				return
+			}
+		} else if !r.restUntil(ctx, deadline) {
 			return
 		}
 		request := lanes.ParkRequest{

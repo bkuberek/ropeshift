@@ -194,8 +194,10 @@ func leftWithNoChannel(effect lanes.Effect) bool {
 // only that question parks on a wake the answer has already fired, so it resumes and its next generation's
 // first prompt carries the answer (FR-PARK-2, FR-MSG-5). A lane that waits on another question too stays
 // parked until that one is answered as well, because a resume clears what the lane waited on and would
-// leave that question with nothing waiting on it. A lane that cannot park now is on its way out already,
-// or parks on its questions at the end of `ask_wait`, and its next generation hears of the answer either way.
+// leave that question with nothing waiting on it. Only a lane at rest parks: one in a turn is not cut off, and
+// parks when its turn ends (awaitAnswer reads the answer as undelivered, answerLeftUndelivered). A lane that
+// cannot park now is on its way out already, or parks on its questions at the end of `ask_wait`, and its next
+// generation hears of the answer either way.
 func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, error) {
 	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: messages.ReasonUndeliverable})
 	if err != nil {
@@ -206,12 +208,43 @@ func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, 
 		return false, err
 	}
 	waiting := r.blockingQuestions()
-	if held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) {
+	if held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) && r.state.atRest() {
 		r.parkReported(ctx, lanes.ParkRequest{
 			Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake(waiting), PastCompaction: true,
 		})
 	}
 	return true, nil
+}
+
+// answerLeftUndelivered says an answer to a question the lane still waits on was settled as undeliverable in this
+// generation: its message reads expired, and its write failed for want of a channel. The journal keeps both across a
+// restart, so a lane whose worker died between that move and the lane's park is found by them.
+func (r *laneRun) answerLeftUndelivered(ctx context.Context) bool {
+	waiting := r.blockingQuestions()
+	if len(waiting) == 0 {
+		return false
+	}
+	effects, err := r.w.journal.Effects(ctx)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: reading its effects: %w", r.lease.Lane, err))
+		return false
+	}
+	generation := r.currentGeneration()
+	prefix := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, generation, "", messageLabel).Key
+	for _, effect := range effects {
+		id, ours := strings.CutPrefix(effect.Key, prefix)
+		if !ours || effect.Lane != r.lease.Lane || effect.Generation != generation || !leftWithNoChannel(effect) {
+			continue
+		}
+		held, err := r.w.journal.Message(ctx, id)
+		if err != nil {
+			continue
+		}
+		if held.State == messages.Expired && held.Kind == messages.KindAnswer && slices.Contains(waiting, held.ReplyTo) {
+			return true
+		}
+	}
+	return false
 }
 
 // afterAPersonsWord reads a write that already has a record, and says whether to write again. Only a
