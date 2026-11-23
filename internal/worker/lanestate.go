@@ -120,6 +120,9 @@ type laneState struct {
 	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
 	moves  uint64
 	saving atomic.Bool
+	// ends counts the turn ends the stream has read. Each is counted before it moves the lane, so a reader that finds the
+	// lane at rest and then reads the count has the end that brought it there.
+	ends uint64
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -448,8 +451,23 @@ func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) bool {
 
 // signalAt is signal for a hook's signals, which carry the time the hook fired.
 func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Signal) bool {
+	return r.moveLane(ctx, atMs, nil, signals)
+}
+
+// signalUnlessEnded is signal for a move that holds only while the stream has read no turn's end since ends was read. It
+// reads the count under the lock the count is kept under, so a move never lands after an end that closed the turn it begins.
+func (r *laneRun) signalUnlessEnded(ctx context.Context, ends uint64, signals ...lanes.Signal) bool {
+	return r.moveLane(ctx, 0, &ends, signals)
+}
+
+// moveLane applies signals to the lane. It does nothing when unlessEnds is set and the stream has counted a turn's end past it.
+func (r *laneRun) moveLane(ctx context.Context, atMs int64, unlessEnds *uint64, signals []lanes.Signal) bool {
 	s := r.state
 	s.mu.Lock()
+	if unlessEnds != nil && s.ends != *unlessEnds {
+		s.mu.Unlock()
+		return false
+	}
 	moved := false
 	for _, signal := range signals {
 		if s.tracker.ApplyAt(signal, atMs) {
@@ -561,6 +579,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		}
 		r.evaluateContext(ctx)
 	case ports.EventTurnEnded:
+		s.noteEnd()
 		r.progressed()
 		if event.Turn.Status == ports.TurnFailed {
 			r.noteModel(lanes.Impaired)
@@ -769,6 +788,19 @@ func (s *laneState) placeEnd(turn *ports.TurnResult) int64 {
 		return s.failedMs
 	}
 	return 0
+}
+
+// noteEnd counts a turn's end the stream read, and endsRead says how many it has.
+func (s *laneState) noteEnd() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ends++
+}
+
+func (s *laneState) endsRead() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ends
 }
 
 // olderThanInput says a turn's end that fired at atMs is older than the session's newest prompt, a prompt of its
