@@ -233,7 +233,7 @@ type laneRun struct {
 	// the goroutine that reads the stream: it alone reads and writes the figures a save holds. It holds one word.
 	progressDue chan struct{}
 	// boundDue carries the end of a bounded wait to the same goroutine, which decides what the lane does next: a rest
-	// on background work, a turn no end was heard for, or a refused nudge.
+	// on background work, a turn no end was heard for, a refused nudge, or a brief's turn read before its hand-off.
 	boundDue chan struct{}
 	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
 	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
@@ -276,6 +276,11 @@ type laneRun struct {
 	approving atomic.Bool
 	// owesBrief says a clear left this generation's session with no idea of its work.
 	owesBrief atomic.Bool
+	// briefEnd is the newest end afterTurn left undecided because this generation owed its brief, which the goroutine
+	// that reads the stream alone touches, and briefEnded says the pass that delivered the brief found that the stream
+	// had read the end of the turn it began (briefBound).
+	briefEnd   *ports.TurnResult
+	briefEnded atomic.Bool
 	// fellBack says this generation meant to resume and started from its handoff. The handle's lock
 	// guards it, because a clear can bind a generation from a hook's goroutine.
 	fellBack bool
@@ -1295,6 +1300,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.backgroundBound(ctx)
 			r.turnBound(ctx)
 			r.refusalBound(ctx)
+			r.briefBound(ctx)
 			continue
 		case <-r.progressDue:
 			r.saveProgress(ctx, r.cursor)
@@ -1319,11 +1325,15 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		// A turn that ends while its generation owes a brief is the clear's. A clear whose hook spooled
 		// owes none until the spool is read, so it is read first. The debt is read before the lane reads
 		// idle, because from then a pass may brief the session and settle what it owes. The spool also holds the
-		// hooks that say when the turn ended and whether a prompt came after it.
+		// hooks that say when the turn ended and whether a prompt came after it. The end is counted before the debt
+		// is read, so a pass that settles the debt and then reads the count finds this end, and one that reads the
+		// count first has the debt this read finds.
 		if event.Kind == ports.EventTurnEnded {
 			r.w.drainBeforeActing(ctx)
 			r.endMs = r.state.placeEnd(event.Turn)
 			r.endHeld = r.state.olderThanInput(r.endMs)
+			r.briefEnd = nil
+			r.state.noteEnd()
 		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
 		r.foldEvent(ctx, event)
@@ -1570,6 +1580,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		return
 	}
 	if clears || r.owesBrief.Load() {
+		r.briefEnd = turn
 		return
 	}
 	if len(r.blockingQuestions()) != 0 {

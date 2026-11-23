@@ -188,6 +188,9 @@ func (r *laneRun) briefCleared(ctx context.Context) {
 		return
 	}
 	text := r.briefText()
+	// A session that answers at once can end its turn before the delivery is recorded, and the stream reads that end
+	// while the lane is at rest. The lane is at rest here, so an end counted after this is the brief's turn's.
+	ends := r.state.endsRead()
 	ran, err := r.w.bracket(ctx, effect, func() error {
 		_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: text})
 		if errors.Is(err, ports.ErrNoSession) {
@@ -209,9 +212,37 @@ func (r *laneRun) briefCleared(ctx context.Context) {
 		return
 	}
 	if ran {
-		r.setInstruction(text)
-		r.signal(ctx, lanes.OnInputHanded)
+		r.handedBrief(ctx, ends, text)
 	}
+}
+
+// handedBrief moves the lane into the turn the brief began, unless the stream read that turn's end first. That end was
+// read while the generation owed its brief, so the stream may have set it aside as the clear's, and the goroutine that
+// reads the stream decides it again now that the brief has landed (briefBound). A lane a prompt's hook already moved into
+// the turn stays there with the brief in progress.
+func (r *laneRun) handedBrief(ctx context.Context, ends uint64, text string) {
+	if r.state.endsRead() == ends {
+		r.setInstruction(text)
+		ended := r.signalUnlessEnded(ctx, ends, lanes.OnInputHanded)
+		if !ended {
+			return
+		}
+		r.setInstruction("")
+	}
+	r.briefEnded.Store(true)
+	r.boundReached()
+}
+
+// briefBound decides the end of a brief's turn that the stream read before the brief's hand-off was recorded, as the end
+// of a turn the lane handed is decided: the lane stops on a report, and is nudged without one. The stream left that end
+// undecided because its generation owed the brief, and no other end comes for the turn.
+func (r *laneRun) briefBound(ctx context.Context) {
+	if !r.briefEnded.CompareAndSwap(true, false) || r.briefEnd == nil {
+		return
+	}
+	turn := r.briefEnd
+	r.briefEnd = nil
+	r.afterTurn(ctx, turn, false)
 }
 
 // briefEffect is the effect that delivers the brief now. A delivery that found no session is on
