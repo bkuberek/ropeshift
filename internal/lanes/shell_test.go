@@ -26,11 +26,11 @@ func TestOpenBracketWordsParseInLinearTime(t *testing.T) {
 		fastest = min(fastest, timed(small))
 	}
 	// A quadratic parse takes minutes of the large size, so the tries end after twenty seconds.
-	ends, slowest := time.Now().Add(20*time.Second), time.Duration(0)
+	ends := time.Now().Add(20 * time.Second)
 	best := time.Duration(1<<63 - 1)
 	for tries := 0; tries < 15 && time.Now().Before(ends); tries++ {
 		took := timed(large)
-		best, slowest = min(best, took), max(slowest, took)
+		best = min(best, took)
 		if best < bound*fastest {
 			return
 		}

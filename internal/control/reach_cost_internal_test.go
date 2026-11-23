@@ -16,10 +16,11 @@ import (
 )
 
 // reachGrowthBound is how many times as much computing one decision's reach may cost on the larger ledger of the test
-// below, which holds four times the work orders of the smaller. A reach that reads each work order once costs about four
-// times as much, or less where part of its cost does not grow with the ledger, and one that reads the ledger again for
-// each work order costs the square of that, about sixteen times as much. The bound stands between them with room for
-// what a loaded machine adds to either measure, which a bound on the time itself has no room for.
+// below, which holds sixteen times the work orders of the smaller. A reach that reads each work order once costs about
+// sixteen times as much, or less where part of its cost does not grow with the ledger, and one that reads the ledger again
+// for each work order costs the square of that, about two hundred and fifty-six times as much. The bound of sixty-four
+// stands between them with room for what a loaded machine adds to either measure, which a bound on the time itself has
+// no room for.
 const reachGrowthBound = 64
 
 // TestADecisionsReachStaysCheapOnALargeLedger measures what computing a decision's reach costs: a plan scope over finished
