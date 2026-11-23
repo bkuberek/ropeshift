@@ -74,7 +74,8 @@ func (t *takingTerminal) Keys(ctx context.Context, name string, keys ...string) 
 	return nil
 }
 
-// takingPane is a session at rest in an open pane whose session takes what the terminal says, with a short grace.
+// takingPane is a session at rest in an open pane whose session takes what the terminal says, with a short grace and a
+// short hold at the start of a turn.
 func takingPane(t *testing.T, terminal *takingTerminal) *paneSession {
 	t.Helper()
 	terminal.Terminal = fake.NewTerminal()
@@ -85,7 +86,7 @@ func takingPane(t *testing.T, terminal *takingTerminal) *paneSession {
 		t.Fatal(err)
 	}
 	s := New(nil, Options{Terminal: terminal}).newPaneSession(spec, name, ports.SessionHandle{ID: sessionHandleID(spec)}, lanes.CostMeter{})
-	s.grace = 50 * time.Millisecond
+	s.grace, s.notice = 50*time.Millisecond, 300*time.Millisecond
 	terminal.mu.Lock()
 	terminal.session = s
 	terminal.mu.Unlock()
@@ -207,6 +208,58 @@ func TestADialogBeforeTheSessionTookALineGetsNoEnter(t *testing.T) {
 				t.Errorf("pressed Enter %d times, want %d: an Enter answers the dialog", got, tt.enters)
 			}
 		})
+	}
+}
+
+// An Enter the session took begins a turn whose hooks can come late. A permission or an MCP server's dialog that turn
+// opens in its first seconds is told only once its Notification arrives, after the grace, and it gets no second Enter,
+// because an Enter answers it.
+func TestADialogOfATurnTheFirstEnterMayHaveBegunGetsNoSecondEnter(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{lanes.NotificationPermission, lanes.NotificationElicitation} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			terminal := &takingTerminal{loseAll: true}
+			s := takingPane(t, terminal)
+			told := make(chan struct{})
+			var first sync.Once
+			terminal.entered = func() {
+				first.Do(func() {
+					time.AfterFunc(2*s.grace, func() {
+						s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: kind, AtMs: time.Now().UnixMilli()})
+						close(told)
+					})
+				})
+			}
+			_, err := s.typeInput(t.Context(), ports.Input{Text: "a nudge"})
+			<-told
+			if got := countKeys(terminal.KeysOf(s.name), keyEnter); got != 1 {
+				t.Fatalf("pressed Enter %d times: a second Enter went where the first one's turn may show a dialog", got)
+			}
+			if !errors.Is(err, ports.ErrInputUnconfirmed) {
+				t.Errorf("input that met a dialog came back as %v, want ErrInputUnconfirmed", err)
+			}
+		})
+	}
+}
+
+// A lost Enter is pressed again only once a turn the first one may have begun is past its first seconds, as any key
+// after a prompt is.
+func TestASecondEnterWaitsOutTheStartOfATurnTheFirstMayHaveBegun(t *testing.T) {
+	t.Parallel()
+	terminal := &takingTerminal{lose: 1}
+	s := takingPane(t, terminal)
+	var pressed []time.Time
+	terminal.entered = func() { pressed = append(pressed, time.Now()) }
+	if _, err := s.typeInput(t.Context(), ports.Input{Text: "a nudge"}); err != nil {
+		t.Fatalf("a line whose second Enter the session took was not delivered: %v", err)
+	}
+	if len(pressed) != 2 {
+		t.Fatalf("pressed Enter %d times, want 2", len(pressed))
+	}
+	// The hold reads whole milliseconds, so the gap may fall short of it by part of one at each end.
+	if gap := pressed[1].Sub(pressed[0]); gap < s.notice-2*time.Millisecond {
+		t.Errorf("the second Enter went %v after the first, inside the %v a turn's start holds the keys", gap, s.notice)
 	}
 }
 

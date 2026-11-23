@@ -81,6 +81,10 @@ A lane stops going on. In the sidebar, select Needs you, then Stuck, and select 
 
 A lane trips when it crashes more times, within the restart window, than its profile allows. Reset the breaker starts a new generation of the lane from its pinned brief. If what crashed it will crash it again, it trips again, so read the lane's page for what it last did before you reset it.
 
+## A message is not delivered
+
+A message to a lane reads `expired` with the reason `undeliverable`, which the lane's Messages show as "Not delivered: its session takes no message on this agent CLI version". The lane shows Degraded mode: the agent CLI version its process runs did not pass the `socket_line` check, so no message from anyone else reaches its session ([qualification](qualification.md#checked-surfaces)). Nothing was written to the session, and nothing will be. Send the message again once the lane runs on a qualified version, which a respawn starts its process on. A message that bears a decision reads `ledger_fact` instead, and the lane's next generation is told of it, and an answer to a question the lane waits on parks the lane on every question it waits on, and resumes it at once when no other of them is open, so the answer goes in with the resume.
+
 ## A start is refused
 
 Select Start on a work order, and the dialog answers `claim refused by workspace policy` with a reason. The reasons name a cap or a state of the project:

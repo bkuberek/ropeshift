@@ -2,6 +2,7 @@ package lanes
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -82,6 +83,41 @@ func TestBuildEnvironment(t *testing.T) {
 						t.Errorf("%s reached the lane", name)
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestALaneKeepsTheOwnersUpdaterPin holds the setting that stops the agent CLI replacing itself. A lane that lost it
+// would run on a version the owner never pinned, and one a qualification never covered. The name alone is checked: no
+// value is read back or printed.
+func TestALaneKeepsTheOwnersUpdaterPin(t *testing.T) {
+	const name = "DISABLE_AUTOUPDATER"
+	carries := func(env []string) bool {
+		return slices.ContainsFunc(env, func(entry string) bool { return strings.HasPrefix(entry, name+"=") })
+	}
+	tests := []struct {
+		name string
+		set  bool
+	}{
+		{"a parent that set it", true},
+		{"a parent that did not", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The test restores the variable on its own, so an unset leaves the machine's own value alone after it.
+			t.Setenv(name, "1")
+			if !tt.set {
+				if err := os.Unsetenv(name); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := BuildEnvironment(EnvironmentSpec{Lookup: os.LookupEnv})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if carries(got) != tt.set {
+				t.Errorf("a lane carries %s: %v, want %v", name, carries(got), tt.set)
 			}
 		})
 	}

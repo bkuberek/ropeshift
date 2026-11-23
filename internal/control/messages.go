@@ -333,13 +333,15 @@ func (m *Messages) ExpireMessages(ctx context.Context, scope ledger.WorkspaceID,
 	return expired, nil
 }
 
-// workerReports are what a worker can say of a message. Queued and expired are the ledger's.
-var workerReports = []messages.State{messages.AtWorker, messages.HandedOff, messages.Admitted, messages.Refused, messages.Replied}
+// workerReports are what a worker can say of a message. Queued is the ledger's, and so is expired, but
+// for a message the session had no channel for, which only its worker knows.
+var workerReports = []messages.State{messages.AtWorker, messages.HandedOff, messages.Admitted, messages.Refused, messages.Replied, messages.Expired}
 
 // messageUpload stores a worker's word on one message. A worker that ran this claim speaks for
 // its lane, and only for messages to that lane, so a word from a lane that moved on still counts:
 // what happened to a message stays true. A word the table refuses changes nothing, because a
-// signal can arrive late or twice, and that is not an error.
+// signal can arrive late or twice, and that is not an error. A message the session had no channel
+// for takes the reason the ledger gives it by its kind (messages.UndeliverableReason).
 func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	var report messages.Report
 	if err := json.Unmarshal(e.Payload, &report); err != nil {
@@ -347,6 +349,9 @@ func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	}
 	if !slices.Contains(workerReports, report.State) {
 		return fmt.Errorf("%w: a worker cannot report %q", workorders.ErrInvalid, report.State)
+	}
+	if report.State == messages.Expired && report.Reason != messages.ReasonUndeliverable {
+		return fmt.Errorf("%w: a worker reports a message expired only when it was undeliverable", workorders.ErrInvalid)
 	}
 	row, err := tx.Messages().Message(report.ID)
 	if err == nil && row.To.Of() != messages.TargetLane {
@@ -367,9 +372,13 @@ func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	if !messages.CanMove(row.State, report.State) {
 		return nil
 	}
+	reason := ""
+	if report.State == messages.Expired {
+		reason = messages.UndeliverableReason(row.Kind)
+	}
 	row.Reply = report.Reply
 	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }
-	_, err = moveMessage(tx, row, report.State, "", ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+	_, err = moveMessage(tx, row, report.State, reason, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
 	return err
 }
 

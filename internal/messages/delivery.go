@@ -21,7 +21,8 @@ const (
 	Replied State = "replied"
 	// Refused says the driver reported that the session refused it.
 	Refused State = "refused"
-	// Expired says it was not injected in time, or its generation ended.
+	// Expired says it was not injected: not in time, not before its generation ended, or not at all,
+	// because its session has no channel for it.
 	Expired State = "expired"
 )
 
@@ -38,6 +39,10 @@ const (
 	// ReasonLedgerFact is a decision-bearing message that was never injected. Its fact reaches the
 	// next generation in that generation's first prompt.
 	ReasonLedgerFact = "ledger_fact"
+	// ReasonUndeliverable is a message its session has no channel for, such as a session on an agent CLI
+	// version whose message surface passed no check, so nothing was written. The sender decides whether
+	// to send it again.
+	ReasonUndeliverable = "undeliverable"
 )
 
 // moves is the delivery table. An admission can pass `handed_off`, because a worker can die
@@ -103,6 +108,16 @@ func ExpiryReason(kind Kind) string {
 		return ReasonLedgerFact
 	}
 	return ReasonTimedOut
+}
+
+// UndeliverableReason says what a message its session has no channel for means to its sender. Nothing
+// will write it to that session, and a decision stands all the same, so the next generation hears of
+// it, and anything else is not delivered.
+func UndeliverableReason(kind Kind) string {
+	if kind.DecisionBearing() {
+		return ReasonLedgerFact
+	}
+	return ReasonUndeliverable
 }
 
 // Window is how long a message stays useful, because a stale instruction is worse than none.

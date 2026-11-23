@@ -211,6 +211,9 @@ type Report struct {
 	State State  `json:"state"`
 	// Reply is what a lane wrote, on a report that says `replied`.
 	Reply string `json:"reply,omitempty"`
+	// Reason says why, on a report that says `expired`: ReasonUndeliverable, for a message the
+	// session had no channel for.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Held is a worker's copy of a message. Age and the windows count from when the ledger read it,
