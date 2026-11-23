@@ -241,6 +241,9 @@ func commands(shape Shape, path, name string, repositories []CodeRepository, fir
 		}
 		commands = append(commands, FirstCommitCommands(path, name, RepositoryPaths(".", written), branch)...)
 	}
+	// One login opens the session that the commands after it run under, so creating and registering a project asks for
+	// the passphrase once.
+	login := `eval "$(ropeshift login)"`
 	create := "ropeshift project create " + name
 	add := "ropeshift repository add " + folder + " --project " + name
 	switch shape {
@@ -248,9 +251,9 @@ func commands(shape Shape, path, name string, repositories []CodeRepository, fir
 		if slices.ContainsFunc(repositories, func(r CodeRepository) bool { return !r.New }) {
 			commands = append(commands, "make -C "+folder+" setup")
 		}
-		commands = append(commands, create, "make -C "+folder+" register")
+		commands = append(commands, login, create, "make -C "+folder+" register")
 	case Monorepo:
-		commands = append(commands, create, add)
+		commands = append(commands, login, create, add)
 	case Repository:
 		commands = append(commands, add)
 	}

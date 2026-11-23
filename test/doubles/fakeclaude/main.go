@@ -897,6 +897,7 @@ func (s *session) attempt(st step, again bool) {
 	} else {
 		outputs = s.hook("PreToolUse", pre)
 	}
+	asked := false
 	for _, output := range outputs {
 		var decision struct {
 			Specific struct {
@@ -908,6 +909,8 @@ func (s *session) attempt(st step, again bool) {
 			continue
 		}
 		switch decision.Specific.Decision {
+		case "ask":
+			asked = true
 		case "deny":
 			if decision.Specific.Reason == lateVerdict {
 				witness("late", strings.TrimSpace(st.Tool+" "+st.Command+st.File))
@@ -932,22 +935,24 @@ func (s *session) attempt(st step, again bool) {
 		witness("blocked", st.Tool)
 		return
 	}
-	if st.Unprompted && !s.settings.allows(st.Command) {
+	if st.Unprompted && (asked || !s.settings.allows(st.Command)) {
 		fail("%q would wait on a permission prompt", st.Command)
 	}
 	if st.Ruled {
 		call := strings.TrimSpace(st.Tool + " " + st.Command + st.File + st.Agent)
-		switch s.settings.rule(st) {
-		case ruleDenies:
+		switch rule := s.settings.rule(st); {
+		case rule == ruleDenies:
 			witness("blocked", call)
 			return
-		case ruleAllows:
+		case rule == ruleAllows && !asked:
 			witness("unprompted", call)
 		default:
 			witness("prompted", call)
 			st.Prompts = true
 		}
 	}
+	// A hook's ask goes to the prompt in every mode, and no allow rule answers it.
+	st.Prompts = st.Prompts || asked
 	if !s.permitted(st, input) {
 		return
 	}

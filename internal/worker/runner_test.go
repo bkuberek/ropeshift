@@ -215,7 +215,7 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 	}
 	spec := specs[0]
 	// A medium change runs as the implementation agent, whose class the built-in profile maps to sonnet.
-	if spec.Model != "sonnet" || spec.Effort != "medium" || spec.PermissionMode != "default" || spec.Binary != "/state/bin/ropeshift" {
+	if spec.Model != "sonnet" || spec.Effort != "medium" || spec.PermissionMode != "auto" || spec.Binary != "/state/bin/ropeshift" {
 		t.Errorf("spec %+v", spec)
 	}
 	if !slices.Equal(spec.Tools, lanes.Tools) {

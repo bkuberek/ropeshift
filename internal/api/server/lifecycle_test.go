@@ -220,7 +220,7 @@ func TestArchivingWaitsForEveryLane(t *testing.T) {
 	}
 	_, err = in.Client.ArchiveProject(t.Context(), "acme")
 	refusedWith(t, err, http.StatusConflict, api.CodeProjectState)
-	if !strings.Contains(err.Error(), "lane-1") || !strings.Contains(err.Error(), "fleet drain") {
+	if !strings.Contains(err.Error(), "lane-1") || !strings.Contains(err.Error(), "fleet drain") || !strings.Contains(err.Error(), "work cancel") {
 		t.Errorf("the refusal says %v", err)
 	}
 	holder := workorders.Holder{Lease: grant.Lease, Lane: "lane-1", Generation: generation}

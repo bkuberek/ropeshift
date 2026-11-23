@@ -51,6 +51,9 @@ export type Subject = {
   body?: string;
   bodyCut?: boolean;
   contracts: ContractText[];
+  // unrecorded says the version is a branch's and its request carried no goal, no text, and no contract, as a request
+  // made before requests carried them did not.
+  unrecorded?: boolean;
 };
 
 const noDetail: PlanApprovalDetail = { title: "" };
@@ -61,6 +64,11 @@ function detailOf(approval: ApprovalRecord): PlanApprovalDetail {
   } catch {
     return noDetail;
   }
+}
+
+// recordsNothing says a request carried none of the plan's text: no text, no goal, and no contract.
+function recordsNothing(detail: PlanApprovalDetail): boolean {
+  return !detail.body && !detail.goal && !detail.contracts?.length;
 }
 
 // readSubject reads a plan's version by the plan's ID, and, when the ID is no plan's, a request by its own ID.
@@ -90,6 +98,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       body: view.body ?? held?.detail.body,
       bodyCut: view.body_cut ?? held?.detail.body_cut,
       contracts: branch ? (held?.detail.contracts ?? []) : view.contracts,
+      unrecorded: branch && recordsNothing(held.detail),
     };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") {
@@ -104,7 +113,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
   const detail = detailOf(approval);
   return {
     address: id, versions: [], approval, detail, records: [], drafts: detail.drafts ?? [], version: approval.plan_version ?? 1, registration: approval.registration,
-    goal: detail.goal, body: detail.body, bodyCut: detail.body_cut, contracts: detail.contracts ?? [],
+    goal: detail.goal, body: detail.body, bodyCut: detail.body_cut, contracts: detail.contracts ?? [], unrecorded: recordsNothing(detail),
   };
 }
 
@@ -303,7 +312,7 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
   const approval = subject.approval;
   const links = versionLinks(subject.versions, subject.version);
   const says = (
-    <WhatThePlanSays title={subject.plan?.title ?? subject.detail.title} goal={subject.goal} body={subject.body} cut={subject.bodyCut} contracts={subject.contracts} plan={subject.plan?.id} />
+    <WhatThePlanSays title={subject.plan?.title ?? subject.detail.title} goal={subject.goal} body={subject.body} cut={subject.bodyCut} contracts={subject.contracts} plan={subject.plan?.id} unrecorded={subject.unrecorded} counted={subject.detail.counts?.contract} />
   );
   if (!approval) {
     return (

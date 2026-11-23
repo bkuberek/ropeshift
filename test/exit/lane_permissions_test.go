@@ -151,3 +151,51 @@ func TestALaneWorksInItsWorktreeWithNoRequestAndAsksForTheRest(t *testing.T) {
 		}
 	}
 }
+
+// pushesInAnotherForm is a change lane whose push no generated rule matches and whose mode asks nothing of it, as
+// `auto` does of a call its classifier passes.
+const pushesInAnotherForm = `{
+  "source": "FR-LANE-19: the hook asks for a push no rule matches",
+  "turns": [[
+    {"init": true},
+    {"tool": "Bash", "command": "git -C . push origin HEAD"},
+    {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "stand-in", "passed": true}]}},
+    {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+  ]]
+}`
+
+// TestAPushNoRuleMatchesStillReachesAMember is FR-LANE-19 on the real binary and the real hook: a push written past
+// the ask rule, in a mode that would let it run, raises a request that waits for a member.
+func TestAPushNoRuleMatchesStillReachesAMember(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit(".ropeshift/profile.toml", "[lifecycle]\napproval_wait = \"60s\"\nhandoff_timeout = \"2s\"\nmax_restarts = 0\n")
+	repo.Commit("requirements.md", packRequirementsFile)
+	repo.Commit("contract.md", packContractFile)
+
+	in.path = doubles.InstallFakeClaude(t, "lane-completed")
+	dir := doubles.BinDir(in.path)
+	if err := os.WriteFile(filepath.Join(dir, doubles.FixtureFile), []byte(pushesInAnotherForm), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(in.home, ".gitconfig"), []byte("[user]\n\tname = Lane\n\temail = lane@example.invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--wake-tick", "20ms", "--source", repo.Dir)
+	defer d.kill()
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.startLane(id, "c1", "lane-1")
+
+	push := in.awaitRequest(authority.ApprovalPending)
+	if push.Subject != "Bash" || push.Command != "git -C . push origin HEAD" || !push.Gate {
+		t.Fatalf("the push asked %+v", push)
+	}
+	in.must("approval", "deny", push.ID, "--digest", push.SubjectDigest, "--reason", "No push from this lane.")
+	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
+}

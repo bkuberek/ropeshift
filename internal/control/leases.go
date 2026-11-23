@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -628,26 +629,40 @@ func withoutNotes(payload json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(fields)
 }
 
-// redactedReport redacts the verdicts of the report a canceled lane ended with, which the event that ends the lane
-// keeps, because a verdict is model text and no credential of it is kept.
+// redactedReport redacts the detail and the verdicts of the report a canceled lane ended with, which the event that ends
+// the lane keeps, because both are text a model or a tool wrote and no credential of it is kept. A detail that is no
+// string is refused, as verdicts that are no list of verdicts are; a null detail holds no text.
 func redactedReport(payload json.RawMessage) (json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
 	}
-	raw, found := fields["verdicts"]
-	if !found {
+	changed := false
+	if raw, found := fields["detail"]; found && string(raw) != "null" {
+		var detail string
+		if err := json.Unmarshal(raw, &detail); err != nil {
+			return nil, fmt.Errorf("%w: the detail of a lane's report is a string: %v", workorders.ErrInvalid, err)
+		}
+		redacted, err := json.Marshal(ledger.SanitizeCIText(detail))
+		if err != nil {
+			return nil, err
+		}
+		fields["detail"], changed = redacted, true
+	}
+	if raw, found := fields["verdicts"]; found {
+		var verdicts []workorders.CriterionVerdict
+		if err := json.Unmarshal(raw, &verdicts); err != nil {
+			return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+		}
+		redacted, err := json.Marshal(redactedVerdicts(verdicts))
+		if err != nil {
+			return nil, err
+		}
+		fields["verdicts"], changed = redacted, true
+	}
+	if !changed {
 		return payload, nil
 	}
-	var verdicts []workorders.CriterionVerdict
-	if err := json.Unmarshal(raw, &verdicts); err != nil {
-		return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
-	}
-	redacted, err := json.Marshal(redactedVerdicts(verdicts))
-	if err != nil {
-		return nil, err
-	}
-	fields["verdicts"] = redacted
 	return json.Marshal(fields)
 }
 
@@ -1186,6 +1201,13 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 		}
 		if claim.Lane == "" {
 			return fmt.Errorf("%w: work order %s runs no lane", workorders.ErrIllegalMove, workOrder)
+		}
+		row, err := tx.Lanes().Row(claim.Lane)
+		if err != nil {
+			return err
+		}
+		if state := lanes.ActualState(row.Status.ActualState); state != lanes.Tripped {
+			return fmt.Errorf("%w: the lane of work order %s is %s, and only a tripped lane is reset", workorders.ErrIllegalMove, workOrder, state)
 		}
 		return resetLane(tx, workOrder, claim.Lane, actor)
 	})

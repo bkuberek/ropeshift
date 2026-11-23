@@ -126,7 +126,7 @@ func (r *laneRig) initDaemonRun(t *testing.T) {
 	t.Helper()
 	before := r.subject.Session().Epoch
 	subject := r.daemonOn(t, true)
-	r.runUntil(t, subject, func() bool { return subject.Session().Epoch > before })
+	r.runUntil(t, subject, false, func() bool { return subject.Session().Epoch > before })
 	if got := subject.Session().Epoch; got <= before {
 		t.Fatalf("the init daemon's worker opened epoch %d, after %d", got, before)
 	}
@@ -135,12 +135,13 @@ func (r *laneRig) initDaemonRun(t *testing.T) {
 // daemonRun runs the worker of the installation's own daemon until done says so, and stops it.
 func (r *laneRig) daemonRun(t *testing.T, done func() bool) {
 	t.Helper()
-	r.runUntil(t, r.daemonOn(t, false), done)
+	r.runUntil(t, r.daemonOn(t, false), true, done)
 }
 
 // runUntil runs a worker's loop until done says so, and for the time of 25 heartbeats more, and then stops it as a
-// daemon's stop does.
-func (r *laneRig) runUntil(t *testing.T, subject *worker.Worker, done func() bool) {
+// daemon's stop does. stopSessions is false for the init daemon, which starts no session: the driver is shared with the
+// installation's own daemon that runs next, and a stopped driver stops that daemon's sessions as they open.
+func (r *laneRig) runUntil(t *testing.T, subject *worker.Worker, stopSessions bool, done func() bool) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -159,7 +160,9 @@ func (r *laneRig) runUntil(t *testing.T, subject *worker.Worker, done func() boo
 	if err := <-ran; !errors.Is(err, context.Canceled) {
 		t.Errorf("the worker's loop ended with %v", err)
 	}
-	r.driver.StopEverySession()
+	if stopSessions {
+		r.driver.StopEverySession()
+	}
 	subject.Wait()
 }
 

@@ -101,7 +101,7 @@ func (p *Projects) lanesEnded(ctx context.Context, project ledger.Project) error
 		}
 		for _, row := range rows {
 			if row.Status.ActualState != ledger.StateEnded {
-				return fmt.Errorf("%w: lane %s of project %s has not ended: drain the project with fleet drain, and archive it once its lanes end",
+				return fmt.Errorf("%w: lane %s of project %s has not ended: drain the project with fleet drain, let running lanes finish, and cancel the work of any parked lane with work cancel",
 					ledger.ErrProjectState, row.ID, project.Name)
 			}
 		}

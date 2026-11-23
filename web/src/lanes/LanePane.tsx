@@ -55,6 +55,7 @@ const rowKeys: { label: string; name?: string; keys: string }[] = [
   { label: "Shift-Tab", keys: "Shift-Tab" },
   { label: "Enter", keys: "Enter" },
   { label: "Ctrl-C", keys: "Ctrl-C" },
+  { label: "Ctrl-D", keys: "Ctrl-D" },
   { label: "Ctrl-O", keys: "Ctrl-O" },
   { label: "↑", name: "Up", keys: "Up" },
   { label: "↓", name: "Down", keys: "Down" },
@@ -185,9 +186,15 @@ const countLines = (lines: string) => (lines === "" ? 0 : lines.split("\n").leng
 
 const number = (n: number) => n.toLocaleString("en-US");
 
-// ScreenKeys is how a screen that holds the keyboard sends each key, or null while the pane takes no keys:
-// the person is detached, or the lane has no live pane.
-type ScreenKeys = { send: (chord: string) => void } | null;
+// ScreenKeys is how a screen that holds the keyboard sends each key and each paste, or null while the pane takes no
+// keys: the person is detached, or the lane has no live pane.
+type ScreenKeys = { send: (chord: string) => void; paste: (text: string) => void } | null;
+
+// isPasteChord says a press is Ctrl-Shift-V, the terminal's paste, which the browser answers with a paste event.
+const isPasteChord = (event: KeyboardEvent) =>
+  event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.code === "KeyV" || event.key.toLowerCase() === "v");
+
+const pasteIsOneLine = "A paste into the session is one line. Nothing was sent.";
 
 // Sends is what the pane's parts send through: keys, and lines of text.
 type Sends = Pick<PaneSender, "keys" | "text">;
@@ -428,6 +435,11 @@ function Screen({
         setCaptured(false);
         return;
       }
+      if (isPasteChord(event)) {
+        // The browser pastes, and the screen's paste event types the text, so the press is neither a key nor the page's.
+        event.stopPropagation();
+        return;
+      }
       const chord = chordOf(event);
       if (chord !== null) {
         event.preventDefault();
@@ -508,6 +520,12 @@ function Screen({
         title={keys ? `Click, or press Enter, to send keys to the session. ${releaseKey} releases them.` : undefined}
         onClick={click}
         onKeyDown={keyDown}
+        onPaste={(event) => {
+          if (keys && holding) {
+            event.preventDefault();
+            keys.paste(event.clipboardData.getData("text/plain"));
+          }
+        }}
         onScroll={scrolled}
         onBlur={() => setCaptured(false)}
       >
@@ -715,7 +733,28 @@ export function LanePane({
     };
   }, [lane]);
   const typing = attached && shown.kind === "screen";
-  const keys = useMemo<ScreenKeys>(() => (typing ? { send: (chord) => sender.keys(chord) } : null), [typing, sender]);
+  // A paste is one line typed with no Enter after it, because text with a line break would run a command or answer
+  // a prompt the member has not read. It drops the one line break a copied line ends with, and ignores what is empty.
+  const keys = useMemo<ScreenKeys>(
+    () =>
+      typing
+        ? {
+            send: (chord) => sender.keys(chord),
+            paste: (text) => {
+              const line = text.replace(/(\r\n|\n|\r)$/, "");
+              if (line === "") {
+                return;
+              }
+              if (/[\r\n]/.test(line)) {
+                setFailure(pasteIsOneLine);
+                return;
+              }
+              sender.text(line, false);
+            },
+          }
+        : null,
+    [typing, sender],
+  );
   const screen = shown.kind === "screen" || shown.kind === "away" || shown.kind === "refused" ? shown.screen : "";
   const parked = shown.kind !== "screen" && (state === "parked" || (shown.kind === "away" && shown.state === "parked"));
   useEffect(() => (full && pane.current ? inertOutside(pane.current) : undefined), [full]);

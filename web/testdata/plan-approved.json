@@ -47,23 +47,16 @@
     },
     {
       "id": "generated-4",
-      "version": 2,
+      "version": 1,
       "plan_id": "generated-1",
       "title": "The planning core",
-      "digest": "sha256:40eec804f2316be29e61dbebe45f3d1c36defc4a140f2f3fee5977670d20b8e6",
-      "source": "plans/factory/core.md@16",
+      "digest": "sha256:94b92bbe5eea5220126039a9be1fb11ccfea6cab5851c5f36bf32eeacc0a038b",
+      "source": "plans/factory/core.md@9",
       "statement": "What The planning core is for.\n",
       "criteria": [
         {
           "id": "c1",
-          "text": "A plan version has one digest, over every record",
-          "requirements": [
-            "FAC-1"
-          ]
-        },
-        {
-          "id": "c2",
-          "text": "A changed criterion asks again",
+          "text": "A plan version has one digest",
           "requirements": [
             "FAC-1"
           ]
@@ -83,11 +76,11 @@
     },
     {
       "id": "generated-5",
-      "version": 2,
+      "version": 1,
       "plan_id": "generated-1",
       "title": "The approval page",
-      "digest": "sha256:615d875c9711c97b1c14d358549ee4b248d1b98f696d5f371c88fac0b10f489b",
-      "source": "plans/factory/ui.md@16",
+      "digest": "sha256:60976679df571d15765d2f69ec9f9ba9d1d1d7257da6f6f7a701a77702084dfe",
+      "source": "plans/factory/ui.md@10",
       "statement": "What The approval page is for.\n",
       "criteria": [
         {
@@ -110,10 +103,6 @@
         {
           "ref": "work_order:ui-1",
           "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598"
-        },
-        {
-          "ref": "work_order:ui-2",
-          "digest": "sha256:4c610486718bfa9e2720632e76137f561e27553f0127fed395538548e9f2be66"
         }
       ],
       "status": "active"

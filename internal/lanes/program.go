@@ -35,11 +35,11 @@ func reasonProgram(program string) string {
 // is one of the refused flags in any form. Anything else reads as another command, because this hook fails
 // closed.
 func runsOnly(text, program string, commands, refused []string) bool {
-	parsed, nested := parseShell(text)
-	if len(nested) != 0 || len(parsed) != 1 {
+	script := parseScript(text)
+	if script.unread || len(script.nested) != 0 || len(script.commands) != 1 {
 		return false
 	}
-	command := parsed[0]
+	command := script.commands[0]
 	if command.heredoc || command.comment || len(command.writes) != 0 || len(command.words) == 0 || command.words[0].text != program {
 		return false
 	}

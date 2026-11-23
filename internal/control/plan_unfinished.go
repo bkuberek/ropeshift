@@ -228,6 +228,10 @@ func unfinishedRequest(approvals ports.ApprovalReader, plan string, version int6
 // repository, with no work order of its own, could not be. A commit that left the plan as the ledger holds it changed
 // nothing of it, such as a branch read before a poll of the repository that stopped short asked about the goal the poll
 // recorded, so its request names the version's own work order and source, and approving it approves no branch's merge.
+// A request that named a planning work order still waiting in integrating at the commit the request names keeps naming
+// it, whatever read replaces the request, such as a poll of main that finished the goal the branch's commit holds as
+// the ledger does: the branch still waits for the request's approval, and a request naming no work order would approve
+// no merge.
 func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin, goals map[string]bool) error {
 	latest, err := tx.Planning().LatestPlanVersion(plan)
 	if err != nil {
@@ -252,6 +256,17 @@ func offerHeldVersion(tx ports.WriteTx, plan string, origin planOrigin, goals ma
 		}
 		if record.GoalID == "" || !goals[record.GoalID] {
 			origin = planOrigin{}
+		}
+	}
+	if origin.workOrder == "" && request.WorkOrder != "" {
+		order, err := tx.WorkOrders().Get(request.WorkOrder)
+		if err != nil {
+			return err
+		}
+		if held, err := AttemptCommit(tx.Evidence(), order); err != nil {
+			return err
+		} else if order.Kind == workorders.KindPlan && order.State == workorders.Integrating && held == requestCommit(request) {
+			origin = planOrigin{workOrder: order.ID, commit: held}
 		}
 	}
 	return askAboutVersion(tx, latest, origin, missing)
