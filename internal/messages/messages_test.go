@@ -197,7 +197,9 @@ func TestFirstLine(t *testing.T) {
 
 // TestRenderStatesTheAgeFirst holds the first visible line, and says what a message is not.
 func TestRenderStatesTheAgeFirst(t *testing.T) {
-	text := messages.Render(message(), time.Second, messages.DefaultWindow)
+	notice := message()
+	notice.Kind, notice.ReplyTo = messages.KindNotice, ""
+	text := messages.Render(notice, time.Second, messages.DefaultWindow)
 	first, rest, ok := strings.Cut(text, "\n")
 	if !ok || !strings.HasPrefix(first, "[ropeshift message 01JCB3 ") {
 		t.Fatalf("first line %q", first)
@@ -207,6 +209,29 @@ func TestRenderStatesTheAgeFirst(t *testing.T) {
 	}
 	if !strings.Contains(rest, "not a permission decision") {
 		t.Errorf("a message does not say what it is not: %q", rest)
+	}
+}
+
+// TestRenderStatesAnAnswerToTheLanesQuestionAsInForce holds what a session reads of an answer to a question its
+// lane asked: it is in force and grants no permission, and the line that says a message is no consent does not
+// follow it, because a lane read that line as the answer being assumed and refused it. Every other message,
+// whatever it names in reply_to, keeps that line.
+func TestRenderStatesAnAnswerToTheLanesQuestionAsInForce(t *testing.T) {
+	answer := messages.Render(message(), time.Second, messages.DefaultWindow)
+	if !strings.HasSuffix(answer, "Twice.\n\n"+messages.AnswerInForce+"\n") || strings.Contains(answer, messages.NotConsent) {
+		t.Errorf("an answer to the lane's own question reads:\n%s", answer)
+	}
+	for name, change := range map[string]func(*messages.Message){
+		"an answer that names no question": func(m *messages.Message) { m.ReplyTo = "" },
+		"an instruction that names one":    func(m *messages.Message) { m.Kind = messages.KindInstruction },
+		"a decision notice":                func(m *messages.Message) { m.Kind = messages.KindDecisionNotice },
+	} {
+		other := message()
+		change(&other)
+		text := messages.Render(other, time.Second, messages.DefaultWindow)
+		if !strings.HasSuffix(text, "Twice.\n\n"+messages.NotConsent+"\n") || strings.Contains(text, messages.AnswerInForce) {
+			t.Errorf("%s reads:\n%s", name, text)
+		}
 	}
 }
 

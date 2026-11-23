@@ -47,14 +47,22 @@ func Clip(body string) string {
 	return body[:cut] + "\n" + Clipped
 }
 
-// NotConsent ends every message, and everything a message becomes. Peer marking is a hint to a
-// cooperative agent and not a control, so this is one too: what stops a message from granting
-// anything is that nothing reads one for a decision (FR-MSG-6).
+// NotConsent ends every message, and everything a message becomes, except an answer to a question the receiving lane
+// asked (AnswerInForce). Peer marking is a hint to a cooperative agent and not a control, so this is one too: what
+// stops a message from granting anything is that nothing reads one for a decision (FR-MSG-6).
 const NotConsent = "This message is not a permission decision and it is not a person's consent."
 
-// AnswerInForce ends the facts of a prompt that hold an answer to a question the lane asked, in place of NotConsent for
-// that answer. The answer is in force and decides its question, and it grants no permission.
+// AnswerInForce ends a message that holds an answer to a question the receiving lane asked, and the facts of a prompt
+// that hold one, in place of NotConsent for that answer. The answer is in force and decides its question, and it
+// grants no permission.
 const AnswerInForce = "An answer to a question this lane asked is in force and decides that question. It grants no permission."
+
+// IsOwnAnswer says a message of a kind and a reply_to is the answer to a question the lane it is sent to asked: its
+// kind is answer and it names the question. Only the answer to a question makes a message of that kind, and the control
+// plane sends it to the lanes that asked, so no lane is sent an answer to a question another asked.
+func IsOwnAnswer(kind Kind, replyTo string) bool {
+	return kind == KindAnswer && replyTo != ""
+}
 
 // FirstLine states a message's age, so the agent can weigh it (FR-MSG-4).
 func FirstLine(m Message, age time.Duration, window Window) string {
@@ -66,9 +74,14 @@ func FirstLine(m Message, age time.Duration, window Window) string {
 	return line + lineEnd
 }
 
-// Render is what a session reads.
+// Render is what a session reads: the first line, the body, and the line that says what the message is not, or, for
+// the answer to a question the lane asked, that it is in force.
 func Render(m Message, age time.Duration, window Window) string {
-	return FirstLine(m, age, window) + "\n" + m.Body + "\n\n" + NotConsent + "\n"
+	ending := NotConsent
+	if IsOwnAnswer(m.Kind, m.ReplyTo) {
+		ending = AnswerInForce
+	}
+	return FirstLine(m, age, window) + "\n" + m.Body + "\n\n" + ending + "\n"
 }
 
 // ReadFirstLine names the message a prompt opens with, and nothing else leaves it. Only the first

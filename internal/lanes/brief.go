@@ -419,7 +419,7 @@ func writeFacts(out *strings.Builder, facts []ledger.MessageFact) {
 // isOwnAnswer says a fact is the answer to a question the lane asked: only the lane that asked a question is sent
 // its answer.
 func isOwnAnswer(fact ledger.MessageFact) bool {
-	return fact.Kind == string(messages.KindAnswer) && fact.ReplyTo != ""
+	return messages.IsOwnAnswer(messages.Kind(fact.Kind), fact.ReplyTo)
 }
 
 func writeFactList(out *strings.Builder, notice string, facts []ledger.MessageFact) {
