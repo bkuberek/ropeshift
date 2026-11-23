@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,15 +40,20 @@ const paneTestToken = "pane-test-token"
 
 func newPaneRig(t *testing.T, fixture string) *paneRig {
 	t.Helper()
+	return newPaneRigWith(t, fixture, claudecode.Options{})
+}
+
+// newPaneRigWith is newPaneRig with driver options of its own, over the ones every pane test needs.
+func newPaneRigWith(t *testing.T, fixture string, extra claudecode.Options) *paneRig {
+	t.Helper()
 	doubles.RequireTmux(t)
 	// The directory the panes write into is made before the server, so it is removed after the server ends.
 	short := apitest.ShortDir(t)
 	terminal := doubles.PrivateTmux(t)
 	path := doubles.InstallFakeClaude(t, fixture)
 	home := t.TempDir()
-	driver := claudecode.New(osexec.Runner{}, claudecode.Options{
-		Env: []string{"PATH=" + path, "HOME=" + home}, Terminal: terminal, StopGrace: 2 * time.Second,
-	})
+	extra.Env, extra.Terminal, extra.StopGrace = []string{"PATH=" + path, "HOME=" + home}, terminal, 2*time.Second
+	driver := claudecode.New(osexec.Runner{}, extra)
 	socket := filepath.Join(short, "w.sock")
 	spool := filepath.Join(short, "spool")
 	spec := baseSpec(t)
@@ -178,6 +184,51 @@ func TestPaneStartAnswersTrustAndHandsOverTheBrief(t *testing.T) {
 	}
 	if bare := r.log("bare-enter"); len(bare) != 0 {
 		t.Errorf("a bare Enter reached the dialog: %v", bare)
+	}
+}
+
+// The CLI connects ropeshift's MCP server in the background, so a brief typed as soon as the SessionStart hook named the
+// socket can reach a session that holds none of ropeshift's tools. The driver holds the brief until the server has listed
+// its tools: the file the server marks them with stands by the time the prompt arrives, even where the CLI takes a second
+// and a half to connect.
+func TestPaneBriefWaitsForTheServerToListItsTools(t *testing.T) {
+	r := newPaneRig(t, "pane-slow-mcp")
+	s := r.start()
+	if turn := s.until(ports.EventTurnEnded).Turn; turn.Status != ports.TurnCompleted {
+		t.Errorf("turn %+v", turn)
+	}
+	order := r.log("order")
+	if !slices.Contains(order, "tools-listed") {
+		t.Errorf("the session never listed the tools: %v", order)
+	}
+	if got := slices.DeleteFunc(slices.Clone(order), func(line string) bool { return line == "tools-listed" }); !slices.Equal(got, []string{"message listed"}) {
+		t.Errorf("the brief arrived as %v, want one message after the tools were listed", got)
+	}
+}
+
+// A session whose CLI never connects the server lists no tools, and the brief goes when the wait ends all the same, with
+// a note in the worker's log that says the session may hold none.
+func TestPaneBriefGoesWhenTheServerNeverListsItsTools(t *testing.T) {
+	var (
+		lock  sync.Mutex
+		notes []string
+	)
+	r := newPaneRigWith(t, "pane-no-mcp", claudecode.Options{ToolsWait: 300 * time.Millisecond, Notice: func(note string) {
+		lock.Lock()
+		defer lock.Unlock()
+		notes = append(notes, note)
+	}})
+	s := r.start()
+	if turn := s.until(ports.EventTurnEnded).Turn; turn.Status != ports.TurnCompleted {
+		t.Errorf("turn %+v", turn)
+	}
+	if order := r.log("order"); !slices.Equal(order, []string{"message unlisted"}) {
+		t.Errorf("the brief arrived as %v, want one message with no tools listed", order)
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	if len(notes) != 1 || !strings.Contains(notes[0], "without its tools") || !strings.Contains(notes[0], "300ms") {
+		t.Errorf("the worker's log holds %q", notes)
 	}
 }
 

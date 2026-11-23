@@ -653,8 +653,8 @@ func soloModelClasses(paths api.Paths) func(context.Context) (map[string]map[str
 }
 
 // soloDriver is the agent CLI, as this machine would start it.
-func soloDriver(runner ports.ProcessRunner, terminal ports.Terminal, env []string) *claudecode.Driver {
-	return claudecode.New(runner, claudecode.Options{Env: env, Terminal: terminal})
+func soloDriver(runner ports.ProcessRunner, terminal ports.Terminal, env []string, notice func(string)) *claudecode.Driver {
+	return claudecode.New(runner, claudecode.Options{Env: env, Terminal: terminal, Notice: notice})
 }
 
 // laneRunner starts a lane's processes. A stop of a systemd unit ends its whole control group, so on
@@ -681,7 +681,7 @@ func runDoctor(ctx context.Context) (ledger.Manifest, error) {
 	if err != nil {
 		return ledger.Manifest{}, err
 	}
-	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest())
+	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env, nil), soloManifest())
 }
 
 // worktreeReport is the doctor's worktree section. It reads the root in force from the user's layer in the state
@@ -747,7 +747,9 @@ func soloLanes(paths api.Paths, opts soloOptions, kept *checkouts.File, stderr i
 		return nil, nil, err
 	}
 	return &worker.LaneRuntime{
-		Driver: soloDriver(runner, terminal, env),
+		Driver: soloDriver(runner, terminal, env, func(notice string) {
+			fmt.Fprintf(stderr, "ropeshiftd: worker: note: %s\n", notice)
+		}),
 		Provisioner: worker.Provisioner{
 			Profiles:  soloProfiles(paths),
 			Worktrees: gitcli.Worktrees{},

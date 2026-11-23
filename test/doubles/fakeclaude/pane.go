@@ -38,6 +38,11 @@ type paneScript struct {
 	ExitOnStart *int `json:"exit_on_start,omitempty"`
 	// NoSessionStart keeps the SessionStart hook from running.
 	NoSessionStart bool `json:"no_session_start,omitempty"`
+	// MCPConnectMs is how long after it starts the session takes to connect its MCP servers and list their tools,
+	// which the CLI does in the background, so a prompt can arrive before it ends.
+	MCPConnectMs int `json:"mcp_connect_ms,omitempty"`
+	// NoMCP has the session never connect its MCP servers, as one whose connection failed.
+	NoMCP bool `json:"no_mcp,omitempty"`
 	// SessionID replaces the session ID of the hooks.
 	SessionID string `json:"session_id,omitempty"`
 }
@@ -295,6 +300,7 @@ func listen(lines chan<- string) string {
 					// A message counts when the socket takes it, so a repeat shows even if
 					// the session ends before a turn would have reached it.
 					witness("messages", messageID(scanner.Text()))
+					witness("order", "message "+toolsMarker())
 					witness("prompts", strconv.Quote(messageText(scanner.Text())))
 					lines <- scanner.Text()
 				}
@@ -347,7 +353,37 @@ func (s *session) runPane() {
 		}
 		s.hook("SessionStart", map[string]any{"source": source, "model": s.modelName()})
 	}
+	if !script.NoMCP {
+		go s.listTools(time.Duration(script.MCPConnectMs) * time.Millisecond)
+	}
 	s.paneLoop(keys, messages, interrupts)
+}
+
+// listTools is what the CLI does as a session starts, in the background: it connects the MCP servers its configuration
+// names and lists their tools. A session whose server cannot start goes on without it, as the CLI does.
+func (s *session) listTools(after time.Duration) {
+	time.Sleep(after)
+	client, err := s.dial()
+	if err != nil {
+		return
+	}
+	if _, err := client.request("tools/list", map[string]any{}); err != nil {
+		return
+	}
+	witness("order", "tools-listed")
+}
+
+// toolsMarker says whether ropeshift's MCP server has marked the tools listed, as the file its environment names
+// stands: "unmarked" for a session whose environment names none.
+func toolsMarker() string {
+	path := os.Getenv("ROPESHIFT_TOOLS_LISTED")
+	if path == "" {
+		return "unmarked"
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "unlisted"
+	}
+	return "listed"
 }
 
 func (s *session) modelName() string {
@@ -392,9 +428,7 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 		case <-interrupts:
 			witness("ended", strconv.FormatInt(time.Now().UnixMilli(), 10))
 			s.hook("SessionEnd", map[string]any{"reason": "other"})
-			if s.server != nil {
-				s.server.close()
-			}
+			s.closeServer()
 			os.Exit(0)
 		case line := <-messages:
 			if s.admitsPane(line) {
@@ -421,6 +455,7 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 			case "/compact":
 				s.compact()
 			default:
+				witness("order", "typed "+toolsMarker())
 				take(text)
 			}
 		}

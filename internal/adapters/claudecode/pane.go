@@ -58,6 +58,12 @@ const (
 	inputGrace = 5 * time.Second
 	// takenPoll is how often a session that has not shown it took typed input is read again.
 	takenPoll = 20 * time.Millisecond
+	// defaultToolsWait bounds how long a pane's brief waits for ropeshift's MCP server to list its tools. The CLI
+	// connects a server in about a second, and a server it cannot connect never lists, so the wait ends the brief's
+	// delay for a session that goes without the tools.
+	defaultToolsWait = 10 * time.Second
+	// toolsPoll is how often the file that says the tools are listed is looked for.
+	toolsPoll = 25 * time.Millisecond
 )
 
 // The hooks a pane's state derives from.
@@ -200,6 +206,9 @@ func paneEnv(spec ports.SessionSpec, use Use) []string {
 	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
+	if listed := toolsListedPath(spec); listed != "" {
+		env = append(env, lanes.EnvToolsListed+"="+listed)
+	}
 	return append(env, TelemetryEnv(spec)...)
 }
 
@@ -241,6 +250,9 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 		return ports.SessionHandle{}, err
 	}
 	if err := writeLaunched(spec, q); err != nil {
+		return ports.SessionHandle{}, err
+	}
+	if err := clearToolsListed(spec); err != nil {
 		return ports.SessionHandle{}, err
 	}
 	state := paneState{Name: paneName(spec), Phase: phaseOpening, Mode: mode, Timeout: readyTimeout(spec), Brief: spec.Brief}
@@ -319,6 +331,51 @@ func (s *paneSession) awaitSocket(ctx context.Context, limit time.Duration, chec
 	}
 }
 
+// awaitTools holds the brief until ropeshift's MCP server has listed its tools for this session. The CLI connects its MCP
+// servers in the background (https://code.claude.com/docs/en/mcp), so a prompt typed once the SessionStart hook has named
+// the socket can arrive before the connection ends, and a session that reads it first holds none of ropeshift's tools.
+// The server makes the file toolsListedPath names once it has answered the CLI's tools/list. The wait is bounded, and a
+// session that lists none, because its server did not connect, is briefed when the wait ends, with a note that says why.
+// A stopped start, or a session that ended, ends the wait with no note.
+func (s *paneSession) awaitTools(ctx context.Context, spec ports.SessionSpec) {
+	path := toolsListedPath(spec)
+	if path == "" || listed(path) {
+		return
+	}
+	limit := cmp.Or(s.toolsWait, defaultToolsWait)
+	timeout := time.NewTimer(limit)
+	defer timeout.Stop()
+	poll := time.NewTicker(toolsPoll)
+	defer poll.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.gone:
+			return
+		case <-timeout.C:
+			if listed(path) {
+				return
+			}
+			if s.onNote != nil {
+				s.onNote(fmt.Sprintf("lane %s generation %d: sent the session's brief without its tools: ropeshift's MCP server had not listed them within %s, so the session may hold none of ropeshift's tools",
+					spec.Lane, spec.Generation, limit))
+			}
+			return
+		case <-poll.C:
+			if listed(path) {
+				return
+			}
+		}
+	}
+}
+
+// listed says the file that marks a session's tools as listed stands.
+func listed(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // brief hands over the first prompt at most once: the intent is on disk before the write,
 // so a kill between them reads as a brief that may have arrived, and observation decides
 // what happens next.
@@ -327,6 +384,7 @@ func (s *paneSession) brief(ctx context.Context, spec ports.SessionSpec, state p
 		state.Phase = phaseBriefed
 		return writePaneState(spec, state)
 	}
+	s.awaitTools(ctx, spec)
 	state.Phase = phaseBriefing
 	if err := writePaneState(spec, state); err != nil {
 		return err
@@ -522,13 +580,17 @@ type paneSession struct {
 	now    func() time.Time
 	grace  time.Duration
 	notice time.Duration
+	// toolsWait is how long the brief waits for ropeshift's MCP server to list its tools, and onNote is where a brief
+	// that went without them says so.
+	toolsWait time.Duration
+	onNote    func(string)
 }
 
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
 		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]int64{},
-		now: time.Now, grace: inputGrace, notice: dialogNotice,
+		now: time.Now, grace: inputGrace, notice: dialogNotice, toolsWait: d.toolsWait, onNote: d.notice,
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)

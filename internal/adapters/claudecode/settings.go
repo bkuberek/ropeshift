@@ -310,6 +310,9 @@ func generateMCP(spec ports.SessionSpec) mcpFile {
 	for _, name := range serverVariables {
 		env[name] = "${" + name + "}"
 	}
+	if toolsListedPath(spec) != "" {
+		env[lanes.EnvToolsListed] = "${" + lanes.EnvToolsListed + "}"
+	}
 	out.Servers[ServerName] = mcpServer{Type: "stdio", Command: spec.Binary, Args: []string{"mcp"}, Env: env}
 	return out
 }

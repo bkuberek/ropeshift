@@ -1,0 +1,8 @@
+{
+  "source": "A pane whose CLI never connects its MCP servers, as one whose connection failed, so the tools of ropeshift's server are never listed",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true, "no_mcp": true},
+  "turns": [
+    [{"status": {"context_window": {"current_usage": {"input_tokens": 3, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 900}}, "cost": {"total_cost_usd": 0.1}}}]
+  ]
+}

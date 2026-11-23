@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -187,6 +188,32 @@ func markerPath(spec ports.SessionSpec) string {
 		return ""
 	}
 	return filepath.Join(spec.ConfigDir, fmt.Sprintf("attached-%d", spec.Generation))
+}
+
+// toolsListedPath is the file ropeshift's MCP server makes once it has answered its CLI's tools/list, which a pane's
+// driver holds the first prompt for (awaitTools). It sits in the generation's own directory, as the attached marker does.
+// A session has none where its first turn already waits for its servers, as a headless session's does
+// (https://code.claude.com/docs/en/agent-sdk/mcp#connection-timing), where it has no directory of its own, and where it
+// has no server of ropeshift's: a reference to a variable its environment lacks would fail the server's configuration, so
+// no part of the session names the file then.
+func toolsListedPath(spec ports.SessionSpec) string {
+	if spec.RunMode != ports.RunModeInteractive || spec.ConfigDir == "" || spec.Binary == "" {
+		return ""
+	}
+	return filepath.Join(spec.ConfigDir, fmt.Sprintf("tools-listed-%d", spec.Generation))
+}
+
+// clearToolsListed removes the file an earlier start of the same generation may have left, because it says nothing of
+// the server this start's CLI runs.
+func clearToolsListed(spec ports.SessionSpec) error {
+	path := toolsListedPath(spec)
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // attachedMarker is what a policy names for a hook to read. Only a pane has anyone to attach.
