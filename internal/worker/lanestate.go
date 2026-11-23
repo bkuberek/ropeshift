@@ -124,6 +124,9 @@ type laneState struct {
 	// approvalLimit is how long a call waits on a decision, and approvals how many it has open.
 	approvalLimit time.Duration
 	approvals     int
+	// approvalsSeq counts the notes of approvals, so a read of the journal's requests that a live hook's note overtook
+	// does not put its older count back (noteApprovalsSince).
+	approvalsSeq uint64
 	// wakeDebounce and wakeFloor batch an orchestrator's wakes.
 	wakeDebounce time.Duration
 	wakeFloor    time.Duration
