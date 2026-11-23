@@ -163,7 +163,16 @@ func (r *laneRig) runUntil(t *testing.T, subject *worker.Worker, stopSessions bo
 	if stopSessions {
 		r.driver.StopEverySession()
 	}
-	subject.Wait()
+	waited := make(chan struct{})
+	go func() {
+		subject.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the worker still runs %v", subject.Unfinished())
+	}
 }
 
 // startedOnce says the driver started one session, the first generation of the rig's lane.
