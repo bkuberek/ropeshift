@@ -1380,7 +1380,8 @@ func (r *laneRun) expireToken(ctx context.Context) {
 // saveProgress keeps how far this run read, so a kill costs at most one redelivered
 // turn, and a redelivered turn is dropped by its position. The generation is read before anything
 // else, so what a clear overtakes is refused: everything here that a clear resets may already be of
-// the generation before it.
+// the generation before it. A worker that stops between a lane's move and this save still keeps it, because the next
+// worker goes on from the journal alone, so the write is not part of what the stop cancels, as the move's own is not.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	generation := r.currentGeneration()
 	// The digest is kept first, so it holds every event up to the position the progress names.
@@ -1393,7 +1394,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 		Model: r.model, ModelResolved: r.resolvedModel(),
 	}
 	r.state.journalContext(&progress)
-	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {
+	if _, err := r.w.journal.SaveProgress(context.WithoutCancel(ctx), r.lease.Lane, generation, progress); err != nil {
 		r.w.config.Report(err)
 	}
 }

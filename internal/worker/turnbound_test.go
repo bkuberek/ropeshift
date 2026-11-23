@@ -150,6 +150,12 @@ func TestATakenOverLaneKeepsItsTurnStateAndItsBounds(t *testing.T) {
 		r.stopAt(t, at, 1)
 		stopped.free()
 		r.restsOnBackground()
+		// The lane reads idle before the progress that holds its background work is saved, so the worker is taken over
+		// only once the journal holds it.
+		r.eventually("the background in the journal", func(ledger.LaneView) bool {
+			record, err := r.journal.Lane(t.Context(), "lane-1")
+			return err == nil && record.Progress.Background == 1
+		})
 		return r, at
 	}
 	t.Run("a rest on background work", func(t *testing.T) {
