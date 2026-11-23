@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // screenRefusal is a driver whose orchestrator starts fail with refusal, a screen the start check does not know unless
@@ -96,6 +97,10 @@ func TestAStartAloneRunsAnEndedOrchestratorThatReadsWhatWaited(t *testing.T) {
 	}
 	if ended := o.row(t); ended.Actual != "ended" {
 		t.Fatalf("the failed start left %+v", ended)
+	}
+	// The run ends with why, and with the start's own cause, which Needs you shows beside it.
+	if ended := o.row(t); ended.EndReason != workorders.ReasonUnknownScreen || !strings.Contains(ended.EndDetail, ports.ErrUnknownScreen.Error()) {
+		t.Errorf("the run ended with %q: %q, want the unknown screen and its cause", ended.EndReason, ended.EndDetail)
 	}
 
 	driver.refuses.Store(false)
