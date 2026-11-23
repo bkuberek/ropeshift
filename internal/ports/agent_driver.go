@@ -41,6 +41,11 @@ var ErrStopUnconfirmed = errors.New("the stop sent its last signal and read no e
 // ErrNoChannel means a peer's message has no path into this session: nothing was written.
 var ErrNoChannel = errors.New("no channel for a peer's message")
 
+// ErrChannelUnavailable is what an ErrNoChannel also says when the version's message surface passed its check and the
+// session cannot take a message now: it has no socket yet, or its state could not be read. Nothing was written, and the
+// version is not the cause.
+var ErrChannelUnavailable = errors.New("the session's channel is not available now")
+
 // ErrAwaitingAnswer means a session is waiting on an answer, so a key could give one.
 var ErrAwaitingAnswer = errors.New("the session is waiting for an answer")
 

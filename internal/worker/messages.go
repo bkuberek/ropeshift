@@ -24,6 +24,11 @@ const messageLabel = "message/"
 // prefix, and never the words of an error, to tell a write nothing took from one that failed another way.
 const detailNoChannel = "no channel for the message"
 
+// detailChannelUnavailable begins the detail of a write that failed on a version whose socket passed its check, because
+// the session had no socket yet or its state could not be read. It begins with detailNoChannel, so a restart settles that
+// write too, and it keeps the reason, which names no version.
+const detailChannelUnavailable = detailNoChannel + " now"
+
 // takesMessages are the states a session reads a message in. A lane on its way out reads nothing
 // more, so what waits for it meets the rollover table instead.
 var takesMessages = []lanes.ActualState{lanes.Working, lanes.Idle, lanes.NeedsDecision}
@@ -145,7 +150,7 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 			return false, err
 		}
 		if leftWithNoChannel(current) {
-			return r.undeliverable(ctx, held)
+			return r.undeliverable(ctx, held, noChannelReason(current.Detail))
 		}
 		again, err := r.afterAPersonsWord(ctx, held, current)
 		if err != nil || !again {
@@ -161,7 +166,7 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		}
 		switch {
 		case errors.Is(sent, ports.ErrNoChannel):
-			return r.undeliverable(ctx, held)
+			return r.undeliverable(ctx, held, noChannelReason(writeFailure(sent)))
 		case errors.Is(sent, ports.ErrNoSession):
 			return false, nil
 		}
@@ -171,12 +176,25 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 }
 
 // writeFailure is what the journal keeps of a write that failed. A write that no channel took says so first, so a
-// worker that dies before it reports the message undeliverable settles it on its restart (leftWithNoChannel).
+// worker that dies before it reports the message undeliverable settles it on its restart (leftWithNoChannel), and says
+// whether the channel was unavailable then, which the restart reports as the reason (noChannelReason).
 func writeFailure(sent error) string {
-	if errors.Is(sent, ports.ErrNoChannel) {
+	switch {
+	case errors.Is(sent, ports.ErrChannelUnavailable):
+		return detailChannelUnavailable + ": " + sent.Error()
+	case errors.Is(sent, ports.ErrNoChannel):
 		return detailNoChannel + ": " + sent.Error()
 	}
 	return sent.Error()
+}
+
+// noChannelReason is what a worker tells the ledger of a message no channel took, from the detail of the failed write: a
+// channel that was not available then, or else the version, whose message surface passed no check.
+func noChannelReason(detail string) string {
+	if strings.HasPrefix(detail, detailChannelUnavailable) {
+		return messages.ReasonChannelUnavailable
+	}
+	return messages.ReasonUndeliverable
 }
 
 // leftWithNoChannel says a write failed for want of a channel. Nothing was written into the session, and no later
@@ -198,8 +216,8 @@ func leftWithNoChannel(effect lanes.Effect) bool {
 // parks when its turn ends (awaitAnswer reads the answer as undelivered, answerLeftUndelivered). A lane that
 // cannot park now is on its way out already, or parks on its questions at the end of `ask_wait`, and its next
 // generation hears of the answer either way.
-func (r *laneRun) undeliverable(ctx context.Context, held messages.Held) (bool, error) {
-	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: messages.ReasonUndeliverable})
+func (r *laneRun) undeliverable(ctx context.Context, held messages.Held, reason string) (bool, error) {
+	event, err := r.w.messageEvent(r.recordAt(held.To.Generation), messages.Report{ID: held.ID, State: messages.Expired, Reason: reason})
 	if err != nil {
 		return false, err
 	}

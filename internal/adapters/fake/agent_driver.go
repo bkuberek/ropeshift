@@ -117,6 +117,8 @@ type AgentDriver struct {
 	noResume bool
 	// noPeerChannel stands for a version whose socket surfaces passed no check.
 	noPeerChannel bool
+	// peerChannelDown stands for a version whose socket passed its check, on a session that cannot take a message now.
+	peerChannelDown bool
 	// probeChecks are the surfaces a probe runs, and SurfacePeerChannel alone when none was set. subscriptionChecks are
 	// the ones it runs besides, unless the sign-in is an API key.
 	probeChecks        []lanes.Surface
@@ -211,6 +213,14 @@ func (d *AgentDriver) SetPeerChannel(on bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.noPeerChannel = !on
+}
+
+// SetPeerChannelUnavailable says a peer's message has no path into a session now, though the version's message surface
+// passed its check: the session has no socket yet, or its state could not be read.
+func (d *AgentDriver) SetPeerChannelUnavailable(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.peerChannelDown = on
 }
 
 // SetHeadless says whether this driver offers headless sessions.
@@ -931,6 +941,10 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 	if (in.Peer || in.MidTurn) && (d.noPeerChannel || (in.MidTurn && d.midTurnRefused)) {
 		d.mu.Unlock()
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w", h.ID, ports.ErrNoChannel)
+	}
+	if (in.Peer || in.MidTurn) && d.peerChannelDown {
+		d.mu.Unlock()
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %w", h.ID, ports.ErrNoChannel, ports.ErrChannelUnavailable)
 	}
 	d.sends++
 	if in.ID == "" {

@@ -1219,15 +1219,16 @@ func (s *session) send(ctx context.Context, in ports.Input) (ports.SendReceipt, 
 	if !s.use.PeerInjection {
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
 	}
+	// From here the version passed its check, so a channel that is missing is missing now, and says so.
 	state, err := shimlink.ReadState(s.dir)
 	if err != nil {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoChannel, err)
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %w: %v", s.handle.ID, ports.ErrNoChannel, ports.ErrChannelUnavailable, err)
 	}
 	s.mu.Lock()
 	socket := s.peerSocket
 	s.mu.Unlock()
 	if socket == "" {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: no socket", s.handle.ID, ports.ErrNoChannel)
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %w: no socket", s.handle.ID, ports.ErrNoChannel, ports.ErrChannelUnavailable)
 	}
 	return writeSocket(ctx, s.handle.ID, socket, state.ChildPID, in, s.receipts.from())
 }

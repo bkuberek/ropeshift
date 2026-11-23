@@ -127,3 +127,47 @@ func TestAWorkerReportsAMessageExpiredOnlyWhenItWasUndeliverable(t *testing.T) {
 		t.Errorf("an undeliverable message reads %s (%s)", got.State, got.Reason)
 	}
 }
+
+// A worker may say a session could not take a message then, though its version's message surface passed its check. The
+// message reads channel_unavailable, and a message that bears a decision reads ledger_fact as it does for any message no
+// channel took.
+func TestAWorkerMayReportThatAChannelWasUnavailableNow(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	r.ready("pa", "wo")
+	if err := r.claim("pa", "wo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewLeases(r.stores["pa"]).Dispatch(ctx, "pa", "wo", "lane-wo", projectMember); err != nil {
+		t.Fatal(err)
+	}
+	var lease ledger.DesiredLease
+	for _, offered := range r.desired().Leases {
+		if offered.WorkOrder == "wo" {
+			lease = offered
+		}
+	}
+	if reply := r.uploadsOfALane(lease, ledger.UploadEvent{Seq: 1, Type: ledger.UploadLaneStarted}); len(reply.Rejected) != 0 {
+		t.Fatalf("the lane did not start: %+v", reply.Rejected)
+	}
+	sending := control.NewMessages(r.stores["pa"], nil)
+	for i, tt := range []struct {
+		id   string
+		kind messages.Kind
+		want string
+	}{
+		{"m-1", messages.KindInstruction, messages.ReasonChannelUnavailable},
+		{"m-2", messages.KindDecisionNotice, messages.ReasonLedgerFact},
+	} {
+		if _, err := sending.Send(ctx, "pa", messages.Draft{ID: tt.id, To: messages.Target{Lane: "lane-wo"}, Kind: tt.kind, Body: "Use two retries."}, projectMember); err != nil {
+			t.Fatal(err)
+		}
+		report := messageReport(t, int64(i+2), messages.Report{ID: tt.id, State: messages.Expired, Reason: messages.ReasonChannelUnavailable})
+		if reply := r.uploadsOfALane(lease, report); len(reply.Rejected) != 0 {
+			t.Fatalf("a message whose channel was unavailable was refused: %+v", reply.Rejected)
+		}
+		if got, err := sending.ReadMessage(ctx, "pa", tt.id); err != nil || got.State != messages.Expired || got.Reason != tt.want {
+			t.Errorf("%s reads %s (%s), want expired (%s): %v", tt.id, got.State, got.Reason, tt.want, err)
+		}
+	}
+}

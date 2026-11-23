@@ -104,7 +104,20 @@ func TestUndeliverableReason(t *testing.T) {
 		messages.KindContractNotice: messages.ReasonLedgerFact, messages.KindDocumentNotice: messages.ReasonLedgerFact,
 		messages.KindInstruction: messages.ReasonUndeliverable, messages.KindNotice: messages.ReasonUndeliverable,
 	} {
-		if got := messages.UndeliverableReason(kind); got != want {
+		if got := messages.UndeliverableReason(kind, messages.ReasonUndeliverable); got != want {
+			t.Errorf("%s: %s, want %s", kind, got, want)
+		}
+	}
+}
+
+// A message its session could not take now, on a version whose message surface passed its check, reads channel_unavailable
+// and not undeliverable, which names the version. A decision still reaches the next generation as a fact.
+func TestAChannelUnavailableNowIsItsOwnReason(t *testing.T) {
+	for kind, want := range map[messages.Kind]string{
+		messages.KindAnswer: messages.ReasonLedgerFact, messages.KindDecisionNotice: messages.ReasonLedgerFact,
+		messages.KindInstruction: messages.ReasonChannelUnavailable, messages.KindNotice: messages.ReasonChannelUnavailable,
+	} {
+		if got := messages.UndeliverableReason(kind, messages.ReasonChannelUnavailable); got != want {
 			t.Errorf("%s: %s, want %s", kind, got, want)
 		}
 	}
