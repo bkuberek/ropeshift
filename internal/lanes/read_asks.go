@@ -198,6 +198,37 @@ func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string
 	return here && !p.leadsUnder(at, at, at, p.AskReadRoots, true)
 }
 
+// xargsTakesArgumentFile says an xargs call is given a file to read its arguments from, whatever its path: -a alone, a
+// short bundle that holds a, as -ra, a joined -aPATH, and any long option that abbreviates --arg-file to --a or more,
+// written joined with `=` or followed by its value. xargs reads the file where no hook can see what it holds, so the call
+// fails closed. Only the options before the program xargs runs are read, and a value an option takes is skipped.
+func xargsTakesArgumentFile(words []shellWord) bool {
+	at := slices.IndexFunc(words, func(word shellWord) bool { return path.Base(word.text) == "xargs" })
+	if at < 0 {
+		return false
+	}
+	valued := []string{"-n", "-P", "-L", "-d", "-E", "-I", "-s", "-e", "-i", "-l"}
+	for i := at + 1; i < len(words); i++ {
+		text := words[i].text
+		switch {
+		case !strings.HasPrefix(text, "-") || text == "-":
+			return false
+		case text == "--":
+			return false
+		case strings.HasPrefix(text, "--"):
+			name, _, _ := strings.Cut(text, "=")
+			if len(name) >= len("--a") && strings.HasPrefix("--arg-file", name) {
+				return true
+			}
+		case strings.Contains(text[1:], "a"):
+			return true
+		case slices.Contains(valued, text):
+			i++
+		}
+	}
+	return false
+}
+
 // xargsRunsReader says an xargs call runs a program that reads files, or one a shell alone can name. xargs hands the
 // program the paths it reads from its input, which no hook can read, so any reader it runs asks. Every word after
 // xargs is taken for the program, because an option of xargs may take the word after it.

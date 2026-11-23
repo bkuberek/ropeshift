@@ -219,7 +219,7 @@ func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
 		Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1", "/work/lane-1.reads/api"},
 	})
 	allowed := []string{
-		"cat *.go", "cat internal/*.go", "head -5 main.go", "rg TODO internal", "ls internal", "find internal -name '*.go'", "wc -l main.go go.mod",
+		"xargs -0 echo", "echo hi | xargs -0 echo", "echo a b | xargs -n 1 echo hi", "echo a | xargs -r -P 2 echo", "cat *.go", "cat internal/*.go", "head -5 main.go", "rg TODO internal", "ls internal", "find internal -name '*.go'", "wc -l main.go go.mod",
 	}
 	for _, command := range allowed {
 		if reason, asks := policy.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); asks {
@@ -253,6 +253,12 @@ func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
 			"for f in internal/*.go; do wc -l $f; done",
 			"for f in main.go; do for g in go.mod; do cat \"$f\" \"$g\"; done; done",
 			"for f in main.go; do cat \"${f}\"; done",
+		},
+		"an xargs that reads its arguments from a file": {
+			"xargs -a /etc/passwd echo", "xargs -a/etc/passwd echo", "xargs -ra /etc/passwd echo", "xargs -0a /etc/passwd echo",
+			"xargs --arg-file=/etc/passwd echo", "xargs --arg-file /etc/passwd echo", "xargs --arg /etc/passwd echo", "xargs --arg=/etc/passwd echo",
+			"xargs --a /etc/passwd echo", "xargs --a=/etc/passwd echo", "xargs --ar /etc/passwd echo", "xargs --arg-f=/etc/passwd echo",
+			"xargs -n 1 -a /etc/passwd echo", "xargs -a list echo", "echo hi | xargs -a /etc/passwd echo", "env xargs -a /etc/passwd echo",
 		},
 		"a bypass of the forms the hook once allowed": {
 			// A directory named `a ` that holds etc/hostname splits, in xargs, into the words `a` and `etc/hostname`.

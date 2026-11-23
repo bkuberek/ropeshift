@@ -492,7 +492,8 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				if len(p.AskReadRoots) != 0 {
 					leaders := command.words[:len(command.words)-len(words)]
 					viaXargs := slices.ContainsFunc(leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" })
-					seen.reads = seen.reads || viaXargs && xargsRunsReader(command.words) || !viaXargs && p.programReadsOutside(name, words[1:], at, command)
+					seen.reads = seen.reads || viaXargs && (xargsRunsReader(command.words) || xargsTakesArgumentFile(command.words)) ||
+						!viaXargs && p.programReadsOutside(name, words[1:], at, command)
 				}
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {
