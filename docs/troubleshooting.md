@@ -83,7 +83,7 @@ A lane trips when it crashes more times, within the restart window, than its pro
 
 ## A message is not delivered
 
-A message to a lane reads `expired` with the reason `undeliverable`, which the lane's Messages show as "Not delivered: its session takes no message on this agent CLI version". The lane shows Degraded mode: the agent CLI version its process runs did not pass the `socket_line` check, so no message from anyone else reaches its session ([qualification](qualification.md#checked-surfaces)). Nothing was written to the session, and nothing will be. Send the message again once the lane runs on a qualified version, which a respawn starts its process on. A message that bears a decision reads `ledger_fact` instead, and the lane's next generation is told of it, and an answer to a question the lane waits on parks the lane and resumes it at once, so the answer goes in with the resume.
+A message to a lane reads `expired` with the reason `undeliverable`, which the lane's Messages show as "Not delivered: its session takes no message on this agent CLI version". The lane shows Degraded mode: the agent CLI version its process runs did not pass the `socket_line` check, so no message from anyone else reaches its session ([qualification](qualification.md#checked-surfaces)). Nothing was written to the session, and nothing will be. Send the message again once the lane runs on a qualified version, which a respawn starts its process on. A message that bears a decision reads `ledger_fact` instead, and the lane's next generation is told of it, and an answer to a question the lane waits on parks the lane on every question it waits on, and resumes it at once when no other of them is open, so the answer goes in with the resume.
 
 ## A start is refused
 

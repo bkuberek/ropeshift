@@ -8,7 +8,7 @@ Each surface has one check and one use. A surface whose check failed, or could n
 
 | Surface | Check | Without it |
 |---------|-------|------------|
-| `socket_line` | A message on the session's own socket opens a turn: a `UserPromptSubmit` hook names its first line, and a headless replay carries its `uuid` | No message from anyone else reaches a session, and a pane's own input is typed. An answer to a question the lane waits on parks the lane and resumes it at once, so the answer reaches it in the first prompt of its next generation. Any other message reads `expired` with the reason `undeliverable`, or `ledger_fact` when it bears a decision the next generation is told of |
+| `socket_line` | A message on the session's own socket opens a turn: a `UserPromptSubmit` hook names its first line, and a headless replay carries its `uuid` | No message from anyone else reaches a session, and a pane's own input is typed. An answer to a question the lane waits on parks the lane on every question it waits on, and resumes it at once when no other of them is open, so the answer reaches it in the first prompt of its next generation. Any other message reads `expired` with the reason `undeliverable`, or `ledger_fact` when it bears a decision the next generation is told of |
 | `receipts` | A session that refuses messages answers a reply address with `expired` and `refused` | A refusal is not read, and a message waits until it expires |
 | `peer_message_hold` | A session that holds messages reports the hold in its stream | Nothing: no state follows from a hold |
 | `socket_dir` | `CLAUDE_CODE_TMPDIR` moves the socket into the lane's own directory, within the path limit | The socket stays where the CLI puts it |
