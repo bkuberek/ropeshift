@@ -1325,12 +1325,15 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		// A turn that ends while its generation owes a brief is the clear's. A clear whose hook spooled
 		// owes none until the spool is read, so it is read first. The debt is read before the lane reads
 		// idle, because from then a pass may brief the session and settle what it owes. The spool also holds the
-		// hooks that say when the turn ended and whether a prompt came after it.
+		// hooks that say when the turn ended and whether a prompt came after it. The end is counted before the debt
+		// is read, so a pass that settles the debt and then reads the count finds this end, and one that reads the
+		// count first has the debt this read finds.
 		if event.Kind == ports.EventTurnEnded {
 			r.w.drainBeforeActing(ctx)
 			r.endMs = r.state.placeEnd(event.Turn)
 			r.endHeld = r.state.olderThanInput(r.endMs)
 			r.briefEnd = nil
+			r.state.noteEnd()
 		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
 		r.foldEvent(ctx, event)

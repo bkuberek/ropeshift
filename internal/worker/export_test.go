@@ -28,6 +28,17 @@ func (w *Worker) DigestSoFar(lane string) (lanes.Digest, bool) {
 	return run.digest.Digest(), true
 }
 
+// ForgetDigest drops the digest a lane's run holds open, so the next event it folds reads the journal for it first.
+func (w *Worker) ForgetDigest(lane string) {
+	run := w.runOf(lane)
+	if run == nil {
+		return
+	}
+	run.digestLock.Lock()
+	defer run.digestLock.Unlock()
+	run.digest = nil
+}
+
 // MessageLabel starts the effect key of a message's one write.
 const MessageLabel = messageLabel
 

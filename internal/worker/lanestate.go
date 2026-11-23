@@ -120,8 +120,9 @@ type laneState struct {
 	// moves counts the lane's moves, and saving says a goroutine is keeping the newest of them in the journal.
 	moves  uint64
 	saving atomic.Bool
-	// ends counts the turn ends the stream has read. Each is counted before it moves the lane, so a reader that finds the
-	// lane at rest and then reads the count has the end that brought it there.
+	// ends counts the turn ends the stream has read. Each is counted before the stream reads what its generation owes
+	// and before it moves the lane, so a reader that finds the lane at rest and then reads the count has the end that
+	// brought it there.
 	ends uint64
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
@@ -579,7 +580,6 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		}
 		r.evaluateContext(ctx)
 	case ports.EventTurnEnded:
-		s.noteEnd()
 		r.progressed()
 		if event.Turn.Status == ports.TurnFailed {
 			r.noteModel(lanes.Impaired)
