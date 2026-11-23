@@ -422,7 +422,7 @@ func (f *failsAfterKeys) Keys(ctx context.Context, name string, keys ...string) 
 	if err := f.Terminal.Keys(ctx, name, keys...); err != nil {
 		return err
 	}
-	f.Terminal.FailReads(f.err)
+	f.FailReads(f.err)
 	return nil
 }
 
