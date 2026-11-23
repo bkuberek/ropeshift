@@ -116,3 +116,45 @@ func TestARestartedOrchestratorKeepsItsDayVerdict(t *testing.T) {
 		t.Error("the run a restarted worker rebuilds reads a breaker its day tripped as cooled, a day on")
 	}
 }
+
+// The day's verdict holds on the path a restart really takes: the worker that starts after a tripped orchestrator's
+// worker rebuilds no run for it, so no verdict is judged again, and the orchestrator reads tripped on its day, with no
+// session started for it, a day on, until a member resets it (ADR-0014).
+func TestATrippedOrchestratorStaysDayCappedAcrossARestartAndADay(t *testing.T) {
+	crash := script([]fake.DriverStep{{Bound: true}, {Crash: true}})
+	o := newOrchestratorRig(t, crash, crash, crash, aSession())
+	o.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser(dayCapProfile)
+	row := o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	o.await(t, "the first backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 2)
+	o.await(t, "the second backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
+	o.clock.Advance(61 * time.Second)
+	o.awaitSessions(t, 3)
+	o.await(t, "a trip on the day", func(row ledger.Orchestrator) bool {
+		return row.Tripped() && slices.Contains(row.Conditions, string(lanes.DayCapped))
+	})
+
+	o.restarted(t)
+	o.clock.Advance(25 * time.Hour)
+	for range 6 {
+		if _, err := o.subject.Reconcile(o.ctx); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := o.row(t); !got.Tripped() || !slices.Contains(got.Conditions, string(lanes.DayCapped)) {
+		t.Errorf("a day after the restart the orchestrator reads %q with conditions %v, want tripped on its day", got.Actual, got.Conditions)
+	}
+	if n := len(o.specs()); n != 3 {
+		t.Errorf("%d sessions started for an orchestrator whose day tripped its breaker, want the 3 that tripped it", n)
+	}
+	if o.subject.Running(row.Lane()) {
+		t.Error("the restarted worker runs a tripped orchestrator that only a member's reset starts again")
+	}
+}
