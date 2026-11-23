@@ -864,6 +864,12 @@ const maxFailureDetail = 500
 // repository, a terminal, or a process, so it is plain text on one line, cut on a rune boundary. An orchestrator's
 // start that failed starts again instead (startFailed), and the outcome is what its run ends with when it cannot.
 func (r *laneRun) failStart(reason string, err error) workorders.Report {
+	if r.life != nil && r.life.Err() != nil {
+		// A worker on its way out cut the start off, so the lane is not over: the next worker starts it again from the
+		// journal, and no attempt is used.
+		r.departed.Store(true)
+		return failed(workorders.ReasonWorkerRestarted)
+	}
 	r.w.config.Report(fmt.Errorf("lane %s: %s: %w", r.lease.Lane, reason, err))
 	report := failed(reason)
 	report.Detail = failureDetail(err)
