@@ -436,6 +436,38 @@ func TestPaneUnknownScreenStopsAndKeepsTheScreen(t *testing.T) {
 	}
 }
 
+// A trust dialog that does not act on its Enter, losing it or refusing it, ends the start on the trust dialog: no
+// second Enter and no other key follows, the screen is kept, and the error names the trust dialog as well as the
+// unknown screen every caller reads.
+func TestPaneTrustDialogThatDoesNotTakeItsEnterEndsTheStart(t *testing.T) {
+	for _, tt := range []struct{ fixture, focus string }{
+		{fixture: "pane-trust-lost", focus: "Yes, I trust this folder"},
+		{fixture: "pane-trust-refused", focus: "No, exit"},
+	} {
+		t.Run(tt.fixture, func(t *testing.T) {
+			r := newPaneRig(t, tt.fixture)
+			r.spec.ReadyTimeout = 4 * time.Second
+			_, err := r.driver.Start(t.Context(), r.spec)
+			if !errors.Is(err, ports.ErrUnknownScreen) || !errors.Is(err, ports.ErrTrustKeyLost) || !strings.Contains(err.Error(), tt.focus) {
+				t.Fatalf("start: %v, want the unknown screen of a trust dialog that kept its focus on %q", err, tt.focus)
+			}
+			if got := r.log("keys"); !slices.Equal(got, []string{"trust <down>", "trust <enter>"}) {
+				t.Errorf("keys %v, want one move and one Enter", got)
+			}
+			if bare := r.log("bare-enter"); len(bare) != 0 {
+				t.Errorf("a bare Enter reached the dialog: %v", bare)
+			}
+			raw, err := os.ReadFile(filepath.Join(r.spec.ConfigDir, "screen-1.txt"))
+			if err != nil || !strings.Contains(string(raw), "❯ "+tt.focus) {
+				t.Errorf("the screen was not kept: %q, %v", raw, err)
+			}
+			if _, err := r.terminal.Pane(t.Context(), "lane-1-g1"); !errors.Is(err, ports.ErrNotFound) {
+				t.Errorf("the pane stayed: %v", err)
+			}
+		})
+	}
+}
+
 func TestPaneResumeThatNeverReadiesFails(t *testing.T) {
 	r := newPaneRig(t, "pane-stuck")
 	r.spec.ReadyTimeout = 600 * time.Millisecond
