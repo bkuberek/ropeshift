@@ -42,6 +42,11 @@ func TestReadScreen(t *testing.T) {
 		{capture: "ready-boxed", want: screenReady},
 		{capture: "ready-dashed", want: screenReady},
 		{capture: "resume", want: screenReady},
+		// Claude Code 2.1.330 at the pane's width, whose prompt glyph a no-break space follows.
+		{capture: "v2-1-330-trust-focus-cancel", want: screenTrust, focus: focusAbove},
+		{capture: "v2-1-330-trust-focus-accept", want: screenTrust, focus: focusOnAccept},
+		{capture: "v2-1-330-ready", want: screenReady},
+		{capture: "v2-1-330-resume", want: screenReady},
 		// Each of these holds a focused option or a prompt-like line, and none may read
 		// as a screen the check can act on.
 		{capture: "mode-acceptance", want: screenUnknown},
@@ -98,6 +103,7 @@ func TestAPaneHoldsItsPack(t *testing.T) {
 
 func TestStartCheck(t *testing.T) {
 	trust, accepted, ready := pane(t, "trust-focus-cancel"), pane(t, "trust-focus-accept"), pane(t, "ready")
+	trust330, accepted330, ready330 := pane(t, "v2-1-330-trust-focus-cancel"), pane(t, "v2-1-330-trust-focus-accept"), pane(t, "v2-1-330-ready")
 	flipped := strings.Join([]string{" Accessing workspace:", "", "   Yes, I trust this folder", " ❯ No, exit", ""}, "\n")
 	// repainted is a later frame of the same dialog, which a pane shows while the key it took is still
 	// being answered.
@@ -132,6 +138,11 @@ func TestStartCheck(t *testing.T) {
 		{
 			name: "the trust dialog moves the focus and then confirms", script: fake.PaneScript{Screen: trust, Moves: moves},
 			mode: checkFresh, keys: []string{"Down", "Enter"},
+		},
+		{
+			name: "the trust dialog of 2.1.330 moves the focus and then confirms", mode: checkFresh,
+			script: fake.PaneScript{Screen: trust330, Moves: map[string]map[string]string{trust330: {"Down": accepted330}, accepted330: {"Enter": ready330}}},
+			keys:   []string{"Down", "Enter"},
 		},
 		{
 			name: "a dropped Down is followed by End, which cannot wrap", mode: checkFresh, timeout: 2 * time.Second, resend: 5 * time.Millisecond,
