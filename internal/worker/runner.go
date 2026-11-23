@@ -1075,6 +1075,12 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.parkOnScreen(ctx)
 	}
 	if err != nil {
+		// A worker on its way out cut the start off, so the lane is not over: the next worker starts it again from the
+		// journal, as it does a lane the watch left, and no attempt is used.
+		if ctx.Err() != nil {
+			r.departed.Store(true)
+			return failed(workorders.ReasonWorkerRestarted)
+		}
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	if !ran {
