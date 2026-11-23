@@ -595,24 +595,30 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 // clockSkewMs is how far past the worker's clock a hook's time may stand before it cannot be a time on this machine.
 const clockSkewMs = 1000
 
-// clampToClock takes each time of the turn clock past now as now. The clock that stamps a hook is this machine's, so
-// no hook fires after now, and a time kept past it was kept before the wall clock stepped back. Left as it is, it
-// leaves every later Stop and prompt no newer than it, until the clock catches up.
-func (s *laneState) clampToClock(nowMs int64) {
+// clampToClock takes each time of the turn clock more than a second past now as a millisecond before the hook being
+// read, or before now when that hook is stamped later or not at all. The clock that stamps a hook is this machine's, so no
+// hook fires after now, and a time kept past it was kept before the wall clock stepped back. Left as it is, it leaves every
+// later Stop and prompt no newer than it, until the clock catches up. The hook that finds the clock stepped back is the
+// first of the new time, so it has to be newer than what stands in place of what was kept, whatever it is stamped.
+func (s *laneState) clampToClock(nowMs, atMs int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	at := nowMs
+	if atMs > 0 {
+		at = min(nowMs, atMs)
+	}
 	for _, kept := range []*int64{&s.stoppedMs, &s.failedMs, &s.promptedMs, &s.handedMs} {
 		if *kept > nowMs+clockSkewMs {
-			*kept = nowMs
+			*kept = at - 1
 		}
 	}
 }
 
 // observeHook turns one hook event into what it says about the lane. A tool call that has
-// started and not finished is a wait, not a stall. A time kept past the clock is read as now first, because the wall
-// clock may have stepped back (clampToClock).
+// started and not finished is a wait, not a stall. A time kept past the clock is read as just before this hook first,
+// because the wall clock may have stepped back (clampToClock).
 func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
-	r.state.clampToClock(r.w.clock.Now().UnixMilli())
+	r.state.clampToClock(r.w.clock.Now().UnixMilli(), event.AtMs)
 	r.observe(ctx, event, false)
 }
 
