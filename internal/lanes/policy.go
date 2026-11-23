@@ -130,8 +130,6 @@ type PolicySpec struct {
 	ReadRoots []string
 	// AskReadRoots, when set, are the only directories the session reads with no prompt: a read anywhere else asks.
 	AskReadRoots []string
-	// GitListingsInside says no link in the worktree leads out of it (DenyPolicy.GitListingsInside).
-	GitListingsInside bool
 	// Program, when set, is the one program the session may run in a shell, and Commands are the only
 	// commands of it the session may run, by name.
 	Program  string
@@ -188,7 +186,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		Waits:    waits,
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
-		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots), AskReadRoots: slices.Clone(spec.AskReadRoots), GitListingsInside: spec.GitListingsInside,
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, GatesAskOnly: spec.GatesAskOnly, ReadRoots: slices.Clone(spec.ReadRoots), AskReadRoots: slices.Clone(spec.AskReadRoots),
 		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
 		RefusedFlags: slices.Clone(spec.RefusedFlags),
 	}
@@ -442,7 +440,7 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 		}
 	}
 	at := cwd
-	vars := shellVars{}
+	vars := &loopVars{words: map[string][]string{}}
 	for ci, command := range commands {
 		if len(p.AskReadRoots) != 0 {
 			vars.note(command)
@@ -494,11 +492,17 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				}
 			default:
 				if len(p.AskReadRoots) != 0 {
-					in := readContext{leaders: command.words[:len(command.words)-len(words)], vars: vars}
-					if ci > 0 && command.piped {
-						in.previous = &commands[ci-1]
+					in := readContext{vars: vars}
+					if ci == 1 && len(commands) == 2 && command.piped && len(nested) == 0 && len(command.reads)+len(command.writes)+len(command.processes) == 0 &&
+						!command.heredoc && len(command.fed) == 0 {
+						in.source = &commands[0]
 					}
-					seen.reads = seen.reads || p.programReadsOutside(name, words[1:], at, command, in)
+					leaders := command.words[:len(command.words)-len(words)]
+					if slices.ContainsFunc(leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" }) {
+						seen.reads = seen.reads || p.xargsReads(command, at, in)
+					} else {
+						seen.reads = seen.reads || p.programReadsOutside(name, words[1:], at, command, in)
+					}
 				}
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {

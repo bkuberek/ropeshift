@@ -210,84 +210,135 @@ func TestTheFilesAnInlineScriptReadsAreReadPaths(t *testing.T) {
 	}
 }
 
-// What an agent runs all day asks nothing when it reads inside: a pipe into xargs from a listing rooted inside that
-// lists no link, a loop over words that name inside, and a variable assigned a static word. Each near miss still asks.
-func TestOrdinaryReadsInsideAskNothing(t *testing.T) {
-	inside := CompilePolicy(PolicySpec{
-		Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1", "/work/lane-1.reads/api"}, GitListingsInside: true,
+// What an agent runs all day asks nothing when it reads inside, and only what a strict allowlist proves: a pipe into
+// xargs from one listing of three kinds rooted inside, with xargs taking only options that split and batch, and a loop
+// over static words. Everything else that a shell alone can resolve asks, and each case below that asks is a bypass the
+// review found, kept as a regression test.
+func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{
+		Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1", "/work/lane-1.reads/api"},
 	})
-	linked := CompilePolicy(PolicySpec{Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1"}})
-	tests := []struct {
-		name    string
-		command string
-		asks    bool
-	}{
-		{"a git listing into a reader", "git ls-files | xargs wc -l", false},
-		{"a git listing into a reader behind options", "git ls-files | xargs -n 1 wc -l", false},
-		{"a git diff listing", "git diff --name-only | xargs head -5", false},
-		{"a git grep listing", "git grep -l TODO | xargs sed -n 1p", false},
-		{"a search listing into sed", "rg -l X | xargs sed -n 1p", false},
-		{"a search listing of the files", "rg --files | xargs wc -l", false},
-		{"a search listing rooted inside", "rg -l X internal | xargs cat", false},
-		{"a find of files", "find . -type f -name '*.go' | xargs grep -l foo", false},
-		{"a find of files rooted in a subfolder", "find internal -name '*.go' -type f | xargs wc -l", false},
-		{"a find of files rooted in a read-only tree", "find /work/lane-1.reads/api -type f | xargs wc -l", false},
-		{"an fd of files", "fd -t f | xargs wc -l", false},
-		{"an fd of files with a long option", "fd --type f go | xargs wc -l", false},
-		{"a null separated listing", "find . -type f -print0 | xargs -0 wc -l", false},
-		{"a loop over a glob", "for f in *.go; do head -5 \"$f\"; done", false},
-		{"a loop over words", "for f in main.go go.mod; do cat \"$f\"; done", false},
-		{"a loop over a glob in a folder", "for f in internal/*.go; do wc -l $f; done", false},
-		{"a variable with a static word", "F=go.mod; cat $F", false},
-		{"a variable with a static word in a path", "D=internal; ls $D/lanes", false},
-		{"a variable in braces", "F=go.mod; cat \"${F}\"", false},
-
-		{"a find that follows links", "find -L . -type f | xargs cat", true},
-		{"a find that follows links by name", "find . -type f -follow | xargs cat", true},
-		{"a find of every entry, links included", "find . -name '*.go' | xargs grep -l foo", true},
-		{"a find rooted outside", "find /etc -type f | xargs cat", true},
-		{"an fd that follows links", "fd -L -t f | xargs cat", true},
-		{"an fd of every entry", "fd go | xargs cat", true},
-		{"an fd rooted outside", "fd -t f . /etc | xargs cat", true},
-		{"an rg that follows links", "rg -L -l X | xargs cat", true},
-		{"an rg that follows links by name", "rg --follow --files | xargs cat", true},
-		{"an rg rooted outside", "rg -l X /var | xargs cat", true},
-		{"an rg listing no files", "rg X | xargs cat", true},
-		{"an argument file", "git ls-files | xargs -a /etc/list wc -l", true},
-		{"an argument file by name", "rg -l X | xargs --arg-file=list cat", true},
-		{"a reader that names a file outside", "git ls-files | xargs cat /etc/passwd", true},
-		{"a reader with a variable operand", "git ls-files | xargs cat $F", true},
-		{"a git listing in another repository", "git -C /other ls-files | xargs cat", true},
-		{"a git listing in another git directory", "git --git-dir=/other/.git ls-files | xargs cat", true},
-		{"a git command that lists nothing", "git log --name-only | xargs cat", true},
-		{"a listing that is no listing", "echo /etc/passwd | xargs cat", true},
-		{"a listing two commands back", "git ls-files | sort | xargs cat", true},
-		{"no listing at all", "xargs cat < files", true},
-		{"a loop over words outside", "for f in /etc/passwd /etc/hosts; do cat \"$f\"; done", true},
-		{"a loop with one word outside", "for f in main.go /etc/hosts; do head \"$f\"; done", true},
-		{"a loop over a glob outside", "for f in /etc/*.conf; do cat \"$f\"; done", true},
-		{"a loop over words a shell makes", "for f in $(ls /etc); do cat \"$f\"; done", true},
-		{"a loop whose variable is another's", "for f in a b; do cat \"$g\"; done", true},
-		{"a variable a substitution assigns", "F=$(echo x); cat $F", true},
-		{"a variable a variable assigns", "F=$G; cat $F", true},
-		{"a variable assigned a path outside", "F=/etc/passwd; cat $F", true},
-		{"a variable assigned later", "cat $F; F=go.mod", true},
-		{"a variable assigned in an earlier call", "cat $F", true},
+	allowed := []string{
+		// A search listing into a reader.
+		"rg -l X | xargs sed -n 1p",
+		"rg --files | xargs wc -l",
+		"rg -l X internal | xargs cat",
+		"rg -l -e X | xargs cat",
+		"rg -l -t go -g '!vendor' -i -F -w X | xargs wc -l",
+		"rg -l --type go --glob '*.go' X | xargs wc -l",
+		"rg --files -t go | xargs wc -l",
+		// An fd listing.
+		"fd -t f | xargs wc -l",
+		"fd --type f go | xargs wc -l",
+		"fd -t f -e go -E vendor -H -I -d 3 | xargs wc -l",
+		"fd -g -t f '*.go' internal | xargs wc -l",
+		// A find listing.
+		"find . -type f -name '*.go' | xargs grep -l foo",
+		"find internal -name '*.go' -type f -maxdepth 2 | xargs wc -l",
+		"find /work/lane-1.reads/api -type f | xargs wc -l",
+		"find . -type f -print0 | xargs -0 wc -l",
+		"find . ! -path './vendor/*' -type f -iname '*.go' -mindepth 1 -print | xargs wc -l",
+		"find . -type f -not -name '*_test.go' | xargs wc -l",
+		// What xargs may be told.
+		"rg -l X | xargs -0 -n 1 -P 4 -r wc -l",
+		"rg -l X | xargs --null --max-args=1 --max-procs=2 --no-run-if-empty --max-lines=3 wc -l",
+		"rg -l X | xargs -d '\\n' -L 1 cat",
+		// A loop over static words.
+		"for f in *.go; do head -5 \"$f\"; done",
+		"for f in main.go go.mod; do cat \"$f\"; done",
+		"for f in internal/*.go; do wc -l $f; done",
+		"for f in main.go; do for g in go.mod; do cat \"$f\" \"$g\"; done; done",
+		"for f in main.go; do cat \"${f}\"; done",
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if reason, asks := inside.Asks(ToolCall{Tool: "Bash", Command: tt.command, Cwd: "/work/lane-1"}); asks != tt.asks {
-				t.Errorf("%q: asks = %v (%q), want %v", tt.command, asks, reason, tt.asks)
-			}
-		})
-	}
-	// A worktree with a link that leads out may hold it in a git listing, so no git listing is taken as inside.
-	for _, command := range []string{"git ls-files | xargs wc -l", "git diff --name-only | xargs head", "git grep -l TODO | xargs sed -n 1p"} {
-		if _, asks := linked.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); !asks {
-			t.Errorf("%q asks nothing in a worktree with a link that leads out", command)
+	for _, command := range allowed {
+		if reason, asks := policy.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); asks {
+			t.Errorf("%q asks (%q)", command, reason)
 		}
 	}
-	if _, asks := linked.Asks(ToolCall{Tool: "Bash", Command: "rg --files | xargs wc -l", Cwd: "/work/lane-1"}); asks {
-		t.Error("a listing that skips links asks in a worktree with a link that leads out")
+	bypasses := map[string][]string{
+		"a variable the call assigned": {
+			"F=go.mod; cat $F", "D=internal; ls $D/lanes", "F=go.mod; cat \"${F}\"", "F=$(echo x); cat $F", "F=$G; cat $F", "F=/etc/passwd; cat $F",
+			"cat $F; F=go.mod", "cat $F", "export F=/etc/passwd; cat $F", "declare F=/etc/passwd; cat $F", "typeset F=/etc/passwd; cat $F",
+			"printf -v F %s /etc/passwd; cat $F", "eval 'F=/etc/passwd'; cat $F", "F=x; F+=/etc/passwd; cat $F",
+			"read F < /dev/null; cat $F", "[ -n \"$X\" ] && F=/etc/passwd; cat $F",
+		},
+		"a loop body that sets the variable": {
+			"for f in a b; do f=/etc/passwd; cat $f; done", "for f in a; do export f=/etc/passwd; cat \"$f\"; done",
+			"for f in a; do declare f=/etc/passwd; cat $f; done", "for f in a; do printf -v f %s /etc/passwd; cat $f; done",
+			"for f in a; do eval f=/etc/passwd; cat $f; done", "for f in a; do read f < /dev/null; cat $f; done",
+			"for f in a; do f+=/../../etc/passwd; cat \"$f\"; done", "for f in a; do [ -n \"$X\" ] && f=/etc/passwd; cat \"$f\"; done",
+			"for f in a; do local f=/etc/passwd; cat $f; done", "for f in a; do ((f=1)); cat $f; done", "for f in a; do env f=/etc/passwd cat $f; done",
+			"for f in a; do source ./set.sh; cat $f; done", "for f in a; do $SETTER; cat $f; done",
+		},
+		"a loop that reads outside": {
+			"for f in /etc/passwd /etc/hosts; do cat \"$f\"; done", "for f in main.go /etc/hosts; do head \"$f\"; done",
+			"for f in /etc/*.conf; do cat \"$f\"; done", "for f in $(ls /etc); do cat \"$f\"; done", "for f in a b; do cat \"$g\"; done",
+			"for f in a; do cat \"$f\"; done; cat $f", "for f in $X; do cat $f; done", "for f in ~/x; do cat $f; done", "for f in a; do cat \"${f:-/etc/passwd}\"; done",
+			"for ((i=0;i<1;i++)); do cat $i; done", "for f in ../../etc/passwd; do cat $f; done", "for f in a; do cat \"$f\"/../../../etc/passwd; done",
+		},
+		"a git listing": {
+			"git ls-files | xargs wc -l", "git diff --name-only | xargs head -5", "git grep -l TODO | xargs sed -n 1p",
+			"git ls-files --format='/etc/passwd' | xargs cat", "git diff --name-only --line-prefix=/etc/ | xargs cat",
+			"git -C /other ls-files | xargs cat", "git --git-dir=/other/.git ls-files | xargs cat", "git log --name-only | xargs cat",
+		},
+		"an option xargs takes": {
+			"rg -l X | xargs -I{} cat {}", "rg -l X | xargs -I {} cat {}", "rg -l X | xargs --replace cat {}", "rg -l X | xargs -i cat {}",
+			"rg -l X | xargs -a /etc/list cat", "rg -l X | xargs -a list cat", "rg -l X | xargs --arg-file=list cat", "rg -l X | xargs --arg-f=list cat",
+			"rg -l X | xargs --arg list cat", "rg -l X | xargs --arg-file list cat", "rg -l X | xargs -0r cat", "rg -l X | xargs -n cat",
+			"rg -l X | xargs -n x cat", "rg -l X | xargs -P $N cat", "rg -l X | xargs --max-args 1 cat", "rg -l X | xargs --max-arg=1 cat",
+			"rg -l X | xargs -p cat", "rg -l X | xargs -t cat", "rg -l X | xargs -x cat", "rg -l X | xargs -s 100 cat", "rg -l X | xargs -E eof cat",
+			"rg -l X | xargs -d '/etc' cat", "rg -l X | xargs --delimiter= cat", "rg -l X | xargs -- cat", "rg -l X | xargs --show-limits cat",
+			"rg -l X | xargs --process-slot-var=x cat",
+		},
+		"a source that is not the whole of the pipe": {
+			"(echo /etc/passwd; rg -l X) | xargs cat", "(echo /etc/passwd; git ls-files) | xargs cat", "{ echo /etc/passwd; rg --files; } | xargs cat",
+			"echo /etc/passwd; rg -l X | xargs cat", "rg -l X | sort | xargs cat", "rg -l X | tee out | xargs cat", "echo /etc/passwd | xargs cat",
+			"cd internal && rg -l X | xargs cat", "rg -l X && echo /etc/passwd | xargs cat", "xargs cat < files", "rg -l X | xargs cat < list",
+			"rg -l X | xargs cat <<< /etc/passwd", "rg -l X < list | xargs cat", "env rg -l X | xargs cat", "rg -l X | env xargs cat", "rg -l X | sudo xargs cat",
+			"sh -c 'echo /etc/passwd; rg -l X' | xargs cat", "$(echo rg) -l X | xargs cat", "rg -l X $(echo /etc) | xargs cat",
+		},
+		"an rg listing that is not proved": {
+			"rg -L -l X | xargs cat", "rg --follow --files | xargs cat", "rg -l --follow X | xargs cat", "rg --files-with-matches X | xargs cat",
+			"rg -l --null X | xargs -0 cat", "rg -l -0 X | xargs -0 cat", "rg --files --null | xargs -0 cat", "rg -l --path-separator=/x X | xargs cat",
+			"rg -l X /var | xargs cat", "rg --files /etc | xargs cat", "rg X | xargs cat", "rg -l | xargs cat", "rg --files -l | xargs cat",
+			"rg --files -e X | xargs cat", "rg -il X | xargs cat", "rg -l -uu X | xargs cat", "rg -l X --no-ignore | xargs cat",
+			"rg --files --sort path | xargs cat", "rg --files --hidden | xargs cat", "rg -l -g | xargs cat", "rg -l --replace=/etc X | xargs cat",
+			"rg -l --pre /bin/cat X | xargs cat", "rg --files ~ | xargs cat", "rg --files ../.. | xargs cat", "rg --files $D | xargs cat",
+		},
+		"an fd listing that is not proved": {
+			"fd -L -t f | xargs cat", "fd --follow -t f | xargs cat", "fd go | xargs cat", "fd -t d | xargs cat", "fd -t f -t f | xargs cat",
+			"fd -t f -t d | xargs cat", "fd -t l | xargs cat", "fd -t f . /etc | xargs cat", "fd -t f go /etc | xargs cat", "fd -t f -x cat | xargs cat",
+			"fd -t f -X cat | xargs cat", "fd -t f --exec cat | xargs cat", "fd -t f --exec-batch cat | xargs cat", "fd -t f --format /etc/passwd | xargs cat",
+			"fd -t f -l | xargs cat", "fd -t f -0 | xargs -0 cat", "fd -t f -a | xargs cat", "fd -t f --search-path /etc | xargs cat",
+			"fd -t f -u | xargs cat", "fd -t f -S +1k | xargs cat", "fd -t f ~ | xargs cat", "fd -t | xargs cat", "fd -t f -e | xargs cat",
+		},
+		"a find listing that is not proved": {
+			"find -L . -type f | xargs cat", "find . -type f -follow | xargs cat", "find -H . -type f | xargs cat", "find . -name '*.go' | xargs grep -l foo",
+			"find . -type d | xargs cat", "find . -type l | xargs cat", "find . -type f -type f | xargs cat", "find . -type f -xtype l | xargs cat",
+			"find . -type f -o -name x | xargs cat", "find . -type f -or -name x | xargs cat", "find . -type f , -name x | xargs cat",
+			"find . -type f -printf '%l\\n' | xargs cat", "find . -type f -fprint /tmp/x | xargs cat", "find . -type f -fprint0 /tmp/x | xargs cat",
+			"find . -type f -ls | xargs cat", "find . -type f -exec cat {} ; | xargs cat", "find . -type f -execdir cat {} ; | xargs cat",
+			"find . -type f -ok cat {} ; | xargs cat", "find . -type f -delete | xargs cat", "find /etc -type f | xargs cat", "find / -type f | xargs cat",
+			"find . /etc -type f | xargs cat", "find ~ -type f | xargs cat", "find ../.. -type f | xargs cat", "find . -type f -print -name x | xargs cat",
+			"find . -type f -print0 -print | xargs cat", "find . -type f ( -name a ) | xargs cat", "find . -type f -name | xargs cat",
+			"find . -type f -maxdepth x | xargs cat", "find $D -type f | xargs cat", "find . -type f -newer /etc/passwd | xargs cat",
+			"find . -type f -samefile /etc/passwd | xargs cat",
+		},
+		"a reader that reads outside": {
+			"rg -l X | xargs cat /etc/passwd", "rg -l X | xargs cat $F", "rg -l X | xargs cp /etc/passwd", "rg -l X | xargs cp -t /etc",
+			"rg -l X | xargs install /etc/hosts", "rg -l X | xargs rsync /etc/hosts", "rg -l X | xargs find", "rg -l X | xargs grep -f /etc/passwd",
+			"rg -l X | xargs sed -f /etc/passwd", "rg -l X | xargs ln -s /etc", "rg -l X | xargs python3 -c 'open(\"/etc/passwd\")'",
+			"rg -l X | xargs ls /etc", "rg -l X | xargs rg foo /etc", "rg -l X | xargs tar -cf - /etc",
+		},
 	}
+	total := 0
+	for group, commands := range bypasses {
+		for _, command := range commands {
+			total++
+			if _, asks := policy.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); !asks {
+				t.Errorf("%s: %q asks nothing", group, command)
+			}
+		}
+	}
+	t.Logf("%d bypass cases and %d allowed forms", total, len(allowed))
 }

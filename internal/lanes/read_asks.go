@@ -58,7 +58,7 @@ var readers = map[string]readerRule{
 	"ack":    {pattern: true, supplies: searchSupplies, files: searchFiles, valued: searchOptions, here: readsWhereItStands},
 	"fd":     {pattern: true, valued: []string{"-d", "-e", "-E", "-t", "-S", "--max-depth", "--extension", "--exclude", "--type", "--size"}, here: readsWhereItStands},
 	"fdfind": {pattern: true, valued: []string{"-d", "-e", "-E", "-t", "-S", "--max-depth", "--extension", "--exclude", "--type", "--size"}, here: readsWhereItStands},
-	"sed":    {pattern: true, supplies: []string{"-e", "--expression"}, files: []string{"--file"}},
+	"sed":    {pattern: true, supplies: []string{"-e", "--expression"}, files: []string{"-f", "--file"}},
 	"awk":    {pattern: true, files: []string{"-f", "--file"}, valued: []string{"-F", "-v"}},
 	"gawk":   {pattern: true, files: []string{"-f", "--file"}, valued: []string{"-F", "-v"}},
 	"jq":     {pattern: true, files: []string{"-f", "--from-file"}, valued: []string{"--arg", "--argjson"}},
@@ -166,46 +166,92 @@ func findOperands(args []shellWord) []shellWord {
 	return nil
 }
 
-// readContext is what a reader's call stands in: the words before its program, the command a pipe feeds it from, and
-// the variables the call assigned with static words before it.
+// readContext is what a reader's call stands in: whether xargs runs it, the one command that feeds it through a
+// pipe when the call is those two commands and nothing else, and the loop variables the call has bound.
 type readContext struct {
-	leaders  []shellWord
-	previous *shellCommand
-	vars     shellVars
+	xargs  bool
+	source *shellCommand
+	vars   *loopVars
 }
 
-// shellVars are the variables a call assigned a static word, or the static words of a `for` loop, before the command
-// that reads them. A variable assigned from anything else is no entry, so it reads as a word only a shell can expand.
-type shellVars map[string][]string
+// loopVars are the words a `for` loop lists for its variable, while the loop's body runs. They are the only variables a
+// read resolves: a variable the call assigned, or one a command in a loop body may change, is a word only a shell can
+// expand, and a read of one asks.
+type loopVars struct {
+	words map[string][]string
+	depth int
+}
 
-// note takes what a command assigns. A call that is only assignments binds each name to its word, and one whose word a
-// shell expands unbinds it. A `for` binds its name to the words it lists, and unbinds it when one of them expands.
-func (v shellVars) note(command shellCommand) {
+// loopStarts are the words that open a loop, which `done` closes.
+var loopStarts = []string{"for", "while", "until", "select"}
+
+// variableMutators are the programs that can set a variable, so a loop body that runs one holds no binding.
+var variableMutators = []string{
+	"export", "declare", "typeset", "local", "readonly", "eval", "source", ".", "read", "printf", "mapfile", "readarray", "getopts",
+	"let", "unset", "set", "shopt", "exec", "trap", "alias", "command", "builtin", "env",
+}
+
+// note takes what a command does to the loops it stands in. A `for` binds its name to the words it lists, and unbinds it
+// when one of them expands or the loop has no name. `done` ends the loop and every binding. A command in a loop body
+// that has a word with `=` in it, runs a program that can set a variable, or runs a program a shell expands, unbinds
+// every name, because nothing here reads what it sets.
+func (v *loopVars) note(command shellCommand) {
 	words := command.words
+	if len(words) == 0 {
+		return
+	}
+	// A loop starts or ends after the keyword that opens a body, as `do for g in ...` does.
+	for len(words) > 1 && !words[0].quoted && slices.Contains(shellKeywords, words[0].text) && words[0].text != "done" {
+		words = words[1:]
+	}
+	first := words[0]
 	switch {
-	case len(words) == 0:
-	case len(words) >= 3 && words[0].text == "for" && !words[0].quoted && words[2].text == "in" && !words[2].quoted && isNameWord(words[1].text):
-		static := true
+	case !first.quoted && slices.Contains(loopStarts, first.text):
+		v.depth++
+		if first.text != "for" {
+			return
+		}
+		if len(words) < 4 || words[2].text != "in" || words[2].quoted || !isNameWord(words[1].text) {
+			clear(v.words)
+			return
+		}
 		listed := make([]string, 0, len(words)-3)
 		for _, word := range words[3:] {
-			static = static && !word.dynamic && !word.expands
+			if word.dynamic || word.expands {
+				delete(v.words, words[1].text)
+				return
+			}
 			listed = append(listed, word.text)
 		}
-		if static && len(listed) != 0 {
-			v[words[1].text] = listed
-		} else {
-			delete(v, words[1].text)
+		v.words[words[1].text] = listed
+		return
+	case !first.quoted && first.text == "done":
+		if v.depth > 0 {
+			v.depth--
 		}
-	case !slices.ContainsFunc(words, func(word shellWord) bool { return !isAssignment(word.text) }):
-		for _, word := range words {
-			name, value, _ := strings.Cut(word.text, "=")
-			if word.dynamic || word.expands || word.split {
-				delete(v, name)
-			} else {
-				v[name] = []string{value}
-			}
+		if v.depth == 0 {
+			clear(v.words)
+		}
+		return
+	}
+	if v.depth > 0 && changesVariables(command) {
+		clear(v.words)
+	}
+}
+
+// changesVariables says a command may set a variable.
+func changesVariables(command shellCommand) bool {
+	if slices.ContainsFunc(command.words, func(word shellWord) bool {
+		return strings.Contains(word.text, "=") || strings.HasPrefix(word.text, "((")
+	}) {
+		return true
+	}
+	for _, reading := range leaderReadings(command.words) {
+		if reading[0].expands || slices.Contains(variableMutators, path.Base(reading[0].text)) {
+			return true
 		}
 	}
+	return false
 }
 
 // isNameWord says text is a variable's name.
@@ -213,10 +259,10 @@ func isNameWord(text string) bool {
 	return text != "" && !slices.ContainsFunc([]byte(text), func(c byte) bool { return !isNameCharacter(c) }) && (text[0] < '0' || text[0] > '9')
 }
 
-// expand reads a word that is a variable, or a variable and a path that follows it, as the static words it holds. It
+// expand reads a word that is a loop variable, or one and a path that follows it, as the words the loop lists. It
 // returns none for any other word.
-func (v shellVars) expand(word shellWord) []shellWord {
-	if len(v) == 0 || !strings.HasPrefix(word.text, "$") {
+func (v *loopVars) expand(word shellWord) []shellWord {
+	if v == nil || len(v.words) == 0 || !strings.HasPrefix(word.text, "$") {
 		return nil
 	}
 	name, rest := strings.TrimPrefix(word.text, "$"), ""
@@ -229,7 +275,7 @@ func (v shellVars) expand(word shellWord) []shellWord {
 	} else if at := strings.IndexFunc(name, func(r rune) bool { return r > 0x7f || !isNameCharacter(byte(r)) }); at >= 0 {
 		name, rest = name[:at], name[at:]
 	}
-	held, bound := v[name]
+	held, bound := v.words[name]
 	if !bound || (rest != "" && rest[0] != '/') || strings.Contains(rest, "$") {
 		return nil
 	}
@@ -242,11 +288,11 @@ func (v shellVars) expand(word shellWord) []shellWord {
 
 // programReadsOutside says a program that reads files reads one where AskReadRoots do not reach, as far as its
 // words say: a path it names, or the directory the session stands in when it names none. A path only a shell can
-// name reads as outside, because a hook runs nothing and cannot say where it leads, unless a variable the call
-// assigned a static word, or a loop it runs over static words, holds it. A reader run through xargs reads what the
-// listing before it names, which is inside only for a few listings (xargsReadsOutside). A directory the policy does
-// not know reads as inside. A program that runs the code its words hold reads where that code names a place
-// (codeReadsOutside), and one that makes a link reads where the link leads, which no hook sees.
+// name reads as outside, because a hook runs nothing and cannot say where it leads, unless a `for` loop over static
+// words holds it. A reader run through xargs reads what the command before it names, which is inside only for the
+// listings xargsReadsOutside proves. A directory the policy does not know reads as inside. A program that runs the
+// code its words hold reads where that code names a place (codeReadsOutside), and one that makes a link reads where
+// the link leads, which no hook sees.
 func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string, command shellCommand, in readContext) bool {
 	if name == "ln" {
 		return true
@@ -264,8 +310,8 @@ func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string
 			return true
 		}
 	}
-	if slices.ContainsFunc(in.leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" }) {
-		return p.xargsReadsOutside(in, at)
+	if in.xargs {
+		return rule.lastIsTarget || name == "find" || in.source == nil || !p.listingInside(*in.source, at)
 	}
 	if len(paths) != 0 || at == "" || command.piped && name != "find" {
 		return false
@@ -277,92 +323,228 @@ func (p DenyPolicy) programReadsOutside(name string, args []shellWord, at string
 	return here && !p.leadsUnder(at, at, at, p.AskReadRoots, true)
 }
 
-// xargsReadsOutside says what a reader run through xargs is handed may lie outside. It is inside only when xargs reads no
-// argument file and the command that feeds it lists files inside that no link leads out of (listsInside).
-func (p DenyPolicy) xargsReadsOutside(in readContext, at string) bool {
-	for _, word := range in.leaders[slices.IndexFunc(in.leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" })+1:] {
-		text := word.text
-		if word.dynamic || text == "-a" || strings.HasPrefix(text, "--arg-file") ||
-			strings.HasPrefix(text, "-") && !strings.HasPrefix(text, "--") && strings.ContainsRune(text[1:], 'a') {
-			return true
-		}
-	}
-	return in.previous == nil || !p.listsInside(*in.previous, at, in.vars)
-}
-
-// listsInside says a command lists files that lie inside AskReadRoots, and no link: a find of files that follows no
-// link, an fd of files, an rg that lists files or the files that match and follows no link (rg skips links by default),
-// or a git listing of the tracked files of a worktree that holds no link that leads out of it.
-func (p DenyPolicy) listsInside(command shellCommand, at string, vars shellVars) bool {
+// xargsReads says what an xargs call hands a reader may lie outside. xargs is the program of the call, with no wrapper
+// before it, and takes only the options of xargsRest. Its program, when it reads files, reads inside only when the call
+// is the one command that lists files and xargs, and the listing is one of the three listingInside proves.
+func (p DenyPolicy) xargsReads(command shellCommand, at string, in readContext) bool {
 	words := command.words
-	if len(words) == 0 || slices.ContainsFunc(words, func(word shellWord) bool { return word.dynamic || word.expands }) || len(command.reads)+len(command.writes) != 0 {
+	start := slices.IndexFunc(words, func(word shellWord) bool {
+		return word.quoted || !slices.Contains(shellKeywords, word.text) && !isAssignment(word.text)
+	})
+	if start < 0 || words[start].quoted || words[start].dynamic || path.Base(words[start].text) != "xargs" {
+		return true
+	}
+	rest, ok := xargsRest(words[start+1:])
+	if !ok {
+		return true
+	}
+	if len(rest) == 0 {
 		return false
 	}
-	name, args := path.Base(words[0].text), words[1:]
-	texts := make([]string, len(args))
-	for i, word := range args {
-		texts[i] = word.text
+	if rest[0].dynamic || rest[0].expands {
+		return true
 	}
-	hasText := func(wanted ...string) bool {
-		return slices.ContainsFunc(texts, func(text string) bool { return slices.Contains(wanted, text) })
+	in.xargs = true
+	return p.programReadsOutside(path.Base(rest[0].text), rest[1:], at, command, in)
+}
+
+// xargsRest takes the options xargs may be given and returns the words after them: -0 and --null, -r and
+// --no-run-if-empty, -n, -P, and -L with a number, and -d with a delimiter, each as one word or, for the long forms,
+// joined with `=`. They change how xargs splits and batches what it reads. Any other option, and any abbreviation of a
+// long one, reads from or runs somewhere no hook can read, and says the call is none to allow.
+func xargsRest(words []shellWord) ([]shellWord, bool) {
+	number := func(word shellWord) bool {
+		return !word.dynamic && !word.expands && word.text != "" && len(word.text) <= 6 &&
+			!slices.ContainsFunc([]byte(word.text), func(c byte) bool { return c < '0' || c > '9' })
 	}
-	hasLetter := func(letter rune) bool {
-		return slices.ContainsFunc(texts, func(text string) bool {
-			return strings.HasPrefix(text, "-") && !strings.HasPrefix(text, "--") && strings.ContainsRune(text[1:], letter)
-		})
-	}
-	rooted := func(paths []shellWord) bool {
-		for _, word := range paths {
-			if p.readsOutside(word, at, vars) {
-				return false
+	i := 0
+	for ; i < len(words); i++ {
+		word := words[i]
+		text := word.text
+		if !strings.HasPrefix(text, "-") || word.quoted && text == "-" {
+			break
+		}
+		if word.dynamic || word.expands || word.glob {
+			return nil, false
+		}
+		switch {
+		case text == "-0", text == "--null", text == "-r", text == "--no-run-if-empty":
+		case text == "-n", text == "-P", text == "-L":
+			if i++; i >= len(words) || !number(words[i]) {
+				return nil, false
 			}
-		}
-		return len(paths) != 0 || at != "" && p.leadsUnder(at, at, at, p.AskReadRoots, true)
-	}
-	switch name {
-	case "find":
-		files := false
-		for i, text := range texts {
-			files = files || text == "-type" && i+1 < len(texts) && texts[i+1] == "f"
-		}
-		return files && !hasText("-L", "-follow", "-exec", "-execdir", "-ok", "-okdir") && rooted(findOperands(args))
-	case "fd", "fdfind":
-		files := hasText("--type=f", "-tf")
-		for i, text := range texts {
-			files = files || (text == "-t" || text == "--type") && i+1 < len(texts) && texts[i+1] == "f"
-		}
-		return files && !hasText("-L", "--follow") && !hasLetter('L') && rooted(listedPlaces(name, args))
-	case "rg":
-		lists := hasText("--files", "--files-with-matches") || hasLetter('l')
-		return lists && !hasText("-L", "--follow") && !hasLetter('L') && rooted(listedPlaces(name, args))
-	case "git":
-		if !p.GitListingsInside || len(args) == 0 || strings.HasPrefix(args[0].text, "-") {
-			return false
-		}
-		switch args[0].text {
-		case "ls-files":
-		case "diff":
-			if !hasText("--name-only") {
-				return false
+		case text == "-d":
+			if i++; i >= len(words) || words[i].dynamic || words[i].expands || len(words[i].text) == 0 || len(words[i].text) > 2 {
+				return nil, false
 			}
-		case "grep":
-			if !hasLetter('l') && !hasText("--files-with-matches") {
-				return false
+		case strings.HasPrefix(text, "--max-args="), strings.HasPrefix(text, "--max-procs="), strings.HasPrefix(text, "--max-lines="):
+			_, value, _ := strings.Cut(text, "=")
+			if !number(shellWord{text: value}) {
+				return nil, false
+			}
+		case strings.HasPrefix(text, "--delimiter="):
+			_, value, _ := strings.Cut(text, "=")
+			if len(value) == 0 || len(value) > 2 {
+				return nil, false
 			}
 		default:
-			return false
+			return nil, false
 		}
-		return !hasText("-C", "--git-dir", "--work-tree", "-c") && !slices.ContainsFunc(texts, func(text string) bool {
-			return strings.HasPrefix(text, "--git-dir=") || strings.HasPrefix(text, "--work-tree=")
-		}) && at != "" && p.leadsUnder(at, at, at, p.AskReadRoots, true)
+	}
+	return words[i:], true
+}
+
+// listingInside says a command lists only regular files that lie inside AskReadRoots, and no link: one of the three
+// listings below, with only the flags named for it, and nothing else. A flag not named, an expansion, or a program that
+// is no one of them is no listing.
+func (p DenyPolicy) listingInside(command shellCommand, at string) bool {
+	words := command.words
+	if len(words) == 0 || len(command.reads)+len(command.writes)+len(command.processes) != 0 || command.heredoc || len(command.fed) != 0 || command.piped {
+		return false
+	}
+	if slices.ContainsFunc(words, func(word shellWord) bool { return word.dynamic || word.expands || word.glob || word.process }) {
+		return false
+	}
+	args := words[1:]
+	switch path.Base(words[0].text) {
+	case "rg":
+		return p.rgListsInside(args, at)
+	case "fd":
+		return p.fdListsInside(args, at)
+	case "find":
+		return p.findListsInside(args, at)
 	}
 	return false
 }
 
-// listedPlaces are the places a listing program lists, as its operands name them.
-func listedPlaces(name string, args []shellWord) []shellWord {
-	paths, _ := readOperands(name, readers[name], args)
-	return paths
+// valueOf takes the word after the option at i as its value.
+func valueOf(args []shellWord, i int) (string, bool) {
+	if i+1 >= len(args) {
+		return "", false
+	}
+	return args[i+1].text, true
+}
+
+// rgListsInside says an rg lists the files it would search, or the files that match a pattern, in places inside, with only
+// flags that filter by pattern, type, or glob. rg skips links unless it is told to follow them, and prints a name a
+// line unless it is told otherwise, which no allowed flag does.
+func (p DenyPolicy) rgListsInside(args []shellWord, at string) bool {
+	files, lists, pattern := false, false, false
+	var operands []shellWord
+	for i := 0; i < len(args); i++ {
+		text := args[i].text
+		switch {
+		case text == "--files":
+			files = true
+		case text == "-l":
+			lists = true
+		case text == "-i", text == "-F", text == "-w":
+		case text == "-t", text == "-T", text == "-g", text == "--type", text == "--glob", text == "-e":
+			if _, ok := valueOf(args, i); !ok {
+				return false
+			}
+			pattern = pattern || text == "-e"
+			i++
+		case strings.HasPrefix(text, "--type="), strings.HasPrefix(text, "--glob="):
+		case strings.HasPrefix(text, "-"):
+			return false
+		default:
+			operands = append(operands, args[i])
+		}
+	}
+	if files == lists || files && pattern {
+		return false
+	}
+	if lists && !pattern {
+		if len(operands) == 0 {
+			return false
+		}
+		operands = operands[1:]
+	}
+	return p.placesInside(operands, at)
+}
+
+// fdListsInside says an fd lists files, and only files, that match a name or an extension, in places inside. fd skips
+// links unless it is told to follow them.
+func (p DenyPolicy) fdListsInside(args []shellWord, at string) bool {
+	types := 0
+	var operands []shellWord
+	for i := 0; i < len(args); i++ {
+		text := args[i].text
+		switch {
+		case text == "-t", text == "--type":
+			if value, ok := valueOf(args, i); !ok || value != "f" {
+				return false
+			}
+			types++
+			i++
+		case text == "-e", text == "-E", text == "-d":
+			if _, ok := valueOf(args, i); !ok {
+				return false
+			}
+			i++
+		case text == "-g", text == "-H", text == "-I":
+		case strings.HasPrefix(text, "-"):
+			return false
+		default:
+			operands = append(operands, args[i])
+		}
+	}
+	if types != 1 {
+		return false
+	}
+	if len(operands) != 0 {
+		operands = operands[1:]
+	}
+	return p.placesInside(operands, at)
+}
+
+// findListsInside says a find lists regular files, and only files, in places inside, and takes its names from nothing but
+// tests on their name and path, and the depth it descends. A find follows no link unless it is told to, a test of type
+// f leaves out the links, and an action but the last print runs a program or writes a file.
+func (p DenyPolicy) findListsInside(args []shellWord, at string) bool {
+	var roots []shellWord
+	i := 0
+	for ; i < len(args) && !strings.HasPrefix(args[i].text, "-") && args[i].text != "!"; i++ {
+		roots = append(roots, args[i])
+	}
+	files := 0
+	for ; i < len(args); i++ {
+		text := args[i].text
+		switch {
+		case text == "-type":
+			if value, ok := valueOf(args, i); !ok || value != "f" {
+				return false
+			}
+			files++
+			i++
+		case text == "-name", text == "-iname", text == "-path", text == "-ipath":
+			if _, ok := valueOf(args, i); !ok {
+				return false
+			}
+			i++
+		case text == "-maxdepth", text == "-mindepth":
+			if value, ok := valueOf(args, i); !ok || value == "" || slices.ContainsFunc([]byte(value), func(c byte) bool { return c < '0' || c > '9' }) {
+				return false
+			}
+			i++
+		case text == "-not", text == "!":
+		case (text == "-print" || text == "-print0") && i == len(args)-1:
+		default:
+			return false
+		}
+	}
+	return files == 1 && p.placesInside(roots, at)
+}
+
+// placesInside says every place a listing names lies inside, and with none it lists where the session stands.
+func (p DenyPolicy) placesInside(places []shellWord, at string) bool {
+	for _, word := range places {
+		if p.readsOutside(word, at, nil) {
+			return false
+		}
+	}
+	return len(places) != 0 || at != "" && p.leadsUnder(at, at, at, p.AskReadRoots, true)
 }
 
 // codeReadsOutside says the code an interpreter is given names a place where AskReadRoots do not reach: inline code,
@@ -370,7 +552,7 @@ func listedPlaces(name string, args []shellWord) []shellWord {
 // with `/`, `~`, or `..`, which is as far as a hook reads a language it does not run. Code only a shell can write, or
 // standard input a pipe feeds with nothing to read, asks, as the gates treat code they cannot read. A script file is
 // the lane's own, and a module is no path.
-func (p DenyPolicy) codeReadsOutside(name string, kind interpreter, args []shellWord, at string, command shellCommand, vars shellVars) bool {
+func (p DenyPolicy) codeReadsOutside(name string, kind interpreter, args []shellWord, at string, command shellCommand, vars *loopVars) bool {
 	var code, rest []shellWord
 	file, coded := false, false
 	for i := 0; i < len(args) && !file; i++ {
@@ -440,7 +622,7 @@ func (p DenyPolicy) namesPlaceOutside(text, at string) bool {
 
 // readsOutside says a file a command reads, as the words give its name, lies where AskReadRoots do not reach. A name
 // only a shell can expand reads as outside.
-func (p DenyPolicy) readsOutside(word shellWord, at string, vars shellVars) bool {
+func (p DenyPolicy) readsOutside(word shellWord, at string, vars *loopVars) bool {
 	if held := vars.expand(word); held != nil {
 		return slices.ContainsFunc(held, func(word shellWord) bool { return p.readsOutside(word, at, nil) })
 	}

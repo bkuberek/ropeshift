@@ -174,9 +174,9 @@ func TestALanesReadOfItsOwnSavedToolOutputAsksNothing(t *testing.T) {
 	}
 }
 
-// The ordinary reads of a lane ask nothing, and a call that makes a link asks, as the hook reads them from the policy
+// The ordinary reads of a lane ask nothing, and each bypass a review found asks, as the hook reads them from the policy
 // file the worker wrote.
-func TestTheHookLeavesOrdinaryReadsAloneAndAsksForALink(t *testing.T) {
+func TestTheHookLeavesOrdinaryReadsAloneAndAsksForEveryBypass(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -185,18 +185,23 @@ func TestTheHookLeavesOrdinaryReadsAloneAndAsksForALink(t *testing.T) {
 	if err := os.MkdirAll(worktree, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := policyFile(t, lanes.CompilePolicy(lanes.PolicySpec{Worktree: worktree, Home: "/home/person", AskReadRoots: []string{worktree}, GitListingsInside: true}))
+	path := policyFile(t, lanes.CompilePolicy(lanes.PolicySpec{Worktree: worktree, Home: "/home/person", AskReadRoots: []string{worktree}}))
 	for command, want := range map[string]string{
-		"git ls-files | xargs wc -l":                "",
-		"rg -l TODO | xargs sed -n 1p":              "",
-		"for f in *.go; do head -5 \"$f\"; done":    "",
-		"F=go.mod; cat $F":                          "",
-		"ln -s /etc e && cat e/passwd":              "ask",
-		"find -L . -type f | xargs cat":             "ask",
-		"perl -ne print /etc/passwd":                "ask",
-		"F=$(echo x); cat $F":                       "ask",
-		"git ls-files | xargs -a /etc/list cat":     "ask",
-		"for f in /etc/*.conf; do cat \"$f\"; done": "ask",
+		"rg -l TODO | xargs sed -n 1p":                    "",
+		"fd -t f | xargs wc -l":                           "",
+		"find . -type f -name '*.go' | xargs grep -l foo": "",
+		"for f in *.go; do head -5 \"$f\"; done":          "",
+		"ln -s /etc e && cat e/passwd":                    "ask",
+		"find -L . -type f | xargs cat":                   "ask",
+		"perl -ne print /etc/passwd":                      "ask",
+		"F=go.mod; cat $F":                                "ask",
+		"git ls-files | xargs wc -l":                      "ask",
+		"git ls-files --format=/etc/passwd | xargs cat":   "ask",
+		"rg -l X | xargs -a /etc/list cat":                "ask",
+		"rg -l X | xargs --arg-f=list cat":                "ask",
+		"(echo /etc/passwd; rg -l X) | xargs cat":         "ask",
+		"for f in a; do f=/etc/passwd; cat $f; done":      "ask",
+		"for f in /etc/*.conf; do cat \"$f\"; done":       "ask",
 	} {
 		if got := decideAs(t, path, worktree, "Bash", "", map[string]string{"command": command}); got != want {
 			t.Errorf("%q answered %q, want %q", command, got, want)

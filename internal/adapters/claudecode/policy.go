@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,11 +59,11 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		}
 	}
 	var readRoots, askReadRoots []string
-	program, listingsInside := "", false
+	program := ""
 	if spec.Assistant {
 		readRoots, program = readRootsOf(spec), spec.Binary
 	} else {
-		askReadRoots, listingsInside = laneReadRoots(spec), noLinkLeadsOut(real)
+		askReadRoots = laneReadRoots(spec)
 	}
 	var waits *lanes.WaitRules
 	if spec.Waits.Version != 0 {
@@ -76,7 +75,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		ReadOnlyRoots: readOnly,
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
-		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: policyGates(spec), GatesAskOnly: spec.RunMode == ports.RunModeInteractive, ReadRoots: readRoots, AskReadRoots: askReadRoots, GitListingsInside: listingsInside,
+		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: policyGates(spec), GatesAskOnly: spec.RunMode == ports.RunModeInteractive, ReadRoots: readRoots, AskReadRoots: askReadRoots,
 		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec), RefusedFlags: refusedFlagsOf(spec),
 	})
 	if spec.Assistant {
@@ -100,41 +99,6 @@ func laneReadRoots(spec ports.SessionSpec) []string {
 		}
 	}
 	return roots
-}
-
-// maxLinkWalk bounds how many entries of a worktree noLinkLeadsOut reads.
-const maxLinkWalk = 200_000
-
-// noLinkLeadsOut says no link in a worktree, other than in its git directory, leads out of it, to nothing, or to a place
-// it cannot read, so what a git listing names is a file inside. A worktree too large to read in the bound has none to
-// say it of. It is read once, when the policy is compiled, and a link made later is the hook's to catch (a call that
-// runs ln asks).
-func noLinkLeadsOut(worktree string) bool {
-	root, err := filepath.EvalSymlinks(worktree)
-	if err != nil || worktree == "" {
-		return false
-	}
-	seen, inside := 0, true
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if seen++; seen > maxLinkWalk {
-			return errors.New("too many entries")
-		}
-		switch {
-		case entry.IsDir() && entry.Name() == ".git" && path != root:
-			return filepath.SkipDir
-		case entry.Type()&fs.ModeSymlink != 0:
-			target, err := filepath.EvalSymlinks(path)
-			if err != nil || !within(target, root) {
-				inside = false
-				return filepath.SkipAll
-			}
-		}
-		return nil
-	})
-	return err == nil && inside
 }
 
 // assistantCalls are the only tools an assistant's session may call: its built-in tools and ropeshift's
