@@ -440,12 +440,10 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 		}
 	}
 	at := cwd
-	vars := &loopVars{words: map[string][]string{}}
-	for ci, command := range commands {
+	for _, command := range commands {
 		if len(p.AskReadRoots) != 0 {
-			vars.note(command)
 			for _, target := range command.reads {
-				seen.reads = seen.reads || p.readsOutside(target, at, vars)
+				seen.reads = seen.reads || p.readsOutside(target, at)
 			}
 		}
 		if len(p.Roots) != 0 {
@@ -492,17 +490,9 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				}
 			default:
 				if len(p.AskReadRoots) != 0 {
-					in := readContext{vars: vars}
-					if ci == 1 && len(commands) == 2 && command.piped && len(nested) == 0 && len(command.reads)+len(command.writes)+len(command.processes) == 0 &&
-						!command.heredoc && len(command.fed) == 0 {
-						in.source = &commands[0]
-					}
 					leaders := command.words[:len(command.words)-len(words)]
-					if slices.ContainsFunc(leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" }) {
-						seen.reads = seen.reads || p.xargsReads(command, at, in)
-					} else {
-						seen.reads = seen.reads || p.programReadsOutside(name, words[1:], at, command, in)
-					}
+					viaXargs := slices.ContainsFunc(leaders, func(word shellWord) bool { return path.Base(word.text) == "xargs" })
+					seen.reads = seen.reads || viaXargs && xargsRunsReader(command.words) || !viaXargs && p.programReadsOutside(name, words[1:], at, command)
 				}
 				if len(p.Roots) != 0 {
 					for _, target := range writeTargets(name, words[1:]) {

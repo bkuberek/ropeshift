@@ -219,36 +219,7 @@ func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
 		Worktree: "/work/lane-1", Home: "/home/person", AskReadRoots: []string{"/work/lane-1", "/work/lane-1.reads/api"},
 	})
 	allowed := []string{
-		// A search listing into a reader.
-		"rg -l X | xargs sed -n 1p",
-		"rg --files | xargs wc -l",
-		"rg -l X internal | xargs cat",
-		"rg -l -e X | xargs cat",
-		"rg -l -t go -g '!vendor' -i -F -w X | xargs wc -l",
-		"rg -l --type go --glob '*.go' X | xargs wc -l",
-		"rg --files -t go | xargs wc -l",
-		// An fd listing.
-		"fd -t f | xargs wc -l",
-		"fd --type f go | xargs wc -l",
-		"fd -t f -e go -E vendor -H -I -d 3 | xargs wc -l",
-		"fd -g -t f '*.go' internal | xargs wc -l",
-		// A find listing.
-		"find . -type f -name '*.go' | xargs grep -l foo",
-		"find internal -name '*.go' -type f -maxdepth 2 | xargs wc -l",
-		"find /work/lane-1.reads/api -type f | xargs wc -l",
-		"find . -type f -print0 | xargs -0 wc -l",
-		"find . ! -path './vendor/*' -type f -iname '*.go' -mindepth 1 -print | xargs wc -l",
-		"find . -type f -not -name '*_test.go' | xargs wc -l",
-		// What xargs may be told.
-		"rg -l X | xargs -0 -n 1 -P 4 -r wc -l",
-		"rg -l X | xargs --null --max-args=1 --max-procs=2 --no-run-if-empty --max-lines=3 wc -l",
-		"rg -l X | xargs -d '\\n' -L 1 cat",
-		// A loop over static words.
-		"for f in *.go; do head -5 \"$f\"; done",
-		"for f in main.go go.mod; do cat \"$f\"; done",
-		"for f in internal/*.go; do wc -l $f; done",
-		"for f in main.go; do for g in go.mod; do cat \"$f\" \"$g\"; done; done",
-		"for f in main.go; do cat \"${f}\"; done",
+		"cat *.go", "cat internal/*.go", "head -5 main.go", "rg TODO internal", "ls internal", "find internal -name '*.go'", "wc -l main.go go.mod",
 	}
 	for _, command := range allowed {
 		if reason, asks := policy.Asks(ToolCall{Tool: "Bash", Command: command, Cwd: "/work/lane-1"}); asks {
@@ -256,6 +227,39 @@ func TestOrdinaryReadsInsideAskNothingAndEveryBypassAsks(t *testing.T) {
 		}
 	}
 	bypasses := map[string][]string{
+		"a form the hook once allowed": {
+			"rg -l X | xargs sed -n 1p",
+			"rg --files | xargs wc -l",
+			"rg -l X internal | xargs cat",
+			"rg -l -e X | xargs cat",
+			"rg -l -t go -g '!vendor' -i -F -w X | xargs wc -l",
+			"rg -l --type go --glob '*.go' X | xargs wc -l",
+			"rg --files -t go | xargs wc -l",
+			"fd -t f | xargs wc -l",
+			"fd --type f go | xargs wc -l",
+			"fd -t f -e go -E vendor -H -I -d 3 | xargs wc -l",
+			"fd -g -t f '*.go' internal | xargs wc -l",
+			"find . -type f -name '*.go' | xargs grep -l foo",
+			"find internal -name '*.go' -type f -maxdepth 2 | xargs wc -l",
+			"find /work/lane-1.reads/api -type f | xargs wc -l",
+			"find . -type f -print0 | xargs -0 wc -l",
+			"find . ! -path './vendor/*' -type f -iname '*.go' -mindepth 1 -print | xargs wc -l",
+			"find . -type f -not -name '*_test.go' | xargs wc -l",
+			"rg -l X | xargs -0 -n 1 -P 4 -r wc -l",
+			"rg -l X | xargs --null --max-args=1 --max-procs=2 --no-run-if-empty --max-lines=3 wc -l",
+			"rg -l X | xargs -d '\\n' -L 1 cat",
+			"for f in *.go; do head -5 \"$f\"; done",
+			"for f in main.go go.mod; do cat \"$f\"; done",
+			"for f in internal/*.go; do wc -l $f; done",
+			"for f in main.go; do for g in go.mod; do cat \"$f\" \"$g\"; done; done",
+			"for f in main.go; do cat \"${f}\"; done",
+		},
+		"a bypass of the forms the hook once allowed": {
+			// A directory named `a ` that holds etc/hostname splits, in xargs, into the words `a` and `etc/hostname`.
+			"find . -type f -name hostname | xargs cat", "rg --files | xargs cat", "find . -not -type f | xargs cat", "find . -type f -not -type f | xargs cat",
+			"rg --files | xargs -d / cat", "rg --files | xargs -d '/' wc -l", "g() { f=/etc/passwd; }; for f in go.mod; do g; cat $f; done",
+			"g() { f=/etc/passwd; }; for f in go.mod; do g; cat \"$f\"; done", "for f in go.mod; do cat $f; done", "for f in go.mod; do cat \"$f\"; done",
+		},
 		"a variable the call assigned": {
 			"F=go.mod; cat $F", "D=internal; ls $D/lanes", "F=go.mod; cat \"${F}\"", "F=$(echo x); cat $F", "F=$G; cat $F", "F=/etc/passwd; cat $F",
 			"cat $F; F=go.mod", "cat $F", "export F=/etc/passwd; cat $F", "declare F=/etc/passwd; cat $F", "typeset F=/etc/passwd; cat $F",

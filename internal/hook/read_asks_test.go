@@ -187,10 +187,12 @@ func TestTheHookLeavesOrdinaryReadsAloneAndAsksForEveryBypass(t *testing.T) {
 	}
 	path := policyFile(t, lanes.CompilePolicy(lanes.PolicySpec{Worktree: worktree, Home: "/home/person", AskReadRoots: []string{worktree}}))
 	for command, want := range map[string]string{
-		"rg -l TODO | xargs sed -n 1p":                    "",
-		"fd -t f | xargs wc -l":                           "",
-		"find . -type f -name '*.go' | xargs grep -l foo": "",
-		"for f in *.go; do head -5 \"$f\"; done":          "",
+		"cat *.go":                     "",
+		"rg TODO internal":             "",
+		"rg -l TODO | xargs sed -n 1p": "ask",
+		"fd -t f | xargs wc -l":        "ask",
+		"find . -type f -name '*.go' | xargs grep -l foo": "ask",
+		"for f in *.go; do head -5 \"$f\"; done":          "ask",
 		"ln -s /etc e && cat e/passwd":                    "ask",
 		"find -L . -type f | xargs cat":                   "ask",
 		"perl -ne print /etc/passwd":                      "ask",
