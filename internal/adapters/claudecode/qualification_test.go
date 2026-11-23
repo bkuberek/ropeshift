@@ -32,8 +32,10 @@ func probed(version string, failed ...lanes.Surface) lanes.Qualification {
 }
 
 // TestAFailedCheckRemovesExactlyItsSurface is the gating table: for each check in the qualification
-// matrix, a failed check takes away the one use it guards, and leaves every other use alone. The
-// two surfaces the design only notes take nothing away, the budget flag takes only the flag and never degrades a
+// matrix, a failed check takes away the one use it guards, and leaves every other use alone. The one
+// exception is the socket, which is used only where receipts passed too: a message names the session's reply address,
+// which is opened only there, and a version that confirms a message by its origin keeps the ID only on a message that
+// names one. The two surfaces the design only notes take nothing away, the budget flag takes only the flag and never degrades a
 // version, and the start screens take nothing beyond
 // the start check's own rule, which parks a lane on a screen it does not know.
 func TestAFailedCheckRemovesExactlyItsSurface(t *testing.T) {
@@ -47,7 +49,7 @@ func TestAFailedCheckRemovesExactlyItsSurface(t *testing.T) {
 		degrades bool
 	}{
 		{claudecode.SurfaceSocketLine, func(u *claudecode.Use) { u.PeerInjection = false }, true},
-		{claudecode.SurfaceReceipts, func(u *claudecode.Use) { u.Receipts = false }, true},
+		{claudecode.SurfaceReceipts, func(u *claudecode.Use) { u.Receipts, u.PeerInjection = false, false }, true},
 		{claudecode.SurfaceSocketDir, func(u *claudecode.Use) { u.PrivateSockets = false }, true},
 		{claudecode.SurfaceUnifiedWindows, func(u *claudecode.Use) { u.WindowFigures = false }, true},
 		{claudecode.SurfacePrintKeepsLogin, func(u *claudecode.Use) { u.HeadlessOnSubscription = false }, true},
@@ -145,7 +147,7 @@ func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 	}
 }
 
-// A row qualifies only its own version, and nothing in it extends to the next one.
+// The matrix row of 2.1.330 holds every surface its production probe passed.
 func TestTheMatrixRowOf2_1_330HoldsEverySurfaceTheProbeObserved(t *testing.T) {
 	row := claudecode.MatrixRow("2.1.330")
 	for _, surface := range claudecode.Surfaces {
@@ -158,6 +160,7 @@ func TestTheMatrixRowOf2_1_330HoldsEverySurfaceTheProbeObserved(t *testing.T) {
 	}
 }
 
+// A row qualifies only its own version, and nothing in it extends to the next one.
 func TestAMatrixRowQualifiesOnlyItsVersion(t *testing.T) {
 	if claudecode.MatrixRow("2.1.316").Degraded {
 		t.Error("2.1.316 passed every check in the spikes")

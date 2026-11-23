@@ -222,7 +222,9 @@ func Qualified(version string) bool { return !MatrixRow(version).Degraded }
 // the driver decides that use from this alone.
 type Use struct {
 	// PeerInjection is anyone's message and the worker's word mid-turn on the socket, and the
-	// worker's own input to a pane, which has no stdin.
+	// worker's own input to a pane, which has no stdin. It needs the receipts too, because a message names the
+	// session's reply address, which is opened only where they passed, and a version that confirms a message by its
+	// origin keeps the message's ID only on a message that names one.
 	PeerInjection bool
 	// Receipts is a reply address, which is the only way `refused` is read.
 	Receipts bool
@@ -242,7 +244,7 @@ type Use struct {
 // the matrix says a failure leads to.
 func UseOf(q lanes.Qualification) Use {
 	return Use{
-		PeerInjection: q.Passed(SurfaceSocketLine), Receipts: q.Passed(SurfaceReceipts),
+		PeerInjection: q.Passed(SurfaceSocketLine) && q.Passed(SurfaceReceipts), Receipts: q.Passed(SurfaceReceipts),
 		PrivateSockets: q.Passed(SurfaceSocketDir), WindowFigures: q.Passed(SurfaceUnifiedWindows),
 		HeadlessOnSubscription: q.Passed(SurfacePrintKeepsLogin), BudgetFlag: q.Passed(SurfaceMaxBudget),
 	}
