@@ -141,14 +141,15 @@ const SurfacesShipped = "matrix"
 
 // CheckingCLI is the check of a driver's version, with its words, which every surface that shows a check shows as
 // they are. Where the lane's process started on the surfaces the shipped matrix qualified, the words say so and that
-// the check ends; otherwise the process runs on documented surfaces until the check passes, and a respawn then picks
-// up the qualified ones. Any other source of surfaces reads as documented surfaces.
+// a respawn after the check picks up its result, because the process keeps its surfaces until then; otherwise the
+// process runs on documented surfaces until the check passes, and a respawn then picks up the qualified ones. Any
+// other source of surfaces reads as documented surfaces.
 func CheckingCLI(driver, version, surfaces string) *CLICheck {
 	words := "Checking " + VendorOf(driver).Product + " " + version
 	if surfaces == SurfacesShipped {
 		return &CLICheck{
 			Driver: driver, Version: version,
-			Words: words + ": this lane runs on the surfaces this release qualified for " + version + " until the check ends",
+			Words: words + ": this lane runs on the surfaces this release qualified for " + version + "; a respawn after the check picks up its result",
 		}
 	}
 	return &CLICheck{

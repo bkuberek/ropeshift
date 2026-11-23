@@ -233,7 +233,7 @@ func TestALaneOnTheShippedMatrixNamesThoseSurfacesWhileItsWorkerChecks(t *testin
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.atGate(g)
 	view := r.eventually("the check named", func(view ledger.LaneView) bool { return view.Checking != nil })
-	const want = "Checking Claude Code 1.0.0: this lane runs on the surfaces this release qualified for 1.0.0 until the check ends"
+	const want = "Checking Claude Code 1.0.0: this lane runs on the surfaces this release qualified for 1.0.0; a respawn after the check picks up its result"
 	if c := view.Checking; c.Driver != fake.FakeDriverName || c.Version != "1.0.0" || strings.Contains(c.Words, "documented") || c.Words != want {
 		t.Errorf("the lane names %+v, want words %q", c, want)
 	}
