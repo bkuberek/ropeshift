@@ -849,14 +849,23 @@ func (r *laneRun) resumeApprovals(ctx context.Context) []string {
 }
 
 // tellDriver hands the driver one hook. A driver drops a hook of a session it does not hold yet, so until an
-// adoption ends the run also keeps the ends of turns, and the calls asked that have not ended. An end discards
-// only what is not newer than it, and goes ahead of the rest, because a spool can deliver one late.
+// adoption ends the run also keeps the ends of turns, the prompts, the calls asked that have not ended, and the
+// Notifications of a dialog. An end discards only what is not newer than it, and goes ahead of the rest, because a
+// spool can deliver one late, and a dialog no newer than an end kept already closed.
 func (r *laneRun) tellDriver(ctx context.Context, event lanes.HookEvent) {
 	r.untoldLock.Lock()
 	defer r.untoldLock.Unlock()
 	if r.untold != nil {
 		switch event.Event {
 		case hookPermissionRequest:
+			if !r.closedByKeptEnd(event) {
+				r.untold = append(r.untold, event)
+			}
+		case hookNotification:
+			if (lanes.DialogOpens(event.Detail) || lanes.DialogCloses(event.Detail)) && !r.closedByKeptEnd(event) {
+				r.untold = append(r.untold, event)
+			}
+		case lanes.EventUserPromptSubmit:
 			r.untold = append(r.untold, event)
 		case hookPostToolUse, lanes.EventToolFailed:
 			r.untold = slices.DeleteFunc(r.untold, func(kept lanes.HookEvent) bool {
@@ -869,6 +878,14 @@ func (r *laneRun) tellDriver(ctx context.Context, event lanes.HookEvent) {
 		}
 	}
 	r.rt.Driver.TakeHook(ctx, event)
+}
+
+// closedByKeptEnd says the end of a turn the run keeps fired at or after a dialog's hook, so the dialog closed. A hook
+// with no time cannot be placed. The caller holds untoldLock.
+func (r *laneRun) closedByKeptEnd(event lanes.HookEvent) bool {
+	return event.AtMs > 0 && slices.ContainsFunc(r.untold, func(kept lanes.HookEvent) bool {
+		return (kept.Event == lanes.EventStop || kept.Event == hookStopFailure) && kept.AtMs >= event.AtMs
+	})
 }
 
 // adopting says an adoption is under way, so the driver may not hold the session yet.

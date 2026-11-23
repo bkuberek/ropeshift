@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -42,6 +43,11 @@ var ErrNoChannel = errors.New("no channel for a peer's message")
 
 // ErrAwaitingAnswer means a session is waiting on an answer, so a key could give one.
 var ErrAwaitingAnswer = errors.New("the session is waiting for an answer")
+
+// ErrInputUnconfirmed means input typed into a session's pane showed no sign that the session took it, though its
+// Enter was pressed again. Its text may stand in the session's prompt, so it is no input the session holds and none
+// to type again. A session that takes no line may show a dialog no hook told of, so it is ErrAwaitingAnswer too.
+var ErrInputUnconfirmed = fmt.Errorf("the session did not take typed input: %w", ErrAwaitingAnswer)
 
 // ErrVersionMoved means the installed version changed while a probe ran, so its result names no
 // one version and a new probe is due.
@@ -316,6 +322,10 @@ type Observation struct {
 	// Attached says a person's terminal is attached to the session's pane. A session with no pane, and
 	// a read that could not tell, say nobody is.
 	Attached bool
+	// AwaitsPerson says the session's pane shows something only a person can answer, which no key of the worker's
+	// may: a dialog a hook told of, or typed input the session did not take, whose text may stand in its prompt. A
+	// session with no pane says no.
+	AwaitsPerson bool
 }
 
 // Located is what Find learned of a session from an earlier process.
@@ -415,6 +425,9 @@ type TurnResult struct {
 	// stream says so. A driver that reads neither leaves them nil.
 	DurationMs *int64
 	APIMs      *int64
+	// EndedMs is when the hook that ended the turn fired, by its clock, where a driver reads turns from hooks. A
+	// driver that reads a stream leaves it zero.
+	EndedMs int64
 }
 
 // SessionEnd says how a session ended.

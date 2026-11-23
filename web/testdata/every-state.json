@@ -37,6 +37,7 @@
     "overdue",
     "waiting_external",
     "waiting_background",
+    "waiting_in_pane",
     "near_budget",
     "brief_unconfirmed",
     "pack_oversized",
@@ -513,7 +514,7 @@
             "actual_state": "compacting",
             "as_of": 1790000073001,
             "conditions": [
-              "handoff_degraded"
+              "pack_oversized"
             ],
             "freshness": "last_reported",
             "generation": 1,
@@ -557,7 +558,7 @@
             "actual_state": "idle",
             "as_of": 1790000073001,
             "conditions": [
-              "brief_unconfirmed"
+              "near_budget"
             ],
             "freshness": "last_reported",
             "generation": 1,
@@ -601,7 +602,7 @@
             "actual_state": "needs_decision",
             "as_of": 1790000073001,
             "conditions": [
-              "pack_oversized"
+              "brief_unconfirmed"
             ],
             "freshness": "last_reported",
             "generation": 1,
@@ -777,7 +778,7 @@
             "actual_state": "working",
             "as_of": 1790000073001,
             "conditions": [
-              "near_budget"
+              "waiting_in_pane"
             ],
             "freshness": "last_reported",
             "generation": 1,
@@ -821,33 +822,33 @@
             "actual_state": "idle",
             "as_of": 1790000133001,
             "conditions": [
-              "drifted"
+              "unpushed_work"
             ],
             "freshness": "observed",
             "generation": 1,
             "generations": [
               {
-                "lane_id": "lane-wc-drifted",
+                "lane_id": "lane-wc-unpushed_work",
                 "number": 1,
                 "start_reason": "initial",
                 "started_at": 1790000133001
               }
             ],
-            "id": "lane-wc-drifted",
+            "id": "lane-wc-unpushed_work",
             "ledger_reach": "reachable",
             "liveness": "alive",
             "model_reach": "reachable",
             "reported_by_epoch": 1,
-            "work_order": "wc-drifted",
+            "work_order": "wc-unpushed_work",
             "worker_id": "worker-a"
           },
           "since": 1790000133001,
           "work_order": {
-            "claim_id": "claim-wc-drifted",
+            "claim_id": "claim-wc-unpushed_work",
             "contract_id": "generated-26",
             "contract_version": 1,
             "fence": 1,
-            "id": "wc-drifted",
+            "id": "wc-unpushed_work",
             "kind": "change",
             "lease_until": 1790000193001,
             "lease_worker": "worker-a",
@@ -857,7 +858,7 @@
             "reviewed_by": "member-1",
             "size": "unknown",
             "state": "running",
-            "title": "A lane that is drifted"
+            "title": "A lane that is unpushed_work"
           }
         },
         {
@@ -865,7 +866,7 @@
             "actual_state": "backoff",
             "as_of": 1790000133001,
             "conditions": [
-              "waiting_for_person"
+              "day_capped"
             ],
             "freshness": "observed",
             "generation": 1,
@@ -908,11 +909,8 @@
           "lane": {
             "actual_state": "handing_off",
             "as_of": 1790000133001,
-            "condition_notes": {
-              "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
-            },
             "conditions": [
-              "degraded_mode"
+              "handoff_degraded"
             ],
             "freshness": "observed",
             "generation": 1,
@@ -955,8 +953,11 @@
           "lane": {
             "actual_state": "parking",
             "as_of": 1790000133001,
+            "condition_notes": {
+              "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
+            },
             "conditions": [
-              "unpushed_work"
+              "degraded_mode"
             ],
             "freshness": "observed",
             "generation": 1,
@@ -1000,7 +1001,7 @@
             "actual_state": "retiring",
             "as_of": 1790000133001,
             "conditions": [
-              "day_capped"
+              "drifted"
             ],
             "freshness": "observed",
             "generation": 1,
@@ -1044,7 +1045,7 @@
             "actual_state": "tripped",
             "as_of": 1790000133001,
             "conditions": [
-              "stalled",
+              "waiting_for_person",
               "day_capped"
             ],
             "freshness": "observed",
@@ -1493,6 +1494,57 @@
           }
         },
         {
+          "id": "wl-working",
+          "kind": "work",
+          "since": 1790000073001,
+          "tier": 2,
+          "work": {
+            "actions": [],
+            "lane": {
+              "actual_state": "working",
+              "as_of": 1790000073001,
+              "conditions": [
+                "waiting_in_pane"
+              ],
+              "freshness": "last_reported",
+              "generation": 1,
+              "generations": [
+                {
+                  "lane_id": "lane-wl-working",
+                  "number": 1,
+                  "start_reason": "initial",
+                  "started_at": 1790000073001
+                }
+              ],
+              "id": "lane-wl-working",
+              "ledger_reach": "reachable",
+              "liveness": "dead",
+              "model_reach": "reachable",
+              "reported_by_epoch": 1,
+              "work_order": "wl-working",
+              "worker_id": "worker-a"
+            },
+            "reason": "waiting_in_pane",
+            "work_order": {
+              "claim_id": "claim-wl-working",
+              "contract_id": "generated-25",
+              "contract_version": 1,
+              "fence": 1,
+              "id": "wl-working",
+              "kind": "change",
+              "lease_until": 1790000133001,
+              "lease_worker": "worker-a",
+              "max_attempts": 1,
+              "repository_id": "repository-1",
+              "rev": 1,
+              "reviewed_by": "member-1",
+              "size": "unknown",
+              "state": "running",
+              "title": "A lane in working"
+            }
+          }
+        },
+        {
           "id": "wl-ended",
           "kind": "work",
           "since": 1790000133001,
@@ -1655,7 +1707,7 @@
               "actual_state": "tripped",
               "as_of": 1790000133001,
               "conditions": [
-                "stalled",
+                "waiting_for_person",
                 "day_capped"
               ],
               "freshness": "observed",
@@ -1946,7 +1998,7 @@
       },
       "revision": 378,
       "sources": [],
-      "waiting_for_a_person": 10,
+      "waiting_for_a_person": 11,
       "work_orders": {
         "acceptance": 2,
         "blocked": 1,
@@ -2725,12 +2777,12 @@
                       "text": "It works"
                     }
                   ],
-                  "digest": "sha256:ad27d3a1684aeafdba80b7571c37bcc76cf27be23835cb927c7b5dfa5cd64e45",
+                  "digest": "sha256:36ae1b4e46a72bee60c929e8b6e1db0ddeb6a03918def8e3495cfde560c6fbe2",
                   "id": "generated-26",
                   "plan_id": "generated-54",
-                  "statement": "A lane that is drifted.",
+                  "statement": "A lane that is unpushed_work.",
                   "status": "active",
-                  "title": "A lane that is drifted",
+                  "title": "A lane that is unpushed_work",
                   "version": 1
                 }
               ]
@@ -2740,16 +2792,16 @@
           "plan": {
             "id": "generated-54",
             "status": "active",
-            "title": "A lane that is drifted"
+            "title": "A lane that is unpushed_work"
           },
           "reviews": [],
           "work_orders": [
             {
-              "claim_id": "claim-wc-drifted",
+              "claim_id": "claim-wc-unpushed_work",
               "contract_id": "generated-26",
               "contract_version": 1,
               "fence": 1,
-              "id": "wc-drifted",
+              "id": "wc-unpushed_work",
               "kind": "change",
               "lease_until": 1790000193001,
               "lease_worker": "worker-a",
@@ -2759,7 +2811,7 @@
               "reviewed_by": "member-1",
               "size": "unknown",
               "state": "running",
-              "title": "A lane that is drifted"
+              "title": "A lane that is unpushed_work"
             }
           ]
         },
@@ -3448,7 +3500,7 @@
             "cancel"
           ]
         },
-        "wc-drifted": {
+        "wc-unpushed_work": {
           "actions": [
             "cancel"
           ]
@@ -4116,20 +4168,20 @@
               "critical_path": {
                 "weight": 1,
                 "work_orders": [
-                  "wc-drifted"
+                  "wc-unpushed_work"
                 ]
               },
               "done": 0,
               "layers": [
                 [
-                  "wc-drifted"
+                  "wc-unpushed_work"
                 ]
               ],
               "milestones": [],
               "plan": {
                 "id": "generated-54",
                 "status": "active",
-                "title": "A lane that is drifted"
+                "title": "A lane that is unpushed_work"
               },
               "states": {
                 "running": 1
@@ -4137,10 +4189,10 @@
               "total": 1,
               "work": [
                 {
-                  "id": "wc-drifted",
+                  "id": "wc-unpushed_work",
                   "size": "unknown",
                   "state": "running",
-                  "title": "A lane that is drifted"
+                  "title": "A lane that is unpushed_work"
                 }
               ]
             },
@@ -4704,10 +4756,10 @@
           "actions": [
             "cancel"
           ],
-          "id": "wc-drifted",
+          "id": "wc-unpushed_work",
           "kind": "work_order",
           "state": "running",
-          "title": "A lane that is drifted"
+          "title": "A lane that is unpushed_work"
         },
         {
           "actions": [
@@ -4966,10 +5018,10 @@
           "title": "A lane in working"
         },
         {
-          "id": "lane-wc-drifted",
+          "id": "lane-wc-unpushed_work",
           "kind": "lane",
           "state": "idle",
-          "title": "A lane that is drifted"
+          "title": "A lane that is unpushed_work"
         },
         {
           "id": "lane-wo-running",
@@ -5113,7 +5165,7 @@
           "id": "generated-54",
           "kind": "plan",
           "state": "active",
-          "title": "A lane that is drifted"
+          "title": "A lane that is unpushed_work"
         },
         {
           "id": "generated-55",
@@ -5271,7 +5323,7 @@
         {
           "id": "generated-26",
           "kind": "contract",
-          "title": "A lane that is drifted"
+          "title": "A lane that is unpushed_work"
         },
         {
           "id": "generated-17",
@@ -5354,32 +5406,32 @@
           "actual_state": "idle",
           "as_of": 1790000133001,
           "conditions": [
-            "drifted"
+            "unpushed_work"
           ],
           "freshness": "observed",
           "generation": 1,
           "generations": [
             {
-              "lane_id": "lane-wc-drifted",
+              "lane_id": "lane-wc-unpushed_work",
               "number": 1,
               "start_reason": "initial",
               "started_at": 1790000133001
             }
           ],
-          "id": "lane-wc-drifted",
+          "id": "lane-wc-unpushed_work",
           "ledger_reach": "reachable",
           "liveness": "alive",
           "model_reach": "reachable",
           "reported_by_epoch": 1,
-          "work_order": "wc-drifted",
-          "work_order_title": "A lane that is drifted",
+          "work_order": "wc-unpushed_work",
+          "work_order_title": "A lane that is unpushed_work",
           "worker_id": "worker-a"
         },
         {
           "actual_state": "backoff",
           "as_of": 1790000133001,
           "conditions": [
-            "waiting_for_person"
+            "day_capped"
           ],
           "freshness": "observed",
           "generation": 1,
@@ -5429,7 +5481,7 @@
           "actual_state": "compacting",
           "as_of": 1790000073001,
           "conditions": [
-            "handoff_degraded"
+            "pack_oversized"
           ],
           "freshness": "last_reported",
           "generation": 1,
@@ -5489,11 +5541,8 @@
         {
           "actual_state": "handing_off",
           "as_of": 1790000133001,
-          "condition_notes": {
-            "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
-          },
           "conditions": [
-            "degraded_mode"
+            "handoff_degraded"
           ],
           "freshness": "observed",
           "generation": 1,
@@ -5518,7 +5567,7 @@
           "actual_state": "idle",
           "as_of": 1790000073001,
           "conditions": [
-            "brief_unconfirmed"
+            "near_budget"
           ],
           "freshness": "last_reported",
           "generation": 1,
@@ -5543,7 +5592,7 @@
           "actual_state": "needs_decision",
           "as_of": 1790000073001,
           "conditions": [
-            "pack_oversized"
+            "brief_unconfirmed"
           ],
           "freshness": "last_reported",
           "generation": 1,
@@ -5591,8 +5640,11 @@
         {
           "actual_state": "parking",
           "as_of": 1790000133001,
+          "condition_notes": {
+            "degraded_mode": "Runs on documented surfaces until it restarts on a qualified version."
+          },
           "conditions": [
-            "unpushed_work"
+            "degraded_mode"
           ],
           "freshness": "observed",
           "generation": 1,
@@ -5667,7 +5719,7 @@
           "actual_state": "retiring",
           "as_of": 1790000133001,
           "conditions": [
-            "day_capped"
+            "drifted"
           ],
           "freshness": "observed",
           "generation": 1,
@@ -5717,7 +5769,7 @@
           "actual_state": "tripped",
           "as_of": 1790000133001,
           "conditions": [
-            "stalled",
+            "waiting_for_person",
             "day_capped"
           ],
           "freshness": "observed",
@@ -5743,7 +5795,7 @@
           "actual_state": "working",
           "as_of": 1790000073001,
           "conditions": [
-            "near_budget"
+            "waiting_in_pane"
           ],
           "freshness": "last_reported",
           "generation": 1,
@@ -6270,6 +6322,53 @@
           }
         },
         {
+          "actions": [],
+          "id": "wl-working",
+          "lane": {
+            "actual_state": "working",
+            "as_of": 1790000073001,
+            "conditions": [
+              "waiting_in_pane"
+            ],
+            "freshness": "last_reported",
+            "generation": 1,
+            "generations": [
+              {
+                "lane_id": "lane-wl-working",
+                "number": 1,
+                "start_reason": "initial",
+                "started_at": 1790000073001
+              }
+            ],
+            "id": "lane-wl-working",
+            "ledger_reach": "reachable",
+            "liveness": "dead",
+            "model_reach": "reachable",
+            "reported_by_epoch": 1,
+            "work_order": "wl-working",
+            "worker_id": "worker-a"
+          },
+          "reason": "waiting_in_pane",
+          "since": 1790000073001,
+          "work_order": {
+            "claim_id": "claim-wl-working",
+            "contract_id": "generated-25",
+            "contract_version": 1,
+            "fence": 1,
+            "id": "wl-working",
+            "kind": "change",
+            "lease_until": 1790000133001,
+            "lease_worker": "worker-a",
+            "max_attempts": 1,
+            "repository_id": "repository-1",
+            "rev": 1,
+            "reviewed_by": "member-1",
+            "size": "unknown",
+            "state": "running",
+            "title": "A lane in working"
+          }
+        },
+        {
           "actions": [
             "reset",
             "cancel"
@@ -6279,7 +6378,7 @@
             "actual_state": "tripped",
             "as_of": 1790000133001,
             "conditions": [
-              "stalled",
+              "waiting_for_person",
               "day_capped"
             ],
             "freshness": "observed",

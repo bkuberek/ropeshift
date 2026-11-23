@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -14,7 +15,7 @@ import (
 // stopped at floor.
 func replayedPane(t *testing.T, floor int64) *paneSession {
 	t.Helper()
-	terminal := fake.NewTerminal()
+	terminal := &takingTerminal{Terminal: fake.NewTerminal()}
 	spec := policySpec(t)
 	spec.RunMode = ports.RunModeInteractive
 	name := paneName(spec)
@@ -22,7 +23,8 @@ func replayedPane(t *testing.T, floor int64) *paneSession {
 		t.Fatal(err)
 	}
 	s := New(nil, Options{Terminal: terminal}).newPaneSession(spec, name, ports.SessionHandle{ID: sessionHandleID(spec)}, lanes.CostMeter{})
-	s.floor = floor
+	s.floor, s.grace = floor, 50*time.Millisecond
+	terminal.session = s
 	return s
 }
 
@@ -30,16 +32,21 @@ func hookAt(event string, atMs int64, detail string) lanes.HookRecord {
 	return lanes.HookRecord{HookEvent: lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: event, Subject: "s", Detail: detail}, FirstMs: atMs, LastMs: atMs, Count: 1}
 }
 
-// typesFreely says the pane takes a key, which it refuses to a session that waits for an answer.
+// typesFreely says the pane takes a key, which it refuses to a session that waits for an answer, and ends the turn the
+// line began, so the session rests again.
 func typesFreely(t *testing.T, s *paneSession) {
 	t.Helper()
 	_, err := s.typeInput(t.Context(), ports.Input{Text: "a nudge"})
+	if errors.Is(err, ports.ErrInputUnconfirmed) {
+		t.Fatal("the session never took the line")
+	}
 	if errors.Is(err, ports.ErrAwaitingAnswer) {
 		t.Fatal("the pane refused input as if an answer were waited on")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: time.Now().UnixMilli() + 1})
 }
 
 func refusesInput(t *testing.T, s *paneSession) {
@@ -49,12 +56,13 @@ func refusesInput(t *testing.T, s *paneSession) {
 	}
 }
 
-// A Stop the worker already read ends the wait a Notification began before it, however late it arrives.
+// A Stop the worker already read ended the dialog a Notification before it told of, so that Notification holds no key
+// however late it arrives, and neither does the Stop's own late hook.
 func TestAStopAlreadyReadEndsTheWaitBeforeIt(t *testing.T) {
 	t.Parallel()
 	s := replayedPane(t, 120)
-	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: notificationNeedsInput, AtMs: 100})
-	refusesInput(t, s)
+	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationNeedsInput, AtMs: 100})
+	typesFreely(t, s)
 	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 110})
 	typesFreely(t, s)
 }
@@ -63,7 +71,7 @@ func TestAStopAlreadyReadEndsTheWaitBeforeIt(t *testing.T) {
 func TestAStopAlreadyReadLeavesALaterWait(t *testing.T) {
 	t.Parallel()
 	s := replayedPane(t, 120)
-	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: notificationNeedsInput, AtMs: 130})
+	s.takeHook(lanes.HookEvent{Event: hookNotification, Detail: lanes.NotificationNeedsInput, AtMs: 130})
 	s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 110})
 	refusesInput(t, s)
 }
@@ -77,10 +85,10 @@ func TestAReplayWaitsOnlyOnTheOpenApprovals(t *testing.T) {
 		hooks []lanes.HookRecord
 	}{
 		{"a wait the turn's end closed", []lanes.HookRecord{
-			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, notificationNeedsInput), hookAt(hookStop, 110, ""),
+			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, lanes.NotificationNeedsInput), hookAt(hookStop, 110, ""),
 		}},
 		{"a wait nothing after it closed", []lanes.HookRecord{
-			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, notificationNeedsInput),
+			hookAt(eventPermissionRequest, 100, ""), hookAt(hookNotification, 105, lanes.NotificationNeedsInput),
 		}},
 	}
 	for _, test := range tests {
@@ -166,7 +174,7 @@ func TestAReplayRestoresNoApprovalOfATurnThatEnded(t *testing.T) {
 // closed holds the keys across a restart.
 func TestAReplayHoldsTheKeysFromAQuestionNothingClosed(t *testing.T) {
 	t.Parallel()
-	asked := hookAt(hookNotification, 120, notificationNeedsInput)
+	asked := hookAt(hookNotification, 120, lanes.NotificationNeedsInput)
 	tests := []struct {
 		name  string
 		floor int64
@@ -227,7 +235,7 @@ func TestALateTurnEndLeavesANewerWait(t *testing.T) {
 	}{
 		{"a dialog and a late Stop", hookStop, hookAt(eventPermissionRequest, 125, ""), nil},
 		{"a named dialog and a late StopFailure", hookStopFailure, hookAt(eventPermissionRequest, 125, ""), []string{"seen-1"}},
-		{"a question and a late Stop", hookStop, hookAt(hookNotification, 125, notificationNeedsInput), nil},
+		{"a question and a late Stop", hookStop, hookAt(hookNotification, 125, lanes.NotificationNeedsInput), nil},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -238,6 +246,35 @@ func TestALateTurnEndLeavesANewerWait(t *testing.T) {
 			refusesInput(t, s)
 			s.takeHook(lanes.HookEvent{Event: hookStop, AtMs: 140})
 			typesFreely(t, s)
+		})
+	}
+}
+
+// A turn's end carries the time of the hook that ended it, because a worker reads it against the newest prompt.
+func TestATurnsEndCarriesTheTimeOfItsHook(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		event  lanes.HookEvent
+		status ports.TurnStatus
+	}{
+		{"a Stop", lanes.HookEvent{Event: hookStop, AtMs: 200}, ports.TurnCompleted},
+		{"a StopFailure", lanes.HookEvent{Event: hookStopFailure, Detail: "server_error", AtMs: 200}, ports.TurnFailed},
+		{"a compaction asked for", lanes.HookEvent{Event: hookPostCompact, Detail: compactRequested, AtMs: 200}, ports.TurnCompleted},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := replayedPane(t, 0)
+			s.takeHook(tt.event)
+			var turn *ports.TurnResult
+			for _, event := range s.queue {
+				if event.Kind == ports.EventTurnEnded {
+					turn = event.Turn
+				}
+			}
+			if turn == nil || turn.Status != tt.status || turn.EndedMs != 200 {
+				t.Fatalf("turn %+v, want a %s end at 200", turn, tt.status)
+			}
 		})
 	}
 }

@@ -155,6 +155,19 @@ function otherCards(): NeedItem[] {
     },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
+    // A lane whose pane shows a dialog no request covers: the call the dialog holds keeps it from reading stalled, and
+    // a person answers it in the pane, so it offers nothing to press.
+    {
+      ...stalled,
+      id: "wo-in-pane",
+      work: {
+        ...stalled.work,
+        reason: "waiting_in_pane",
+        actions: [],
+        work_order: stalled.work.work_order && { ...stalled.work.work_order, id: "wo-in-pane", title: "Work order wo-in-pane" },
+        lane: stalled.work.lane && { ...stalled.work.lane, conditions: ["waiting_external", "waiting_in_pane"] },
+      },
+    },
     // A piece of the member's own setup that leaked is an item of its own for its machine, version, and piece.
     {
       kind: "personal_setup",

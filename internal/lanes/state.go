@@ -42,14 +42,17 @@ type Signal string
 // The signals. Each is an observed fact or a worker's own act, and none is a person
 // saying a lane is ready, so no API can reach one.
 const (
-	OnClaimGranted      Signal = "claim_granted"
-	OnResourcesReady    Signal = "resources_ready"
-	OnDriverReady       Signal = "driver_ready"
-	OnResumeNotReady    Signal = "resume_not_ready"
-	OnUnknownScreen     Signal = "unknown_screen"
-	OnActivity          Signal = "activity"
-	OnBriefGrace        Signal = "brief_grace_elapsed"
-	OnTurnFinished      Signal = "turn_finished"
+	OnClaimGranted   Signal = "claim_granted"
+	OnResourcesReady Signal = "resources_ready"
+	OnDriverReady    Signal = "driver_ready"
+	OnResumeNotReady Signal = "resume_not_ready"
+	OnUnknownScreen  Signal = "unknown_screen"
+	OnActivity       Signal = "activity"
+	OnBriefGrace     Signal = "brief_grace_elapsed"
+	OnTurnFinished   Signal = "turn_finished"
+	// OnTurnStarted is a prompt the session submitted that is newer than its newest turn's end: a line a person
+	// typed into its pane, or the report of its own background work. Either starts a turn the worker did not hand.
+	OnTurnStarted       Signal = "turn_started"
 	OnInputHanded       Signal = "input_handed"
 	OnDecisionPending   Signal = "decision_pending"
 	OnDecisionReturned  Signal = "decision_returned"
@@ -89,7 +92,7 @@ const (
 // Signals lists every signal.
 var Signals = []Signal{
 	OnClaimGranted, OnResourcesReady, OnDriverReady, OnResumeNotReady, OnUnknownScreen, OnActivity,
-	OnBriefGrace, OnTurnFinished, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
+	OnBriefGrace, OnTurnFinished, OnTurnStarted, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
 	OnCompactionStarted, OnCompactionFinished, OnFinishedInTurn, OnFinishedAtRest, OnCompactionFailed, OnHandoffThreshold,
 	OnHandoffWritten, OnNextGeneration, OnCannotProceed, OnParkRequested, OnProcessGone, OnWakeFired,
 	OnSessionGone, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnBreakerCooled, OnOutcomeReported, OnStopRequested,
@@ -112,6 +115,7 @@ var transitions = map[edge]ActualState{
 	{Briefing, OnBriefGrace}:            Idle,
 	{Working, OnTurnFinished}:           Idle,
 	{Idle, OnInputHanded}:               Working,
+	{Idle, OnTurnStarted}:               Working,
 	{Working, OnDecisionPending}:        NeedsDecision,
 	{NeedsDecision, OnDecisionReturned}: Working,
 	{NeedsDecision, OnWaitBound}:        Parking,
@@ -255,6 +259,9 @@ const (
 	// WaitingBackground says a lane at rest waits on background work its own last turn left running, such as a
 	// watch, which starts its next turn when it ends. The wait lasts no longer than the lane may wait live.
 	WaitingBackground Condition = "waiting_background"
+	// WaitingInPane says the lane's pane shows something only a person can answer, such as a dialog, which no key of
+	// the worker's answers, so it reaches Needs you.
+	WaitingInPane Condition = "waiting_in_pane"
 )
 
 // Note is the sentence that says what a condition means for a lane that runs on documented surfaces, and is empty
@@ -277,8 +284,8 @@ func (c Condition) NoteFor(surfaces string) string {
 
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
-	Stalled, Overdue, WaitingExternal, WaitingBackground, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode,
-	UnpushedWork, Drifted, DayCapped, WaitingForPerson, AwaitingWake,
+	Stalled, Overdue, WaitingExternal, WaitingBackground, WaitingInPane, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded,
+	DegradedMode, UnpushedWork, Drifted, DayCapped, WaitingForPerson, AwaitingWake,
 }
 
 // Facts is what a lane's conditions derive from.
@@ -296,6 +303,10 @@ type Facts struct {
 	// BackgroundInFlight says a lane at rest waits on background work its last turn left running, which
 	// starts its next turn when it ends. It raises `waiting_background` and no other condition.
 	BackgroundInFlight bool
+	// AwaitsPerson says the lane's pane shows something only a person can answer, such as a dialog. It raises
+	// `waiting_in_pane`, which reaches Needs you, because no key of the worker's answers it and a call it holds
+	// open keeps the lane from reading `stalled`.
+	AwaitsPerson bool
 	// ContextTokens is the last call's context, and WarnTokens the profile's warning.
 	ContextTokens int64
 	WarnTokens    int64
@@ -331,6 +342,7 @@ func Conditions(f Facts) []Condition {
 	raise(Overdue, f.PastDeadline)
 	raise(WaitingExternal, waiting)
 	raise(WaitingBackground, f.BackgroundInFlight)
+	raise(WaitingInPane, f.AwaitsPerson)
 	raise(NearBudget, f.WarnTokens > 0 && f.ContextTokens >= f.WarnTokens)
 	raise(BriefUnconfirmed, f.BriefUnconfirmed)
 	raise(PackOversized, f.PackOversized)

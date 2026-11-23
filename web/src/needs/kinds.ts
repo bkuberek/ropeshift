@@ -60,6 +60,7 @@ export const workLabels: Record<string, string> = {
   long_parked: "Long parked",
   stalled: "Stalled",
   tripped: "Tripped",
+  waiting_in_pane: "Waiting in its pane",
   worker_behind: "Waiting for upgrade",
 };
 
@@ -74,6 +75,7 @@ const workIcons: Record<string, IconName> = {
   long_parked: "pause",
   stalled: "warning",
   tripped: "power",
+  waiting_in_pane: "terminal",
   worker_behind: "warning",
 };
 

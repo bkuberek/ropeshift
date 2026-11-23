@@ -155,8 +155,14 @@ type laneRun struct {
 	untoldLock sync.Mutex
 	untold     []lanes.HookEvent
 
-	bound   bool
-	nudged  atomic.Bool
+	bound  bool
+	nudged atomic.Bool
+	// endHeld says the turn's end being read is older than the session's newest input, so it ends no turn the lane is
+	// in, holding is the newest such end since a turn's end was decided, and endMs is when the end being decided fired,
+	// by its hook's clock, and zero when nothing places it. The goroutine that reads the stream alone touches them.
+	endHeld bool
+	holding *ports.TurnResult
+	endMs   int64
 	cursor  int64
 	decided *workorders.Report
 	cost    lanes.CostMeter
@@ -215,9 +221,9 @@ type laneRun struct {
 	// spendCheck carries a hook's word that a tool call is starting to the goroutine that reads this run's stream, which
 	// then holds the lane to its limits as a usage report does. It holds one word, so a burst of calls is one check.
 	spendCheck chan struct{}
-	// backgroundDue carries the end of a rest on background work to the same goroutine, which decides what the lane
-	// does next.
-	backgroundDue chan struct{}
+	// boundDue carries the end of a bounded wait to the same goroutine, which decides what the lane does next: a rest
+	// on background work, a turn no end was heard for, or a refused nudge.
+	boundDue chan struct{}
 	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
 	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
 	projectReportedAt  time.Time
@@ -304,8 +310,8 @@ func newOnce() *sync.Once { return &sync.Once{} }
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
 		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(), spendCheck: make(chan struct{}, 1),
-		backgroundDue: make(chan struct{}, 1),
-		state:         newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
+		boundDue: make(chan struct{}, 1),
+		state:    newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
 	}
 }
 
@@ -349,12 +355,22 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 			ended = record.LastMs
 		case hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied, lanes.EventCallDenied:
 			calls = append(calls, record)
+		case lanes.EventUserPromptSubmit, lanes.EventStop, hookStopFailure:
+			// The turn clock reads the newest time of each, which is the record's last.
+			event := record.HookEvent
+			event.AtMs = record.LastMs
+			r.observeReplayedHook(ctx, event)
 		default:
 			r.observeReplayedHook(ctx, record.HookEvent)
 		}
 	}
 	for _, record := range calls {
 		r.observeReplayedHook(ctx, record.HookEvent)
+	}
+	r.state.resumeRest(r.w.clock.Now())
+	// A prompt newer than the newest turn's end started a turn while no worker listened.
+	if r.state.turnUnended() {
+		r.signal(ctx, lanes.OnTurnStarted)
 	}
 	switch {
 	case began > ended:
@@ -662,13 +678,11 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	} else {
 		run.state.noteCapabilities(capabilities)
 	}
-	_, err := w.journal.Effect(ctx, run.nudge().Key)
-	switch {
-	case err == nil:
-		run.nudged.Store(true)
-	case !errors.Is(err, ports.ErrNotFound):
+	_, newest, err := run.nudgeAttempts(ctx)
+	if err != nil {
 		return nil, err
 	}
+	run.nudged.Store(newest != nil && !newest.Withheld())
 	return run, nil
 }
 
@@ -714,13 +728,21 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		// Before the stream is read, because a headless turn that failed on the sign-in names no reason.
 		r.w.parkOnSignIn(ctx)
 	}
+	since, _, resting := r.state.backgroundRest()
 	switch {
+	case r.state.current() == lanes.Working && r.state.turnUnended():
+		// A turn a prompt began has no end yet, and may never report one.
+		r.awaitTurnEnd(ctx)
 	case r.state.current() != lanes.Idle:
 	case len(r.blockingQuestions()) != 0:
 		r.awaitAnswer(ctx)
 	case r.planning() && !reported && !r.owesBrief.Load():
 		// A planning lane at rest with nothing to report was waiting for its person, and goes on waiting.
 		r.awaitPerson(ctx)
+	case resting && !reported:
+		r.restOnBackground(ctx, since)
+	case !reported && r.refusalOutstanding(ctx, hooks):
+		r.restOnRefusal(ctx)
 	}
 	return r.conclude(ctx, r.watch(ctx, events))
 }
@@ -1181,8 +1203,10 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next
-		case <-r.backgroundDue:
+		case <-r.boundDue:
 			r.backgroundBound(ctx)
+			r.turnBound(ctx)
+			r.refusalBound(ctx)
 			continue
 		case <-r.spendCheck:
 			// A tool call is starting, and no cost report may come to show the limit passed: a call that cannot be
@@ -1203,9 +1227,12 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		}
 		// A turn that ends while its generation owes a brief is the clear's. A clear whose hook spooled
 		// owes none until the spool is read, so it is read first. The debt is read before the lane reads
-		// idle, because from then a pass may brief the session and settle what it owes.
+		// idle, because from then a pass may brief the session and settle what it owes. The spool also holds the
+		// hooks that say when the turn ended and whether a prompt came after it.
 		if event.Kind == ports.EventTurnEnded {
 			r.w.drainBeforeActing(ctx)
+			r.endMs = r.state.placeEnd(event.Turn)
+			r.endHeld = r.state.olderThanInput(r.endMs)
 		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
 		r.foldEvent(ctx, event)
@@ -1224,9 +1251,13 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
 			r.settleTurnCost(event.Turn)
 			r.measureTurn(event.Turn)
-			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)
-			r.afterTurn(ctx, event.Turn, clears)
+			if r.endHeld {
+				r.holdEnd(ctx, event.Turn)
+			} else {
+				r.finishTurn(event.Turn)
+				r.afterTurn(ctx, event.Turn, clears)
+			}
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			r.noteRefusedResume(ctx)
@@ -1400,14 +1431,19 @@ func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
 
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
 // it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended, nor one
-// that left the lane's own background work running, whether or not that work has started the next turn already.
-// A planning lane is a conversation, so a turn it ends with no report waits for its person instead
-// (ADR-0018).
+// that left the lane's own background work running. A planning lane is a conversation, so a turn it ends with no
+// report waits for its person instead (ADR-0018).
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
-	// Taken before any branch returns, so it answers for this turn's end and no other.
-	leftWork := r.state.takeStopLeftWork()
+	r.holding = nil
+	r.state.endTurnWait()
+	r.state.endRefusal()
 	if r.orchestrating() {
 		r.orchestratorRests(ctx, turn)
+		return
+	}
+	// Read again here: a prompt or the worker's own input since the end was read began a turn this end does not end.
+	if r.state.current() == lanes.Working || r.takeTurnBegun(ctx) {
+		r.holdEnd(ctx, turn)
 		return
 	}
 	if _, ok := r.reported(ctx); ok {
@@ -1469,18 +1505,85 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		r.restOnBackground(ctx, since)
 		return
 	}
-	// The work already started the next turn: that turn's end is the one to read, and this one draws no nudge.
-	if leftWork {
-		return
-	}
-	r.nudgeOrEnd(ctx, lanes.Nudge, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome})
+	r.nudgeOrEnd(ctx, lanes.Nudge, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome}, true)
 }
 
-// nudgeOrEnd sends the lane its one nudge, or ends it with report once the nudge is spent or cannot be sent.
-func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders.Report) {
+// takeTurnBegun moves a lane that reads at rest into the turn a prompt newer than the end being decided began, and says
+// whether there was one. Such a prompt can land after that end was placed and before the lane left the turn the end
+// closed, where its start moved nothing.
+func (r *laneRun) takeTurnBegun(ctx context.Context) bool {
+	if !r.state.atRest() || !r.state.olderThanInput(r.endMs) {
+		return false
+	}
+	r.signal(ctx, lanes.OnTurnStarted)
+	return true
+}
+
+// holdEnd keeps a turn's end that is older than the session's newest input: the lane works in the turn that input
+// began, and that turn's end is the one to decide. The wait for it is bounded (awaitTurnEnd).
+func (r *laneRun) holdEnd(ctx context.Context, turn *ports.TurnResult) {
+	r.holding = turn
+	r.awaitTurnEnd(ctx)
+}
+
+// awaitTurnEnd bounds the wait for the end of a turn the worker did not hand: one a prompt began, or one an older end
+// left the lane in. No end comes for a prompt a hook blocked, a turn a person interrupted in a pane, or one that
+// hangs, so once the lane has shown no sign of work for as long as it may wait live (max_live_wait, FR-SPEND-1), the
+// goroutine that reads the stream takes it as at rest. A call at work, a request open, and any progress hold it. The
+// wait goes on until that goroutine decides it, so a bound it declined is reached again.
+func (r *laneRun) awaitTurnEnd(ctx context.Context) {
+	since := r.w.clock.Now()
+	r.state.noteTurnWait(since)
+	r.sequence.Go(func() {
+		for ctx.Err() == nil && !r.sessionOver.Load() && !r.fenced.Load() && r.state.waitsOnTurn(since) {
+			if r.state.turnQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
+				r.boundReached()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(superviseEvery):
+			}
+		}
+	})
+}
+
+// turnBound takes a lane as at rest once the turn it waited on has shown no sign of work for the live wait, where the
+// stream is read, and decides that rest as a turn's end: the end it held, or a completed one where it held none.
+func (r *laneRun) turnBound(ctx context.Context) {
+	since, waiting := r.state.turnWait()
+	if !waiting || r.sessionOver.Load() || r.currentFlight() != nil ||
+		!r.state.turnQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
+		return
+	}
+	turn := r.holding
+	if turn == nil {
+		turn = &ports.TurnResult{Status: ports.TurnCompleted}
+	}
+	// The bound decides the rest, and no end of a hook stands for it.
+	r.endMs = 0
+	r.signal(ctx, lanes.OnTurnFinished)
+	r.afterTurn(ctx, turn, false)
+}
+
+// errTurnBegan withholds an input decided at rest from a session whose next turn began before it was sent.
+var errTurnBegan = errors.New("a turn began before it was sent")
+
+// nudgeOrEnd sends the lane its one nudge, or ends it with report once the nudge is spent or cannot be sent. Whether
+// the lane rests is read again just before the nudge goes and before the lane ends, because a prompt can begin a turn
+// at any time. A nudge withheld for that, or refused by a session that may wait on an answer, reached nobody and is
+// not spent. A refusal at a turn's end can be a dialog of the turn after it, so refusalWaits rests the lane on it
+// (restOnRefusal), where a refusal at the end of a rest that had its whole live wait ends the lane.
+func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders.Report, refusalWaits bool) {
 	if r.nudged.CompareAndSwap(false, true) {
-		ran, err := r.w.bracket(ctx, r.nudge(), func() error {
+		ran, err := r.w.bracket(ctx, r.nudgeEffect(ctx), func() error {
+			if !r.state.atRest() || r.state.olderThanInput(r.endMs) {
+				return fmt.Errorf("%s: %w", lanes.DetailWithheld, errTurnBegan)
+			}
 			_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: text})
+			if errors.Is(err, ports.ErrAwaitingAnswer) {
+				return fmt.Errorf("%s: %w", lanes.DetailWithheld, err)
+			}
 			return err
 		})
 		if ran && err == nil {
@@ -1488,6 +1591,27 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 			r.signal(ctx, lanes.OnInputHanded)
 			return
 		}
+		refused := errors.Is(err, ports.ErrAwaitingAnswer)
+		if refused || errors.Is(err, errTurnBegan) {
+			r.nudged.Store(false)
+		}
+		if errors.Is(err, errTurnBegan) {
+			if r.takeTurnBegun(ctx) {
+				r.awaitTurnEnd(ctx)
+			}
+			return
+		}
+		if refused && refusalWaits {
+			r.restOnRefusal(ctx)
+			return
+		}
+	}
+	if !r.state.atRest() {
+		return
+	}
+	if r.takeTurnBegun(ctx) {
+		r.awaitTurnEnd(ctx)
+		return
 	}
 	r.decided = &report
 	r.signal(ctx, lanes.OnOutcomeReported)
@@ -1496,13 +1620,14 @@ func (r *laneRun) nudgeOrEnd(ctx context.Context, text string, report workorders
 
 // restOnBackground holds a lane at rest on its own background work until the longest it may wait live has passed
 // since its turn stopped (max_live_wait, FR-SPEND-1), then hands what comes next to the goroutine that reads the
-// stream. A turn the work starts, a later stop, or the session's end ends the rest first.
+// stream. A turn the work starts, a later stop, or the session's end ends the rest first. The rest goes on until it
+// ends, so a bound the goroutine that reads the stream declined is reached again.
 func (r *laneRun) restOnBackground(ctx context.Context, since time.Time) {
 	deadline := since.Add(lanes.MaxLiveWait(r.lease.Spend))
 	r.sequence.Go(func() {
-		for r.w.clock.Now().Before(deadline) {
-			if !r.restsOnBackground(ctx, since) {
-				return
+		for r.restsOnBackground(ctx, since) {
+			if !r.w.clock.Now().Before(deadline) {
+				r.boundReached()
 			}
 			select {
 			case <-ctx.Done():
@@ -1510,13 +1635,16 @@ func (r *laneRun) restOnBackground(ctx context.Context, since time.Time) {
 			case <-time.After(superviseEvery):
 			}
 		}
-		if r.restsOnBackground(ctx, since) {
-			select {
-			case r.backgroundDue <- struct{}{}:
-			default:
-			}
-		}
 	})
+}
+
+// boundReached hands the end of a bounded wait to the goroutine that reads the stream. It holds one word, which says
+// only that some bound may have passed.
+func (r *laneRun) boundReached() {
+	select {
+	case r.boundDue <- struct{}{}:
+	default:
+	}
 }
 
 // restsOnBackground says the rest that began with the stop the worker heard at since goes on.
@@ -1537,7 +1665,98 @@ func (r *laneRun) backgroundBound(ctx context.Context) {
 	detail := fmt.Sprintf("Its turn ended at %s with %s still running, and none reported within max_live_wait, %s.",
 		since.UTC().Format(time.RFC3339), backgroundTasks(tasks), bound)
 	report := workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonBackgroundUnreported, Detail: detail}
-	r.nudgeOrEnd(ctx, lanes.BackgroundNudge, report)
+	r.nudgeOrEnd(ctx, lanes.BackgroundNudge, report, false)
+}
+
+// restOnRefusal holds a lane whose session refused the nudge its turn's end owed, because the session may wait on an
+// answer the nudge's keys would give, such as a dialog of the turn after that end. The lane rests for as long as it may
+// wait live (max_live_wait, FR-SPEND-1), and then ends blocked, as a refusal did at once before. A prompt ends the
+// wait, because the turn it begins decides with the nudge still the lane's. A call at work and an open request hold
+// the bound, a call's end begins it again, and a blocking question hands the lane to ask_wait at the bound, so
+// approval_wait and ask_wait keep their parks. The wait goes on until it ends, so a bound the goroutine that reads the
+// stream declined is reached again.
+func (r *laneRun) restOnRefusal(ctx context.Context) {
+	since := r.w.clock.Now()
+	r.state.noteRefusal(since)
+	r.sequence.Go(func() {
+		for r.restsOnRefusal(ctx, since) {
+			if r.state.refusalQuiet(since, r.w.clock.Now(), lanes.MaxLiveWait(r.lease.Spend)) {
+				r.boundReached()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(superviseEvery):
+			}
+		}
+	})
+}
+
+// restsOnRefusal says the wait on the nudge refused at since goes on.
+func (r *laneRun) restsOnRefusal(ctx context.Context, since time.Time) bool {
+	at, refused := r.state.refusal()
+	return refused && at.Equal(since) && r.restsOn(ctx)
+}
+
+// refusalBound ends the wait on a refused nudge that ran for the live wait, where the stream is read: a lane with a
+// blocking question waits on it for ask_wait, one that reported stops, and any other ends blocked with no outcome
+// and a detail that says when its nudge was refused and the bound that ended the wait.
+func (r *laneRun) refusalBound(ctx context.Context) {
+	since, refused := r.state.refusal()
+	bound := lanes.MaxLiveWait(r.lease.Spend)
+	if !refused || !r.restsOn(ctx) || r.currentFlight() != nil || !r.state.refusalQuiet(since, r.w.clock.Now(), bound) {
+		return
+	}
+	r.state.endRefusal()
+	if len(r.blockingQuestions()) != 0 {
+		r.awaitAnswer(ctx)
+		return
+	}
+	if _, ok := r.reported(ctx); ok {
+		r.signal(ctx, lanes.OnOutcomeReported)
+		r.stop(ctx, ports.StopAtRest)
+		return
+	}
+	detail := fmt.Sprintf("Its session refused its nudge at %s, because it waited on an answer, and nothing answered within max_live_wait, %s.",
+		since.UTC().Format(time.RFC3339), bound)
+	report := workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome, Detail: detail}
+	r.decided = &report
+	r.signal(ctx, lanes.OnOutcomeReported)
+	r.stop(ctx, ports.StopAtRest)
+}
+
+// refusalOutstanding says the nudge's newest attempt is one the session refused because it waited on an answer, and
+// that nothing in the hooks says the session went on since: no prompt and no call's end is newer than both the
+// newest turn's end and the newest dialog, a PermissionRequest or a Notification that tells of a dialog.
+func (r *laneRun) refusalOutstanding(ctx context.Context, hooks []lanes.HookRecord) bool {
+	_, newest, err := r.nudgeAttempts(ctx)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: its nudge: %w", r.lease.Lane, err))
+		return false
+	}
+	if newest == nil || !newest.Withheld() || !strings.Contains(newest.Detail, ports.ErrAwaitingAnswer.Error()) {
+		return false
+	}
+	generation := r.currentGeneration()
+	var answered, ended, dialog int64
+	for _, hook := range hooks {
+		if hook.Generation != generation {
+			continue
+		}
+		switch hook.Event {
+		case lanes.EventUserPromptSubmit, hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied:
+			answered = max(answered, hook.LastMs)
+		case lanes.EventStop, hookStopFailure:
+			ended = max(ended, hook.LastMs)
+		case hookPermissionRequest:
+			dialog = max(dialog, hook.LastMs)
+		case hookNotification:
+			if lanes.DialogOpens(hook.Detail) {
+				dialog = max(dialog, hook.LastMs)
+			}
+		}
+	}
+	return answered <= max(ended, dialog)
 }
 
 // backgroundTasks counts tasks in words.
@@ -1548,9 +1767,50 @@ func backgroundTasks(n int) string {
 	return fmt.Sprintf("%d background tasks", n)
 }
 
-// nudge is the one input a worker sends a lane on its own.
-func (r *laneRun) nudge() lanes.Effect {
-	return lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", "nudge")
+// maxNudgeAttempts bounds the keys a generation's nudge takes. An attempt the worker withheld reached no session,
+// so the next attempt takes the next key, and the last key stands as it is.
+const maxNudgeAttempts = 5
+
+// nudgeLabel names the effect of the nudge's nth attempt. The first keeps the one key a generation had before an
+// attempt could be withheld, so a journal an earlier worker wrote reads the same.
+func nudgeLabel(attempt int) string {
+	if attempt == 1 {
+		return "nudge"
+	}
+	return "nudge/retry" + strconv.Itoa(attempt)
+}
+
+// nudgeAttempts reads the nudge's attempts on record: the effect of its next attempt, and the newest attempt, which
+// is nil with none. The next attempt of a nudge on its way or sent is that attempt itself, which a bracket runs no
+// second time.
+func (r *laneRun) nudgeAttempts(ctx context.Context) (lanes.Effect, *lanes.Effect, error) {
+	generation := r.currentGeneration()
+	var newest *lanes.Effect
+	for attempt := 1; ; attempt++ {
+		effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, generation, "", nudgeLabel(attempt))
+		earlier, err := r.w.journal.Effect(ctx, effect.Key)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			return effect, newest, nil
+		case err != nil:
+			return lanes.Effect{}, nil, err
+		}
+		newest = &earlier
+		if !earlier.Withheld() || attempt == maxNudgeAttempts {
+			return effect, newest, nil
+		}
+	}
+}
+
+// nudgeEffect is the effect of the nudge's next attempt. A journal that cannot be read takes the first key, which a
+// bracket refuses to run twice.
+func (r *laneRun) nudgeEffect(ctx context.Context) lanes.Effect {
+	effect, _, err := r.nudgeAttempts(ctx)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: its nudge: %w", r.lease.Lane, err))
+		return lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", nudgeLabel(1))
+	}
+	return effect
 }
 
 func (r *laneRun) reported(ctx context.Context) (workorders.Report, bool) {

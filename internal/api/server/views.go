@@ -13,6 +13,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -188,7 +189,7 @@ func (h *handler) longParked() int64 {
 	return defaultLongParkedMs
 }
 
-// stuck finds what stopped: the design's five, and failed work, the longest stop first. A lane on work the ledger still
+// stuck finds what stopped: the design's five, failed work, and a lane whose pane waits on a person, the longest stop first. A lane on work the ledger still
 // counts as moving stands here too, because its work order says nothing of a breaker or a stall. A work order a hard
 // spend limit parked is long parked here as any is, and it offers no plain resume: the limit is what it waits on, and a
 // resume that lifts none wakes a lane only to stop it again.
@@ -278,6 +279,9 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 		switch {
 		case lane.ActualState == "tripped":
 			need.Reason, need.Actions = api.ReasonTripped, []string{api.ActReset, api.ActCancel}
+		case slices.Contains(lane.Conditions, string(lanes.WaitingInPane)):
+			// A person answers it in the pane, and nothing done to the work order would.
+			need.Reason = api.ReasonWaitingInPane
 		case slices.Contains(lane.Conditions, "stalled"):
 			need.Reason, need.Actions = api.ReasonStalled, []string{api.ActRespawn, api.ActCancel}
 		default:
@@ -386,6 +390,9 @@ func stuckOrchestrators(tx ports.ReadTx, add func(string, int64, api.WorkNeed)) 
 		switch {
 		case row.Tripped():
 			need.Reason = api.ReasonTripped
+		case slices.Contains(row.Conditions, string(lanes.WaitingInPane)):
+			// A start would replace the session that shows it, so a person answers it in the pane.
+			need.Reason, need.Actions = api.ReasonWaitingInPane, nil
 		case row.Stalled():
 			need.Reason = api.ReasonStalled
 		default:

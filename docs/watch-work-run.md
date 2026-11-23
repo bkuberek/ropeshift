@@ -87,7 +87,7 @@ On the Floor, Open pane opens the conversation panel with the lane as its target
 
 A lane whose blocking question or request waits past its wait parks: it saves its work and stops its process, so it uses no quota. It goes on once what it waits on is decided, or once a person resumes it.
 
-In Needs you, Stuck lists the work that cannot go on by itself, such as work a lane reported blocked or that failed, and a lane that parked, stalled, or tripped. Select an item to read why it stopped and the actions its state allows. Here a lane on Finish cancelling a booking, a work order of the project `moorings` that you started as in step 3, asked a question it cannot go on without, and parked when its wait ran out. Its card says what the lane waits for: the answer to its question, or a person.
+In Needs you, Stuck lists the work that cannot go on by itself, such as work a lane reported blocked or that failed, a lane that parked, stalled, or tripped, and a lane whose pane shows a dialog, which you answer in the pane. Select an item to read why it stopped and the actions its state allows. Here a lane on Finish cancelling a booking, a work order of the project `moorings` that you started as in step 3, asked a question it cannot go on without, and parked when its wait ran out. Its card says what the lane waits for: the answer to its question, or a person.
 
 ![Needs you, with the parked lane of moorings, what it waits for, and Resume](assets/screenshots/run-08-light.png#gh-light-mode-only)
 ![Needs you, with the parked lane of moorings, what it waits for, and Resume](assets/screenshots/run-08-dark.png#gh-dark-mode-only)

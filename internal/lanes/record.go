@@ -117,6 +117,11 @@ type Progress struct {
 	// Briefed says the turn of an assistant's first prompt ended, so what its session writes from then on is a
 	// reply to a member and not the answer to its brief.
 	Briefed bool `json:"briefed,omitempty"`
+	// Background is how many background tasks the session's newest Stop said still ran, and BackgroundStopMs when that
+	// Stop fired, as they stood when a turn's end was last decided. A journal keeps no count with a hook, so a worker
+	// that takes the lane over rests on that work from these, unless a hook came after that Stop.
+	Background       int   `json:"background,omitempty"`
+	BackgroundStopMs int64 `json:"background_stop_ms,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

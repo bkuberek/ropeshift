@@ -1271,6 +1271,39 @@ describe("waiting work", () => {
     expect(within(card).queryByRole("button", { name: "End this claim" })).toBeNull();
   });
 
+  // A dialog no request covers holds its call open, so the lane never reads stalled, and no key of the worker's answers
+  // it. The card says so, offers nothing to press, and leads to the lane's pane, where a person answers it.
+  it("says a lane waits in its pane, and leads to the pane", async () => {
+    const view = goldenNeedsYou();
+    const stalled = view.items.find((item) => item.kind === "work" && item.id === "wo-stalled") as Extract<NeedItem, { kind: "work" }>;
+    const lane = { ...stalled.work.lane!, conditions: ["waiting_external", "waiting_in_pane"] };
+    view.items = [
+      {
+        kind: "work",
+        id: "wo-dialog",
+        since: view.as_of,
+        work: { reason: "waiting_in_pane", lane, work_order: { id: "wo-dialog", kind: "change", title: "Read the configuration", state: "running" }, actions: [] },
+      },
+    ];
+    show(view);
+    const card = await cardNamed(/Read the configuration/);
+    expect(within(card).getByText("Waiting in its pane")).toBeTruthy();
+    expect(within(card).getByText(/only a person can answer, such as a dialog/)).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Open its pane" }).getAttribute("href")).toContain(`/lane?id=${lane.id}`);
+    expect(within(card).getByText("Waiting for you in its pane")).toBeTruthy();
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("says an orchestrator waits in its pane, and offers no start that would replace it", async () => {
+    const view = goldenNeedsYou();
+    const orchestrator = { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 1, resets: 0, actual_state: "working", conditions: ["waiting_in_pane"] };
+    view.items = [{ kind: "work", id: orchestrator.id, since: view.as_of, work: { reason: "waiting_in_pane", orchestrator, actions: [] } }];
+    show(view);
+    const card = screen.getByRole("article");
+    expect(within(card).getByText(/Talk to the orchestrator to answer it in its pane/)).toBeTruthy();
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
+
   // A merge outside ropeshift dropped the design history an adoption imported. The card names the branch and the
   // missing commit, and offers nothing to press: merging the commit into the base clears it at the next check.
   it("says a merged adoption lost the design history it imported, naming the branch and the missing commit", async () => {
