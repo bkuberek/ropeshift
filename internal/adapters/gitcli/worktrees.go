@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -483,29 +482,7 @@ func (w Worktrees) FetchCommit(ctx context.Context, repository, commit string) e
 }
 
 // hookless is the git of a repository's commands that run no repository hook, however git is asked to find
-// one. core.hooksPath points at nothing, and since git 2.54 a hook named in the configuration with `hook.<name>.command`
-// runs wherever core.hooksPath points, so each such name is disabled with `hook.<name>.enabled`
-// (https://git-scm.com/docs/git-hook).
+// one (Git.Hookless).
 func (w Worktrees) hookless(ctx context.Context, dir string) (Git, error) {
-	git := w.git(dir)
-	names, err := git.Output(ctx, "config", "--name-only", "--get-regexp", `^hook\..*\.(command|event)$`)
-	var exit *exec.ExitError
-	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
-		return Git{}, err
-	}
-	// A hook with no name, from `[hook ""]` or a bare `[hook]`, is disabled whatever the configuration holds.
-	git.Config = append(NoHooks(), [2]string{"hook..enabled", "false"})
-	seen := map[string]bool{}
-	for line := range strings.Lines(string(names)) {
-		key := strings.TrimSpace(line)
-		name := strings.TrimPrefix(key, "hook.")
-		if dot := strings.LastIndex(name, "."); dot > 0 && name != key {
-			name = name[:dot]
-			if !seen[name] {
-				seen[name] = true
-				git.Config = append(git.Config, [2]string{"hook." + name + ".enabled", "false"})
-			}
-		}
-	}
-	return git, nil
+	return w.git(dir).Hookless(ctx)
 }

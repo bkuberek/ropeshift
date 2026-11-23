@@ -49,6 +49,7 @@ var PlanMergeChecks = holdingPlanRequests([]Check{
 	{"PM26", "a planning branch that holds two plans nothing has read goes back for rework with the member's reason in its brief when a member denies the request of one, so approving the other's request accepts nothing and intake's read merges nothing, whichever plan it reads first", checkDeniedPlanOfAnUnreadBranch},
 	{"PM27", "a planning branch whose request for one of its two plans a newer version on main superseded while it waited for acceptance waits in integrating, saying which plan waits and why, until a request for that plan at its commit is approved, and only then merges", checkSupersededPlanOfABranchHoldsItsMerge},
 	{"PM28", "a planning branch whose approvals of both its plans no version claimed, because intake read the plans the ledger holds at its commit, asks for the approval of each plan naming that commit, a second read asks nothing new, and approving both merges it", checkVoidedApprovalsOfTwoPlansAskEach},
+	{"PM29", "a plan held for its goal whose request names an accepted planning branch that a poll stopped short of taking in is asked about again naming the branch's work order and commit when main finishes the goal, so approving it approves the branch's merge", checkHeldPlanOfABranchFinishedOnMainNamesTheBranch},
 })
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -1516,6 +1517,79 @@ func checkHeldPlanTheBranchLeftAloneNamesNoBranch(r *Rig) error {
 	}
 	if records, err := p.integrations(); err != nil || len(records) != 0 {
 		return Violatedf("approving the plan the branch left alone approved its merge: %+v, %v", records, err)
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkHeldPlanOfABranchFinishedOnMainNamesTheBranch(r *Rig) error {
+	// The poll that reads the accepted branch stops before it takes the commit in, as a process that stops between two
+	// writes of a tick does, with the request that names the branch still lacking the goal.
+	stop := &atomicCount{}
+	stop.disarm()
+	inner := r.Wrap
+	r.Wrap = func(store ports.Store) ports.Store {
+		if inner != nil {
+			store = inner(store)
+		}
+		return StopAfter(store, "intake.plan", 0, stop)
+	}
+	p, err := newPlanMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, false)
+	if err != nil {
+		return err
+	}
+	onMain := acceptedSource(auditPlanFiles(planning.PlaceholderGoalTitle))
+	if _, err := r.intake(p.store, onMain); err != nil {
+		return err
+	}
+	held, err := r.theOpenPlanApprovalFor(p.store, "Audit trail")
+	if err != nil {
+		return err
+	}
+	if len(planDetailOf(held).Unfinished) == 0 || held.WorkOrder != "" {
+		return Violatedf("the request for the plan held for its goal is %+v", held)
+	}
+	// The planning branch holds the plan unchanged, and the goal with the template's title and measure, which lacks more
+	// than the goal the ledger holds. The member accepts the branch by hand, and intake reads it.
+	p.files = auditPlanFiles(planning.PlaceholderGoalTitle)
+	p.files["audit-goal.md"] = strings.Replace(p.files["audit-goal.md"], "It holds", planning.PlaceholderMeasure, 1)
+	if err := p.accept(); err != nil {
+		return err
+	}
+	stop.off.Store(false)
+	if _, err := p.tick(); !errors.Is(err, ErrStopped) {
+		return Violatedf("the poll that read the branch answered %v, want it stopped", err)
+	}
+	stop.disarm()
+	named, err := r.theOpenPlanApprovalFor(p.store, "Audit trail")
+	if err != nil {
+		return err
+	}
+	if detail := planDetailOf(named); len(detail.Unfinished) == 0 || detail.Source != p.head || named.WorkOrder != p.grant.WorkOrder {
+		return Violatedf("reading the branch left the request %+v, want one that names work order %s at %s and still lacks the goal", named, p.grant.WorkOrder, p.head)
+	}
+	// Main then finishes the goal.
+	onMain.Write("audit-goal.md", []byte(auditPlanFiles("Every change is traced")["audit-goal.md"]))
+	if _, err := r.intake(p.store, onMain); err != nil {
+		return err
+	}
+	again, err := r.theOpenPlanApprovalFor(p.store, "Audit trail")
+	if err != nil {
+		return err
+	}
+	if detail := planDetailOf(again); len(detail.Unfinished) != 0 || detail.Source != p.head || again.WorkOrder != p.grant.WorkOrder ||
+		again.Plan != held.Plan || again.PlanVersion != held.PlanVersion {
+		return Violatedf("the held plan is asked about again as %+v, want version %d finished at %s for work order %s", again, held.PlanVersion, p.head, p.grant.WorkOrder)
+	}
+	if _, err := r.approve(p.store, again, true, theMember); err != nil {
+		return err
+	}
+	records, err := p.integrations()
+	if err != nil {
+		return err
+	}
+	if len(records) != 1 || records[0].ApprovedCommit != p.head || records[0].WorkOrder != p.grant.WorkOrder || records[0].Plan != held.Plan ||
+		records[0].PlanVersion != held.PlanVersion || records[0].ApprovedByID != theMember.ID {
+		return Violatedf("approving the request approved the merge as %+v, want the member's approval of plan %s version %d at %s", records, held.Plan, held.PlanVersion, p.head)
 	}
 	return r.CheckProjection(p.store)
 }

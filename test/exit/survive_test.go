@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -412,7 +413,8 @@ func TestAWorkerRestartsAPaneThatDied(t *testing.T) {
 	}
 }
 
-// TestALaneResetReachesTheCLI holds the one command a tripped lane waits for.
+// TestALaneResetReachesTheCLI holds that the command a tripped lane waits for reaches the control plane, which refuses it
+// for a lane that did not trip.
 func TestALaneResetReachesTheCLI(t *testing.T) {
 	in := newInstall(t)
 	repo := gittest.New(t)
@@ -436,7 +438,8 @@ func TestALaneResetReachesTheCLI(t *testing.T) {
 		code, _, _ := in.run("lane", "show", "lane-1")
 		return code == 0
 	})
-	if text := in.must("lane", "reset", id); !strings.Contains(text, "reset the lane of "+id) {
-		t.Errorf("reset said %q", text)
+	// The lane runs, so its breaker did not trip, and a reset of it is refused.
+	if code, _, stderr := in.run("lane", "reset", id); code != cli.ExitConflict || !strings.Contains(stderr, "only a tripped lane is reset") {
+		t.Errorf("a reset of a lane that did not trip exited %d and said %q", code, stderr)
 	}
 }

@@ -48,7 +48,7 @@ export function OneWayReviewCard({ need, after, frame, onResolved }: Props) {
         <>
           {offers("decision_overturn") ? <OverturnDecisionButton decision={{ ...decision, lineage: [decision.id] }} after={after} /> : null}
           {offers("decision_keep") ? (
-            <Button variant="primary" loading={busy} disabled={busy} data-focus={`Keep ${plainLine(decision.id)}`} onClick={keep}>
+            <Button variant="primary" loading={busy} disabled={busy} aria-label={`Keep ${plainLine(decision.id)}`} data-focus={`Keep ${plainLine(decision.id)}`} onClick={keep}>
               Keep
             </Button>
           ) : null}

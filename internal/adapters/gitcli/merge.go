@@ -17,14 +17,63 @@ import (
 
 var _ ports.BranchMerger = Worktrees{}
 
+// hookEvents are the events of githooks, each of which a hook configured as `hook.<name>.command` may name
+// (https://github.com/git/git/blob/v2.55.0/Documentation/githooks.adoc).
+var hookEvents = []string{
+	"applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit", "prepare-commit-msg", "commit-msg",
+	"post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update", "proc-receive", "post-receive",
+	"post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman",
+	"p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change",
+}
+
 // noHooks keeps every git command of a merge from running a hook the repository holds, through git's
 // configuration in the environment (https://git-scm.com/docs/git-config#ENVIRONMENT): a merge is the worker's
-// effect, and runs no code from the repository it merges.
-var noHooks = [][2]string{{"core.hooksPath", os.DevNull}}
+// effect, and runs no code from the repository it merges. core.hooksPath points at nothing, and each event of githooks
+// is disabled as `hook.<event>.enabled`, so that git 2.55 and later runs no hook of those events, whether or not
+// Git.Hookless found it by name. Earlier versions ignore those keys, and on git 2.54 a hook that scan cannot see, such
+// as one behind an includeIf for a worktree that does not exist yet, or one written after the scan, still runs.
+var noHooks = func() [][2]string {
+	settings := [][2]string{{"core.hooksPath", os.DevNull}}
+	for _, event := range hookEvents {
+		settings = append(settings, [2]string{"hook." + event + ".enabled", "false"})
+	}
+	return settings
+}()
 
 // NoHooks is the configuration that keeps a git command from running a hook, for a caller outside a merge that runs git
 // on a folder it does not trust. A caller sets it as Git.Config.
 func NoHooks() [][2]string { return slices.Clone(noHooks) }
+
+// Hookless is g with the settings that run no repository hook, however git is asked to find one. Since git 2.54 a hook
+// named in the configuration with `hook.<name>.command` runs wherever core.hooksPath points, so each such name the
+// configuration holds now is disabled with `hook.<name>.enabled` (https://git-scm.com/docs/git-hook), beside NoHooks.
+// It keeps g's directory, environment, extra variables, and settings, and reads the names in g's directory, so a
+// directory whose configuration changed since, such as a worktree just made, is read again with a Hookless of its own.
+func (g Git) Hookless(ctx context.Context) (Git, error) {
+	names, err := g.Output(ctx, "config", "--name-only", "--get-regexp", `^hook\..*\.(command|event)$`)
+	var exit *exec.ExitError
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
+		return Git{}, err
+	}
+	// A hook with no name, from `[hook ""]` or a bare `[hook]`, is disabled whatever the configuration holds.
+	g.Config = append(slices.Concat(g.Config, NoHooks()), [2]string{"hook..enabled", "false"})
+	seen := map[string]bool{}
+	for _, event := range hookEvents {
+		seen[event] = true
+	}
+	for line := range strings.Lines(string(names)) {
+		key := strings.TrimSpace(line)
+		name := strings.TrimPrefix(key, "hook.")
+		if dot := strings.LastIndex(name, "."); dot > 0 && name != key {
+			name = name[:dot]
+			if !seen[name] {
+				seen[name] = true
+				g.Config = append(g.Config, [2]string{"hook." + name + ".enabled", "false"})
+			}
+		}
+	}
+	return g, nil
+}
 
 // NoHooksNoSigning is NoHooks plus commit.gpgsign=false, for a caller that makes a commit on a folder it does not
 // trust and must not sign it, whatever the user's git configuration names. A caller sets it as Git.Config.
@@ -91,7 +140,10 @@ func (g Git) must(ctx context.Context, args ...string) (string, error) {
 // that never forces and runs no hook, or with no remote a compare-and-swap of the local base branch, which it
 // refuses while any worktree has the base checked out.
 func (w Worktrees) MergeBranch(ctx context.Context, repository string, merge ports.BranchMerge) (ledger.MergeResult, error) {
-	git := w.git(repository)
+	git, err := w.git(repository).Hookless(ctx)
+	if err != nil {
+		return ledger.MergeResult{}, err
+	}
 	remote, err := remoteOf(ctx, git, merge.Base)
 	if err != nil {
 		return ledger.MergeResult{}, err
@@ -116,7 +168,7 @@ func (w Worktrees) MergeBranch(ctx context.Context, repository string, merge por
 			return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: detail}, err
 		}
 	}
-	made, refusal, err := w.mergeAt(ctx, repository, tip, merge)
+	made, refusal, err := w.mergeAt(ctx, git, tip, merge)
 	if err != nil || refusal != nil {
 		return deref(refusal), err
 	}
@@ -205,9 +257,9 @@ func checkedOut(ctx context.Context, git Git, branch string) (string, error) {
 }
 
 // mergeAt makes the merge in a worktree of its own, detached at the base's tip, and returns the commit it
-// made, or the conflict that stopped it. The worktree goes when it returns, whatever happened in it.
-func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge ports.BranchMerge) (string, *ledger.MergeResult, error) {
-	git := w.git(repository)
+// made, or the conflict that stopped it. The worktree goes when it returns, whatever happened in it. The git given is
+// the repository's, which runs no hook, and the merge's own is the worktree's, which is read for its hooks once it exists.
+func (w Worktrees) mergeAt(ctx context.Context, git Git, tip string, merge ports.BranchMerge) (string, *ledger.MergeResult, error) {
 	dir, err := os.MkdirTemp("", "ropeshift-merge-")
 	if err != nil {
 		return "", nil, err
@@ -235,7 +287,10 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 	if err != nil {
 		return "", nil, err
 	}
-	in := w.git(dir)
+	in, err := w.git(dir).Hookless(ctx)
+	if err != nil {
+		return "", nil, err
+	}
 	if name, err := in.run(ctx, "config", "user.email"); err != nil {
 		return "", nil, err
 	} else if name.code != 0 || name.out == "" {
@@ -286,7 +341,7 @@ func replay(ctx context.Context, in Git, tip string, merge ports.BranchMerge, tr
 		return ran{}, err
 	}
 	for _, commit := range strings.Fields(commits) {
-		picked, err := in.run(ctx, "cherry-pick", "--allow-empty", "--keep-redundant-commits", commit)
+		picked, err := in.run(ctx, "cherry-pick", "--allow-empty", "--keep-redundant-commits", "--cleanup=verbatim", commit)
 		if err != nil || picked.code != 0 {
 			return picked, err
 		}

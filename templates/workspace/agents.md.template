@@ -87,7 +87,7 @@ When two documents disagree, an accepted decision wins over a requirement, a req
 | Approving a plan | `ropeshift plan approve`, or Needs you |
 | Answering a question that reached Needs you | `ropeshift question answer`, or Needs you |
 | Signing in | `eval "$(ropeshift login)"` in a terminal, for one hour |
-| Registering repositories | `make register`, which asks for the passphrase |
+| Registering repositories | `make register`, which asks for the passphrase once |
 | Opening a run window for a subscription worker | `ropeshift worker window-open <worker>` |
 | Merging at `person_merges` | On the forge, or `git merge` of the lane's branch |
 | Changing a repository's settings or a policy | `ropeshift repository set`, `ropeshift policy publish` |

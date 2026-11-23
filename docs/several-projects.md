@@ -54,7 +54,7 @@ In the sidebar, select Settings, then Fleet, under Project. Fleet mode is Runnin
 |------|--------------|
 | Running | The project's work is claimed and its lanes start, within the caps |
 | Paused | No new claim, and no new lane. The lanes that run go on |
-| Draining | As paused, and no new generation either: each running lane finishes its turn, then completes or parks |
+| Draining | Takes no claim and starts no new generation for a lane. Each running lane finishes its turn, bounded by `drain_deadline` (10 minutes by default), then completes or parks. Draining does not end a parked lane |
 
 Pause fleet, Drain fleet, and Run fleet change it at once. Below, the project's caps hold its claims inside the machine's: Work in progress limit, Lanes per repository, and Lanes per worker, where 0 caps nothing. Lanes per worker keeps one project from taking every lane of a machine that serves several. Select Save to keep them.
 
@@ -66,7 +66,7 @@ Pause fleet, Drain fleet, and Run fleet change it at once. Below, the project's 
 In the sidebar, select Projects, under Installation. Each project shows its state, its repositories, what waits in it, and its lanes.
 
 - Back up downloads a copy of the project's ledger as a `.db` file. The copy is made for the download, and nothing of it stays on the daemon's machine. Import backup, on the same page, makes a project from such a file.
-- Archive… makes the project read-only: its views stay, and no lane starts in it until it is restored. Every lane of it must have ended first; draining its fleet lets them end. Select Archive in the dialog.
+- Archive… makes the project read-only: its views stay, and no lane starts in it until it is restored. Every lane of it must have ended first: the refusal reads `lane <id> of project <name> has not ended: drain the project with fleet drain, let running lanes finish, and cancel the work of any parked lane with work cancel`. Draining does not end a parked lane, so before an archive, resume its work with the fleet running and let it finish, or end it with `work cancel`. Select Archive in the dialog.
 
 An archived project waits on nobody, the switcher marks it read-only, and its row offers Restore, which makes it active again, and Remove…, which deletes its ledger after offering a backup.
 

@@ -600,6 +600,53 @@ func TestShowingAPlanListsEachVersionWithItsApprovalState(t *testing.T) {
 	}
 }
 
+// A plan version lists the contracts it held, each as that version had it, and not the newest of every contract the plan
+// has since.
+func TestShowingAPlanVersionListsItsOwnContracts(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	source := retrySource("The first draft.")
+	w.Planned(source)
+	first := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), first.Approval.ID, api.DecideApproval{Digest: first.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	plan := first.Approval.Plan
+	before, err := d.Client.PlanVersion(t.Context(), plan, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Contracts) != 1 || before.Contracts[0].ID == "" {
+		t.Fatalf("version 1 lists %+v before the plan changes", before.Contracts)
+	}
+	original := before.Contracts[0]
+	source.Write("budget.md", []byte("+++\nkind = \"contract\"\nid = \"budget\"\ntitle = \"The budget\"\nplan = \"retry\"\n\n[[criteria]]\nid = \"c1\"\ntext = \"It retries twice\"\n\n[[work_orders]]\nid = \"budget-order\"\ntitle = \"Add the budget\"\nsize = \"small\"\n+++\n\nThe budget, changed.\n"))
+	source.Write("queue.md", []byte("+++\nkind = \"contract\"\nid = \"queue\"\ntitle = \"The queue\"\nplan = \"retry\"\n\n[[criteria]]\nid = \"c1\"\ntext = \"It queues\"\n\n[[work_orders]]\nid = \"queue-order\"\ntitle = \"Add the queue\"\nsize = \"small\"\n+++\n\nThe queue.\n"))
+	w.Planned(source)
+	one, err := d.Client.PlanVersion(t.Context(), plan, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one.Contracts) != 1 || one.Contracts[0].ID != original.ID || one.Contracts[0].Version != original.Version || one.Contracts[0].Digest != original.Digest {
+		t.Errorf("version 1 lists %+v, want the one contract as it had it: %+v", one.Contracts, original)
+	}
+	two, err := d.Client.PlanVersion(t.Context(), plan, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(two.Contracts) != 2 {
+		t.Fatalf("version 2 lists %+v, want both contracts", two.Contracts)
+	}
+	for _, contract := range two.Contracts {
+		if contract.ID == original.ID && (contract.Version == original.Version || contract.Digest == original.Digest) {
+			t.Errorf("version 2 lists the changed contract as version 1 had it: %+v", contract)
+		}
+	}
+	if current, err := d.Client.Plan(t.Context(), plan); err != nil || len(current.Contracts) != 2 {
+		t.Errorf("the plan with no version lists %+v: %v", current.Contracts, err)
+	}
+}
+
 func TestShowingAPlanByVersionReadsThatVersionsApproval(t *testing.T) {
 	d, plan := approvedThenChanged(t)
 	first, err := d.Client.PlanVersion(t.Context(), plan, 1)

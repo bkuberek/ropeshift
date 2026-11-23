@@ -58,6 +58,9 @@ func TestAMemberKeepsAnOrchestratorsOneWayDecision(t *testing.T) {
 	if kept.ID != questions.KeptDecisionID(old.ID) || kept.Supersedes != old.ID || kept.DecidedBy != projectMember.ID {
 		t.Errorf("the kept decision is %+v, want %s by the member, replacing %s", kept, questions.KeptDecisionID(old.ID), old.ID)
 	}
+	if old.QuestionID == "" || kept.QuestionID != old.QuestionID {
+		t.Errorf("the kept decision answers question %q, want the question %q the decision it replaces answered", kept.QuestionID, old.QuestionID)
+	}
 	if !kept.SameContent(old) || kept.Status != questions.DecisionDecided || kept.Reversibility != questions.OneWay {
 		t.Errorf("the kept decision is %+v, want the content of %+v", kept, old)
 	}
@@ -118,6 +121,26 @@ func TestKeepNeedsADecisionInForce(t *testing.T) {
 	}
 	if _, err := ruled.Keep(ctx, "pa", old.ID, projectMember); !errors.Is(err, questions.ErrDecisionEnded) {
 		t.Errorf("a Keep of an overturned decision: %v, want %v", err, questions.ErrDecisionEnded)
+	}
+}
+
+// TestASecondKeepAfterAnOverturnIsRefused holds that a retry of Keep finds the decision the first Keep recorded only
+// while it stands: once a member overturned the kept decision, a Keep of the original is a Keep of a decision that
+// ended, and returns neither the overturned decision nor a new one.
+func TestASecondKeepAfterAnOverturnIsRefused(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	old := anOrchestratorsOneWayDecision(t, r)
+	ruled := control.NewQuestions(r.stores["pa"], questions.BatchPolicy{})
+	kept, err := ruled.Keep(ctx, "pa", old.ID, projectMember)
+	if err != nil {
+		t.Fatalf("keeping the decision: %v", err)
+	}
+	if _, err := ruled.Overturn(ctx, "pa", kept.ID, questions.Overturn{DecisionID: "overturned-kept", Statement: "One repository."}, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := ruled.Keep(ctx, "pa", old.ID, projectMember); !errors.Is(err, questions.ErrDecisionEnded) {
+		t.Errorf("a second Keep after the kept decision was overturned read %+v: %v, want %v", again, err, questions.ErrDecisionEnded)
 	}
 }
 

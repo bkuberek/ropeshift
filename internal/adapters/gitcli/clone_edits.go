@@ -257,7 +257,22 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 	if len(commits) > editsCommits {
 		commits, out.Cut = commits[:editsCommits], true
 	}
+	// Where a merge ends is no push, so a commit with a line like a trailer, such as one quoted from a pull request's
+	// description, still ends a range or a merge with no range, though it is left out of the pushes. Those ends are read
+	// with the same listing and bound as the pushes, but for the filter, only when something landed names an end. A merge
+	// ropeshift makes with git records neither a range nor a pull request, so reading its commits hides nothing more of
+	// theirs.
 	ends := slices.Clone(commits)
+	if len(landed.Ranges) != 0 || len(landed.Unranged) != 0 {
+		every, err := git.Text(ctx, "--no-optional-locks", "log", "--first-parent", "--no-merges",
+			"--format=%H", "--max-count="+strconv.Itoa(editsCommits+1), fork+".."+base, "--")
+		if err != nil {
+			return ledger.Divergence{}, err
+		}
+		if ends = strings.Fields(every); len(ends) > editsCommits {
+			ends = ends[:editsCommits]
+		}
+	}
 	unranged := slices.Clone(landed.Unranged)
 	for _, span := range landed.Ranges {
 		// A range counts only when it ends at a commit this side lists.
@@ -265,17 +280,26 @@ func (w Worktrees) Diverged(ctx context.Context, clone, branch, baseBranch strin
 			continue
 		}
 		// A rebase's range begins at an ancestor of where it ends. One that does not, or whose first end the clone does not
-		// hold, is no range, and the merge it came from is one with no range.
+		// hold, is no range, and the merge it came from is one with no range. A merge-base that fails any other way is
+		// a failed read, because taking it for a merge with no range would hide what people pushed.
+		if _, missing, err := cloneCommit(ctx, git, span.Before); err != nil {
+			return ledger.Divergence{}, err
+		} else if missing || span.Before == span.After {
+			unranged = append(unranged, span.After)
+			continue
+		}
 		ancestor, err := git.run(ctx, "merge-base", "--is-ancestor", span.Before, span.After)
 		if err == nil {
 			err = ctx.Err()
 		}
-		if err != nil {
+		switch {
+		case err != nil:
 			return ledger.Divergence{}, err
-		}
-		if ancestor.code != 0 || span.Before == span.After {
+		case ancestor.code == 1:
 			unranged = append(unranged, span.After)
 			continue
+		case ancestor.code != 0:
+			return ledger.Divergence{}, fmt.Errorf("git merge-base --is-ancestor %s %s: exit %d: %s", span.Before, span.After, ancestor.code, ancestor.stderr)
 		}
 		inside, err := git.run(ctx, "--no-optional-locks", "rev-list", "--first-parent", "--max-count="+strconv.Itoa(editsCommits), "--end-of-options", span.After, "^"+span.Before)
 		if err == nil {

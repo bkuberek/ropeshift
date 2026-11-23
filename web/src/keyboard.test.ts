@@ -467,7 +467,7 @@ const paths: Record<string, KeyPath> = {
   // The one-way decision an unattended orchestrator made waits in Needs you, where Keep records it as the member's.
   "POST /v1/projects/{project}/decisions/{id}/keep": {
     sent: post(/^\/v1\/projects\/default\/decisions\/d-repositories\/keep$/),
-    run: decide("Keep one repository per service.", "Keep"),
+    run: decide("Keep one repository per service.", "Keep d-repositories"),
   },
   "POST /v1/projects/{project}/work-orders/{id}/claims": {
     sent: post(/^\/v1\/projects\/default\/work-orders\/generated-28\/claims$/),
