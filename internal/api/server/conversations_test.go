@@ -587,6 +587,35 @@ func TestAMessageToTheOrchestratorOrTheAssistantOnTheGeneralPath(t *testing.T) {
 	}
 }
 
+// A message to an orchestrator whose run ended is refused, as one to a stopped orchestrator is, because no worker runs
+// an ended run again and nothing would read it. Once a member starts the next run, a message reaches it.
+func TestAMessageToAnEndedOrchestratorIsRefused(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	row, err := d.workers.SetOrchestrator(ctx, d.auth.WorkerID, ledger.OrchestratorRunning, talkMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonSpawnFailed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.seq++
+	if _, err := d.workers.Upload(ctx, ledger.UploadBatch{Auth: d.auth, Epoch: d.epoch, Events: []ledger.UploadEvent{{
+		Epoch: d.epoch, Seq: d.seq, Type: ledger.UploadLaneEnded, Lane: row.Lane(), Generation: 1, Payload: raw, OccurredAt: 1,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.client.SendMessage(ctx, messages.Draft{ID: "m-ended", To: messages.To(messages.TargetOrchestrator, d.auth.WorkerID, 0), Kind: messages.KindInstruction, Body: "Look"})
+	refusedWith(t, err, http.StatusConflict, api.CodeTargetNotRunning)
+	if _, err := d.workers.SetOrchestrator(ctx, d.auth.WorkerID, ledger.OrchestratorRunning, talkMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.SendMessage(ctx, messages.Draft{ID: "m-next", To: messages.To(messages.TargetOrchestrator, d.auth.WorkerID, 0), Kind: messages.KindInstruction, Body: "Look"}); err != nil {
+		t.Errorf("a message to the next run: %v", err)
+	}
+}
+
 // A headless lane's stream holds the member's messages to it with their delivery state, the events about
 // it and its work, and its requests, oldest first, in pages that go back with `before`.
 func TestALanesStreamPagesBack(t *testing.T) {
