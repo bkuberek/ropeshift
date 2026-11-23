@@ -52,6 +52,9 @@ type fixture struct {
 	Matrix string `json:"matrix,omitempty"`
 	// ProbeDrops names the surfaces a qualification probe's session leaves out or changes.
 	ProbeDrops []string `json:"probe_drops,omitempty"`
+	// PeerShape selects the shape of a peer's replay and hold lines: empty is the one of 2.1.316 to 2.1.319, and
+	// `origin` is the one of 2.1.330 (peerShapeOrigin).
+	PeerShape string `json:"peer_shape,omitempty"`
 	// UsageText is what `/usage` prints.
 	UsageText string `json:"usage_text,omitempty"`
 	// ProjectHooks runs the hooks of the project settings in the session's directory too, as a run
@@ -204,6 +207,8 @@ type session struct {
 	deferred bool
 	// peers is what the socket read, which a turn can take between its tool calls.
 	peers chan string
+	// cliIDs counts the IDs this process gave lines of its own (cliID).
+	cliIDs int
 }
 
 func main() {
@@ -585,26 +590,20 @@ func (s *session) admits(line string) bool {
 		return false
 	case "hold":
 		if !dropped("peer_message_hold") {
-			s.emit(map[string]any{"type": "system", "subtype": "peer_message_hold", "state": "held", "message_uuid": messageID(line)})
+			s.emit(s.peerHoldLine(line))
 		}
-		s.receipt(line, "held", "")
+		if !dropped("held_receipt") {
+			s.receipt(line, "held", "")
+		}
 		return false
 	}
 	s.hook("UserPromptSubmit", map[string]any{"prompt": messageText(line)})
 	return true
 }
 
-// replayPeer is the headless acknowledgement: the sender's `uuid`, with a peer's origin. A build
-// that changed the line answers with an ID of its own.
+// replayPeer writes the headless acknowledgement of a socket message (peerReplayLine).
 func (s *session) replayPeer(line string) {
-	id := messageID(line)
-	if dropped("uuid") {
-		id = "00000000-0000-4000-8000-00000000beef"
-	}
-	s.emit(map[string]any{
-		"type": "user", "isReplay": true, "uuid": id, "origin": map[string]any{"kind": "peer"},
-		"message": map[string]any{"role": "user", "content": messageText(line)},
-	})
+	s.emit(s.peerReplayLine(line))
 }
 
 // receipt answers a reply address, which the receiver does only in its own socket directory.
