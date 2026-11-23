@@ -63,7 +63,7 @@ func TestAnAttemptKeptAtAProbesEndNeverReplacesANewerOne(t *testing.T) {
 		t.Fatal("the first probe's end never kept its attempt")
 	}
 
-	// The installed version moves while that end waits to be kept, and the next look probes it.
+	// The installed version moves while that end waits to be kept, and a look at it finds the first probe still the one that runs.
 	r.driver.SetVersion("2.0.0", true)
 	r.clock.Advance(2 * time.Minute)
 	looked := make(chan struct{})
@@ -75,8 +75,17 @@ func TestAnAttemptKeptAtAProbesEndNeverReplacesANewerOne(t *testing.T) {
 	}()
 	// Time and not a signal lets a probe that is free to begin do so.
 	time.Sleep(300 * time.Millisecond)
+	if n := len(r.driver.Probes()); n != 1 {
+		t.Errorf("%d probes had begun while the first one's end was still to be kept, want the first alone", n)
+	}
 	journal.let()
 	<-looked
+	r.subject.Wait()
+	// The look after the end was kept probes the version that moved.
+	r.clock.Advance(2 * time.Minute)
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	r.subject.Wait()
 	if n := len(r.driver.Probes()); n != 2 {
 		t.Fatalf("%d probes, want one of each version", n)

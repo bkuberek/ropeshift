@@ -253,21 +253,24 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	ownResult, passed := false, false
 	defer func() {
 		w.qualLock.Lock()
-		w.probe = nil
 		w.noteProbeLocked(p.version, passed)
 		attempt := w.attemptLocked(p)
 		if !ownResult {
 			// Hands the driver the last result the worker holds, which names no version this probe checked.
 			w.handOverLocked()
 		}
+		w.qualLock.Unlock()
 		// The wait goes in the journal with the attempt, so a restart goes on from it. A probe the worker's own stop cut short
-		// proved nothing of its version, so a restart does not wait on it. The save replaces the one before it, so it is
-		// made before the lock is let go: no probe begins before then, and none keeps its own attempt for this one to replace.
+		// proved nothing of its version, so a restart does not wait on it. The save replaces the one before it, so no probe
+		// begins before it is made: this probe stays the one that runs until then, and no other keeps an attempt for this
+		// one to replace. The journal is written with the qualification lock let go.
 		if life.Err() == nil {
 			if err := w.journal.SaveProbeAttempt(life, attempt); err != nil {
 				w.config.Report(fmt.Errorf("recording the wait after the probe of %s: %w", p.version, err))
 			}
 		}
+		w.qualLock.Lock()
+		w.probe = nil
 		w.qualLock.Unlock()
 		w.laneMoved()
 	}()
