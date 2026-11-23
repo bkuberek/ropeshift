@@ -320,6 +320,9 @@ func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report worko
 	}
 	report.Detail = ""
 	if run := w.runOf(lane.ID); run != nil {
+		if err := run.holdsToItsQuestions(ctx, report); err != nil {
+			return refused(lanes.CodeInvalid, err.Error())
+		}
 		if err := run.holdsToItsWork(report); err != nil {
 			return refused(lanes.CodeInvalid, err.Error())
 		}

@@ -641,3 +641,66 @@ func TestNoGeneratedSettingUsesABypassMode(t *testing.T) {
 		}
 	}
 }
+
+// A lane that writes and a lane that only reads have the hook ask for a read outside the worktree, its resolved
+// path, the read-only trees, and the lane's private directory, and the hook denies none: the assistant is the one
+// session whose reads are denied past its roots.
+func TestALanesPolicyAsksForReadsOutsideItsRoots(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(base, "real", "lane-1")
+	reads := filepath.Join(base, "reads", "api")
+	linked := filepath.Join(base, "reads-link")
+	temp := filepath.Join(base, "run", "lane-1")
+	for _, dir := range []string{real, reads, temp} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "lane-link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(reads, linked); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*ports.SessionSpec){
+		"writes":    func(*ports.SessionSpec) {},
+		"read-only": func(spec *ports.SessionSpec) { spec.ReadOnly = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := policySpec(t)
+			spec.Dir, spec.ReadOnlyDirs, spec.TempDir = link, []string{linked}, temp
+			change(&spec)
+			policy := compilePolicy(spec)
+			for _, want := range []string{link, real, linked, reads, temp} {
+				if !slices.Contains(policy.AskReadRoots, want) {
+					t.Errorf("ask read roots %v lack %s", policy.AskReadRoots, want)
+				}
+			}
+			if len(policy.ReadRoots) != 0 {
+				t.Errorf("a lane's reads are denied past %v", policy.ReadRoots)
+			}
+			if _, asks := policy.WithRealPaths(filepath.EvalSymlinks).Asks(lanes.ToolCall{Tool: "Read", Path: "/tmp/elsewhere", Cwd: real}); !asks {
+				t.Error("a read under /tmp does not ask")
+			}
+			if _, asks := policy.WithRealPaths(filepath.EvalSymlinks).Asks(lanes.ToolCall{Tool: "Read", Path: filepath.Join(reads, "x.go"), Cwd: real}); asks {
+				t.Error("a read in a read-only tree asks")
+			}
+		})
+	}
+}
+
+func TestAnAssistantsReadRootsDenyAndNeverAsk(t *testing.T) {
+	spec := policySpec(t)
+	spec.Assistant = true
+	policy := compilePolicy(spec)
+	if len(policy.ReadRoots) == 0 {
+		t.Error("the assistant's reads are held to no roots")
+	}
+	if len(policy.AskReadRoots) != 0 {
+		t.Errorf("the assistant's reads ask past %v", policy.AskReadRoots)
+	}
+}

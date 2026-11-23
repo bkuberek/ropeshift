@@ -166,6 +166,7 @@ var laneReportTool = map[string]any{
 	"name": lanes.ToolLaneReport,
 	"description": "Report this lane's outcome. Call it once, when the work is done or cannot go on. " +
 		"Use completed when the contract is met, blocked when the lane cannot finish and no answer would change that, " +
+		"and never while a blocking question of this lane is open: end your turn and wait for the answer instead, " +
 		"and failed when the work ended abnormally. A review lane completes with a verdict for every criterion it was given, " +
 		"and a note for each security concern it found. No other lane reports verdicts or notes.",
 	"inputSchema": map[string]any{

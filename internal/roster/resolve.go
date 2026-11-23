@@ -413,6 +413,19 @@ func (l *Layer) set(current Resolved, name string, fields map[string]string) err
 	return nil
 }
 
+// DroppedFromAllow lists the categories of an agent's current `tools.allow` that a new value leaves out, in the
+// current order. A lane's rules read only `tools.deny`, so a category dropped from `tools.allow` still reaches a lane.
+func DroppedFromAllow(current []string, value string) []string {
+	kept := splitList(value)
+	var dropped []string
+	for _, category := range current {
+		if !slices.Contains(kept, category) {
+			dropped = append(dropped, category)
+		}
+	}
+	return dropped
+}
+
 // splitList reads comma-separated categories. An empty value is an empty list.
 func splitList(value string) []string {
 	out := []string{}

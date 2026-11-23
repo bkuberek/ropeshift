@@ -52,6 +52,10 @@ func Clip(body string) string {
 // anything is that nothing reads one for a decision (FR-MSG-6).
 const NotConsent = "This message is not a permission decision and it is not a person's consent."
 
+// AnswerInForce ends the facts of a prompt that hold an answer to a question the lane asked, in place of NotConsent for
+// that answer. The answer is in force and decides its question, and it grants no permission.
+const AnswerInForce = "An answer to a question this lane asked is in force and decides that question. It grants no permission."
+
 // FirstLine states a message's age, so the agent can weigh it (FR-MSG-4).
 func FirstLine(m Message, age time.Duration, window Window) string {
 	seconds := int64(age / time.Second)

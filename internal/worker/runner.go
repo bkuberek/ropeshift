@@ -869,6 +869,12 @@ const maxFailureDetail = 500
 // repository, a terminal, or a process, so it is plain text on one line, cut on a rune boundary. An orchestrator's
 // start that failed starts again instead (startFailed), and the outcome is what its run ends with when it cannot.
 func (r *laneRun) failStart(reason string, err error) workorders.Report {
+	if r.life != nil && r.life.Err() != nil {
+		// A worker on its way out cut the start off, so the lane is not over: the next worker starts it again from the
+		// journal, and no attempt is used.
+		r.departed.Store(true)
+		return failed(workorders.ReasonWorkerRestarted)
+	}
 	r.w.config.Report(fmt.Errorf("lane %s: %s: %w", r.lease.Lane, reason, err))
 	report := failed(reason)
 	report.Detail = failureDetail(err)
@@ -925,6 +931,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.refuseStart(err)
 	}
 	if r.orchestrating() && !r.assisting() && !r.awaitWake(ctx) {
+		// A stop fences the run, and only a worker on its way out cancels the context.
+		if r.fenced.Load() {
+			return failed(workorders.ReasonFenced)
+		}
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	if r.assisting() {
@@ -1080,6 +1090,12 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.parkOnScreen(ctx)
 	}
 	if err != nil {
+		// A worker on its way out cut the start off, so the lane is not over: the next worker starts it again from the
+		// journal, as it does a lane the watch left, and no attempt is used.
+		if ctx.Err() != nil {
+			r.departed.Store(true)
+			return failed(workorders.ReasonWorkerRestarted)
+		}
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	if !ran {

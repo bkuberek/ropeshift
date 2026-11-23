@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,20 +58,16 @@ var adoptionStaged = map[string]string{
 // matter above its prose, writes the plan's files, and commits them on its own branch.
 func adoptLane(t *testing.T) string {
 	t.Helper()
-	staged := t.TempDir()
-	for name, text := range adoptionStaged {
-		path := filepath.Join(staged, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			t.Fatal(err)
+	// The lane writes the plan's files and the front matter in its worktree, as the agent does, and reads nothing outside it.
+	onboard := "test -s " + lanes.InventoryFile + " && grep -q feature/retry " + lanes.InventoryFile +
+		" && printf %s " + shellQuote(adoptionStaged["requirements-front-matter"]) + " | cat - docs/requirements.md > requirements.onboarded" +
+		" && mv requirements.onboarded docs/requirements.md && mkdir -p plans"
+	for _, name := range slices.Sorted(maps.Keys(adoptionStaged)) {
+		if strings.HasPrefix(name, "plans/") {
+			onboard += " && printf %s " + shellQuote(adoptionStaged[name]) + " > " + name
 		}
 	}
-	onboard := "test -s " + lanes.InventoryFile + " && grep -q feature/retry " + lanes.InventoryFile +
-		" && cat " + filepath.Join(staged, "requirements-front-matter") + " docs/requirements.md > requirements.onboarded" +
-		" && mv requirements.onboarded docs/requirements.md && cp -R " + filepath.Join(staged, "plans") + " ." +
-		" && git add docs plans && git -c user.name=planner -c user.email=planner@example.com commit -q -m 'Onboard the shop'"
+	onboard += " && git add docs plans && git -c user.name=planner -c user.email=planner@example.com commit -q -m 'Onboard the shop'"
 	fixture, err := json.Marshal(map[string]any{
 		"source": "an adopt lane that onboards the requirements and writes the plan",
 		"turns": [][]map[string]any{{

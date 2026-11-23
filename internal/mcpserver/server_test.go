@@ -61,6 +61,7 @@ type answer struct {
 	Result struct {
 		Tools []struct {
 			Name        string         `json:"name"`
+			Description string         `json:"description"`
 			InputSchema map[string]any `json:"inputSchema"`
 		} `json:"tools"`
 		IsError bool `json:"isError"`
@@ -560,4 +561,18 @@ func TestEveryRecoveryToolTakesAWorkOrderAndAReason(t *testing.T) {
 	if found != len(lanes.RecoveryTools) {
 		t.Errorf("listed %d of %d recovery tools", found, len(lanes.RecoveryTools))
 	}
+}
+
+// A lane reads, before it reports, that blocked is not for a lane whose own question is open.
+func TestTheReportToolSaysNotToReportBlockedWhileAQuestionIsOpen(t *testing.T) {
+	for _, tool := range ask(t, &worker{}, "tools/list", map[string]any{}).Result.Tools {
+		if tool.Name != lanes.ToolLaneReport {
+			continue
+		}
+		if !strings.Contains(tool.Description, "never while a blocking question of this lane is open: end your turn and wait for the answer") {
+			t.Errorf("the description reads %q", tool.Description)
+		}
+		return
+	}
+	t.Fatal("no report tool")
 }

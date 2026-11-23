@@ -46,7 +46,7 @@ func (c *invocation) workCreate(args []string) int {
 	set.StringVar(&request.Size, "size", "", "small, medium, or large")
 	set.StringVar(&request.Agent, "agent", "", "the roster agent the work's lane runs as, in place of the default mapping's")
 	set.StringVar((*string)(&request.Kind), "kind", "", "change, the default, or plan")
-	set.StringVar(&request.RepositoryID, "repository", "", "the repository its lane runs in, as source list names it")
+	set.StringVar(&request.RepositoryID, "repository", "", "the repository its lane runs in: its ID, its name, or a prefix of its ID, as repository list shows them")
 	set.Int64Var(&request.Priority, "priority", 0, "the priority")
 	set.Var(&criteria, "criterion", "an acceptance criterion, repeatable")
 	set.Var(&dependsOn, "depends-on", "a work order this one needs, repeatable")
@@ -80,6 +80,16 @@ func (c *invocation) workCreate(args []string) int {
 		return exit
 	}
 	defer client.Close()
+	if request.RepositoryID != "" {
+		id, unknown, err := c.repositoryNamed(client, request.RepositoryID)
+		if err != nil {
+			return c.failure(err)
+		}
+		if unknown {
+			return c.usageError("no repository has the ID, name, or ID prefix %q; `repository list` shows what is registered", request.RepositoryID)
+		}
+		request.RepositoryID = id
+	}
 	created, err := client.CreateWorkOrder(c.ctx, request)
 	return c.finish(err, created, func() string { return orderLine(created) })
 }

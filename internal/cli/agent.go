@@ -226,7 +226,38 @@ func (c *invocation) agentSet(args []string) int {
 		}
 		fields[field] = text
 	}
-	return c.changeRoster(*installation, roster.Change{Op: roster.OpSet, Agent: positional[0], Fields: fields})
+	var dropped []string
+	if value, set := fields["tools.allow"]; set {
+		dropped = c.droppedFromAllow(*installation, positional[0], value)
+	}
+	code := c.changeRoster(*installation, roster.Change{Op: roster.OpSet, Agent: positional[0], Fields: fields})
+	if code == ExitOK && len(dropped) != 0 {
+		fmt.Fprintf(c.stderr, "warning: tools.allow no longer lists %s, but a lane's rules read only tools.deny, so a lane can still use "+
+			"what tools.allow leaves out. To keep a category out of lanes, add it to tools.deny.\n", strings.Join(dropped, ", "))
+	}
+	return code
+}
+
+// droppedFromAllow lists the categories a new `tools.allow` leaves out of what the agent allows now. A roster it cannot
+// read, or a scope the change does not name, lists none: the change reports its own errors.
+func (c *invocation) droppedFromAllow(installation bool, agent, value string) []string {
+	if !installation && c.project == "" {
+		return nil
+	}
+	scope, code := c.changeScope(installation)
+	if code != ExitOK {
+		return nil
+	}
+	defer scope.close()
+	view, err := scope.view(c)
+	if err != nil {
+		return nil
+	}
+	current, found := view.Roster.Agent(agent)
+	if !found {
+		return nil
+	}
+	return roster.DroppedFromAllow(current.Tools.Allow, value)
 }
 
 // fileValue reads `@<file>` for the fields that hold text, and takes every other value as it stands.

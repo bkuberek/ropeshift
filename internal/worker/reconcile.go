@@ -92,6 +92,12 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 	started := w.clock.Now()
 	failure := perform()
 	steps.performed()
+	if failure != nil && ctx.Err() != nil && effect.Kind == lanes.EffectSession {
+		// A worker on its way out cut the start off. The effect stays begun and unfinished, which the plan reads as a
+		// session never started, so the next worker starts this generation, and a finished effect would read as a
+		// session that ended.
+		return true, failure
+	}
 	state, detail := lanes.EffectCompleted, ""
 	if failure != nil {
 		state, detail = lanes.EffectFailed, failure.Error()

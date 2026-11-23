@@ -29,7 +29,7 @@ func (c *invocation) messageSend(args []string) int {
 	var draft messages.Draft
 	kind := string(messages.KindInstruction)
 	set.StringVar(&draft.ID, "id", "", "a client-generated ID")
-	set.StringVar(&kind, "kind", kind, "instruction, notice, answer, or decision_notice")
+	set.StringVar(&kind, "kind", kind, "instruction, notice, or decision_notice")
 	set.StringVar(&draft.Body, "body", "", "what the message says")
 	set.StringVar(&draft.ReplyTo, "reply-to", "", "what this answers")
 	set.Int64Var(&draft.To.Generation, "generation", 0, "the generation it is for, the current one when left out")

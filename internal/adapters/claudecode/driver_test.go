@@ -1150,3 +1150,58 @@ func TestADelegateCredentialPassesTheShimToTheSession(t *testing.T) {
 		t.Errorf("the token's file stays: %v", leftover)
 	}
 }
+
+// cancelsAfterShim cancels a context as soon as the shim of a start is running, which is where a stopping daemon cuts
+// a start off: after the shim started and before the brief was written.
+type cancelsAfterShim struct {
+	ports.ProcessRunner
+	cancel context.CancelFunc
+	mu     sync.Mutex
+	shim   ports.Process
+}
+
+func (r *cancelsAfterShim) Start(ctx context.Context, spec ports.ProcessSpec) (ports.Process, error) {
+	process, err := r.ProcessRunner.Start(ctx, spec)
+	if err == nil && slices.Contains(spec.Args, "lane-shim") {
+		r.mu.Lock()
+		r.shim = process
+		r.mu.Unlock()
+		r.cancel()
+	}
+	return process, err
+}
+
+// A start the daemon's stop cuts off after its shim started leaves no shim behind, so the retry of the next worker
+// starts the generation clean and writes its brief, and does not adopt a session that never got one.
+func TestAStartCutOffAfterItsShimStartedLeavesNoShimAndTheRetryStartsClean(t *testing.T) {
+	_, path, spec := session(t, "stopped-turn", nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	runner := &cancelsAfterShim{ProcessRunner: osexec.Runner{}, cancel: cancel}
+	cut := claudecode.New(runner, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second, ShimLinger: 200 * time.Millisecond})
+	_, err := cut.Start(ctx, spec)
+	if err == nil {
+		t.Fatal("a start whose context ended succeeded")
+	}
+	t.Logf("the cut-off start: %v", err)
+	runner.mu.Lock()
+	shim := runner.shim
+	runner.mu.Unlock()
+	if shim == nil {
+		t.Fatal("no shim started")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(shim.PID(), syscall.SIGKILL) })
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !errors.Is(syscall.Kill(shim.PID(), 0), syscall.ESRCH) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := syscall.Kill(shim.PID(), 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("the shim %d of the cut-off start is still running: %v", shim.PID(), err)
+	}
+	next := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second, ShimLinger: 200 * time.Millisecond})
+	handle, err := next.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatalf("the retry: %v", err)
+	}
+	defer func() { _ = next.Stop(context.Background(), handle, ports.StopNow) }()
+}

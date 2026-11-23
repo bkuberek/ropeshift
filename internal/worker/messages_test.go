@@ -30,11 +30,35 @@ func (r *laneRig) send(t *testing.T, id string, kind messages.Kind, change func(
 	if change != nil {
 		change(&draft)
 	}
+	if kind == messages.KindAnswer {
+		return r.answered(t, id, draft.Body)
+	}
 	m, err := control.NewMessages(r.store, nil).Send(t.Context(), scope, draft, member)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return m
+}
+
+// answered has the lane ask a question and a member answer it, which is the one way a lane is sent an answer, and
+// returns the message the answer made. Its ID is derived from the question, which answerID gives for the ID named here.
+func (r *laneRig) answered(t *testing.T, id, statement string) messages.Message {
+	t.Helper()
+	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
+	question := "q-" + id
+	if _, err := ops.Ask(t.Context(), scope, questions.Ask{ID: question, Text: "Which retry budget?", Lane: "lane-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	answer := questions.Answer{DecisionID: "d-" + question, Statement: statement, Rationale: "It is what the contract tests."}
+	if _, err := ops.Answer(t.Context(), scope, question, answer, member); err != nil {
+		t.Fatal(err)
+	}
+	return r.message(t, answerID(id))
+}
+
+// answerID is the ID of the message the answer to the question that answered(id) asked is sent as.
+func answerID(id string) string {
+	return messages.DerivedID(string(messages.KindAnswer), "q-"+id, "lane-1")
 }
 
 // beat is one heartbeat's worth of work, by hand: it reads desired state, reconciles, and uploads.
@@ -752,14 +776,14 @@ func TestAReplyCanNameAFactItsPromptStated(t *testing.T) {
 	var reply lanes.Reply
 	r := parkedWithAFact(t, func(r *laneRig) fake.DriverScript {
 		return script([]fake.DriverStep{{Bound: true}, {Do: func(spec ports.SessionSpec) {
-			reply = replyAs(t, r.subject, spec, "m-1", "Seen.")
+			reply = replyAs(t, r.subject, spec, answerID("m-1"), "Seen.")
 		}}, r.reports(workorders.OutcomeCompleted), completed(0.01)})
 	})
 	r.resumed(t)
 	if !reply.OK {
 		t.Fatalf("%+v", reply)
 	}
-	if got := r.awaitMessage(t, "m-1", messages.Replied); got.Reply != "Seen." {
+	if got := r.awaitMessage(t, answerID("m-1"), messages.Replied); got.Reply != "Seen." {
 		t.Errorf("%+v", got)
 	}
 }
@@ -783,10 +807,10 @@ func TestAFactReachesTheFirstPromptOfAResume(t *testing.T) {
 	if got := r.driver.Resumed(); len(got) != 1 {
 		t.Fatalf("resumed %+v", got)
 	}
-	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, "Use two retries.") || !strings.Contains(brief, messages.NotConsent) {
+	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, "Use two retries.") || !strings.Contains(brief, messages.AnswerInForce) || strings.Contains(brief, messages.NotConsent) {
 		t.Errorf("the first prompt:\n%s", brief)
 	}
-	r.settledIn(t, "m-1", 2)
+	r.settledIn(t, answerID("m-1"), 2)
 	r.subject.Wait()
 }
 
@@ -809,7 +833,7 @@ func TestAFactReachesTheBriefOfAFreshGeneration(t *testing.T) {
 	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, "Use two retries.") {
 		t.Errorf("the brief:\n%s", brief)
 	}
-	r.settledIn(t, "m-1", 2)
+	r.settledIn(t, answerID("m-1"), 2)
 	r.subject.Wait()
 }
 
@@ -840,7 +864,7 @@ func TestAStatedFactIsKeptBeforeItsSessionStarts(t *testing.T) {
 	r.pass(t)
 	r.awaitOrder(t, workorders.Acceptance)
 	r.subject.Wait()
-	if !slices.Contains(kept, "m-1") {
+	if !slices.Contains(kept, answerID("m-1")) {
 		t.Errorf("a session started with %v kept", kept)
 	}
 }
@@ -874,7 +898,7 @@ func TestAStatedFactTakesAReplyAfterTheWorkerRestarts(t *testing.T) {
 	if _, err := next.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if reply := replyAs(t, next, spec, "m-1", "Seen."); !reply.OK {
+	if reply := replyAs(t, next, spec, answerID("m-1"), "Seen."); !reply.OK {
 		t.Fatalf("%+v", reply)
 	}
 	driver.StopEverySession()

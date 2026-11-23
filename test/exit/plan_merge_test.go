@@ -32,16 +32,13 @@ const (
 // writesThePlan is a planning lane that writes the plan's files and commits them on its branch.
 func writesThePlan(t *testing.T) string {
 	t.Helper()
-	staged := filepath.Join(t.TempDir(), "plans")
-	if err := os.MkdirAll(staged, 0o700); err != nil {
-		t.Fatal(err)
+	// The lane writes the plan's files in its worktree, as the agent does, and reads nothing outside it.
+	commit := "mkdir -p plans"
+	for _, name := range []string{"plan.md", "budget.md"} {
+		text := map[string]string{"plan.md": mergedPlan, "budget.md": budgetText + budgetBody}[name]
+		commit += " && printf %s " + shellQuote(text) + " > plans/" + name
 	}
-	for name, text := range map[string]string{"plan.md": mergedPlan, "budget.md": budgetText + budgetBody} {
-		if err := os.WriteFile(filepath.Join(staged, name), []byte(text), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	commit := "cp -R " + staged + " . && git add plans && git -c user.name=planner -c user.email=planner@example.com commit -q -m 'Plan the retry budget'"
+	commit += " && git add plans && git -c user.name=planner -c user.email=planner@example.com commit -q -m 'Plan the retry budget'"
 	fixture, err := json.Marshal(map[string]any{
 		"source": "a planning lane that writes a plan and its contract",
 		"turns": [][]map[string]any{{

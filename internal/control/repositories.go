@@ -633,6 +633,11 @@ func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, na
 	if err != nil {
 		return ledger.Repository{}, err
 	}
+	return repositoryAnswering(all, name)
+}
+
+// repositoryAnswering is Resolve over the records it was given.
+func repositoryAnswering(all []ledger.Repository, name string) (ledger.Repository, error) {
 	for _, record := range all {
 		if record.ID == name {
 			return record, nil

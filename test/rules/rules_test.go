@@ -381,9 +381,18 @@ func TestNoShellRuleExemptsOnlyItsOneLine(t *testing.T) {
 // and a job file are formats the vendor documents as unstable.
 var vendorFiles = []string{"/.claude/projects", "/.claude/jobs", ".claude/jobs/", "transcript_path", ".jsonl\""}
 
+// vendorNames are the two lines that name a transcript without opening it: the hook's input field that holds the
+// transcript's path, and the suffix of its file name. The saved output of a tool is in the folder beside the transcript,
+// named for it, which is the one place a lane's read of the CLI's own directory asks nothing, and no code reads the
+// transcript or lists a directory of the CLI for it.
+var vendorNames = map[string][]string{
+	"internal/hook/hook.go":   {"Transcript string `json:\"transcript_path\"`"},
+	"internal/lanes/gates.go": {`const transcriptSuffix = ".jsonl"`},
+}
+
 // TestNoVendorFileReads finds no read of a transcript or a job file.
 func TestNoVendorFileReads(t *testing.T) {
-	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, vendorFiles)
+	found, err := FindSourceLines(repoRoot(t), []string{"cmd", "internal"}, vendorFiles, vendorNames)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +409,42 @@ func TestNoVendorFileReadsCanFail(t *testing.T) {
 	}
 	if len(found) == 0 {
 		t.Error("the rule found nothing in a tree that reads a transcript")
+	}
+}
+
+// answerCall is how the control plane's one method that records an answer without a question is called.
+var answerCall = []string{".RecordAnswer("}
+
+// answerCalls lists where the source under the named directories of root calls RecordAnswer outside the control plane,
+// which is the only package that may: a lane reads an answer as in force, so an answer is made by the answer to a
+// question, and the contract suite, which lies outside these directories, is the one other caller.
+func answerCalls(root string, dirs []string) ([]string, error) {
+	found, err := FindSource(root, dirs, answerCall)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(found, func(hit string) bool { return strings.HasPrefix(hit, "internal/control/") }), nil
+}
+
+// TestOnlyTheControlPlaneRecordsAnAnswer finds no call of RecordAnswer outside the control plane.
+func TestOnlyTheControlPlaneRecordsAnAnswer(t *testing.T) {
+	found, err := answerCalls(repoRoot(t), []string{"cmd", "internal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range found {
+		t.Error(hit)
+	}
+}
+
+// TestTheAnswerRuleCanFail runs the same rule on a tree that breaks it.
+func TestTheAnswerRuleCanFail(t *testing.T) {
+	found, err := answerCalls(filepath.Join("testdata", "recordanswer"), []string{"internal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) == 0 {
+		t.Error("the rule found nothing in a tree that records an answer outside the control plane")
 	}
 }
 

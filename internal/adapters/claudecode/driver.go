@@ -534,14 +534,17 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 		return ports.SessionHandle{}, err
 	}
 	handle := ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID(), Version: version, Degraded: q.Degraded, Source: q.Source}
+	// The kills below outlive a context a stopping daemon ended: a shim left running holds this generation, and the next
+	// worker would adopt a session that never got its brief.
+	end := context.WithoutCancel(ctx)
 	s, err := d.follow(ctx, spec, handle, client, 0, meter, UseOf(q))
 	if err != nil {
-		_ = client.Signal(ctx, shimlink.SignalKill)
+		_ = client.Signal(end, shimlink.SignalKill)
 		return ports.SessionHandle{}, err
 	}
 	if spec.Brief != "" {
 		if _, err := s.write(ctx, ports.Input{Text: spec.Brief}); err != nil {
-			_ = client.Signal(ctx, shimlink.SignalKill)
+			_ = client.Signal(end, shimlink.SignalKill)
 			return ports.SessionHandle{}, err
 		}
 	}
@@ -577,10 +580,13 @@ func awaitShim(ctx context.Context, process ports.Process, socket string) (*shim
 			}
 			return nil, fmt.Errorf("the shim exited before it answered: %+v", status)
 		case <-ctx.Done():
+			// The shim this start launched answers no one now, and left running it would hold the generation.
+			_ = process.Signal(ports.SignalKill)
 			return nil, ctx.Err()
 		case <-time.After(lostPoll):
 		}
 	}
+	_ = process.Signal(ports.SignalKill)
 	return nil, errors.New("the shim did not answer")
 }
 

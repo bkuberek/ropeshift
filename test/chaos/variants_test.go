@@ -514,7 +514,7 @@ func (s splitTell) tell(ctx context.Context, scope ledger.WorkspaceID, id string
 			ID: messages.DerivedID(string(messages.KindAnswer), id, attachment.Lane), To: messages.Target{Lane: attachment.Lane},
 			ReplyTo: id, Kind: messages.KindAnswer, Body: "The answer.",
 		}
-		if _, err := s.Send(ctx, scope, draft, actor); err != nil {
+		if _, err := s.RecordAnswer(ctx, scope, draft, actor); err != nil {
 			return err
 		}
 	}

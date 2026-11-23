@@ -96,6 +96,10 @@ type LedgerWork struct {
 // client generates the work order's ID, so a retry returns what the first attempt
 // wrote.
 func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work LedgerWork, actor ledger.Actor) (workorders.WorkOrder, error) {
+	// The order names its repository by ID, name, or a unique prefix of its ID, and keeps the record's ID, so the
+	// repository is read in the transaction that records the order.
+	named := work.Order.RepositoryID
+	work.Order.RepositoryID = ""
 	record, err := checkLedgerOrder(work.Order)
 	if err != nil {
 		return workorders.WorkOrder{}, err
@@ -109,6 +113,9 @@ func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work 
 		if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
+		if record.RepositoryID, err = repositoryNamed(tx, named); err != nil {
+			return err
+		}
 		if err := refusePlannedAdoption(tx.Approvals(), record); err != nil {
 			return err
 		}
@@ -120,6 +127,33 @@ func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work 
 		return workorders.WorkOrder{}, err
 	}
 	return record, nil
+}
+
+// repositoryNamed is the ID of the repository a work order names by ID, name, or a unique prefix of its ID. A name a
+// removed repository answers to is refused. What no repository answers to stays as written, as an ID, because work may
+// be recorded ahead of its repository; a client that takes a name from a person checks it against the repositories
+// first.
+func repositoryNamed(tx ports.WriteTx, name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	all, err := tx.Repositories().Repositories()
+	if err != nil {
+		return "", err
+	}
+	found, err := repositoryAnswering(all, name)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		found = ledger.Repository{ID: name}
+	case err != nil:
+		return "", err
+	case found.Removed():
+		return "", fmt.Errorf("%w: the repository %q was removed", workorders.ErrInvalid, name)
+	}
+	if !ledger.PlainID(found.ID) {
+		return "", fmt.Errorf("%w: a repository's ID is 1 to %d letters, digits, '-', and '_'", workorders.ErrInvalid, ledger.MaxRecordID)
+	}
+	return found.ID, nil
 }
 
 // checkLedgerOrder makes the work order that ledger work records, and refuses one that cannot be recorded.
