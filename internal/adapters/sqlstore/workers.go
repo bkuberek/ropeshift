@@ -99,15 +99,18 @@ VALUES (:workspace_id, :id, :digest, :created_by, :expires_at)`)
  WHERE workspace_id = :workspace_id AND id = :id AND used_by IS NULL AND revoked_at = 0`)
 
 	stmtFindOrchestrator = define("orchestrator.of_worker",
-		`SELECT id, worker_id, desired_state, run, resets, actual_state, generation, conditions, reported_at, settings FROM orchestrators
+		`SELECT id, worker_id, desired_state, run, resets, actual_state, generation, conditions, reported_at, settings, end_reason, end_detail
+ FROM orchestrators
  WHERE workspace_id = :workspace_id AND worker_id = :worker`)
 
 	stmtSaveOrchestrator = define("orchestrator.save",
-		`INSERT INTO orchestrators (workspace_id, id, worker_id, desired_state, run, resets, actual_state, generation, conditions, reported_at, settings)
-VALUES (:workspace_id, :id, :worker, :desired_state, :run, :resets, :actual_state, :generation, :conditions, :reported_at, :settings)
+		`INSERT INTO orchestrators (workspace_id, id, worker_id, desired_state, run, resets, actual_state, generation, conditions, reported_at, settings,
+                           end_reason, end_detail)
+VALUES (:workspace_id, :id, :worker, :desired_state, :run, :resets, :actual_state, :generation, :conditions, :reported_at, :settings,
+        :end_reason, :end_detail)
 ON CONFLICT (workspace_id, id) DO UPDATE
    SET desired_state = :desired_state, run = :run, resets = :resets, actual_state = :actual_state, generation = :generation,
-       conditions = :conditions, reported_at = :reported_at, settings = :settings`)
+       conditions = :conditions, reported_at = :reported_at, settings = :settings, end_reason = :end_reason, end_detail = :end_detail`)
 
 	stmtFindAutonomy = define("autonomy.of_worker",
 		`SELECT worker_id, level, acknowledged_by, acknowledged_kind, acknowledged_digest, acknowledged_at FROM worker_autonomy
@@ -214,7 +217,8 @@ func (t workerTx) Orchestrator(worker string) (ledger.Orchestrator, error) {
 	}
 	var row ledger.Orchestrator
 	var conditions, settings string
-	err = found.Scan(&row.ID, &row.WorkerID, &row.Desired, &row.Run, &row.Resets, &row.Actual, &row.Generation, &conditions, &row.ReportedAt, &settings)
+	err = found.Scan(&row.ID, &row.WorkerID, &row.Desired, &row.Run, &row.Resets, &row.Actual, &row.Generation, &conditions, &row.ReportedAt, &settings,
+		&row.EndReason, &row.EndDetail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ledger.Orchestrator{}, fmt.Errorf("orchestrator of %s: %w", worker, ports.ErrNotFound)
 	}
@@ -233,6 +237,7 @@ func (t workerTx) SaveOrchestrator(row ledger.Orchestrator) error {
 		"id": row.ID, "worker": row.WorkerID, "desired_state": row.Desired, "run": row.Run, "resets": row.Resets,
 		"actual_state": row.Actual, "generation": row.Generation,
 		"conditions": strings.Join(row.Conditions, conditionSeparator), "reported_at": row.ReportedAt, "settings": string(row.Settings),
+		"end_reason": row.EndReason, "end_detail": row.EndDetail,
 	}))
 	return err
 }

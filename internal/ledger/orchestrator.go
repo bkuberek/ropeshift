@@ -49,6 +49,10 @@ type Orchestrator struct {
 	// Settings are what its current run bound with, as a lane's experience record holds a lane's. It
 	// serves every project, so they stay here, where a decision in any project reads them.
 	Settings json.RawMessage `json:"settings,omitempty"`
+	// EndReason is the reason its worker gave when its current run ended, and EndDetail the cause beside it, as plain
+	// text with no credential. Both are empty until the run ends.
+	EndReason string `json:"end_reason,omitempty"`
+	EndDetail string `json:"end_detail,omitempty"`
 }
 
 // Tripped says its breaker stopped it, and only a person may reset that.
@@ -95,16 +99,23 @@ type OrchestratorReport struct {
 	At         int64    `json:"at,omitempty"`
 	// Settings travel with a binding.
 	Settings json.RawMessage `json:"settings,omitempty"`
+	// Reason and Detail travel with an end: why the run ended, and the cause beside it.
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // Apply moves the projection. A report of a start this one replaced says nothing of it, and a report of a run
-// that ended moves it no further: the next run starts from a row that says nothing yet.
+// that ended moves it no further: the next run starts from a row that says nothing yet. An end keeps why the run
+// ended.
 func (o Orchestrator) Apply(report OrchestratorReport) Orchestrator {
 	if report.Lane != o.Lane() {
 		return o
 	}
 	if report.Actual != "" && (!o.Ended() || report.Actual == StateEnded) {
 		o.Actual, o.Conditions = report.Actual, report.Conditions
+	}
+	if report.Actual == StateEnded {
+		o.EndReason, o.EndDetail = report.Reason, report.Detail
 	}
 	if report.At != 0 {
 		o.ReportedAt = report.At

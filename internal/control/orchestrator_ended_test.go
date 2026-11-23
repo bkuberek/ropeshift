@@ -2,6 +2,7 @@ package control_test
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -38,6 +39,36 @@ func (r *planeRig) endedRun() ledger.Orchestrator {
 		r.t.Fatal(err)
 	}
 	return row
+}
+
+// A run's end keeps the reason its worker gave, and the cause beside it as plain text with no credential, which Needs
+// you shows. The next run says nothing of the end before it.
+func TestAnEndedOrchestratorKeepsWhyItEnded(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	row, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.saysOfRun(1, row.Lane(), ledger.UploadLaneEnded, workorders.LaneResult{Report: workorders.Report{
+		Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonSpawnFailed, Detail: "open pane:\x1b[31m token ghp_0123456789abcdefghijklmnopqrstuvwxyzAB",
+	}})
+	ended, err := r.plane.Orchestrator(t.Context(), "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ended.Actual != "ended" || ended.EndReason != workorders.ReasonSpawnFailed {
+		t.Fatalf("the ended run reads %+v, want its reason", ended)
+	}
+	if want := ledger.SanitizeCIText("open pane:\x1b[31m token ghp_0123456789abcdefghijklmnopqrstuvwxyzAB"); ended.EndDetail != want || strings.Contains(ended.EndDetail, "ghp_") {
+		t.Errorf("the ended run keeps %q as its cause, want %q", ended.EndDetail, want)
+	}
+	next, err := r.plane.SetOrchestrator(t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Run != 2 || next.EndReason != "" || next.EndDetail != "" {
+		t.Errorf("the next run reads %+v, want nothing of the end before it", next)
+	}
 }
 
 // A member's start of a run that ended makes the next run, once however many starts race, and a start of that live run
