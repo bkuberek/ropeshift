@@ -428,6 +428,12 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 			}
 		}
 		for _, words := range leaderReadings(command.words) {
+			// Only a shell knows what a command word that expands names, and an argument of a wrapper that expands may be
+			// the command or an option that takes it away, so no hold can read what the words run. A lane that only reads
+			// runs none of it. A lane that writes leaves it to the gate reader, which asks.
+			if words[0].expands && p.readOnly() {
+				return ReasonReadOnly, true
+			}
 			name := path.Base(words[0].text)
 			switch {
 			case name == "cd":

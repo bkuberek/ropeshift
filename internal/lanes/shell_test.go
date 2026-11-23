@@ -12,7 +12,9 @@ func TestOpenBracketWordsParseInLinearTime(t *testing.T) {
 	best := func(size int) time.Duration {
 		text := strings.Repeat("a=[ ", size/4)
 		fastest := time.Duration(1<<63 - 1)
-		for range 3 {
+		// The fastest of several runs leaves out the ones a collection or a busy machine slowed, which the race detector makes
+		// more of.
+		for range 9 {
 			start := time.Now()
 			parseShell(text)
 			fastest = min(fastest, time.Since(start))

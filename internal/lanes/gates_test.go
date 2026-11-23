@@ -434,7 +434,7 @@ func TestAWrappersOptionHidesNoCommand(t *testing.T) {
 		{writing, "timeout $O 60 $CMD", ReasonAskRead},
 		{writing, "timeout $O 60 bash", ReasonAskRead},
 		{writing, "timeout $T push", ReasonAskRead},
-		{reading, "timeout $O 60 git commit -m x", ReasonAskRead},
+		{reading, "timeout $O 60 git commit -m x", ReasonReadOnly},
 		{writing, "xargs -I $R sh -c x", ReasonAskRead},
 		{writing, "env -$X A go test ./...", ReasonAskRead},
 		{writing, `git -c "${OPTS[@]}" status`, ReasonAskRead},
