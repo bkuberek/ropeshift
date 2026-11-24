@@ -97,6 +97,9 @@ func laneReadRoots(spec ports.SessionSpec) []string {
 	roots := readRootsOf(spec)
 	for _, dir := range laneGitDirs(spec) {
 		roots = withRoot(roots, dir)
+		if named := underClonesName(spec.Repository, dir); named != "" {
+			roots = withRoot(roots, named)
+		}
 	}
 	if spec.TempDir != "" {
 		temp := filepath.Clean(spec.TempDir)
@@ -106,6 +109,25 @@ func laneReadRoots(spec ports.SessionSpec) []string {
 		}
 	}
 	return roots
+}
+
+// underClonesName spells a git directory git reports by real path with the name its clone is given, which is the
+// spelling a lane's tool calls use when that name is a link. It is empty when the directory is not under the clone or
+// the clone's name is its real path.
+func underClonesName(clone, dir string) string {
+	if clone == "" {
+		return ""
+	}
+	clone = filepath.Clean(clone)
+	real, err := filepath.EvalSymlinks(clone)
+	if err != nil || real == clone {
+		return ""
+	}
+	rel, err := filepath.Rel(real, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.Join(clone, rel)
 }
 
 // gitDirsTimeout bounds the reads of a lane's git directories, which a policy is compiled with before its session starts.
